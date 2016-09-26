@@ -39,7 +39,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil_lib.toillib import *
 from toil_lib.programs import docker_call
-from toil_scripts.dockered_chunked_call import *
+from toil_vg.dockered_chunked_call import *
 
 def parse_args():
     """

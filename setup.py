@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 
 kwargs = dict(
-    name='toil-rnaseq',
+    name='toil-vg',
     version=version,
     description="UC Santa Cruz Computational Genomics Lab's Toil-based VG pipeline",
     author='UCSC Computational Genomics Lab',
