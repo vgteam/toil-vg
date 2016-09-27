@@ -39,39 +39,44 @@ class VGCGLTest(TestCase):
         logging.basicConfig(level=logging.INFO)
 
     def setUp(self):
-        self.input_dir = '/home/mesosbox/testvg'
-        self.output_dir = '/home/mesosbox/testvg'
-	self.sample_reads = self.input_dir+ '/NA12877.brca1.brca2.bam.fq'
-        self.test_vg_graph = self.input_dir+ '/BRCA1_BRCA2_may6.vg'
-        self.jobStore = 'aws:us-west-2:cmarkello-s3-testvg-jobstore'
-        self.base_command = concat('toil-vg', '--batchSystem', 'mesos', '--mesosMaster=mesos-master:5050',
-                                   '--realTimeLogging', '--edge_max', '5', '--kmer_size',
+#        self.workdir = '/home/mesosbox/testvg/'
+        self.workdir = tempfile.mkdtemp()
+        self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.brca2.bam.fq')
+        self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_BRCA2_may6.vg')
+#        self.jobStore = '/var/lib/toil/cmarkello-s3-testvg-jobstore'
+        self.jobStore = 'aws:us-west-2:testvg-{}'.format(uuid4())
+#        self.jobStore = 'aws:us-west-2:cmarkello-s3-testvg-jobstore'
+        self.base_command = concat('toil-vg',
+                                   '--realTimeLogging', '--logDebug', '--edge_max', '5', '--kmer_size',
                                    '16', '--num_fastq_chunks', '3', '--call_chunk_size', '10000', '--overwrite',
-                                   '--index_mode', 'gcsa-mem', '--include_primary',
-                                   self.jobStore)
-        if not os.path.exists('/home/mesosbox/testvg/'):
-            os.mkdir('/home/mesosbox/testvg/')
+                                   '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '4', '--alignment_cores', '4',
+                                   '--calling_cores', '4', self.jobStore)
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/BRCA1_BRCA2_may6.vg', self.test_vg_graph])
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca1.brca2.bam.fq', self.sample_reads])
-        subprocess.check_call(['toil', 'clean', self.jobStore])
-
+    
     def test_chr13_sampleNA12877(self):
         self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.output_dir, 'aws:us-west-2:cmarkello-hgvmdebugtest-output',
+                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-output',
                                    'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '13', '--path_size', '84989')
         self._assertOutput('13.vcf')
+
+#    def test_chr13_sampleNA12877(self):
+#        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
+#                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-output',
+#                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '13', '--path_size', '84989')
+#        self._assertOutput('13.vcf')
  
-    def test_chr17_sampleNA12877(self):
-        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.output_dir, 'aws:us-west-2:cmarkello-hgvmdebugtest-output',
-                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '17', '--path_size', '81189')
-        self._assertOutput('17.vcf')
+#    def test_chr17_sampleNA12877(self):
+#        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
+#                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-output',
+#                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '17', '--path_size', '81189')
+#        self._assertOutput('17.vcf')
     
-    def test_chr13_17_sampleNA12877(self):
-        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.output_dir, 'aws:us-west-2:cmarkello-hgvmdebugtest-output',
-                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '13', '17', '--path_size', '84989', '81189')
-        self._assertOutput('NA12877.vcf')
+#    def test_chr13_17_sampleNA12877(self):
+#        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
+#                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-output',
+#                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '13', '17', '--path_size', '84989', '81189')
+#        self._assertOutput('NA12877.vcf')
     
     def _run(self, *args):
         args = list(concat(*args))
@@ -79,11 +84,15 @@ class VGCGLTest(TestCase):
         subprocess.check_call(args)
 
     def _assertOutput(self, testFile):
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-vgtoil-test--files/normal_'+testFile, '/home/mesosbox/testvg/normal_'+testFile])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-hgvmdebugtest-output/'+testFile+'.gz', '/home/mesosbox/testvg/'+testFile+'.gz'])
-        subprocess.check_call(['gzip', '-df', '/home/mesosbox/testvg/' + testFile + '.gz'])
-        self.assertTrue(filecmp.cmp('/home/mesosbox/testvg/normal_' + testFile, '/home/mesosbox/testvg/' + testFile))
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-vgtoil-test--files/normal_'+testFile, self.workdir + 'normal_'+testFile])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-hgvmdebugtest-output/'+testFile+'.gz', self.workdir + testFile+'.gz'])
+        subprocess.check_call(['gzip', '-df', self.workdir + testFile + '.gz'])
+        self.assertTrue(filecmp.cmp(self.workdir + 'normal_' + testFile, self.workdir +testFile))
+#        subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-vgtoil-test--files/normal_'+testFile, os.path.join(self.workdir, 'normal_'+testFile)])
+#        subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-hgvmdebugtest-output/'+testFile+'.gz', os.path.join(self.workdir, testFile+'.gz')])
+#        subprocess.check_call(['gzip', '-df', os.path.join(self.workdir, testFile + '.gz')])
+#        self.assertTrue(filecmp.cmp(os.path.join(self.workdir, 'normal_' + testFile), os.path.join(self.workdir, testFile)))
 
     def tearDown(self):
-        shutil.rmtree(self.input_dir)
+        shutil.rmtree(self.workdir)
         subprocess.check_call(['toil', 'clean', self.jobStore])

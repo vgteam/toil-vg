@@ -20,7 +20,7 @@ Please note that all build targets require a virtualenv to be active.
 
 The 'prepare' target installs RNA-seq's build requirements into the current virtualenv.
 
-The 'develop' target creates an editable install of RNA-seq and its runtime requirements in the
+The 'develop' target creates an editable install of toil-vg and its runtime requirements in the
 current virtualenv. The install is called 'editable' because changes to the source code
 immediately affect the virtualenv.
 
@@ -29,11 +29,11 @@ implemented yet).
 
 The 'clean' target undoes the effect of 'develop', and 'sdist'.
 
-The 'test' target runs RNA-seq's unit tests. Set the 'tests' variable to run a particular test, e.g.
+The 'test' target runs toil-vg's unit tests. Set the 'tests' variable to run a particular test, e.g.
 
 	make test tests=src/toil/test/sort/sortTest.py::SortTest::testSort
 
-The 'pypi' target publishes the current commit of RNA-seq to PyPI after enforcing that the working
+The 'pypi' target publishes the current commit of toil-vg to PyPI after enforcing that the working
 copy and the index are clean, and tagging it as an unstable .dev build.
 
 endef
@@ -43,6 +43,7 @@ help:
 
 
 python=python2.7
+#pip=${PWD}/.env
 pip=pip2.7
 tests=src
 extras=
@@ -66,7 +67,8 @@ clean_sdist:
 
 
 test: check_venv check_build_reqs
-	PATH=$$PATH:${PWD}/bin $(python) -m pytest -vv --junitxml test-report.xml $(tests)
+	$(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
+#	PATH=$$PATH:${PWD}/bin $(python) -m pytest -vv --junitxml test-report.xml $(tests)
 
 integration-test: check_venv check_build_reqs sdist
 	TOIL_TEST_INTEGRATIVE=True $(python) run_tests.py integration-test $(tests)
@@ -95,14 +97,13 @@ check_build_reqs:
 
 
 prepare: check_venv
-	rm -rf s3am
-	virtualenv s3am && s3am/bin/pip install s3am==2.0
-	mkdir -p bin
-	ln -snf ${PWD}/s3am/bin/s3am bin/
-	$(pip) install pytest==2.8.3 toil[aws]==3.5.0a1.dev241
+	rm -fr ${PWD}/toil-lib
+	git clone --recursive https://github.com/cmarkello/toil-lib.git ${PWD}/toil-lib/
+	$(pip) install pytest==2.8.3 toil[aws,mesos]==3.5.0a1.dev241
+	$(pip) install ${PWD}/toil-lib/
 clean_prepare: check_venv
-	rm -rf bin s3am
-	- $(pip) uninstall -y pytest toil
+	rm -rf ${PWD}/toil-lib/
+	- $(pip) uninstall -y pytest toil-lib
 
 check_venv:
 	@$(python) -c 'import sys; sys.exit( int( not hasattr(sys, "real_prefix") ) )' \

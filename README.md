@@ -26,21 +26,22 @@ send feedback or feel free to make a pull request.
 For more information on the cgcloud core tools, you can find them [here](https://github.com/BD2KGenomics/cgcloud/blob/master/README.md).
 For more information on the cgcloud plugin for Toil, you can read about it [here](https://github.com/BD2KGenomics/cgcloud/blob/master/toil/README.rst).
 
-### Startup a Toil EC2 cluster and set up dependencies
+### Startup a Toil EC2 cluster
 
 - `cgcloud create -IT toil-box`
 - `cgcloud create-cluster toil -s 3 -t m4.xlarge --cluster-name toil-setup-test`
 - `cgcloud ssh --admin -c toil-setup-test toil-leader 'sudo apt-get install git && sudo apt-get install python-virtualenv && sudo pip install awscli'`
 - `cgcloud ssh-cluster --admin --cluster-name toil-setup-test toil 'sudo pip install toil[aws,mesos]==3.5.0a1.dev241'`
 - `cgcloud ssh -c toil-setup-test toil-leader`
+
+### Set up dependencies
+
 - `virtualenv --system-site-packages toilvenv`
 - `source toilvenv/bin/activate`
 - `git clone --recursive https://github.com/cmarkello/toil-lib.git`
 - `pip install /home/mesosbox/toil-lib/`
-- `git clone --recursive https://github.com/cmarkello/toil-scripts.git`
-- `cd /home/mesosbox/toil-scripts`
-- `git fetch && git checkout -b vg_evaluation_pipeline origin/vg_evaluation_pipeline`
-- `pip install /home/mesosbox/toil-scripts/`
+- `git clone --recursive https://github.com/BD2KGenomics/toil-vg.git`
+- `pip install /home/mesosbox/toil-vg/`
 
 For more information on the latest release of Toil, you can find the documentation [here](http://toil.readthedocs.io/en/latest/).
 
@@ -91,4 +92,4 @@ For more information on the latest release of Toil, you can find the documentati
 
 #### Delete cgcloud cluster
 
-- `cgcloud terminate-cluster --cluster-name toil-setup-test toil``
+- `cgcloud terminate-cluster --cluster-name toil-setup-test toil`
