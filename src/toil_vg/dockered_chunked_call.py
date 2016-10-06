@@ -11,11 +11,10 @@ latest docker vg tool=quay.io/ucsc_cgl/vg:latest
 
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json
+from uuid import uuid4
 
 from toil.job import Job
-
 from toil_lib.toillib import *
-
 from toil_lib.programs import docker_call
 
 def parse_args(args):
@@ -141,7 +140,7 @@ def chunk_gam(gam_path, xg_path, path_name, out_dir, chunks, filter_opts, overwr
 def xg_path_node_id(xg_path, path_name, offset, out_dir):
     """ use vg find to get the node containing a given path position """
     #NOTE: vg find -p range offsets are 0-based inclusive.  
-    tmp_out_filename = "{}/tmp_out".format(out_dir)
+    tmp_out_filename = "{}/tmp_out_{}".format(out_dir, uuid4())
     with open(tmp_out_filename, "w") as tmp_out_file:
         command = ['vg find -x {} -p {}:{}-{}'.format(os.path.basename(xg_path), str(path_name), str(offset), str(offset)), 
                     'vg mod -o -', 'vg view -j -'] 
@@ -149,6 +148,9 @@ def xg_path_node_id(xg_path, path_name, offset, out_dir):
                     tools='quay.io/ucsc_cgl/vg:latest',
                     outfile=tmp_out_file)
         
+    with open(tmp_out_filename, 'r') as tmp_out_file:
+        for line in tmp_out_file:
+            RealTimeLogger.get().info("Line in tmp_out_file of xg_path_node_id run: {}".format(line))
     command = ['cat data/{}'.format(os.path.basename(tmp_out_filename)), 'jq .node[0].id -']
     stdout = docker_call(work_dir=out_dir, parameters=command,
                     tools='devorbitus/ubuntu-bash-jq-curl',
