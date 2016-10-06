@@ -606,6 +606,8 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
     # compute overlapping chunks
     chunks = make_chunks(path_name, path_size, chunk, overlap)
 
+    RealTimeLogger.get().info("Obtained chunks for path{}: {}".format(path_name, chunks))
+
     # split the gam in one go
     chunk_gam(gam_path, xg_path, path_name, out_dir,
               chunks, filter_opts, overwrite)
@@ -626,7 +628,7 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
                            path_size, overlap,
                            pileup_opts, call_opts,
                            sample_name, threads,
-                           overwrite, cores="{}".format(threads+1), memory="4G", disk="2G")
+                           overwrite, cores="{}".format(threads), memory="4G", disk="2G")
     return chunks
 
 def run_upload(job, options, uploadList):
