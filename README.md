@@ -93,3 +93,42 @@ For more information on the latest release of Toil, you can find the documentati
 #### Delete cgcloud cluster
 
 - `cgcloud terminate-cluster --cluster-name toil-setup-test toil`
+
+## Basic start-to-finish run of the VG-toil pipeline on Microsoft Azure
+
+### Startup a Toil Azure cluster
+
+- Go to the toil azure readme instructions [here](https://github.com/BD2KGenomics/toil/tree/master/contrib/azure#mesos-cluster-with-toil).
+- Click on the `Deploy to Azure` button to use the toil Azure template for setting up a toil Azure cluster.
+- Follow the instructions on setup. You will need to specify the following parameters as defined [here](https://github.com/BD2KGenomics/toil/tree/master/contrib/azure#template-parameters).
+- Login to the master node of the Azure cluster by running `ssh <your_user_name>@<your_cluster_name>.<your_zone>.cloudapp.azure.com -p 2211`.
+
+### Set up dependencies
+
+- `virtualenv --system-site-packages toilvenv`
+- `source toilvenv/bin/activate`
+- `git clone --recursive https://github.com/cmarkello/toil-lib.git`
+- `pip install ~/toil-lib/`
+- `git clone --recursive https://github.com/BD2KGenomics/toil-vg.git`
+- `pip install ~/toil-vg/`
+
+### Get test input files from s3
+
+- `mkdir ~/test_vg_input/`
+- `pip install awscli`
+- Setup aws credentials by running `aws configure` and filling in the prompted parameters.
+- `aws s3 cp s3://cmarkello-vgtoil-test--files/BRCA1_BRCA2_may6.vg ~/test_vg_input/BRCA1_BRCA2_may6.vg`
+- `aws s3 cp s3://cmarkello-vgtoil-test--files/NA12877.brca1.brca2.bam.fq ~/test_vg_input/NA12877.brca1.brca2.bam.fq`
+
+### Example run of VG toil-pipeline for variant calling on chromosome 13 for sample NA12877
+
+- `toil clean azure:hgvm:cmarkello-toilvg-jobstore`
+- `toil-vg --batchSystem mesos --mesosMaster=10.0.0.5:5050 --realTimeLogging --logError --logDebug --edge_max 5 --kmer_size 16 --num_fastq_chunks 8 --call_chunk_size 10000 --overwrite --index_mode gcsa-mem --include_primary --index_cores 16 --alignment_cores 16 --calling_cores 16 'azure:hgvm:cmarkello-toilvg-jobstore' ${PWD}/test_vg_input/BRCA1_BRCA2_may6.vg ${PWD}/test_vg_input/NA12877.brca1.brca2.bam.fq 'NA12877' ${PWD}/test_vg_output 'azure:hgvm:cmarkello-toilvg-input' 'azure:hgvm:cmarkello-toilvg-output' --path_name 13 --path_size 84989`
+
+### Test consistancy of chr 13 variant call output
+
+- `gzip -d ~/test_vg_output/13.vcf.gz`
+- `aws s3 cp s3://cmarkello-vgtoil-test--files/normal_13.vcf ~/test_vg_output/normal_13.vcf`
+- `diff ~/test_vg_output/13.vcf ~/test_vg_output/normal_13.vcf`
+
+
