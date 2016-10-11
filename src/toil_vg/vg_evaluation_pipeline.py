@@ -498,11 +498,10 @@ def run_merge_gam(job, options, num_chunks, index_dir_id, work_dir):
         for chr_label, chr_length in itertools.izip(options.path_name, options.path_size):
             vcf_file_key = job.addChildJobFn(run_calling, options, index_dir_id, alignment_file_key, work_dir, chr_label, chr_length, cores=options.calling_cores, memory="4G", disk="2G").rv()
             vcf_file_key_list.append(vcf_file_key)
-        return_value = job.addFollowOnJobFn(run_merge_vcf, options, index_dir_id, work_dir, vcf_file_key_list, cores=2, memory="4G", disk="2G").rv()
     else:
-        raise RuntimeError("Invalid or non existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
+        raise RuntimeError("Invalid or non-existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
 
-    return return_value
+    return job.addFollowOnJobFn(run_merge_vcf, options, index_dir_id, work_dir, vcf_file_key_list, cores=2, memory="4G", disk="2G").rv()
 
 def run_merge_vcf(job, options, index_dir_id, work_dir, vcf_file_key_list):
 
@@ -671,9 +670,44 @@ def run_download(toil, options, downloadList):
 
 def main():
     """
-    Parses command line arguments and do the work of the program.
-    "args" specifies the program arguments, with args[0] being the executable
-    name. The return value should be used as the program's exit code.
+    Computational Genomics Lab, Genomics Institute, UC Santa Cruz
+    Toil vg DNA-seq pipeline
+    
+    DNA-seq fastqs are split, aligned to an indexed vg reference graph, and variant-called using
+    the vg toolset.
+
+    General usage:
+    Type "toil-vg [toil options] [toil-vg flag arguments] [jobStore] [path to vg file] [path to fastq file]
+                  [sample name] [local output directory] [remote input fileStore] [remote output fileStore]'
+
+    Please read the README.md located in the source directory for more documentation
+
+    Structure of vg DNA-Seq Pipeline (per sample)
+                  
+                  
+                       > 3 ---->    > 5 ---->
+                      / ..      |  / ..     |
+                     /  ..      v /  ..     v
+        0 --> 1 --> 2 --> 3 --> 4 --> 5 --> 6 --> 7
+                     \  ..      ^ \  ..     ^
+                      \ ..      |  \ ..     | 
+                       > 3 ---->    > 5 --->
+
+    0 = Upload local input files to remote input fileStore
+    1 = Index input vg reference graph
+    2 = Shard Reads
+    3 = Align reads to reference graph
+    4 = Merge read alignments
+    5 = Run vg variant calls on chromosome-chunked .gam alignment
+    6 = Merge variant call files
+    7 = Download output files from remote output fileStore to local output directory
+    ================================================================================
+    Dependencies
+    toil:           pip install toil (version >= 3.5.0a1.dev241)
+    toil-lib:       git clone --recursive https://github.com/cmarkello/toil-lib.git ${PWD}/toil-lib/
+                    pip install ${PWD}/toil-lib/
+    biopython:      pip install biopython (version >= 1.67)
+    boto:           pip install boto (OPTIONAL for runs on AWS machines)
     """
 
 
