@@ -43,16 +43,14 @@ class VGCGLTest(TestCase):
         self.workdir = tempfile.mkdtemp()
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.brca2.bam.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_BRCA2_may6.vg')
-#        self.jobStore = '/var/lib/toil/cmarkello-s3-testvg-jobstore'
         self.jobStore = 'aws:us-west-2:testvg-{}'.format(uuid4())
-#        self.jobStore = 'aws:us-west-2:cmarkello-s3-testvg-jobstore'
         self.base_command = concat('toil-vg',
                                    '--realTimeLogging', '--logDebug', '--edge_max', '5', '--kmer_size',
                                    '16', '--num_fastq_chunks', '3', '--call_chunk_size', '10000', '--overwrite',
                                    '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '4', '--alignment_cores', '4',
                                    '--calling_cores', '4', self.jobStore)
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/BRCA1_BRCA2_may6.vg', self.test_vg_graph])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca1.brca2.bam.fq', self.sample_reads])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/BRCA1_BRCA2_may6.vg', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca1.brca2.bam.fq', self.workdir])
     
     def test_chr13_sampleNA12877(self):
         self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',

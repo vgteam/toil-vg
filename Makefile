@@ -18,7 +18,7 @@ Supported targets: prepare, develop, sdist, clean, test, pypi.
 
 Please note that all build targets require a virtualenv to be active.
 
-The 'prepare' target installs RNA-seq's build requirements into the current virtualenv.
+The 'prepare' target installs toil-vg's build requirements into the current virtualenv.
 
 The 'develop' target creates an editable install of toil-vg and its runtime requirements in the
 current virtualenv. The install is called 'editable' because changes to the source code
@@ -43,7 +43,7 @@ help:
 
 
 python=python2.7
-#pip=${PWD}/.env
+#pip=${PWD}/.env/bin/pip2.7
 pip=pip2.7
 tests=src
 extras=
@@ -68,7 +68,6 @@ clean_sdist:
 
 test: check_venv check_build_reqs
 	$(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
-#	PATH=$$PATH:${PWD}/bin $(python) -m pytest -vv --junitxml test-report.xml $(tests)
 
 integration-test: check_venv check_build_reqs sdist
 	TOIL_TEST_INTEGRATIVE=True $(python) run_tests.py integration-test $(tests)
@@ -99,11 +98,13 @@ check_build_reqs:
 prepare: check_venv
 	rm -fr ${PWD}/toil-lib
 	git clone --recursive https://github.com/cmarkello/toil-lib.git ${PWD}/toil-lib/
-	$(pip) install pytest==2.8.3 toil[aws,mesos]==3.5.0a1.dev241
+	$(pip) install numpy==1.11.2
+	$(pip) install pytest==2.8.3 toil[aws,mesos]==3.5.0a1.dev241 biopython==1.67
 	$(pip) install ${PWD}/toil-lib/
+	pip list
 clean_prepare: check_venv
 	rm -rf ${PWD}/toil-lib/
-	- $(pip) uninstall -y pytest toil-lib
+	- $(pip) uninstall -y pytest toil-lib biopython numpy
 
 check_venv:
 	@$(python) -c 'import sys; sys.exit( int( not hasattr(sys, "real_prefix") ) )' \
