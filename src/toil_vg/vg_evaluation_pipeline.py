@@ -16,7 +16,6 @@ import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, SocketServer, struct, socket, threading
 import string
 import urlparse
-import ntpath
 import getpass
 import pdb
 
@@ -72,7 +71,7 @@ def parse_args():
         help="chromosomal position offset. e.g. 43044293")
     parser.add_argument("--edge_max", type=int, default=5,
         help="maximum edges to cross in index")
-    parser.add_argument("--kmer_size", type=int, default=16,
+    parser.add_argument("--kmer_size", type=int, default=10,
         help="size of kmers to use in indexing and mapping")
     parser.add_argument("--overwrite", default=False, action="store_true",
         help="overwrite existing result files")
@@ -183,7 +182,7 @@ def run_indexing(job, options):
     input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
 
-    graph_file = ntpath.basename(options.vg_graph)
+    graph_file = os.path.basename(options.vg_graph)
 
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -329,7 +328,7 @@ def run_indexing(job, options):
     # Save it as output
     RealTimeLogger.get().info("Uploading index of {}".format(
         graph_filename))
-    index_key = ntpath.basename(index_dir_tgz)
+    index_key = os.path.basename(index_dir_tgz)
     out_store.write_output_file(index_dir_tgz, index_key)
     RealTimeLogger.get().info("Index {} uploaded successfully".format(
         index_key))
@@ -404,7 +403,7 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id, work_dir):
     graph_file = "{}/graph.vg".format(graph_dir)
 
     # We need the sample fastq for alignment
-    sample_filename = ntpath.basename(options.sample_reads)
+    sample_filename = os.path.basename(options.sample_reads)
     fastq_file = "{}/group_{}.fq".format(work_dir, chunk_id)
     out_store.read_input_file(filename_key, fastq_file)
     
@@ -455,7 +454,7 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id, work_dir):
     
     
     # Upload the alignment
-    alignment_file_key = ntpath.basename(output_file)
+    alignment_file_key = os.path.basename(output_file)
     out_store.write_output_file(output_file, alignment_file_key)
     
 
@@ -641,7 +640,7 @@ def run_upload(job, options, uploadList):
     input_store = IOStore.get(options.input_store)   
     
     for file_key in uploadList:
-        file_basename = ntpath.basename(file_key[1])
+        file_basename = os.path.basename(file_key[1])
         RealTimeLogger.get().info("Uploading {} to {} on IO store".format(file_key[0], file_basename))
         fi = job.fileStore.readGlobalFile(file_key[0])
         input_store.write_output_file(fi, file_basename)
@@ -663,7 +662,7 @@ def run_download(toil, options, downloadList):
         if exception.errno != errno.EEXIST: raise
     
     for outputFileID in downloadList:
-        file_basename = ntpath.basename(outputFileID[1])
+        file_basename = os.path.basename(outputFileID[1])
         RealTimeLogger.get().info("Downloading {} from out_store to {} on the local machine".format(
             outputFileID[0], os.path.join(options.out_dir, file_basename)))
         toil.exportFile(outputFileID[0], 'file://'+os.path.join(options.out_dir, file_basename))
