@@ -6,3 +6,7 @@
 test-report.xml
 __pycache__
 .env/
+/s3am/
+/bin/s3am
+/awscli/
+/bin/awscli
