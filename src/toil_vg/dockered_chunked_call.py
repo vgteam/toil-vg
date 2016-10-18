@@ -197,6 +197,7 @@ def chunk_vg(xg_path, path_name, out_dir, chunks, chunk_i, overwrite):
         # xg_path query takes 0-based inclusive coordinates, so we
         # subtract 1 below to convert from BED chunk (0-based exlcusive)
         last_node = xg_path_node_id(xg_path, chunk[0], chunk[2] - 1, out_dir)
+        RealTimeLogger.get().info("INFO first_node:{} last_node:{}".format(first_node, last_node))
         assert first_node > 0 and last_node >= first_node
         # todo: would be cleaner to not have to pad context here
         
