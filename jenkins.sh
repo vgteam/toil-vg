@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
 
+
+
+# Create Toil venv
+rm -rf .env
+virtualenv --never-download .env
+. .env/bin/activate
+
+# Prepare directory for temp files
+TMPDIR=/mnt/ephemeral/tmp
+rm -rf $TMPDIR
+mkdir $TMPDIR
+export TMPDIR
+
 # Create s3am venv
 rm -rf s3am
 virtualenv --never-download s3am && s3am/bin/pip install s3am==2.0
@@ -14,17 +27,6 @@ virtualenv --never-download awscli && awscli/bin/pip install awscli
 # Expose binaries to the PATH
 ln -snf ${PWD}/awscli/bin/aws bin/
 export PATH=$PATH:${PWD}/bin
-
-# Create Toil venv
-rm -rf .env
-virtualenv --system-site-packages .env
-. .env/bin/activate
-
-# Prepare directory for temp files
-TMPDIR=/mnt/ephemeral/tmp
-rm -rf $TMPDIR
-mkdir $TMPDIR
-export TMPDIR
 
 make prepare
 make develop
