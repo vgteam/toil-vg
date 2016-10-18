@@ -296,7 +296,7 @@ def run_indexing(job, options):
         # around <https://github.com/vgteam/vg/issues/301>
         command = ['index', '-t', str(job.cores), '-i', 
             os.path.basename(kmers_filename), '-g', os.path.basename(gcsa_filename),
-            '-X', '3']
+            '-X', '3', '-Z', '2000']
         docker_call(work_dir=work_dir, parameters=command,
                     tool='quay.io/ucsc_cgl/vg:latest')
 
@@ -307,8 +307,7 @@ def run_indexing(job, options):
                 graph_filename, xg_filename))
         
         command = ['index', '-t', str(job.cores), '-x', 
-            os.path.basename(xg_filename), os.path.basename(graph_filename),
-            '-X', '3']
+            os.path.basename(xg_filename), os.path.basename(graph_filename)]
         docker_call(work_dir=work_dir, parameters=command,
                     tool='quay.io/ucsc_cgl/vg:latest')
 
@@ -451,7 +450,6 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id, work_dir):
         end_time = timeit.default_timer()
         run_time = end_time - start_time
  
-    time.sleep(1)
 
     RealTimeLogger.get().info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
     
@@ -683,6 +681,12 @@ def main():
     RealTimeLogger.start_master()
     options = parse_args() # This holds the nicely-parsed options object
     
+    # How long did it take to run the entire pipeline, in seconds?
+    run_time_pipeline = None
+        
+    # Mark when we start the pipeline
+    start_time_pipeline = timeit.default_timer()
+    
     with Toil(options) as toil:
         if not toil.options.restart:
             
@@ -701,8 +705,11 @@ def main():
         
         # Download output files to the local machine that runs this script
         run_download(toil, options, outputFileIDList)
-    
-    print("All jobs completed successfully")
+        
+    end_time_pipeline = timeit.default_timer()
+    run_time_pipeline = end_time_pipeline - start_time_pipeline
+ 
+    print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
     RealTimeLogger.stop_master()
 
