@@ -43,7 +43,7 @@ setup(**kwargs)
 
 
 print("\n\n"
-      "Thank you for installing the UC Santa Cruz Computuational Genomics Lab RNA-seq pipeline! "
+      "Thank you for installing the UC Santa Cruz Computuational Genomics Lab VG DNA-seq pipeline! "
       "If you want to run this Toil-based pipeline on a cluster in a cloud, please install Toil "
       "with the appropriate extras. For example, To install AWS/EC2 support for example, run "
       "\n\n"
