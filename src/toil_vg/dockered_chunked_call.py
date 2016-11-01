@@ -125,6 +125,7 @@ def chunk_base_name(path_name, out_dir, chunk_i = None, tag= ""):
 
 def chunk_gam(gam_path, xg_path, path_name, out_dir, chunks, filter_opts, overwrite):
     """ use vg filter to chunk up the gam """
+    RealTimeLogger.get().info("Starting chunk_gam")
     # make bed chunks
     chunk_path = os.path.join(out_dir, path_name + "_chunks.bed")
     with open(chunk_path, "w") as f:
@@ -152,9 +153,6 @@ def xg_path_node_id(xg_path, path_name, offset, out_dir):
                     tools='quay.io/ucsc_cgl/vg:latest',
                     outfile=tmp_out_file)
         
-    with open(tmp_out_filename, 'r') as tmp_out_file:
-        for line in tmp_out_file:
-            RealTimeLogger.get().info("Line in tmp_out_file of xg_path_node_id run: {}".format(line))
     command = ['cat data/{}'.format(os.path.basename(tmp_out_filename)), 'jq .node[0].id -']
     stdout = docker_call(work_dir=out_dir, parameters=command,
                     tools='devorbitus/ubuntu-bash-jq-curl',
@@ -197,7 +195,6 @@ def chunk_vg(xg_path, path_name, out_dir, chunks, chunk_i, overwrite):
         # xg_path query takes 0-based inclusive coordinates, so we
         # subtract 1 below to convert from BED chunk (0-based exlcusive)
         last_node = xg_path_node_id(xg_path, chunk[0], chunk[2] - 1, out_dir)
-        RealTimeLogger.get().info("INFO first_node:{} last_node:{}".format(first_node, last_node))
         assert first_node > 0 and last_node >= first_node
         # todo: would be cleaner to not have to pad context here
         
@@ -257,7 +254,7 @@ def sort_vcf(vcf_path, sorted_vcf_path):
     run("grep -v \"^#\" {} | sort -k1,1d -k2,2n >> {}".format(
         vcf_path, sorted_vcf_path))
    
-def call_chunk(job, options, work_dir, index_dir_id, xg_path, path_name, out_dir, chunks, chunk_i, path_size, overlap,
+def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, path_size, overlap,
                pileup_opts, call_options, sample_name, threads, overwrite):
    
     RealTimeLogger.get().info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
@@ -268,11 +265,15 @@ def call_chunk(job, options, work_dir, index_dir_id, xg_path, path_name, out_dir
     input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
 
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
     # Download local input files from the remote storage container
     graph_dir = work_dir
     read_global_directory(job.fileStore, index_dir_id, graph_dir)
 
     """ create VCF from a given chunk """
+    out_dir = work_dir
     chunk = chunks[chunk_i]
     path_name = chunk[0]
     vg_path = chunk_base_name(path_name, out_dir, chunk_i, ".vg")
@@ -335,7 +336,7 @@ def call_chunk(job, options, work_dir, index_dir_id, xg_path, path_name, out_dir
     # Save clip.vcf files to the output store
     out_store.write_output_file(clip_path, os.path.basename(clip_path))
     
-def merge_vcf_chunks(job, options, out_dir, index_dir_id, path_name, path_size, chunks, overwrite):
+def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, overwrite):
     """ merge a bunch of clipped vcfs created above, taking care to 
     fix up the headers.  everything expected to be sorted already """
     
@@ -343,6 +344,9 @@ def merge_vcf_chunks(job, options, out_dir, index_dir_id, path_name, path_size, 
     # some reason.
     input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)   
+
+    # Define work directory for docker calls
+    out_dir = job.fileStore.getLocalTempDir()
     
     # Download local input files from the remote storage container
     read_global_directory(job.fileStore, index_dir_id, out_dir)

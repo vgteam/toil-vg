@@ -139,6 +139,22 @@ def count_Ns(sequence):
      
     return n_count
 
+def get_files_by_file_size(dirname, reverse=False):
+    """ Return list of file paths in directory sorted by file size """
+
+    # Get list of files
+    filepaths = []
+    for basename in os.listdir(dirname):
+        filename = os.path.join(dirname, basename)
+        if os.path.isfile(filename):
+            filepaths.append(filename)
+
+    # Re-populate list with filename, size tuples
+    for i in xrange(len(filepaths)):
+        filepaths[i] = (filepaths[i], os.path.getsize(filepaths[i]))
+
+    return filepaths
+
 def batch_iterator(iterator, batch_size):
     """Returns lists of length batch_size.
 
@@ -252,9 +268,15 @@ def run_indexing(job, options):
 
                 # Generate all the paths names we might have for primary paths.
                 # It should be "ref" but some graphs don't listen
-                ref_names = (["ref", "x", "X", "y", "Y", "m", "M"] +
-                    [str(x) for x in xrange(1, 23)])
-
+                RealTimeLogger.get().info("OPTIONS.PATH_NAME: {}".format(options.path_name[0]))
+                RealTimeLogger.get().info("CHR IN OPTIONS.PATH_NAME: {}".format('chr' in options.path_name[0]))
+                if 'chr' in options.path_name[0]:
+                    ref_names = (["ref", "chrx", "chrX", "chry", "chrY", "chrm", "chrM"] +
+                        ['chr'+str(x) for x in xrange(1, 23)])
+                else:
+                    ref_names = (["ref", "x", "X", "y", "Y", "m", "M"] +
+                        [str(x) for x in xrange(1, 23)])
+                RealTimeLogger.get().info("REF_NAMES: {}".format(ref_names))
                 ref_options = []
                 for name in ref_names:
                     # Put each in a -r option to retain the path
@@ -334,15 +356,18 @@ def run_indexing(job, options):
         index_key))
 
     #Split fastq files
-    return job.addChildJobFn(run_split_fastq, options, index_dir_id, work_dir, cores=3, memory="4G", disk="2G").rv()
+    return job.addChildJobFn(run_split_fastq, options, index_dir_id, cores=3, memory="4G", disk="2G").rv()
 
-def run_split_fastq(job, options, index_dir_id, work_dir):
+def run_split_fastq(job, options, index_dir_id):
     
     RealTimeLogger.get().info("Starting fastq split and alignment...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
     input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
 
     # Download local input files from the remote storage container
     graph_dir = work_dir
@@ -379,12 +404,12 @@ def run_split_fastq(job, options, index_dir_id, work_dir):
         RealTimeLogger.get().info("Wrote {} records to {}".format(count, filename))
 
         #Run graph alignment on each fastq chunk
-        job.addChildJobFn(run_alignment, options, filename_key, chunk_id, index_dir_id, work_dir, cores=options.alignment_cores, memory="4G", disk="2G")
+        job.addChildJobFn(run_alignment, options, filename_key, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G")
     
-    return job.addFollowOnJobFn(run_merge_gam, options, num_chunks, index_dir_id, work_dir, cores=3, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_merge_gam, options, num_chunks, index_dir_id, cores=3, memory="4G", disk="2G").rv()
 
 
-def run_alignment(job, options, filename_key, chunk_id, index_dir_id, work_dir):
+def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
 
     RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -395,8 +420,12 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id, work_dir):
     # How long did the alignment take to run, in seconds?
     run_time = None
     
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
     # Download local input files from the remote storage container
     graph_dir = work_dir
+
     read_global_directory(job.fileStore, index_dir_id, graph_dir)
     
     # We know what the vg file in there will be named
@@ -458,7 +487,7 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id, work_dir):
     out_store.write_output_file(output_file, alignment_file_key)
     
 
-def run_merge_gam(job, options, num_chunks, index_dir_id, work_dir):
+def run_merge_gam(job, options, num_chunks, index_dir_id):
     
     RealTimeLogger.get().info("Starting gam merging...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -466,6 +495,9 @@ def run_merge_gam(job, options, num_chunks, index_dir_id, work_dir):
     input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
     
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
     # Download local input files from the remote storage container
     graph_dir = work_dir
     read_global_directory(job.fileStore, index_dir_id, graph_dir)
@@ -473,6 +505,7 @@ def run_merge_gam(job, options, num_chunks, index_dir_id, work_dir):
     # Define a temp file for our merged alignent output
     output_merged_gam = "{}/{}.gam".format(work_dir, options.sample_name)
     
+    # Download the chunked alignments from the outstore to the local work_dir
     gam_chunk_filelist = []
     for i in xrange(num_chunks):
         chunk_id = i + 1
@@ -496,21 +529,24 @@ def run_merge_gam(job, options, num_chunks, index_dir_id, work_dir):
     if options.path_name and options.path_size:
         #Run variant calling
         for chr_label, chr_length in itertools.izip(options.path_name, options.path_size):
-            vcf_file_key = job.addChildJobFn(run_calling, options, index_dir_id, alignment_file_key, work_dir, chr_label, chr_length, cores=options.calling_cores, memory="4G", disk="2G").rv()
+            vcf_file_key = job.addChildJobFn(run_calling, options, index_dir_id, alignment_file_key, chr_label, chr_length, cores=options.calling_cores, memory="4G", disk="2G").rv()
             vcf_file_key_list.append(vcf_file_key)
     else:
         raise RuntimeError("Invalid or non-existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
 
-    return job.addFollowOnJobFn(run_merge_vcf, options, index_dir_id, work_dir, vcf_file_key_list, cores=2, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_merge_vcf, options, index_dir_id, vcf_file_key_list, cores=2, memory="4G", disk="2G").rv()
 
-def run_merge_vcf(job, options, index_dir_id, work_dir, vcf_file_key_list):
+def run_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
 
     RealTimeLogger.get().info("Completed gam merging and gam path variant calling.")
-    RealTimeLogger.get().info("Starting vcf merging vcf files: {}".format(" ".join(vcf_file_key_list)))
+    RealTimeLogger.get().info("Starting vcf merging vcf files.")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
     input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
     
     # Download local input files from the remote storage container
     graph_dir = work_dir
@@ -553,7 +589,7 @@ def run_merge_vcf(job, options, index_dir_id, work_dir, vcf_file_key_list):
     return downloadList
 
 
-def run_calling(job, options, index_dir_id, alignment_file_key, work_dir, path_name, path_size):
+def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_size):
     
     RealTimeLogger.get().info("Running variant calling on path {} from alignment file {}".format(path_name, alignment_file_key))
     
@@ -561,6 +597,9 @@ def run_calling(job, options, index_dir_id, alignment_file_key, work_dir, path_n
     # some reason.
     input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
     
     # Download the indexed graph to a directory we can use
     graph_dir = work_dir
@@ -581,7 +620,7 @@ def run_calling(job, options, index_dir_id, alignment_file_key, work_dir, path_n
     # run chunked_call
     chunks = dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, job.cores, xg_file, alignment_file, path_name, path_size, options.sample_name, variant_call_dir, options.call_chunk_size, options.overlap, options.filter_opts, options.pileup_opts, options.call_opts, options.overwrite)
 
-    vcf_file_key = job.addFollowOnJobFn(merge_vcf_chunks, options, work_dir, index_dir_id, path_name, path_size, chunks, options.overwrite, cores=2, memory="4G", disk="2G").rv()
+    vcf_file_key = job.addFollowOnJobFn(merge_vcf_chunks, options, index_dir_id, path_name, path_size, chunks, options.overwrite, cores=2, memory="4G", disk="2G").rv()
  
     RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, alignment_file_key))
 
@@ -591,9 +630,12 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
                           overlap=2000, filter_opts="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
                           pileup_opts="-w 40 -m 10 -q 10", call_opts="-b 0.4 -f 0.25 -d 10 -s 1",
                           overwrite=True):
+    """
+    dockered_chunked_call IS NOT A TOIL JOB FUNCTION. It is just a helper function.
+    """
     
-    if not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
+    #if not os.path.isdir(out_dir):
+    #   os.makedirs(out_dir)
 
     # make things slightly simpler as we split overlap
     # between adjacent chunks
@@ -601,26 +643,24 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
 
     # compute overlapping chunks
     chunks = make_chunks(path_name, path_size, chunk, overlap)
-
-    RealTimeLogger.get().info("Obtained chunks for path{}: {}".format(path_name, chunks))
-
+    
     # split the gam in one go
-    chunk_gam(gam_path, xg_path, path_name, out_dir,
+    chunk_gam(gam_path, xg_path, path_name, work_dir,
               chunks, filter_opts, overwrite)
 
     # call every chunk in series
     for chunk_i, chunk in enumerate(chunks):
         # make the graph chunk
-        chunk_vg(xg_path, path_name, out_dir, chunks, chunk_i, overwrite)
-        vg_path = chunk_base_name(path_name, out_dir, chunk_i, ".vg")
-        gam_path = chunk_base_name(path_name, out_dir, chunk_i, ".gam")
+        chunk_vg(xg_path, path_name, work_dir, chunks, chunk_i, overwrite)
+        
+        vg_path = chunk_base_name(path_name, work_dir, chunk_i, ".vg")
+        gam_path = chunk_base_name(path_name, work_dir, chunk_i, ".gam")
         
         # upload split gam files
         out_store.write_output_file(vg_path, os.path.basename(vg_path))
         out_store.write_output_file(gam_path, os.path.basename(gam_path))
         
-        job.addChildJobFn(call_chunk, options, work_dir, index_dir_id, xg_path, path_name,
-                           out_dir, chunks, chunk_i,
+        job.addChildJobFn(call_chunk, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
                            path_size, overlap,
                            pileup_opts, call_opts,
                            sample_name, threads,
