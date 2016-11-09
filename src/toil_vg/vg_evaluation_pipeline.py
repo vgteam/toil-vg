@@ -108,36 +108,12 @@ def parse_args():
     parser.add_argument("--calling_cores", type=int, default=3,
         help="number of threads during the variant calling step")
 
+    options = parser.parse_args()
+
+    # path_name and path_size lists must be equal in length
+    assert len(options.path_name) == len(options.path_size)
 
     return parser.parse_args()
-
-# Reverse complement needs a global translation table
-reverse_complement_translation_table = string.maketrans("ACGTN", "TGCAN")
-def reverse_complement(sequence):
-    """  
-    Compute the reverse complement of a DNA sequence.
-    
-    Follows algorithm from <http://stackoverflow.com/a/26615937>
-    """
-    
-    if isinstance(sequence, unicode):
-        # Encode the sequence in ASCII for easy translation
-        sequence = sequence.encode("ascii", "replace")
-    
-    # Translate and then reverse
-    return sequence.translate(reverse_complement_translation_table)[::-1]
-    
-def count_Ns(sequence):
-    """  
-    Return the number of N bases in the given DNA sequence
-    """
-    
-    n_count = 0
-    for item in sequence:
-        if item == "N": 
-            n_count += 1 
-     
-    return n_count
 
 def get_files_by_file_size(dirname, reverse=False):
     """ Return list of file paths in directory sorted by file size """

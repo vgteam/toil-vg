@@ -240,7 +240,6 @@ def xg_path_node_offset(xg_path, path_name, offset, out_dir):
     assert toks[0] == str(node_id)
     node_offset = int(toks[1])
     # node_offset must be before
-    RealTimeLogger.get().info("INFO node_offset:{} offset:{}".format(node_offset, offset))
     assert node_offset <= offset
     # sanity check (should really use node size instead of 1000 here)
     assert offset - node_offset < 1000
