@@ -588,7 +588,7 @@ def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_
 
     # We know what the xg file in there will be named
     xg_file = "{}/graph.vg.xg".format(graph_dir)
-    
+
     # Download the alignment
     alignment_file = "{}/{}.gam".format(work_dir, options.sample_name)
     out_store.read_input_file(alignment_file_key, alignment_file)
@@ -623,13 +623,13 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
     chunks = make_chunks(path_name, path_size, chunk, overlap)
     
     # split the gam in one go
-    chunk_gam(gam_path, xg_path, path_name, work_dir,
+    chunk_gam(options.drunner, gam_path, xg_path, path_name, work_dir,
               chunks, filter_opts, overwrite)
 
     # call every chunk in series
     for chunk_i, chunk in enumerate(chunks):
         # make the graph chunk
-        chunk_vg(xg_path, path_name, work_dir, chunks, chunk_i, overwrite)
+        chunk_vg(options.drunner, xg_path, path_name, work_dir, chunks, chunk_i, overwrite)
         
         vg_path = chunk_base_name(path_name, work_dir, chunk_i, ".vg")
         gam_path = chunk_base_name(path_name, work_dir, chunk_i, ".gam")
