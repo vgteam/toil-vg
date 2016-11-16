@@ -11,7 +11,7 @@ chr_length_list obtained from Mike Lin's vg dnanexus pipeline configuration
     chr_length_list = [249250621,243199373,198022430,191154276,180915260,171115067,159138663,146364022,141213431,135534747,135006516,133851895,115169878,107349540,102531392,90354753,81195210,78077248,59128983,63025520,48129895,51304566,155270560,59373566]
 """
 from __future__ import print_function
-import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob
+import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, SocketServer, struct, socket, threading
 import string
@@ -63,6 +63,8 @@ def parse_args():
         help="sample input IOStore where input files will be temporarily uploaded")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
+    parser.add_argument("--gcsa_index", type=str,
+        help="Path to tar and gzipped folder containing .gcsa, .gcsa.lcp, .xg and .graph index files and graph.vg and to_index.vg files. This is equivalent to the output found in the 'run_indexing' toil job function of this pipeline.")
     parser.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")
     parser.add_argument("--path_size", nargs='+', type=int,
@@ -653,19 +655,52 @@ def run_upload(job, options, uploadList):
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
     input_store = IOStore.get(options.input_store)   
+    out_store = IOStore.get(options.out_store)
     
     for file_key in uploadList:
         file_basename = os.path.basename(file_key[1])
         RealTimeLogger.get().info("Uploading {} to {} on IO store".format(file_key[0], file_basename))
         fi = job.fileStore.readGlobalFile(file_key[0])
         input_store.write_output_file(fi, file_basename)
+    
 
-    return job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
+    if options.gcsa_index:
+        
+        # Download local input files from the remote storage container
+        graph_dir = job.fileStore.getLocalTempDir()
+        robust_makedirs(graph_dir)
+        indexFile = job.fileStore.readGlobalFile(uploadList[2][0])
+        tar = tarfile.open(indexFile)
+        tar.extractall(path=graph_dir)
+        tar.close() 
+        # Define a file to keep the compressed index in, so we can send it to
+        # the output store.
+        index_dir_tgz = "{}/index.tar.gz".format(
+            job.fileStore.getLocalTempDir())
+        
+        # Now save the indexed graph directory to the file store. It can be
+        # cleaned up since only our children use it.
+        RealTimeLogger.get().info("Compressing index")
+        index_dir_id = write_global_directory(job.fileStore, graph_dir,
+            cleanup=True, tee=index_dir_tgz)
+
+        # Save it to the out_store
+        RealTimeLogger.get().info("Uploading compressed index directory to output store")
+        index_key = os.path.basename(index_dir_tgz)
+        out_store.write_output_file(index_dir_tgz, index_key)
+        RealTimeLogger.get().info("Index {} uploaded successfully".format(
+            index_key))
+
+        #Split fastq files
+        return job.addChildJobFn(run_split_fastq, options, index_dir_id, cores=3, memory="4G", disk="2G").rv()
+    else:
+        return job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
 
 def run_download(toil, options, downloadList):
     """
     Download and save each file in downloadList to the local directory specified
     in the out_dir option.
+    THIS IS NOT A TOIL JOB FUNCTION
     """
     
     RealTimeLogger.get().info("Download list: {}".format(downloadList))
@@ -743,6 +778,9 @@ def main():
             inputGraphFileID = toil.importFile('file://'+options.vg_graph)
             inputReadsFileID = toil.importFile('file://'+options.sample_reads)
             uploadList = [[inputGraphFileID, options.vg_graph], [inputReadsFileID, options.sample_reads]]
+            if options.gcsa_index:
+                inputIndexFileID = toil.importFile('file://'+options.gcsa_index)
+                uploadList += [[inputIndexFileID, options.gcsa_index]]
             
             # Make a root job
             root_job = Job.wrapJobFn(run_upload, options, uploadList, cores=2, memory="5G", disk="2G")

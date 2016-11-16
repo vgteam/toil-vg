@@ -44,8 +44,8 @@ class VGCGLTest(TestCase):
         self.base_command = concat('toil-vg',
                                    '--realTimeLogging', '--logDebug', '--edge_max', '5', '--kmer_size',
                                    '16', '--num_fastq_chunks', '4', '--call_chunk_size', '10000', '--overwrite',
-                                   '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '4', '--alignment_cores', '4',
-                                   '--calling_cores', '4', self.jobStore)
+                                   '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '8', '--alignment_cores', '8',
+                                   '--calling_cores', '8', self.jobStore)
     
 #    def test_chr13_sampleNA12877(self):
 #        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca2.bam.fq', self.workdir])
@@ -70,12 +70,38 @@ class VGCGLTest(TestCase):
     def test_chr19_sampleNA12877(self):
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.lrc_kir.bam.small.fq', self.workdir])
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/lrc_kir_index.tar.gz', self.workdir])
         self.sample_reads = os.path.join(self.workdir, 'NA12877.lrc_kir.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg')
+        self.test_index = os.path.join(self.workdir, 'lrc_kir_index.tar.gz')
         self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
-                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '19', '--path_size', '50000')
+                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--gcsa_index', self.test_index, '--path_name', '19', '--path_size', '50000')
         self._assertOutput('19.vcf')
+
+    def test_chr6_MHC_sampleNA12877(self):
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/mhc_index.tar.gz', self.workdir])
+        self.sample_reads = os.path.join(self.workdir, 'NA12877.mhc.bam.small.fq')
+        self.test_vg_graph = os.path.join(self.workdir, 'MHC_chrom_name_chop_100.small.vg')
+        self.test_index = os.path.join(self.workdir, 'mhc_index.tar.gz')
+        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
+                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
+                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--gcsa_index', self.test_index, '--path_name', '6', '--path_size', '50000')
+        self._assertOutput('6.vcf')
+
+    def test_chr5_SMA_sampleNA12877(self):
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.sma.bam.small.fq', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/SMA_chrom_name_chop_100.small.vg', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/mhc_index.tar.gz', self.workdir])
+        self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
+        self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
+        self.test_index = os.path.join(self.workdir, 'sma_index.tar.gz')
+        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
+                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
+                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '5', '--path_size', '50000')
+        self._assertOutput('5.vcf')
     
     def _run(self, *args):
         args = list(concat(*args))
