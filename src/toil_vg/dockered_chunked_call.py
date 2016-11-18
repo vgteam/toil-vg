@@ -48,7 +48,7 @@ def parse_args(args):
     parser.add_argument("--overlap", type=int, default=2000,
                         help="amount of overlap between chunks")
     parser.add_argument("--filter_opts", type=str,
-                        default="-r 0.9 -fu -s 2 -o 0 -q 15 -D 999",
+                        default="-r 0.9 -fu -s 2 -o 0 -q 15",
                         help="options to pass to vg filter. wrap in \"\"")
     parser.add_argument("--pileup_opts", type=str,
                         default="-q 10 -a",
@@ -117,13 +117,22 @@ on and off in just one place.  to do: Should go somewhere more central """
         list has size > 1, then piping interface used """
 
         RealTimeLogger.get().info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
-        
+
         if len(args) == 1:
             # just one command, use regular docker_call interface
             # where parameters is an argument list not including command
             tool = self.docker_tool_map[args[0][0]]
             tools = None
-            parameters = args[0][1:]
+            if args[0][0] == "vg":
+                # todo:  this is a hack because the vg docker currently *does not* expect
+                # command lines passed in to begin with vg.  Seems inconsistent with
+                # all other containers (ex bcftools expects bcftools as first arg)
+                # it's very hard to work around programmatically when supporting
+                # docker/non-docker consistency to have to parse different command lines
+                # differently. 
+                parameters = args[0][1:]
+            else:
+                parameters = args[0]
         else:
             # there's a pipe.  we use the different piping interface that
             # takes in paramters as a list of single-string commands
@@ -131,6 +140,7 @@ on and off in just one place.  to do: Should go somewhere more central """
             tool = None
             tools = self.docker_tool_map[args[0][0]]
             parameters = [" ".join(x) for x in args]
+
         return docker_call(tool=tool, tools=tools, parameters=parameters,
                            work_dir=work_dir, outfile = outfile,
                            errfile = errfile,
@@ -333,11 +343,14 @@ def xg_path_node_offset(drunner, xg_path, path_name, offset, out_dir):
     
 def sort_vcf(drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
+    vcf_dir, vcf_name = os.path.split(vcf_path)
     with open(sorted_vcf_path, "w") as outfile:
-        drunner.call([['bcftools', 'view', '-h', vcf_path]], outfile=outfile)
+        drunner.call([['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
+                     work_dir=vcf_dir)
     with open(sorted_vcf_path, "a") as outfile:
-        drunner.call([['bcftools', 'view', '-H', vcf_path],
-                     ['sort', '-k1,1d', '-k2,2n']], outfile=outfile)
+        drunner.call([['bcftools', 'view', '-H', vcf_name],
+                      ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
+                     work_dir=vcf_dir)
    
 def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, path_size, overlap,
                pileup_opts, call_options, sample_name, threads, overwrite):
