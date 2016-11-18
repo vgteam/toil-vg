@@ -109,6 +109,16 @@ def parse_args():
         help="number of threads during the alignment step")
     parser.add_argument("--calling_cores", type=int, default=3,
         help="number of threads during the variant calling step")
+    parser.add_argument("--no_docker", action="store_true",
+        help="do not use docker for any commands")
+    parser.add_argument("--vg_docker", type=str, default='quay.io/ucsc_cgl/vg:latest',
+        help="dockerfile to use for vg")
+    parser.add_argument("--bcftools_docker", type=str, default='quay.io/cmarkello/bcftools',
+        help="dockerfile to use for bcftools")
+    parser.add_argument("--tabix_docker", type=str, default='quay.io/cmarkello/htslib:latest',
+        help="dockerfile to use for tabix")
+    parser.add_argument("--jq_docker", type=str, default='devorbitus/ubuntu-bash-jq-curl',
+        help="dockerfile to use for jq")    
 
     options = parser.parse_args()
 
@@ -195,9 +205,8 @@ def run_indexing(job, options):
             
     if options.index_mode == "rocksdb":
         # Make the RocksDB index
-        command = ['index', '-s', '-k', str(options.kmer_size), '-e', str(options.edge_max), '-t', str(job.cores), os.path.basename(graph_filename), os.path.basename('{}/{}.index'.format(graph_dir, graph_file))]
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/ucsc_cgl/vg:latest')
+        command = ['vg', 'index', '-s', '-k', str(options.kmer_size), '-e', str(options.edge_max), '-t', str(job.cores), os.path.basename(graph_filename), os.path.basename('{}/{}.index'.format(graph_dir, graph_file))]
+        options.drunner.call(command, work_dir=work_dir)
 
     elif (options.index_mode == "gcsa-kmer" or
         options.index_mode == "gcsa-mem"):
@@ -224,11 +233,12 @@ def run_indexing(job, options):
                 # Prune out hard bits of the graph
                 # and complex regions
                 # and short disconnected chunks
-                command = ['vg mod -p -l {} -t {} -e {} {}'.format(str(options.kmer_size), str(job.cores), str(options.edge_max), os.path.basename(graph_filename)),
-                            'vg mod -S -l {} -t {} -'.format(str(options.kmer_size * 2), str(job.cores))]
-                docker_call(work_dir=work_dir, parameters=command,
-                            tools='quay.io/ucsc_cgl/vg:latest',
-                            outfile=to_index_file)
+                command = [['vg', 'mod', '-p', '-l', str(options.kmer_size),
+                            '-t', str(job.cores), '-e', str(options.edge_max),
+                            os.path.basename(graph_filename)]]
+                command.append(['vg', 'mod', '-S', '-l', str(options.kmer_size * 2),
+                                '-t', str(job.cores), '-'])
+                options.drunner.call(command, work_dir=work_dir, outfile=to_index_file)
 
             if options.include_primary:
 
@@ -262,11 +272,9 @@ def run_indexing(job, options):
                     ref_options.append(name)
 
                 # Retain only the specified paths (only one should really exist)
-                command = ['mod', '-N'] + ref_options + ['-t', str(job.cores), os.path.basename(graph_filename)]
-                docker_call(work_dir=work_dir, parameters=command,
-                            tool='quay.io/ucsc_cgl/vg:latest',
-                            inputs=[graph_filename],
-                            outfile=to_index_file)
+                command = ['vg', 'mod', '-N'] + ref_options + ['-t', str(job.cores), os.path.basename(graph_filename)]
+                options.drunner.call(command, work_dir=work_dir, inputs=[graph_filename],
+                                     outfile=to_index_file)
                 
         time.sleep(1)
 
@@ -277,11 +285,10 @@ def run_indexing(job, options):
 
         # Make the GCSA2 kmers file
         with open(kmers_filename, "w") as kmers_file:
-            command = ['vg view -v {}'.format(os.path.basename(to_index_filename)),
-                       'vg kmers -g -B -k {} -H 1000000000 -T 1000000001 -t {} -'.format(str(options.kmer_size), str(job.cores))]
-            docker_call(work_dir=work_dir, parameters=command,
-                        tools='quay.io/ucsc_cgl/vg:latest',
-                        outfile=kmers_file)
+            command = [['vg', 'view', '-v', os.path.basename(to_index_filename)]]
+            command.append(['vg', 'kmers', '-g', '-B', '-k', str(options.kmer_size),
+                            '-H', '1000000000', '-T', '1000000001', '-t', str(job.cores), '-'])
+            options.drunner.call(command, work_dir=work_dir, outfile=kmers_file)
 
         time.sleep(1)
 
@@ -293,11 +300,10 @@ def run_indexing(job, options):
 
         # Make the gcsa2 index. Make sure to use 3 doubling steps to work
         # around <https://github.com/vgteam/vg/issues/301>
-        command = ['index', '-t', str(job.cores), '-i', 
+        command = ['vg', 'index', '-t', str(job.cores), '-i', 
             os.path.basename(kmers_filename), '-g', os.path.basename(gcsa_filename),
             '-X', '3', '-Z', '2000']
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/ucsc_cgl/vg:latest')
+        options.drunner.call(command, work_dir=work_dir)
 
         # Where do we put the XG index?
         xg_filename = graph_filename + ".xg"
@@ -305,10 +311,9 @@ def run_indexing(job, options):
         RealTimeLogger.get().info("XG-indexing {} to {}".format(
                 graph_filename, xg_filename))
         
-        command = ['index', '-t', str(job.cores), '-x', 
+        command = ['vg', 'index', '-t', str(job.cores), '-x', 
             os.path.basename(xg_filename), os.path.basename(graph_filename)]
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/ucsc_cgl/vg:latest')
+        options.drunner.call(command, work_dir=work_dir)
 
     else:
         raise RuntimeError("Invalid indexing mode: " + options.index_mode)
@@ -424,7 +429,7 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
         # Start the aligner and have it write to the file
 
         # Plan out what to run
-        vg_parts = ['map', '-f', os.path.basename(fastq_file),
+        vg_parts = ['vg', 'map', '-f', os.path.basename(fastq_file),
             '-i', '-M2', '-W', '500', '-u', '0', '-U', '-t', str(job.cores), os.path.basename(graph_file)]
 
         if options.index_mode == "rocksdb":
@@ -448,9 +453,7 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
         # Mark when we start the alignment
         start_time = timeit.default_timer()
         command = vg_parts
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/ucsc_cgl/vg:latest',
-                    outfile=alignment_file)
+        options.drunner.call(command, work_dir = work_dir, outfile=alignment_file)
         
         # Mark when it's done
         end_time = timeit.default_timer()
@@ -543,11 +546,9 @@ def run_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
         # merge vcf files
         vcf_merged_file_key = "{}.vcf.gz".format(options.sample_name)
         command=['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key), ' '.join(vcf_merging_file_key_list)]
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/cmarkello/bcftools')
+        options.drunner.call(command, work_dir=work_dir)
         command=['bcftools', 'tabix', '-f', '-p', 'vcf', os.path.basename(vcf_merged_file_key)]
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/cmarkello/bcftools')
+        options.drunner.call(command, work_dir=work_dir)
     else:
         vcf_merged_file_key = vcf_merging_file_key_list[0]
 
@@ -764,6 +765,10 @@ def main():
 
     RealTimeLogger.start_master()
     options = parse_args() # This holds the nicely-parsed options object
+
+    # make the docker runner
+    options.drunner = DockerRunner(
+        docker_tool_map = get_chunk_call_docker_tool_map(options))
     
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
@@ -803,7 +808,7 @@ def main():
 if __name__ == "__main__" :
     try:
         main()
-    except UserError as e:
+    except Exception as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
 

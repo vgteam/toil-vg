@@ -98,7 +98,7 @@ on and off in just one place.  to do: Should go somewhere more central """
         self.docker_tool_map = docker_tool_map
 
     def call(self, args, work_dir = '.' , outfile = None, errfile = None,
-             check_output = False):
+             check_output = False, inputs=[]):
         """ run a command.  decide to use docker based on whether
         its in the docker_tool_map.  args is either the usual argument list,
         or a list of lists (in the case of a chain of piped commands)  """
@@ -106,11 +106,11 @@ on and off in just one place.  to do: Should go somewhere more central """
         if len(args) == 0 or len(args) > 0 and type(args[0]) is not list:
             args = [args]
         if args[0][0] in self.docker_tool_map:
-            return self.call_with_docker(args, work_dir, outfile, errfile, check_output)
+            return self.call_with_docker(args, work_dir, outfile, errfile, check_output, inputs)
         else:
-            return self.call_directly(args, work_dir, outfile, errfile, check_output)
+            return self.call_directly(args, work_dir, outfile, errfile, check_output, inputs)
         
-    def call_with_docker(self, args, work_dir, outfile, errfile, check_output): 
+    def call_with_docker(self, args, work_dir, outfile, errfile, check_output, inputs): 
         """ Thin wrapper for docker_call that will use internal lookup to
         figure out the location of the docker file.  Only exposes docker_call
         parameters used so far.  expect args as list of lists.  if (toplevel)
@@ -144,13 +144,18 @@ on and off in just one place.  to do: Should go somewhere more central """
         return docker_call(tool=tool, tools=tools, parameters=parameters,
                            work_dir=work_dir, outfile = outfile,
                            errfile = errfile,
-                           check_output = check_output)
+                           check_output = check_output,
+                           inputs=inputs)
 
-    def call_directly(self, args, work_dir, outfile, errfile, check_output):
+    def call_directly(self, args, work_dir, outfile, errfile, check_output, inputs):
         """ Just run the command without docker """
 
         RealTimeLogger.get().info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
-        
+
+        # this is all that docker_call does with the inputs parameter:
+        for filename in inputs:
+            assert(os.path.isfile(os.path.join(work_dir, filename)))
+
         procs = []
         for i in range(len(args)):
             stdin = procs[i-1].stdout if i > 0 else None
