@@ -48,13 +48,13 @@ def parse_args(args):
     parser.add_argument("--overlap", type=int, default=2000,
                         help="amount of overlap between chunks")
     parser.add_argument("--filter_opts", type=str,
-                        default="-r 0.9 -fu -s 2 -o 0 -q 15",
+                        default="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
                         help="options to pass to vg filter. wrap in \"\"")
     parser.add_argument("--pileup_opts", type=str,
-                        default="-q 10 -a",
+                        default="-w 40 -m 10 -q 10",
                         help="options to pass to vg pileup. wrap in \"\"")
     parser.add_argument("--call_opts", type=str,
-                        default="",
+                        default="-b 0.4 -f 0.25 -d 10 -s 1",
                         help="options to pass to vg call. wrap in \"\"")
     parser.add_argument("--threads", type=int, default=20,
                         help="number of threads to use in vg call and vg pileup")
