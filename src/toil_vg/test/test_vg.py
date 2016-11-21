@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import textwrap
 import filecmp
+import vcf
 from contextlib import closing
 from unittest import TestCase
 from urlparse import urlparse
@@ -112,7 +113,16 @@ class VGCGLTest(TestCase):
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/normal_'+testFile, self.workdir + 'normal_'+testFile])
         subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-hgvmdebugtest-output/'+testFile+'.gz', self.workdir + testFile+'.gz'])
         subprocess.check_call(['gzip', '-df', self.workdir + testFile + '.gz'])
-        self.assertTrue(filecmp.cmp(self.workdir + 'normal_' + testFile, self.workdir +testFile))
+        vcf_reader_expectedvcf = vcf.Reader(open(self.workdir + 'normal_' + testFile ,'r'))
+        vcf_reader_observedvcf = vcf.Reader(open(self.workdir + testFile ,'r'))
+        expList = []
+        obsList = []
+        for expRecord in vcf_reader_expectedvcf:
+            expList.append([expRecord.CHROM, expRecord.POS, expRecord.REF, expRecord.ALT, expRecord.QUAL, expRecord.INFO])
+        for obsRecord in vcf_reader_observedvcf:
+            obsList.append([obsRecord.CHROM, obsRecord.POS, obsRecord.REF, obsRecord.ALT, obsRecord.QUAL, obsRecord.INFO])
+        #self.assertTrue(filecmp.cmp(self.workdir + 'normal_' + testFile, self.workdir +testFile))
+        self.assertTrue(expList == obsList)
 
     def tearDown(self):
         shutil.rmtree(self.workdir)
