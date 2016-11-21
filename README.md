@@ -5,6 +5,59 @@ This guide attempts to walk the user through running this pipline using the VG f
 If there are any questions please contact Charles Markello (cmarkell@ucsc.edu). If you find any errors or corrections please
 send feedback or feel free to make a pull request. 
 
+## Basic start-to-finish run on a local mac or linux machine
+
+### Set up dependencies
+
+* `virtualenv toilvenv`
+* `source toilvenv/bin/activate`
+* `pip install toil[mesos]==3.5.0a1.dev251`
+* `git clone --recursive https://github.com/cmarkello/toil-lib.git`
+* `pip install ./toil-lib/`
+* `git clone --recursive https://github.com/BD2KGenomics/toil-vg.git`
+* `pip install ./toil-vg/`
+* `pip install boto`
+
+### Install and setup docker on local machine and run the docker daemon
+#### On linux
+* Go to the main docker site and follow the instructions for the relevant linux distribution [here](https://docs.docker.com/engine/installation/linux/)
+* Test to see if the docker daemon is running by running `docker version`
+* If running `docker version` doesn't work, try adding `user` to docker group.
+    * `sudo usermod -aG docker $USER`
+    * log out and log back in
+
+#### On Mac
+* Install docker via instrictions found [here](https://docs.docker.com/docker-for-mac/)
+* Test to see if the docker daemon is running by running `docker version`
+* If running `docker version` doesn't work, try adding docker environment variables
+    * `docker-machine start`
+    * `docker-machine env`
+    * `eval "$(docker-machine env default)"`
+
+### Get test input files from Synapse
+* Register for a [Synapse account](https://www.synapse.org/#!RegisterAccount:0)
+* Create directory to store input files: `mkdir ./test_vg_input/`
+* Either download the samples from the [website GUI](https://www.synapse.org/#!Synapse:syn7562100) or use the Python API to download into the `./test_vg_input/` directory
+* `pip install synapseclient`
+* `python`
+    * `import synapseclient`
+    * `syn.login('foo@bar.com', 'password')`
+    * Get the test vg graph
+        * `syn.get('syn7562120', downloadLocation='./test_vg_input/')`
+    * Get the test read set
+        * `syn.get('syn7562136', downloadLocation='./test_vg_input/')`
+
+### Example run for BRCA2 alignment and variant calling for sample NA12877
+* `rm -fr ./local-toilvg-input/`
+* `rm -fr ./local-toilvg-output/`
+* `toil clean file:${PWD}/local-toilvg-jobstore`
+* `toil-vg --realTimeLogging --logError --logDebug --edge_max 5 --kmer_size 16 --num_fastq_chunks 4 --call_chunk_size 10000 --overwrite --index_mode gcsa-mem --include_primary --index_cores 2 --alignment_cores 2 --calling_cores 2 'file:${PWD}/local-toilvg-jobstore' ${PWD}/test_vg_input/BRCA1_BRCA2_may6.vg ${PWD}/test_vg_input/NA12877.brca1.brca2.bam.fq 'NA12877' ${PWD}/test_vg_output 'file:${PWD}/local-toilvg-input' 'file:${PWD}/local-toilvg-output' --path_name 13 --path_size 84989`
+
+### Cleanup local jobstore
+* `toil clean file:${PWD}/local-toilvg-jobstore`
+
+
+
 ## Basic start-to-finish run of the VG-toil pipeline on Amazon EC2
 
 ### Install and setup local cgcloud
