@@ -25,6 +25,7 @@ send feedback or feel free to make a pull request.
 * If running `docker version` doesn't work, try adding `user` to docker group.
     * `sudo usermod -aG docker $USER`
     * log out and log back in
+
 #### On Mac
 * Install docker via instrictions found [here](https://docs.docker.com/docker-for-mac/)
 * Test to see if the docker daemon is running by running `docker version`
