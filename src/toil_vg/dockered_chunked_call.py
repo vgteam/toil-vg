@@ -83,6 +83,7 @@ def get_chunk_call_docker_tool_map(options):
         dmap["vg"] = options.vg_docker
         dmap["bcftools"] = options.bcftools_docker
         dmap["tabix"] = options.tabix_docker
+        dmap["bgzip"] = options.tabix_docker
         dmap["jq"] = options.jq_docker
 
     # to do: could be a good place to do an existence check on these tools
