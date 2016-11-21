@@ -475,7 +475,7 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, o
                 else:
                     # add on everythin but header
                     with open(vcf_path, "a") as outfile:
-                        options.drunner.call(['grep', '-v', '^#', clip_path], outfile=outfile)
+                        options.drunner.call(['bcftools', 'view', '-H', clip_path], outfile=outfile)
 
     # add a compressed indexed version
     if overwrite or not os.path.isfile(vcf_path + ".gz"):
