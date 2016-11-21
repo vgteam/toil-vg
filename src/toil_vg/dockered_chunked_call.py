@@ -261,8 +261,14 @@ def xg_path_node_id(drunner, xg_path, path_name, offset, out_dir):
         command.append(['vg', 'view', '-j', '-'])
         drunner.call(command, work_dir=out_dir, outfile=tmp_out_file)
 
-    command = [['cat',  '{}'.format(os.path.basename(tmp_out_filename))]]
-    command.append(['jq', '.node[0].id', '-'])
+    command = [['jq', '.node[0].id', os.path.basename(tmp_out_filename)]]
+
+    # todo : fix this hack:
+    # why do we need to do this here? Is it something to do with the jq
+    # docker image? all the other tools seem to check /data/ transparently
+    if 'jq' in drunner.docker_tool_map:
+        command[0][2] = os.path.join('/data', command[0][2])
+        
     stdout = drunner.call(command, work_dir=out_dir, check_output=True, outfile=None)
     
     return int(stdout)
