@@ -55,6 +55,11 @@ def parse_args():
     parser.add_argument("--call_opts", type=str,
                         default="-b 0.4 -f 0.25 -d 10 -s 1",
                         help="options to pass to vg call. wrap in \"\"")
+    parser.add_argument("--genotype_opts", type=str,
+                        default="",
+                        help="options to pass to vg genotype. wrap in \"\"")
+    parser.add_argument("--genotype", action="store_true",
+                        help="use vg genotype instead of vg call")    
     parser.add_argument("--threads", type=int, default=20,
                         help="number of threads to use in vg call and vg pileup")
     parser.add_argument("--overwrite", action="store_true",
@@ -178,7 +183,7 @@ on and off in just one place.  to do: Should go somewhere more central """
             return output
     
         
-def merge_call_opts(contig, offset, length, call_opts, sample_name):
+def merge_call_opts(contig, offset, length, call_opts, sample_name, sample_flag = '-S'):
     """ combine input vg call  options with generated options, by adding user offset
     and overriding contigs, sample and sequence length"""
     user_opts = call_opts.split()
@@ -191,7 +196,7 @@ def merge_call_opts(contig, offset, length, call_opts, sample_name):
             user_contig = user_opts[i + 1]
         elif uo in ["-r", "--ref"]:
             user_ref = user_opts[i + 1]
-        elif uo in ["-S", "--sample"]:
+        elif uo in [sample_flag, "--sample"]:
             user_sample = user_opts[i + 1]
             user_opts[i + 1] = sample_name
         elif uo in ["-l", "--length"]:
@@ -204,7 +209,7 @@ def merge_call_opts(contig, offset, length, call_opts, sample_name):
     if user_ref is None:
         opts += " -r {}".format(contig)  
     if user_sample is None:
-        opts += " -S {}".format(sample_name)
+        opts += " {} {}".format(sample_flag, sample_name)
     if user_length is None:
         opts += " -l {}".format(length)
     return opts
@@ -360,9 +365,58 @@ def sort_vcf(drunner, vcf_path, sorted_vcf_path):
         drunner.call([['bcftools', 'view', '-H', vcf_name],
                       ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
                      work_dir=vcf_dir)
-   
+
+def run_vg_call(options, xg_path, vg_path, gam_path, path_name, chunk, chunk_i, path_size, 
+                pileup_opts, call_options, sample_name, work_dir, out_dir, vcf_path,
+                threads, overwrite):
+    """ Create a VCF with vg call """
+                        
+    # do the pileup.  this is the most resource intensive step,
+    # especially in terms of mermory used.
+    pu_path = chunk_base_name(path_name, out_dir, chunk_i, ".pu")
+    if overwrite or not os.path.isfile(pu_path):
+        with open(pu_path, "w") as pu_path_stream:
+            command = [['vg', 'pileup', os.path.basename(vg_path), os.path.basename(gam_path), '-t', str(threads)] + pileup_opts.split(" ")]
+            options.drunner.call(command, work_dir=out_dir, outfile=pu_path_stream)
+
+    # do the calling.
+    # requires the latest version of vg as of 8/2/2016
+    if overwrite or not os.path.isfile(vcf_path + ".gz"):
+        offset = xg_path_node_offset(options.drunner, xg_path, chunk[0], chunk[1], out_dir)
+        merged_call_opts = merge_call_opts(chunk[0], offset, path_size,
+                                           call_options, sample_name)
+        with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
+            command=[['vg', 'call', os.path.basename(vg_path), os.path.basename(pu_path), '-t',
+                     str(threads)] + str(merged_call_opts).split()]
+            options.drunner.call(command, work_dir=out_dir,
+                        outfile=vgcall_stdout, errfile=vgcall_stderr)
+ 
+                
+def run_vg_genotype(options, xg_path, vg_path, gam_path, path_name, chunk, chunk_i, path_size, 
+                    genotype_options, sample_name, work_dir, out_dir, vcf_path,
+                    threads, overwrite):
+    """ Create a VCF with vg genotype """
+
+    # Make a gam index
+    gam_index_path = os.path.join(out_dir, os.path.basename(gam_path) + ".index")
+    if overwrite or not os.path.isfile(gam_index_path):
+        command = ['vg', 'index', '-N', os.path.basename(gam_path), '-d', os.path.basename(gam_index_path)]
+        options.drunner.call(command, work_dir=work_dir)
+
+    # Do the genotyping
+    if overwrite or not os.path.isfile(vcf_path + ".gz"):
+        offset = xg_path_node_offset(options.drunner, xg_path, chunk[0], chunk[1], out_dir)
+        merged_genotype_opts = merge_call_opts(chunk[0], offset, path_size,
+                                           genotype_options, sample_name, sample_flag = '-s')
+        with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
+
+            command=[['vg', 'genotype', os.path.basename(vg_path), os.path.basename(gam_index_path),
+                      '-t', str(threads), '-v'] + str(merged_genotype_opts).split()]
+            options.drunner.call(command, work_dir=out_dir,
+                        outfile=vgcall_stdout, errfile=vgcall_stderr)
+
 def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, path_size, overlap,
-               pileup_opts, call_options, sample_name, threads, overwrite):
+               pileup_opts, call_options, genotype_options, sample_name, threads, overwrite):
    
     RealTimeLogger.get().info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
     
@@ -391,42 +445,26 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
     out_store.read_input_file(os.path.basename(vg_path), vg_path) 
     out_store.read_input_file(os.path.basename(gam_path), gam_path)
 
-    RealTimeLogger.get().info("vg size {} gam size {}".format(
-        os.path.getsize(os.path.join(graph_dir, vg_path)),
-        os.path.getsize(os.path.join(graph_dir, gam_path))))
-
-    
-    # do the pileup.  this is the most resource intensive step,
-    # especially in terms of mermory used.
-    pu_path = chunk_base_name(path_name, out_dir, chunk_i, ".pu")
-    if overwrite or not os.path.isfile(pu_path):
-        with open(pu_path, "w") as pu_path_stream:
-            command = [['vg', 'pileup', os.path.basename(vg_path), os.path.basename(gam_path), '-t', str(threads)] + pileup_opts.split(" ")]
-            options.drunner.call(command, work_dir=out_dir, outfile=pu_path_stream)
-
-    # do the calling.
-    # requires the latest version of vg as of 8/2/2016
     vcf_path = chunk_base_name(path_name, out_dir, chunk_i, ".vcf")
-    if overwrite or not os.path.isfile(vcf_path + ".gz"):
-        offset = xg_path_node_offset(options.drunner, xg_path, chunk[0], chunk[1], out_dir)
-        merged_call_opts = merge_call_opts(chunk[0], offset, path_size,
-                                           call_options, sample_name)
-        with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
-            command=[['vg', 'call', os.path.basename(vg_path), os.path.basename(pu_path), '-t',
-                     str(threads)] + str(merged_call_opts).split()]
-            x = options.drunner.call(['vg', 'stats', os.path.basename(vg_path)], work_dir=out_dir, check_output = True)
-            x = os.path.getsize(os.path.join(out_dir, os.path.basename(vg_path)))
-            RealTimeLogger.get().info(x)
-            options.drunner.call(command, work_dir=out_dir,
-                        outfile=vgcall_stdout, errfile=vgcall_stderr)
- 
-        sort_vcf(options.drunner, vcf_path + ".us", vcf_path)
-        options.drunner.call(['rm', vcf_path + '.us'])
-        command=['bgzip', '{}'.format(os.path.basename(vcf_path))]
-        options.drunner.call(command, work_dir=out_dir)
-        command=['tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
-        options.drunner.call(command, work_dir=out_dir)
+    
+    # Run vg call
+    if options.genotype:
+        run_vg_genotype(options, xg_path, vg_path, gam_path, path_name, chunk, chunk_i, path_size, 
+                        genotype_options, sample_name, work_dir, out_dir,
+                        vcf_path, threads, overwrite)
+    else:
+        run_vg_call(options, xg_path, vg_path, gam_path, path_name, chunk, chunk_i, path_size, 
+                    pileup_opts, call_options, sample_name, work_dir, out_dir,
+                    vcf_path, threads, overwrite)
 
+    # Sort the output
+    sort_vcf(options.drunner, vcf_path + ".us", vcf_path)
+    options.drunner.call(['rm', vcf_path + '.us'])
+    command=['bgzip', '{}'.format(os.path.basename(vcf_path))]
+    options.drunner.call(command, work_dir=out_dir)
+    command=['tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
+    options.drunner.call(command, work_dir=out_dir)
+    
     # do the vcf clip
     left_clip = 0 if chunk_i == 0 else overlap / 2
     right_clip = 0 if chunk_i == len(chunks) - 1 else overlap / 2
@@ -468,7 +506,10 @@ def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_
     variant_call_dir = work_dir
 
     # run chunked_call
-    chunks = dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, job.cores, xg_file, alignment_file, path_name, path_size, options.sample_name, variant_call_dir, options.call_chunk_size, options.overlap, options.filter_opts, options.pileup_opts, options.call_opts, options.overwrite)
+    chunks = dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, job.cores, xg_file,
+                                   alignment_file, path_name, path_size, options.sample_name, variant_call_dir,
+                                   options.call_chunk_size, options.overlap, options.filter_opts, options.pileup_opts,
+                                   options.call_opts, options.genotype_opts, options.overwrite)
 
     vcf_file_key = job.addFollowOnJobFn(merge_vcf_chunks, options, index_dir_id, path_name, path_size, chunks, options.overwrite, cores=2, memory="4G", disk="2G").rv()
  
@@ -476,10 +517,10 @@ def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_
 
     return vcf_file_key
 
-def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threads, xg_path, gam_path, path_name, path_size, sample_name, out_dir, chunk=10000000,
-                          overlap=2000, filter_opts="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
-                          pileup_opts="-w 40 -m 10 -q 10", call_opts="-b 0.4 -f 0.25 -d 10 -s 1",
-                          overwrite=True):
+def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threads,
+                          xg_path, gam_path, path_name, path_size, sample_name, out_dir, chunk,
+                          overlap, filter_opts, pileup_opts, call_opts, genotype_opts,
+                          overwrite):
     """
     dockered_chunked_call IS NOT A TOIL JOB FUNCTION. It is just a helper function.
     """
@@ -512,7 +553,7 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
         
         job.addChildJobFn(call_chunk, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
                            path_size, overlap,
-                           pileup_opts, call_opts,
+                           pileup_opts, call_opts, genotype_opts,
                            sample_name, threads,
                            overwrite, cores="{}".format(threads), memory="4G", disk="2G")
     return chunks

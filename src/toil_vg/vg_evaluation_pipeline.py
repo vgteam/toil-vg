@@ -103,6 +103,11 @@ def parse_args():
     parser.add_argument("--call_opts", type=str,
         default="-b 0.4 -f 0.25 -d 10 -s 1",
         help="options to pass to vg call. wrap in \"\"")
+    parser.add_argument("--genotype_opts", type=str,
+        default="",
+        help="options to pass to vg genotype. wrap in \"\"")
+    parser.add_argument("--genotype", action="store_true",
+        help="use vg genotype instead of vg call")    
     parser.add_argument("--index_cores", type=int, default=3,
         help="number of threads during the indexing step")
     parser.add_argument("--alignment_cores", type=int, default=3,
