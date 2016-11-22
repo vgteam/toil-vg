@@ -8,18 +8,17 @@ specified.
 old docker vg tool= quay.io/ucsc_cgl/vg:1.4.0--4cbd3aa6d2c0449730975517fc542775f74910f3
 latest docker vg tool=quay.io/ucsc_cgl/vg:latest
 """
-
+from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
-import json
+import json, timeit, errno
 from uuid import uuid4
 
+from toil.common import Toil
 from toil.job import Job
 from toil_lib.toillib import *
 from toil_lib.programs import docker_call
-# todo: reorg so that calling is in one module
-from toil_vg.vg_evaluation_pipeline import *
 
-def parse_args(args):
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, 
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
@@ -71,9 +70,7 @@ def parse_args(args):
     parser.add_argument("--jq_docker", type=str, default='devorbitus/ubuntu-bash-jq-curl',
                         help="dockerfile to use for jq")
                         
-    args = args[1:]
-        
-    return parser.parse_args(args)
+    return parser.parse_args()
 
 def get_chunk_call_docker_tool_map(options):
     """ convenience function to parse the above _docker options into a dictionary """
@@ -326,7 +323,7 @@ def chunk_vg(drunner, xg_path, path_name, out_dir, chunks, chunk_i, overwrite):
 
             with open(destroy_list, "w") as destroy_list_stream:
                 command = [['vg', 'mod', '-y', str(destroy_id), os.path.basename(vg_chunk_path)]]
-                command.append(['vg mod -o -'])
+                command.append(['vg', 'mod', '-o', '-'])
                 drunner.call(command, work_dir=out_dir, outfile=destroy_list_stream)
             
             drunner.call(['mv', vg_chunk_path + ".destroy", vg_chunk_path])
@@ -441,7 +438,85 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
 
     # Save clip.vcf files to the output store
     out_store.write_output_file(clip_path, os.path.basename(clip_path))
+
+def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_size):
     
+    RealTimeLogger.get().info("Running variant calling on path {} from alignment file {}".format(path_name, alignment_file_key))
+    
+    # Set up the IO stores each time, since we can't unpickle them on Azure for
+    # some reason.
+    input_store = IOStore.get(options.input_store)
+    out_store = IOStore.get(options.out_store)
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    # Download the indexed graph to a directory we can use
+    graph_dir = work_dir
+    read_global_directory(job.fileStore, index_dir_id, graph_dir)
+
+    # How long did the alignment take to run, in seconds?
+    run_time = None
+
+    # We know what the xg file in there will be named
+    xg_file = "{}/graph.vg.xg".format(graph_dir)
+
+    # Download the alignment
+    alignment_file = "{}/{}.gam".format(work_dir, options.sample_name)
+    out_store.read_input_file(alignment_file_key, alignment_file)
+    
+    variant_call_dir = work_dir
+
+    # run chunked_call
+    chunks = dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, job.cores, xg_file, alignment_file, path_name, path_size, options.sample_name, variant_call_dir, options.call_chunk_size, options.overlap, options.filter_opts, options.pileup_opts, options.call_opts, options.overwrite)
+
+    vcf_file_key = job.addFollowOnJobFn(merge_vcf_chunks, options, index_dir_id, path_name, path_size, chunks, options.overwrite, cores=2, memory="4G", disk="2G").rv()
+ 
+    RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, alignment_file_key))
+
+    return vcf_file_key
+
+def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threads, xg_path, gam_path, path_name, path_size, sample_name, out_dir, chunk=10000000,
+                          overlap=2000, filter_opts="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
+                          pileup_opts="-w 40 -m 10 -q 10", call_opts="-b 0.4 -f 0.25 -d 10 -s 1",
+                          overwrite=True):
+    """
+    dockered_chunked_call IS NOT A TOIL JOB FUNCTION. It is just a helper function.
+    """
+    
+    #if not os.path.isdir(out_dir):
+    #   os.makedirs(out_dir)
+
+    # make things slightly simpler as we split overlap
+    # between adjacent chunks
+    assert overlap % 2 == 0
+
+    # compute overlapping chunks
+    chunks = make_chunks(path_name, path_size, chunk, overlap)
+    
+    # split the gam in one go
+    chunk_gam(options.drunner, gam_path, xg_path, path_name, work_dir,
+              chunks, filter_opts, overwrite)
+
+    # call every chunk in series
+    for chunk_i, chunk in enumerate(chunks):
+        # make the graph chunk
+        chunk_vg(options.drunner, xg_path, path_name, work_dir, chunks, chunk_i, overwrite)
+        
+        vg_path = chunk_base_name(path_name, work_dir, chunk_i, ".vg")
+        gam_path = chunk_base_name(path_name, work_dir, chunk_i, ".gam")
+        
+        # upload split gam files
+        out_store.write_output_file(vg_path, os.path.basename(vg_path))
+        out_store.write_output_file(gam_path, os.path.basename(gam_path))
+        
+        job.addChildJobFn(call_chunk, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
+                           path_size, overlap,
+                           pileup_opts, call_opts,
+                           sample_name, threads,
+                           overwrite, cores="{}".format(threads), memory="4G", disk="2G")
+    return chunks
+
 def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, overwrite):
     """ merge a bunch of clipped vcfs created above, taking care to 
     fix up the headers.  everything expected to be sorted already """
@@ -470,12 +545,14 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, o
                 if first is True:
                     # copy everything including the header
                     with open(vcf_path, "w") as outfile:
-                        options.drunner.call(['cat', clip_path], outfile=outfile)
+                        options.drunner.call(['cat', os.path.basename(clip_path)], outfile=outfile,
+                                             work_dir=out_dir)
                     first = False
                 else:
                     # add on everythin but header
                     with open(vcf_path, "a") as outfile:
-                        options.drunner.call(['bcftools', 'view', '-H', clip_path], outfile=outfile)
+                        options.drunner.call(['bcftools', 'view', '-H', os.path.basename(clip_path)],
+                                             outfile=outfile, work_dir=out_dir)
 
     # add a compressed indexed version
     if overwrite or not os.path.isfile(vcf_path + ".gz"):
@@ -513,6 +590,9 @@ def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
                                      options.path_name, options.path_size, cores=options.threads,
                                      memory="4G", disk="2G").rv()
 
+    return job.addFollowOnJobFn(wait_for_vcf, vcf_file_key).rv()
+
+def wait_for_vcf(job, vcf_file_key):
     return vcf_file_key
 
 def fetch_output_vcf(options, vcf_file_key):
@@ -536,11 +616,11 @@ def fetch_output_vcf(options, vcf_file_key):
     out_store.read_input_file(vcf_file, os.path.join(options.out_dir, vcf_file))
     out_store.read_input_file(vcf_file, os.path.join(options.out_dir, vcf_file_idx))
     
-def main(args):
+def main():
     """ no harm in preserving command line access to chunked_call for debugging """
     
     RealTimeLogger.start_master()
-    options = parse_args(args) # This holds the nicely-parsed options object
+    options = parse_args() # This holds the nicely-parsed options object
 
     # make the docker runner
     options.drunner = DockerRunner(
@@ -579,10 +659,12 @@ def main(args):
     
     RealTimeLogger.stop_master()
     
-    options = parse_args(args)
-
     
 if __name__ == "__main__" :
-    sys.exit(main(sys.argv))
+    try:
+        main()
+    except Exception as e:
+        print(e.message, file=sys.stderr)
+        sys.exit(1)
         
         
