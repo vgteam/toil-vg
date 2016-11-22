@@ -68,19 +68,13 @@ def parse_args():
     parser.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")
     parser.add_argument("--path_size", nargs='+', type=int,
-        help="Size of the reference path in the graph")
-    parser.add_argument("--offset", type=int,
-        help="chromosomal position offset. e.g. 43044293")
+        help="Size of the reference path in the graph")    
     parser.add_argument("--edge_max", type=int, default=5,
         help="maximum edges to cross in index")
     parser.add_argument("--kmer_size", type=int, default=10,
         help="size of kmers to use in indexing and mapping")
-    parser.add_argument("--overwrite", default=False, action="store_true",
-        help="overwrite existing result files")
     parser.add_argument("--num_fastq_chunks", type=int, default=3,
         help="number of chunks to split the input fastq file records")
-    parser.add_argument("--call_chunk_size", type=int, default=10000000,
-        help="chunk size for variant calling")
     parser.add_argument("--restat", default=False, action="store_true",
         help="recompute and overwrite existing stats files")
     parser.add_argument("--reindex", default=False, action="store_true",
@@ -92,38 +86,16 @@ def parse_args():
         help="use the pruned graph in the index")
     parser.add_argument("--include_primary", action="store_true",
         help="use the primary path in the index")
-    parser.add_argument("--overlap", type=int, default=2000,
-        help="overlap option that is passed into make_chunks and call_chunk")
-    parser.add_argument("--filter_opts", type=str,
-        default="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
-        help="options to pass to chunk_gam. wrap in \"\"")
-    parser.add_argument("--pileup_opts", type=str,
-        default="-w 40 -m 10 -q 10",
-        help="options to pass to vg pileup. wrap in \"\"")
-    parser.add_argument("--call_opts", type=str,
-        default="-b 0.4 -f 0.25 -d 10 -s 1",
-        help="options to pass to vg call. wrap in \"\"")
-    parser.add_argument("--genotype_opts", type=str,
-        default="",
-        help="options to pass to vg genotype. wrap in \"\"")
-    parser.add_argument("--genotype", action="store_true",
-        help="use vg genotype instead of vg call")    
     parser.add_argument("--index_cores", type=int, default=3,
         help="number of threads during the indexing step")
     parser.add_argument("--alignment_cores", type=int, default=3,
         help="number of threads during the alignment step")
-    parser.add_argument("--calling_cores", type=int, default=3,
-        help="number of threads during the variant calling step")
-    parser.add_argument("--no_docker", action="store_true",
-        help="do not use docker for any commands")
-    parser.add_argument("--vg_docker", type=str, default='quay.io/ucsc_cgl/vg:latest',
-        help="dockerfile to use for vg")
-    parser.add_argument("--bcftools_docker", type=str, default='quay.io/cmarkello/bcftools',
-        help="dockerfile to use for bcftools")
-    parser.add_argument("--tabix_docker", type=str, default='quay.io/cmarkello/htslib:latest',
-        help="dockerfile to use for tabix")
-    parser.add_argument("--jq_docker", type=str, default='devorbitus/ubuntu-bash-jq-curl',
-        help="dockerfile to use for jq")    
+
+    # Add common calling options shared with dockered_chunked_call
+    chunked_call_parse_args(parser)
+
+    # Add common docker options shared with dockered_chunked_call
+    add_docker_tool_parse_args(parser)
 
     options = parser.parse_args()
 

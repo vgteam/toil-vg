@@ -39,16 +39,29 @@ def parse_args():
     parser.add_argument("out_dir", type=str,
                         help="directory where all output will be written")
     parser.add_argument("input_store",
-        help="sample input IOStore where input files will be temporarily uploaded")
+                        help="sample input IOStore where input files will be temporarily uploaded")
     parser.add_argument("out_store",
-        help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")    
+                        help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")    
+
+    # Add common calling options shared with vg_evaluation_pipeline
+    chunked_call_parse_args(parser)
+
+    # Add common docker options shared with vg_evaluation pipeline
+    add_docker_tool_parse_args(parser)
+                        
+    return parser.parse_args()
+
+def chunked_call_parse_args(parser):
+    """ centralize calling parameters here """
+    parser.add_argument("--overlap", type=int, default=2000,
+                        help="overlap option that is passed into make_chunks and call_chunk")
     parser.add_argument("--call_chunk_size", type=int, default=10000000,
                         help="chunk size")
-    parser.add_argument("--overlap", type=int, default=2000,
-                        help="amount of overlap between chunks")
+    parser.add_argument("--offset", type=int,
+                        help="chromosomal position offset. e.g. 43044293")
     parser.add_argument("--filter_opts", type=str,
                         default="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
-                        help="options to pass to vg filter. wrap in \"\"")
+                        help="options to pass to chunk_gam. wrap in \"\"")
     parser.add_argument("--pileup_opts", type=str,
                         default="-w 40 -m 10 -q 10",
                         help="options to pass to vg pileup. wrap in \"\"")
@@ -59,11 +72,14 @@ def parse_args():
                         default="",
                         help="options to pass to vg genotype. wrap in \"\"")
     parser.add_argument("--genotype", action="store_true",
-                        help="use vg genotype instead of vg call")    
-    parser.add_argument("--threads", type=int, default=20,
-                        help="number of threads to use in vg call and vg pileup")
+                        help="use vg genotype instead of vg call")
+    parser.add_argument("--calling_cores", type=int, default=3,
+                        help="number of threads during the variant calling step")
     parser.add_argument("--overwrite", action="store_true",
-                        help="always overwrite existing files")
+                        help="always overwrite existing files")    
+
+def add_docker_tool_parse_args(parser):
+    """ centralize shared docker options and their defaults """
     parser.add_argument("--no_docker", action="store_true",
                         help="do not use docker for any commands")
     parser.add_argument("--vg_docker", type=str, default='quay.io/ucsc_cgl/vg:latest',
@@ -74,8 +90,6 @@ def parse_args():
                         help="dockerfile to use for tabix")
     parser.add_argument("--jq_docker", type=str, default='devorbitus/ubuntu-bash-jq-curl',
                         help="dockerfile to use for jq")
-                        
-    return parser.parse_args()
 
 def get_chunk_call_docker_tool_map(options):
     """ convenience function to parse the above _docker options into a dictionary """
@@ -628,7 +642,7 @@ def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
 
     inputGamFileID = options.gam_path
     vcf_file_key = job.addChildJobFn(run_calling, options, indexDirId, inputGamFileID,
-                                     options.path_name, options.path_size, cores=options.threads,
+                                     options.path_name, options.path_size, cores=options.calling_cores,
                                      memory="4G", disk="2G").rv()
 
     return job.addFollowOnJobFn(wait_for_vcf, vcf_file_key).rv()
