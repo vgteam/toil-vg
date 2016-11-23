@@ -16,7 +16,7 @@ from uuid import uuid4
 from toil.common import Toil
 from toil.job import Job
 from toil_lib.toillib import *
-from toil_lib.programs import docker_call
+from toil_vg.vg_common import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, 
@@ -76,126 +76,7 @@ def chunked_call_parse_args(parser):
     parser.add_argument("--calling_cores", type=int, default=3,
                         help="number of threads during the variant calling step")
     parser.add_argument("--overwrite", action="store_true",
-                        help="always overwrite existing files")    
-
-def add_docker_tool_parse_args(parser):
-    """ centralize shared docker options and their defaults """
-    parser.add_argument("--no_docker", action="store_true",
-                        help="do not use docker for any commands")
-    parser.add_argument("--vg_docker", type=str, default='quay.io/ucsc_cgl/vg:latest',
-                        help="dockerfile to use for vg")
-    parser.add_argument("--bcftools_docker", type=str, default='quay.io/cmarkello/bcftools',
-                        help="dockerfile to use for bcftools")
-    parser.add_argument("--tabix_docker", type=str, default='quay.io/cmarkello/htslib:latest',
-                        help="dockerfile to use for tabix")
-    parser.add_argument("--jq_docker", type=str, default='devorbitus/ubuntu-bash-jq-curl',
-                        help="dockerfile to use for jq")
-
-def get_chunk_call_docker_tool_map(options):
-    """ convenience function to parse the above _docker options into a dictionary """
-
-    dmap = dict()
-    if not options.no_docker:
-        dmap["vg"] = options.vg_docker
-        dmap["bcftools"] = options.bcftools_docker
-        dmap["tabix"] = options.tabix_docker
-        dmap["bgzip"] = options.tabix_docker
-        dmap["jq"] = options.jq_docker
-
-    # to do: could be a good place to do an existence check on these tools
-
-    return dmap
-        
-class DockerRunner(object):
-    """ Helper class to centralize docker calling.  So we can toggle Docker
-on and off in just one place.  to do: Should go somewhere more central """
-    def __init__(self, docker_tool_map = {}):
-        # this maps a command to its full docker name
-        # example:  docker_tool_map['vg'] = 'quay.io/ucsc_cgl/vg:latest'
-        self.docker_tool_map = docker_tool_map
-
-    def call(self, args, work_dir = '.' , outfile = None, errfile = None,
-             check_output = False, inputs=[]):
-        """ run a command.  decide to use docker based on whether
-        its in the docker_tool_map.  args is either the usual argument list,
-        or a list of lists (in the case of a chain of piped commands)  """
-        # from here on, we assume our args is a list of lists
-        if len(args) == 0 or len(args) > 0 and type(args[0]) is not list:
-            args = [args]
-        if args[0][0] in self.docker_tool_map:
-            return self.call_with_docker(args, work_dir, outfile, errfile, check_output, inputs)
-        else:
-            return self.call_directly(args, work_dir, outfile, errfile, check_output, inputs)
-        
-    def call_with_docker(self, args, work_dir, outfile, errfile, check_output, inputs): 
-        """ Thin wrapper for docker_call that will use internal lookup to
-        figure out the location of the docker file.  Only exposes docker_call
-        parameters used so far.  expect args as list of lists.  if (toplevel)
-        list has size > 1, then piping interface used """
-
-        RealTimeLogger.get().info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
-
-        if len(args) == 1:
-            # just one command, use regular docker_call interface
-            # where parameters is an argument list not including command
-            tool = self.docker_tool_map[args[0][0]]
-            tools = None
-            if args[0][0] == "vg":
-                # todo:  this is a hack because the vg docker currently *does not* expect
-                # command lines passed in to begin with vg.  Seems inconsistent with
-                # all other containers (ex bcftools expects bcftools as first arg)
-                # it's very hard to work around programmatically when supporting
-                # docker/non-docker consistency to have to parse different command lines
-                # differently. 
-                parameters = args[0][1:]
-            else:
-                parameters = args[0]
-        else:
-            # there's a pipe.  we use the different piping interface that
-            # takes in paramters as a list of single-string commands
-            # that include arguments
-            tool = None
-            tools = self.docker_tool_map[args[0][0]]
-            parameters = [" ".join(x) for x in args]
-
-        return docker_call(tool=tool, tools=tools, parameters=parameters,
-                           work_dir=work_dir, outfile = outfile,
-                           errfile = errfile,
-                           check_output = check_output,
-                           inputs=inputs)
-
-    def call_directly(self, args, work_dir, outfile, errfile, check_output, inputs):
-        """ Just run the command without docker """
-
-        RealTimeLogger.get().info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
-
-        # this is all that docker_call does with the inputs parameter:
-        for filename in inputs:
-            assert(os.path.isfile(os.path.join(work_dir, filename)))
-
-        procs = []
-        for i in range(len(args)):
-            stdin = procs[i-1].stdout if i > 0 else None
-            if i == len(args) - 1 and outfile is not None:
-                stdout = outfile
-            else:
-                stdout = subprocess.PIPE
-            procs.append(subprocess.Popen(args[i], stdout=stdout, stderr=errfile,
-                                          stdin=stdin, cwd=work_dir))
-            
-        for p in procs[:-1]:
-            p.stdout.close()
-
-        output, errors = procs[-1].communicate()
-        for i, proc in enumerate(procs):
-            sts = proc.wait()
-            if sts != 0:            
-                raise Exception("Command {} returned with non-zero exit status {}".format(
-                    " ".join(args[i]), sts))
-
-        if check_output:
-            return output
-    
+                        help="always overwrite existing files")        
         
 def merge_call_opts(contig, offset, length, call_opts, sample_name, sample_flag = '-S'):
     """ combine input vg call  options with generated options, by adding user offset
@@ -652,7 +533,8 @@ def wait_for_vcf(job, vcf_file_key):
 
 def fetch_output_vcf(options, vcf_file_key):
     """ run_calling leaves the vcf output the output store.  copy these over
-    to the output directory """
+    to the output directory 
+    to do - having both outstore and out_dir seems redundant """
 
     # Create output directory if it doesn't exist
     try:
@@ -679,7 +561,7 @@ def main():
 
     # make the docker runner
     options.drunner = DockerRunner(
-        docker_tool_map = get_chunk_call_docker_tool_map(options))
+        docker_tool_map = get_docker_tool_map(options))
         
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None

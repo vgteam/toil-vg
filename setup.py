@@ -17,7 +17,8 @@ kwargs = dict(
     packages=find_packages('src'),
     entry_points={
         'console_scripts': ['toil-vg = toil_vg.vg_evaluation_pipeline:main',
-                            'dockered_chunked_call = toil_vg.dockered_chunked_call:main']})
+                            'toil-vg-call = toil_vg.vg_call:main',
+                            'toil-vg-index = toil_vg.vg_index:main']})
 
 class PyTest(TestCommand):
     user_options = [('pytest-args=', 'a', "Arguments to pass to py.test")]
