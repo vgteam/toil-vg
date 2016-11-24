@@ -94,19 +94,6 @@ def parse_args():
 
     return parser.parse_args()
 
-def run_indexing(job, options):
-    """
-    For each server listed in the server_list tsv, kick off child jobs to
-    align and evaluate it.
-    """
-
-    # common indexing logic, shared between here and standalone, but
-    # both requiring different children. 
-    index_key, index_dir_id = build_indexes(job, options)
-    
-    #Split fastq files
-    return job.addChildJobFn(run_split_fastq, options, index_dir_id, cores=3, memory="4G", disk="2G").rv()
-
 def run_split_fastq(job, options, index_dir_id):
     
     RealTimeLogger.get().info("Starting fastq split and alignment...")
@@ -268,8 +255,91 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
 
     # Upload the merged alignment file
     alignment_file_key = os.path.basename(output_merged_gam)
-    out_store.write_output_file(output_merged_gam, alignment_file_key) 
+    out_store.write_output_file(output_merged_gam, alignment_file_key)
 
+    return alignment_file_key
+
+
+# Below are the top level jobs of the vg_evaluation pipeline.  They
+# form a chain of "follow-on" jobs as follows:
+#
+# run_pipeline_upload --> run_pipeline_index --> run_pipeline_map --> run_pipeline_call
+# --> run_pipeline_merge_vcf
+#
+# Each part of this chain spawns a child job that can also be run independently
+# using one of vg_index.main, vg_map.main etc.
+#
+# Data is communicated across the chain via the output store (at least for now). 
+
+def run_pipeline_upload(job, options, uploadList):
+    """
+    Upload and file in uploadList to the remote IO store specified
+    in the input_store option.
+    """
+    
+    RealTimeLogger.get().info("Uploading files to IO store")
+    # Set up the IO stores each time, since we can't unpickle them on Azure for
+    # some reason.
+    input_store = IOStore.get(options.input_store)   
+    out_store = IOStore.get(options.out_store)
+    
+    for file_key in uploadList:
+        file_basename = os.path.basename(file_key[1])
+        RealTimeLogger.get().info("Uploading {} to {} on IO store".format(file_key[0], file_basename))
+        fi = job.fileStore.readGlobalFile(file_key[0])
+        input_store.write_output_file(fi, file_basename)
+
+    return job.addFollowOnJobFn(run_pipeline_index, options, cores=2, memory="4G", disk="2G").rv()
+    
+def run_pipeline_index(job, options):
+    """
+    All indexing.  result is a tarball in thie output store.
+    """
+
+    if options.gcsa_index:
+        
+        # Download local input files from the remote storage container
+        graph_dir = job.fileStore.getLocalTempDir()
+        robust_makedirs(graph_dir)
+        indexFile = job.fileStore.readGlobalFile(uploadList[2][0])
+        tar = tarfile.open(indexFile)
+        tar.extractall(path=graph_dir)
+        tar.close() 
+        # Define a file to keep the compressed index in, so we can send it to
+        # the output store.
+        index_dir_tgz = "{}/index.tar.gz".format(
+            job.fileStore.getLocalTempDir())
+        
+        # Now save the indexed graph directory to the file store. It can be
+        # cleaned up since only our children use it.
+        RealTimeLogger.get().info("Compressing index")
+        index_dir_id = write_global_directory(job.fileStore, graph_dir,
+            cleanup=True, tee=index_dir_tgz)
+
+        # Save it to the out_store
+        RealTimeLogger.get().info("Uploading compressed index directory to output store")
+        index_key = os.path.basename(index_dir_tgz)
+        out_store.write_output_file(index_dir_tgz, index_key)
+        RealTimeLogger.get().info("Index {} uploaded successfully".format(
+            index_key))
+
+        #Split fastq files
+        index_key_and_id = index_key, index_dir_id
+    else:
+        index_key_and_id = job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
+
+    return job.addFollowOnJobFn(run_pipeline_map, options, index_key_and_id, cores=2, memory="4G", disk="2G").rv()
+
+def run_pipeline_map(job, options, index_key_and_id):
+    """ All mapping, including fastq splitting and gam merging"""
+
+    alignment_file_key = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1], cores=3, memory="4G", disk="2G").rv()
+
+    return job.addFollowOnJobFn(run_pipeline_call, options, index_key_and_id[1], alignment_file_key, cores=2, memory="4G", disk="2G").rv()
+
+def run_pipeline_call(job, options, index_dir_id, alignment_file_key):
+    """ Run variant calling on the chromosomes in parallel """
+    
     # Run variant calling on .gams by chromosome if no path_name or path_size options are set 
     return_value = []
     vcf_file_key_list = [] 
@@ -281,9 +351,9 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
     else:
         raise RuntimeError("Invalid or non-existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
 
-    return job.addFollowOnJobFn(run_merge_vcf, options, index_dir_id, vcf_file_key_list, cores=2, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, index_dir_id, vcf_file_key_list, cores=2, memory="4G", disk="2G").rv()
 
-def run_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
+def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
 
     RealTimeLogger.get().info("Completed gam merging and gam path variant calling.")
     RealTimeLogger.get().info("Starting vcf merging vcf files.")
@@ -332,57 +402,6 @@ def run_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
     downloadList = [[vcf_file_id, vcf_merged_file_key], [vcf_file_idx_id, vcf_merged_file_key+".tbi"]]
 
     return downloadList
-
-def run_upload(job, options, uploadList):
-    """
-    Upload and file in uploadList to the remote IO store specified
-    in the input_store option.
-    """
-    
-    RealTimeLogger.get().info("Uploading files to IO store")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    input_store = IOStore.get(options.input_store)   
-    out_store = IOStore.get(options.out_store)
-    
-    for file_key in uploadList:
-        file_basename = os.path.basename(file_key[1])
-        RealTimeLogger.get().info("Uploading {} to {} on IO store".format(file_key[0], file_basename))
-        fi = job.fileStore.readGlobalFile(file_key[0])
-        input_store.write_output_file(fi, file_basename)
-    
-
-    if options.gcsa_index:
-        
-        # Download local input files from the remote storage container
-        graph_dir = job.fileStore.getLocalTempDir()
-        robust_makedirs(graph_dir)
-        indexFile = job.fileStore.readGlobalFile(uploadList[2][0])
-        tar = tarfile.open(indexFile)
-        tar.extractall(path=graph_dir)
-        tar.close() 
-        # Define a file to keep the compressed index in, so we can send it to
-        # the output store.
-        index_dir_tgz = "{}/index.tar.gz".format(
-            job.fileStore.getLocalTempDir())
-        
-        # Now save the indexed graph directory to the file store. It can be
-        # cleaned up since only our children use it.
-        RealTimeLogger.get().info("Compressing index")
-        index_dir_id = write_global_directory(job.fileStore, graph_dir,
-            cleanup=True, tee=index_dir_tgz)
-
-        # Save it to the out_store
-        RealTimeLogger.get().info("Uploading compressed index directory to output store")
-        index_key = os.path.basename(index_dir_tgz)
-        out_store.write_output_file(index_dir_tgz, index_key)
-        RealTimeLogger.get().info("Index {} uploaded successfully".format(
-            index_key))
-
-        #Split fastq files
-        return job.addChildJobFn(run_split_fastq, options, index_dir_id, cores=3, memory="4G", disk="2G").rv()
-    else:
-        return job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
 
 def run_download(toil, options, downloadList):
     """
@@ -475,7 +494,7 @@ def main():
                 uploadList += [[inputIndexFileID, options.gcsa_index]]
             
             # Make a root job
-            root_job = Job.wrapJobFn(run_upload, options, uploadList, cores=2, memory="5G", disk="2G")
+            root_job = Job.wrapJobFn(run_pipeline_upload, options, uploadList, cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download
             outputFileIDList = toil.start(root_job)

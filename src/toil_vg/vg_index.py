@@ -85,14 +85,12 @@ def index_parse_args(parser):
     parser.add_argument("--index_cores", type=int, default=3,
         help="number of threads during the indexing step")
 
-    
-def build_indexes(job, options):
-    """ Common indexing logic that's shared between standalone indexing and 
-    vg_evaluation_pipeline.  This is run from a toil job but not actually 
-    added as a child or follow-on in either case.  The point of pulling this
-    out is that run_indexing() in its current form has a child that isn't used
-    in standalone.  So we re-use this function within different toil hierarchies
-    todo: this shouldn't be that hard to clean up """
+
+def run_indexing(job, options):
+    """
+    Create a directory with the gcsa and xg indexe files and tar it up
+    Return a tuple of its name and id
+    """
     
     RealTimeLogger.get().info("Starting indexing...")
     
@@ -275,9 +273,9 @@ def run_only_indexing(job, options, inputGraphFileID):
     fi = job.fileStore.readGlobalFile(inputGraphFileID)
     input_store.write_output_file(fi, input_graph_basename)
 
-    index_key, index_dir_id = build_indexes(job, options)
+    index_key_and_id = job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
 
-    return index_key
+    return index_key_and_id
 
 def fetch_output_index(options, index_key):
     """ copy from out store to out dir 
@@ -327,12 +325,12 @@ def main():
                                      cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download
-            index_key = toil.start(root_job)
+            index_key_and_id = toil.start(root_job)
         else:
-            index_key = toil.restart()
+            index_key_and_id = toil.restart()
             
         # copy the indexes out of the output store and into options.out_dir
-        fetch_output_index(options, index_key)
+        fetch_output_index(options, index_key_and_id[0])
 
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
