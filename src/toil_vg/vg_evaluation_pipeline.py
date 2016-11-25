@@ -124,19 +124,26 @@ def run_pipeline_upload(job, options, uploadList):
         fi = job.fileStore.readGlobalFile(file_key[0])
         input_store.write_output_file(fi, file_basename)
 
-    return job.addFollowOnJobFn(run_pipeline_index, options, cores=2, memory="4G", disk="2G").rv()
+    inputIndexFileID = uploadList[2][0] if options.gcsa_index else None
+
+    return job.addFollowOnJobFn(run_pipeline_index, options, inputIndexFileID, cores=2, memory="4G", disk="2G").rv()
     
-def run_pipeline_index(job, options):
+def run_pipeline_index(job, options, inputIndexFileID):
     """
     All indexing.  result is a tarball in thie output store.
     """
 
     if options.gcsa_index:
+
+        # Set up the IO stores each time, since we can't unpickle them on Azure for
+        # some reason.
+        input_store = IOStore.get(options.input_store)
+        out_store = IOStore.get(options.out_store)
         
         # Download local input files from the remote storage container
         graph_dir = job.fileStore.getLocalTempDir()
         robust_makedirs(graph_dir)
-        indexFile = job.fileStore.readGlobalFile(uploadList[2][0])
+        indexFile = job.fileStore.readGlobalFile(inputIndexFileID)
         tar = tarfile.open(indexFile)
         tar.extractall(path=graph_dir)
         tar.close() 
