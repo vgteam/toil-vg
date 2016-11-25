@@ -30,6 +30,7 @@ from toil_lib.programs import docker_call
 from toil_vg.vg_common import *
 from toil_vg.vg_call import *
 from toil_vg.vg_index import *
+from toil_vg.vg_map import *
 
 def parse_args():
     """
@@ -71,15 +72,14 @@ def parse_args():
         help="Name of reference path in the graph (eg. ref or 17)")
     parser.add_argument("--path_size", nargs='+', type=int,
         help="Size of the reference path in the graph")    
-    parser.add_argument("--num_fastq_chunks", type=int, default=3,
-        help="number of chunks to split the input fastq file records")
     parser.add_argument("--restat", default=False, action="store_true",
         help="recompute and overwrite existing stats files")
-    parser.add_argument("--alignment_cores", type=int, default=3,
-        help="number of threads during the alignment step")
 
     # Add common indexing options shared with vg_index
     index_parse_args(parser)
+
+    # add common mapping options shared with vg_map
+    map_parse_args(parser)
     
     # Add common calling options shared with vg_call
     chunked_call_parse_args(parser)
@@ -93,171 +93,6 @@ def parse_args():
     assert len(options.path_name) == len(options.path_size)
 
     return parser.parse_args()
-
-def run_split_fastq(job, options, index_dir_id):
-    
-    RealTimeLogger.get().info("Starting fastq split and alignment...")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    input_store = IOStore.get(options.input_store)
-    out_store = IOStore.get(options.out_store)
-    
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Download local input files from the remote storage container
-    graph_dir = work_dir
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
-
-
-    # We need the sample fastq for alignment
-    sample_filename = os.path.basename(options.sample_reads)
-    fastq_file = "{}/input.fq".format(work_dir)
-    input_store.read_input_file(sample_filename, fastq_file)
-    
-    record_iter = SeqIO.parse(open(fastq_file),"fastq")
-    
-    # Find number of records per fastq chunk
-    p1 = Popen(['cat', fastq_file], stdout=PIPE)
-    p2 = Popen(['wc', '-l'], stdin=p1.stdout, stdout=PIPE)
-    p1.stdout.close()
-    num_records_total = int(p2.communicate()[0]) / 4.0
-    num_records_fastq_chunk = ceil(num_records_total / float(options.num_fastq_chunks))
-    
-    num_chunks = 0
-    for chunk_id, batch in enumerate(batch_iterator(record_iter, num_records_fastq_chunk)):
-        num_chunks += 1
-        chunk_id = chunk_id + 1
-        filename = "{}/group_{}.fq".format(work_dir, chunk_id)
-        handle = open(filename, "w")
-        count = SeqIO.write(batch, handle, "fastq")
-        handle.close()
-        
-        # Upload the fastq file chunk
-        filename_key = os.path.basename(filename)
-        out_store.write_output_file(filename, filename_key)
-        
-        RealTimeLogger.get().info("Wrote {} records to {}".format(count, filename))
-        
-        #Run graph alignment on each fastq chunk
-        job.addChildJobFn(run_alignment, options, filename_key, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G")
-    
-    return job.addFollowOnJobFn(run_merge_gam, options, num_chunks, index_dir_id, cores=3, memory="4G", disk="2G").rv()
-
-
-def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
-
-    RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    input_store = IOStore.get(options.input_store)
-    out_store = IOStore.get(options.out_store)
-
-    # How long did the alignment take to run, in seconds?
-    run_time = None
-    
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Download local input files from the remote storage container
-    graph_dir = work_dir
-
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
-    
-    # We know what the vg file in there will be named
-    graph_file = "{}/graph.vg".format(graph_dir)
-
-    # We need the sample fastq for alignment
-    sample_filename = os.path.basename(options.sample_reads)
-    fastq_file = "{}/group_{}.fq".format(work_dir, chunk_id)
-    out_store.read_input_file(filename_key, fastq_file)
-    
-    # And a temp file for our aligner output
-    output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
-
-
-    # Open the file stream for writing
-    with open(output_file, "w") as alignment_file:
-
-        # Start the aligner and have it write to the file
-
-        # Plan out what to run
-        vg_parts = ['vg', 'map', '-f', os.path.basename(fastq_file),
-            '-i', '-M2', '-W', '500', '-u', '0', '-U', '-t', str(job.cores), os.path.basename(graph_file)]
-
-        if options.index_mode == "rocksdb":
-            vg_parts += ['-d', os.path.basename(graph_file+".index"), '-n3', '-k',
-                str(options.kmer_size)]
-        elif options.index_mode == "gcsa-kmer":
-            # Use the new default context size in this case
-            vg_parts += ['-x', os.path.basename(graph_file+ ".xg"), '-g', os.path.basename(graph_file + ".gcsa"),
-                '-n5', '-k', str(options.kmer_size)]
-        elif options.index_mode == "gcsa-mem":
-            # Don't pass the kmer size, so MEM matching is used
-            vg_parts += ['-x', os.path.basename(graph_file+ ".xg"), '-g', os.path.basename(graph_file+ ".gcsa"),
-                '-n5']
-        else:
-            raise RuntimeError("invalid indexing mode: " + options.index_mode)
-
-        RealTimeLogger.get().info(
-            "Running VG for {} against {}: {}".format(options.sample_name, graph_file,
-            " ".join(vg_parts)))
-        
-        # Mark when we start the alignment
-        start_time = timeit.default_timer()
-        command = vg_parts
-        options.drunner.call(command, work_dir = work_dir, outfile=alignment_file)
-        
-        # Mark when it's done
-        end_time = timeit.default_timer()
-        run_time = end_time - start_time
- 
-
-    RealTimeLogger.get().info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
-    
-    
-    # Upload the alignment
-    alignment_file_key = os.path.basename(output_file)
-    out_store.write_output_file(output_file, alignment_file_key)
-    
-
-def run_merge_gam(job, options, num_chunks, index_dir_id):
-    
-    RealTimeLogger.get().info("Starting gam merging...")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    input_store = IOStore.get(options.input_store)
-    out_store = IOStore.get(options.out_store)
-    
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Download local input files from the remote storage container
-    graph_dir = work_dir
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
-
-    # Define a temp file for our merged alignent output
-    output_merged_gam = "{}/{}.gam".format(work_dir, options.sample_name)
-    
-    # Download the chunked alignments from the outstore to the local work_dir
-    gam_chunk_filelist = []
-    for i in xrange(num_chunks):
-        chunk_id = i + 1
-        output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
-        out_store.read_input_file(os.path.basename(output_file), output_file)
-        gam_chunk_filelist.append(output_file)
-         
-    with open(output_merged_gam, "w") as output_merged_gam_handle:
-        for output_chunk_gam in gam_chunk_filelist:
-            with open(output_chunk_gam, "r") as output_chunk_gam_handle:
-                for line in output_chunk_gam_handle:
-                    output_merged_gam_handle.write(line)
-
-    # Upload the merged alignment file
-    alignment_file_key = os.path.basename(output_merged_gam)
-    out_store.write_output_file(output_merged_gam, alignment_file_key)
-
-    return alignment_file_key
 
 
 # Below are the top level jobs of the vg_evaluation pipeline.  They

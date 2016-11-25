@@ -575,7 +575,6 @@ def main():
             # Upload local files to the remote IO Store
             inputXGFileID = toil.importFile('file://'+options.xg_path)
             inputGamFileID = toil.importFile('file://'+options.gam_path)
-            uploadList = [[inputXGFileID, options.xg_path], [inputGamFileID, options.gam_path]]
 
             # Make a root job
             root_job = Job.wrapJobFn(run_only_chunked_call, options, inputXGFileID,

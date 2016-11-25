@@ -55,11 +55,11 @@ def parse_args():
     parser.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")    
 
-    # Add common docker options
-    add_docker_tool_parse_args(parser)
-
     # Add indexing options
     index_parse_args(parser)
+
+    # Add common docker options
+    add_docker_tool_parse_args(parser)
 
     options = parser.parse_args()
 
@@ -259,8 +259,8 @@ def run_indexing(job, options):
     return index_key, index_dir_id
 
 def run_only_indexing(job, options, inputGraphFileID):
-    """ run chunked_call logic by itself.  todo-modularize existing pipeline enough
-    so that we don't need to duplicate this code """
+    """ run indexing logic by itself.  
+    """
 
     RealTimeLogger.get().info("Uploading files to IO store")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
