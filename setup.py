@@ -16,7 +16,10 @@ kwargs = dict(
     package_dir={'': 'src'},
     packages=find_packages('src'),
     entry_points={
-        'console_scripts': ['toil-vg = toil_vg.vg_evaluation_pipeline:main']})
+        'console_scripts': ['toil-vg = toil_vg.vg_evaluation_pipeline:main',
+                            'toil-vg-call = toil_vg.vg_call:main',
+                            'toil-vg-index = toil_vg.vg_index:main',
+                            'toil-vg-map = toil_vg.vg_map:main']})
 
 class PyTest(TestCommand):
     user_options = [('pytest-args=', 'a', "Arguments to pass to py.test")]
