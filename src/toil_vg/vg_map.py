@@ -19,7 +19,6 @@ from Bio import SeqIO
 from toil.common import Toil
 from toil.job import Job
 from toil_lib.toillib import *
-from toil_lib.programs import docker_call
 from toil_vg.vg_common import *
 
 def parse_args():

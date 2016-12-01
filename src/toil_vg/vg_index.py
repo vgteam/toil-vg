@@ -19,7 +19,6 @@ from Bio import SeqIO
 from toil.common import Toil
 from toil.job import Job
 from toil_lib.toillib import *
-from toil_lib.programs import docker_call
 from toil_vg.vg_common import *
 
 def parse_args():
@@ -119,8 +118,7 @@ def run_indexing(job, options):
     if options.index_mode == "rocksdb":
         # Make the RocksDB index
         command = ['index', '-s', '-k', str(options.kmer_size), '-e', str(options.edge_max), '-t', str(job.cores), os.path.basename(graph_filename), os.path.basename('{}/{}.index'.format(graph_dir, graph_file))]
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/ucsc_cgl/vg:latest')
+        options.drunner.call(command, work_dir=work_dir)
 
     elif (options.index_mode == "gcsa-kmer" or
         options.index_mode == "gcsa-mem"):
@@ -147,11 +145,9 @@ def run_indexing(job, options):
                 # Prune out hard bits of the graph
                 # and complex regions
                 # and short disconnected chunks
-                command = ['vg mod -p -l {} -t {} -e {} {}'.format(str(options.kmer_size), str(job.cores), str(options.edge_max), os.path.basename(graph_filename)),
-                            'vg mod -S -l {} -t {} -'.format(str(options.kmer_size * 2), str(job.cores))]
-                docker_call(work_dir=work_dir, parameters=command,
-                            tools='quay.io/ucsc_cgl/vg:latest',
-                            outfile=to_index_file)
+                command = [['vg', 'mod', '-p', '-l', str(options.kmer_size), '-t', str(job.cores), '-e', str(options.edge_max), os.path.basename(graph_filename)]]
+                command.append(['vg', 'mod', '-S', '-l', str(options.kmer_size * 2), '-t', str(job.cores)])
+                options.drunner.call(command, work_dir=work_dir, outfile=to_index_file)
 
             if options.include_primary:
 
@@ -185,11 +181,10 @@ def run_indexing(job, options):
                     ref_options.append(name)
 
                 # Retain only the specified paths (only one should really exist)
-                command = ['mod', '-N'] + ref_options + ['-t', str(job.cores), os.path.basename(graph_filename)]
-                docker_call(work_dir=work_dir, parameters=command,
-                            tool='quay.io/ucsc_cgl/vg:latest',
-                            inputs=[graph_filename],
-                            outfile=to_index_file)
+                command = ['vg', 'mod', '-N'] + ref_options + ['-t', str(job.cores), os.path.basename(graph_filename)]
+                options.drunner.call(command, work_dir=work_dir, 
+                                     inputs=[graph_filename],
+                                     outfile=to_index_file)
                 
         time.sleep(1)
 
@@ -200,11 +195,10 @@ def run_indexing(job, options):
 
         # Make the GCSA2 kmers file
         with open(kmers_filename, "w") as kmers_file:
-            command = ['vg view -v {}'.format(os.path.basename(to_index_filename)),
-                       'vg kmers -g -B -k {} -H 1000000000 -T 1000000001 -t {} -'.format(str(options.kmer_size), str(job.cores))]
-            docker_call(work_dir=work_dir, parameters=command,
-                        tools='quay.io/ucsc_cgl/vg:latest',
-                        outfile=kmers_file)
+            command = ['vg', 'kmers',  os.path.basename(to_index_filename), '-g', '-B', '-k',
+                       str(options.kmer_size), '-H', '1000000000', '-T', '1000000001', '-t', str(job.cores)]
+            options.drunner.call(command, work_dir=work_dir,
+                                 outfile=kmers_file)
 
         time.sleep(1)
 
@@ -216,11 +210,10 @@ def run_indexing(job, options):
 
         # Make the gcsa2 index. Make sure to use 3 doubling steps to work
         # around <https://github.com/vgteam/vg/issues/301>
-        command = ['index', '-t', str(job.cores), '-i', 
+        command = ['vg', 'index', '-t', str(job.cores), '-i', 
             os.path.basename(kmers_filename), '-g', os.path.basename(gcsa_filename),
             '-X', '3', '-Z', '2000']
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/ucsc_cgl/vg:latest')
+        options.drunner.call(command, work_dir=work_dir)
 
         # Where do we put the XG index?
         xg_filename = graph_filename + ".xg"
@@ -228,10 +221,9 @@ def run_indexing(job, options):
         RealTimeLogger.get().info("XG-indexing {} to {}".format(
                 graph_filename, xg_filename))
         
-        command = ['index', '-t', str(job.cores), '-x', 
+        command = ['vg', 'index', '-t', str(job.cores), '-x', 
             os.path.basename(xg_filename), os.path.basename(graph_filename)]
-        docker_call(work_dir=work_dir, parameters=command,
-                    tool='quay.io/ucsc_cgl/vg:latest')
+        options.drunner.call(command, work_dir=work_dir)
 
     else:
         raise RuntimeError("Invalid indexing mode: " + options.index_mode)
