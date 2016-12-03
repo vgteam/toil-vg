@@ -238,7 +238,7 @@ def run_indexing(job, options):
     RealTimeLogger.get().info("Compressing index of {}".format(
         graph_filename))
     index_dir_id = write_global_directory(job.fileStore, graph_dir,
-        cleanup=True, tee=index_dir_tgz)
+        cleanup=True, tee=index_dir_tgz, compress=False)
 
     # Save it as output
     RealTimeLogger.get().info("Uploading index of {}".format(
