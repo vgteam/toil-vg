@@ -104,7 +104,6 @@ def run_split_fastq(job, options, index_dir_id):
     fastq_file = "{}/input.fq".format(work_dir)
     input_store.read_input_file(sample_filename, fastq_file)
     
-    record_iter = SeqIO.parse(open(fastq_file),"fastq")
     
     # Find number of records per fastq chunk
     p1 = Popen(['cat', fastq_file], stdout=PIPE)
@@ -112,25 +111,27 @@ def run_split_fastq(job, options, index_dir_id):
     p1.stdout.close()
     num_records_total = int(p2.communicate()[0]) / 4.0
     num_records_fastq_chunk = ceil(num_records_total / float(options.num_fastq_chunks))
-    
-    num_chunks = 0
-    for chunk_id, batch in enumerate(batch_iterator(record_iter, num_records_fastq_chunk)):
+ 
+    # Iterate through records of fastq_file and stream the number of records per fastq
+    #   file chunk into a fastq chunk file
+  
+    num_chunks = 0 
+    record_iter = SeqIO.parse(open(fastq_file),"fastq")
+    for chunk_id in xrange(options.num_fastq_chunks):
         num_chunks += 1
-        chunk_id = chunk_id + 1
-        filename = "{}/group_{}.fq".format(work_dir, chunk_id)
-        handle = open(filename, "w")
-        count = SeqIO.write(batch, handle, "fastq")
-        handle.close()
+        chunk_id += 1
+        chunk_record_iter = itertools.islice(record_iter, 0, num_records_fastq_chunk)
+        chunk_filename = "{}/group_{}.fq".format(work_dir, chunk_id)
+        count = SeqIO.write(chunk_record_iter, chunk_filename, "fastq")
         
         # Upload the fastq file chunk
-        filename_key = os.path.basename(filename)
-        out_store.write_output_file(filename, filename_key)
-        
-        RealTimeLogger.get().info("Wrote {} records to {}".format(count, filename))
+        filename_key = os.path.basename(chunk_filename)
+        out_store.write_output_file(chunk_filename, filename_key)
+        RealTimeLogger.get().info("Wrote {} records to {}".format(count, chunk_filename))
         
         #Run graph alignment on each fastq chunk
         job.addChildJobFn(run_alignment, options, filename_key, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G")
-    
+
     return job.addFollowOnJobFn(run_merge_gam, options, num_chunks, index_dir_id, cores=3, memory="4G", disk="2G").rv()
 
 
