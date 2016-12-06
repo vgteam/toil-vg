@@ -174,12 +174,21 @@ def run_pipeline_index(job, options, inputIndexFileID):
 def run_pipeline_map(job, options, index_key_and_id):
     """ All mapping, including fastq splitting and gam merging"""
 
-    alignment_file_key = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1], cores=3, memory="4G", disk="2G").rv()
+    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1], cores=3, memory="4G", disk="2G").rv()
 
-    return job.addFollowOnJobFn(run_pipeline_call, options, index_key_and_id[1], alignment_file_key, cores=2, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_pipeline_call, options, index_key_and_id[1], chr_gam_keys, cores=2, memory="4G", disk="2G").rv()
 
-def run_pipeline_call(job, options, index_dir_id, alignment_file_key):
+def run_pipeline_call(job, options, index_dir_id, chr_gam_keys):
     """ Run variant calling on the chromosomes in parallel """
+
+    # index the gam keys
+    label_map = dict()
+    if len(chr_gam_keys) == 1 and chr_gam_keys[0][0] is None:
+        for chr_label in options.path_name:
+            label_map[chr_label] = chr_gam_keys[0][1]
+    else:
+        for chr_label, gam_key in chr_gam_keys:
+            label_map[chr_label] = gam_key
     
     # Run variant calling on .gams by chromosome if no path_name or path_size options are set 
     return_value = []
@@ -187,6 +196,7 @@ def run_pipeline_call(job, options, index_dir_id, alignment_file_key):
     if options.path_name and options.path_size:
         #Run variant calling
         for chr_label, chr_length in itertools.izip(options.path_name, options.path_size):
+            alignment_file_key = label_map[chr_label]
             vcf_file_key = job.addChildJobFn(run_calling, options, index_dir_id, alignment_file_key, chr_label, chr_length, cores=options.calling_cores, memory="4G", disk="2G").rv()
             vcf_file_key_list.append(vcf_file_key)
     else:

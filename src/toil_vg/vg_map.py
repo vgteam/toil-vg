@@ -61,7 +61,12 @@ def parse_args():
     parser.add_argument("--index_mode", choices=["rocksdb", "gcsa-kmer",
         "gcsa-mem"], default="gcsa-mem",
         help="type of vg index to use for mapping")
-
+    # these are used for gam merging.  to-do: harmonize these options which are repeated
+    # in all the different tools at this point
+    parser.add_argument("--path_name", nargs='+', type=str,
+        help="Name of reference path in the graph (eg. ref or 17)")
+    parser.add_argument("--path_size", nargs='+', type=int,
+        help="Size of the reference path in the graph")    
     
     # Add mapping options
     map_parse_args(parser)
@@ -97,7 +102,6 @@ def run_split_fastq(job, options, index_dir_id):
     # Download local input files from the remote storage container
     graph_dir = work_dir
     read_global_directory(job.fileStore, index_dir_id, graph_dir)
-
 
     # We need the sample fastq for alignment
     sample_filename = os.path.basename(options.sample_reads)
@@ -220,13 +224,6 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
-
-    # Download local input files from the remote storage container
-    graph_dir = work_dir
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
-
-    # Define a temp file for our merged alignent output
-    output_merged_gam = "{}/{}.gam".format(work_dir, options.sample_name)
     
     # Download the chunked alignments from the outstore to the local work_dir
     gam_chunk_filelist = []
@@ -235,18 +232,67 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
         output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
         out_store.read_input_file(os.path.basename(output_file), output_file)
         gam_chunk_filelist.append(output_file)
-         
-    with open(output_merged_gam, "w") as output_merged_gam_handle:
-        for output_chunk_gam in gam_chunk_filelist:
-            with open(output_chunk_gam, "r") as output_chunk_gam_handle:
-                for line in output_chunk_gam_handle:
-                    output_merged_gam_handle.write(line)
 
+
+    # list of chromsome name, gam file name (no path) pairs
+    chr_gam_keys = []
+
+    if options.path_name is not None:
+        # Create a bed file of the different chromosomes to pass to vg filter
+        # using information passed in via --path_name and --path_size
+        bed_file_path = os.path.join(work_dir, "bed_regions.bed")
+        with open(bed_file_path, "w") as bed_file:
+            assert len(options.path_name) == len(options.path_size)
+            for name, size in zip(options.path_name, options.path_size):
+                bed_file.write("{}\t0\t{}\n".format(name, size))
+
+        # Download local input files from the remote storage container
+        graph_dir = work_dir
+        read_global_directory(job.fileStore, index_dir_id, graph_dir)
+
+        # We know what the vg file in there will be named
+        graph_file = "{}/graph.vg".format(graph_dir)
+
+        for i, output_chunk_gam in enumerate(gam_chunk_filelist):        
+            # Use vg filter to merge the gam_chunks back together, while dividing them by
+            # chromosome.  todo: should we just create the smaller call-chunks right
+            # here at the same time? also, can we better parallelize?
+            # todo:  clean up options a bit (using mapping cores for filtering) and
+            # see about putting lighter weight filters here too (ex identity)
+            filter_cmd = ['vg', 'filter', output_chunk_gam, '-R', os.path.basename(bed_file_path),
+                          '-B', options.sample_name, '-t', str(options.alignment_cores),
+                          '-x', os.path.join(graph_dir, graph_file + ".xg")]
+            if i > 0:
+                filter_cmd.append('-A')
+            options.drunner.call(filter_cmd, work_dir = work_dir)
+            for chunk_id, name in enumerate(options.path_name):
+                # we are relying on convention of vg filter naming output here
+                # if that changes, this will break.
+                filter_file_path = os.path.join(
+                    work_dir, "{}-{}.gam".format(options.sample_name, chunk_id))
+                assert os.path.isfile(filter_file_path)
+                # rename from chunk id to path name
+                chr_filterfile_path = os.path.join(
+                    work_dir, "{}_{}.gam".format(options.sample_name, name))
+                os.rename(filter_file_path, chr_filterfile_path)
+                chr_gam_keys.append((name, os.path.basename(chr_filterfile_path)))
+                
+    else:
+        # No path information, just append together without splitting into chromosome
+        merged_gam_path = os.path.join(work_dir, "{}.gam".format(options.sample_name))
+        if len(gam_chunk_filelist) > 0:
+            os.rename(gam_chunk_filelist[0], merged_gam_path)
+            with open(merged_gam_path, 'a') as merge_file:
+                for output_chunk_gam in gam_chunk_filelist[1:]:
+                    with open(output_chunk_gam) as chunk_file:
+                        shutil.copyfileobj(chunk_file, merge_file)                    
+        chr_gam_keys = [(None, os.path.basename(merged_gam_path))]
+                    
     # Upload the merged alignment file
-    alignment_file_key = os.path.basename(output_merged_gam)
-    out_store.write_output_file(output_merged_gam, alignment_file_key)
+    for name, alignment_key in chr_gam_keys:
+        out_store.write_output_file(os.path.join(work_dir, alignment_key), alignment_key)
 
-    return alignment_file_key
+    return chr_gam_keys
 
 def run_only_mapping(job, options, inputIndexFileID):
     """ run mapping logic by itself.  
@@ -257,12 +303,12 @@ def run_only_mapping(job, options, inputIndexFileID):
     #upload the fastq to the input store, where it's expected to be 
     input_store.write_output_file(options.sample_reads, os.path.basename(options.sample_reads))
     
-    alignment_file_key = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, cores=3, memory="4G", disk="2G").rv()
+    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, cores=3, memory="4G", disk="2G").rv()
 
-    return alignment_file_key
+    return chr_gam_keys
 
-def fetch_output_gam(options, alignment_file_key):
-    """ run_calling leaves the gam output the output store.  copy these over
+def fetch_output_gam(options, chr_gam_keys):
+    """ run_only_mapping leaves the gam output the output store.  copy these over
     to the output directory 
     to do - having both outstore and out_dir seems redundant """
 
@@ -272,12 +318,12 @@ def fetch_output_gam(options, alignment_file_key):
     except OSError as exception:
         if exception.errno != errno.EEXIST: raise
 
-    RealTimeLogger.get().info("Downloading {} to {}".format(alignment_file_key, options.out_dir))
-
     out_store = IOStore.get(options.out_store)
 
     # Read them out of the output store
-    out_store.read_input_file(alignment_file_key, os.path.join(options.out_dir, alignment_file_key))
+    for chr_name, alignment_file_key in chr_gam_keys:
+        RealTimeLogger.get().info("Downloading {} to {}".format(alignment_file_key, options.out_dir))
+        out_store.read_input_file(alignment_file_key, os.path.join(options.out_dir, alignment_file_key))
 
 def main():
     """
@@ -308,12 +354,12 @@ def main():
                                      cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download
-            alignment_file_key = toil.start(root_job)
+            chr_gam_keys = toil.start(root_job)
         else:
-            alignment_file_key = toil.restart()
+            chr_gam_keys = toil.restart()
             
         # copy the indexes out of the output store and into options.out_dir
-        fetch_output_gam(options, alignment_file_key)
+        fetch_output_gam(options, chr_gam_keys)
 
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
