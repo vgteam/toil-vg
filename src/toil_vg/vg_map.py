@@ -61,7 +61,8 @@ def parse_args():
     parser.add_argument("--index_mode", choices=["rocksdb", "gcsa-kmer",
         "gcsa-mem"], default="gcsa-mem",
         help="type of vg index to use for mapping")
-
+    parser.add_argument("--use_outstore", default=False, action="store_true",
+        help="Use remote output io store to store intermediate files in the pipeline")
     
     # Add mapping options
     map_parse_args(parser)
@@ -70,6 +71,12 @@ def parse_args():
     add_docker_tool_parse_args(parser)
 
     options = parser.parse_args()
+
+    # If out_store argument is set then use_outstore must be True and vice versa
+    if options.out_store is not None:
+        assert options.use_outstore == True
+    else:
+        assert options.use_outstore == False
 
     return parser.parse_args()
 
@@ -83,13 +90,13 @@ def map_parse_args(parser):
         help="number of threads during the alignment step")
 
 
-def run_split_fastq(job, options, index_dir_id):
+def run_split_fastq(job, options, index_dir_id, inputReadsFileID):
     
     RealTimeLogger.get().info("Starting fastq split and alignment...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
-    out_store = IOStore.get(options.out_store)
+    if options.use_outstore:
+        out_store = IOStore.get(options.out_store)
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -100,10 +107,7 @@ def run_split_fastq(job, options, index_dir_id):
 
 
     # We need the sample fastq for alignment
-    sample_filename = os.path.basename(options.sample_reads)
-    fastq_file = "{}/input.fq".format(work_dir)
-    input_store.read_input_file(sample_filename, fastq_file)
-    
+    fastq_file = job.fileStore.readGlobalFile(inputReadsFileID)
     
     # Find number of records per fastq chunk
     p1 = Popen(['cat', fastq_file], stdout=PIPE)
@@ -117,6 +121,7 @@ def run_split_fastq(job, options, index_dir_id):
   
     num_chunks = 0 
     record_iter = SeqIO.parse(open(fastq_file),"fastq")
+    chunk_alignment_list = []
     for chunk_id in xrange(options.num_fastq_chunks):
         num_chunks += 1
         chunk_id += 1
@@ -126,13 +131,15 @@ def run_split_fastq(job, options, index_dir_id):
         
         # Upload the fastq file chunk
         filename_key = os.path.basename(chunk_filename)
-        out_store.write_output_file(chunk_filename, filename_key)
+        if options.use_outstore:
+            out_store.write_output_file(chunk_filename, filename_key)
+        filename_key = job.fileStore.writeGlobalFile(vcf_file)
         RealTimeLogger.get().info("Wrote {} records to {}".format(count, chunk_filename))
         
         #Run graph alignment on each fastq chunk
-        job.addChildJobFn(run_alignment, options, filename_key, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G")
+        chunk_alignment_list.append(job.addChildJobFn(run_alignment, options, filename_key, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G").rv())
 
-    return job.addFollowOnJobFn(run_merge_gam, options, num_chunks, index_dir_id, cores=3, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_merge_gam, options, num_chunks, index_dir_id, chunk_alignment_list, cores=3, memory="4G", disk="2G").rv()
 
 
 def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
@@ -140,8 +147,8 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
     RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
-    out_store = IOStore.get(options.out_store)
+    if options.use_outstore:
+        out_store = IOStore.get(options.out_store)
 
     # How long did the alignment take to run, in seconds?
     run_time = None
@@ -158,11 +165,10 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
     graph_file = "{}/graph.vg".format(graph_dir)
 
     # We need the sample fastq for alignment
-    sample_filename = os.path.basename(options.sample_reads)
-    fastq_file = "{}/group_{}.fq".format(work_dir, chunk_id)
-    out_store.read_input_file(filename_key, fastq_file)
-    
+    fastq_file = job.fileStore.readGlobalFile(filename_key)
+ 
     # And a temp file for our aligner output
+    sample_filename = os.path.basename(options.sample_reads)
     output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
 
 
@@ -208,23 +214,25 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
     
     # Upload the alignment
     alignment_file_key = os.path.basename(output_file)
-    out_store.write_output_file(output_file, alignment_file_key)
+    if options.use_outstore:
+        out_store.write_output_file(output_file, alignment_file_key)
+    alignment_file_key = job.fileStore.writeGlobalFile(output_file)
     
+    return alignment_file_key
 
-def run_merge_gam(job, options, num_chunks, index_dir_id):
+def run_merge_gam(job, options, num_chunks, index_dir_id, chunk_alignment_list):
     
     RealTimeLogger.get().info("Starting gam merging...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
-    out_store = IOStore.get(options.out_store)
+    if options.use_outstore:
+        out_store = IOStore.get(options.out_store)
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
     # Download local input files from the remote storage container
     graph_dir = work_dir
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
 
     # Define a temp file for our merged alignent output
     output_merged_gam = "{}/{}.gam".format(work_dir, options.sample_name)
@@ -235,8 +243,10 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
         chunk_id = i + 1
         output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
         out_store.read_input_file(os.path.basename(output_file), output_file)
-        gam_chunk_filelist.append(output_file)
-         
+        alignment_file = job.fileStore.readGlobalFile(inputGraphFileID, output_file)
+        gam_chunk_filelist.append(alignment_file)
+    
+    # Merge the chunked gam files into a single merged gam file
     with open(output_merged_gam, "w") as output_merged_gam_handle:
         for output_chunk_gam in gam_chunk_filelist:
             with open(output_chunk_gam, "r") as output_chunk_gam_handle:
@@ -245,20 +255,17 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
 
     # Upload the merged alignment file
     alignment_file_key = os.path.basename(output_merged_gam)
-    out_store.write_output_file(output_merged_gam, alignment_file_key)
+    if options.use_outstore:
+        out_store.write_output_file(output_merged_gam, alignment_file_key)
+    alignment_file_key = job.fileStore.writeGlobalFile(output_merged_gam)
 
     return alignment_file_key
 
-def run_only_mapping(job, options, inputIndexFileID):
+def run_only_mapping(job, options, inputIndexFileID, inputReadsFileID):
     """ run mapping logic by itself.  
     """
     
-    input_store = IOStore.get(options.input_store)
-
-    #upload the fastq to the input store, where it's expected to be 
-    input_store.write_output_file(options.sample_reads, os.path.basename(options.sample_reads))
-    
-    alignment_file_key = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, cores=3, memory="4G", disk="2G").rv()
+    alignment_file_key = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, inputReadsFileID, cores=3, memory="4G", disk="2G").rv()
 
     return alignment_file_key
 
@@ -303,10 +310,11 @@ def main():
             
             # Upload local files to the remote IO Store
             inputIndexFileID = toil.importFile('file://'+options.gcsa_index)
-            
+            inputReadsFileID = toil.importFile('file://'+options.sample_reads)          
+
             # Make a root job
-            root_job = Job.wrapJobFn(run_only_mapping, options, inputIndexFileID,                                     
-                                     cores=2, memory="5G", disk="2G")
+            root_job = Job.wrapJobFn(run_only_mapping, options, inputIndexFileID, inputReadsFileID,
+                                    cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download
             alignment_file_key = toil.start(root_job)
@@ -314,7 +322,8 @@ def main():
             alignment_file_key = toil.restart()
             
         # copy the indexes out of the output store and into options.out_dir
-        fetch_output_gam(options, alignment_file_key)
+        if options.use_outstore:
+            fetch_output_gam(options, alignment_file_key)
 
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
