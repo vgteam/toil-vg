@@ -60,7 +60,7 @@ def chunked_call_parse_args(parser):
     parser.add_argument("--offset", type=int,
                         help="chromosomal position offset. e.g. 43044293")
     parser.add_argument("--filter_opts", type=str,
-                        default="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
+                        default="-r 0.9 -fu -s 1000 -o 10",
                         help="options to pass to chunk_gam. wrap in \"\"")
     parser.add_argument("--pileup_opts", type=str,
                         default="-w 40 -m 10 -q 10",

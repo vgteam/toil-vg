@@ -259,9 +259,10 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
             # here at the same time? also, can we better parallelize?
             # todo:  clean up options a bit (using mapping cores for filtering) and
             # see about putting lighter weight filters here too (ex identity)
-            filter_cmd = ['vg', 'filter', output_chunk_gam, '-R', os.path.basename(bed_file_path),
+            filter_cmd = ['vg', 'filter', os.path.basename(output_chunk_gam),
+                          '-R', os.path.basename(bed_file_path),
                           '-B', options.sample_name, '-t', str(options.alignment_cores),
-                          '-x', os.path.join(graph_dir, graph_file + ".xg")]
+                          '-x', os.path.basename(graph_file + ".xg")]
             if i > 0:
                 filter_cmd.append('-A')
             options.drunner.call(filter_cmd, work_dir = work_dir)
