@@ -266,17 +266,18 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
             if i > 0:
                 filter_cmd.append('-A')
             options.drunner.call(filter_cmd, work_dir = work_dir)
-            for chunk_id, name in enumerate(options.path_name):
-                # we are relying on convention of vg filter naming output here
-                # if that changes, this will break.
-                filter_file_path = os.path.join(
-                    work_dir, "{}-{}.gam".format(options.sample_name, chunk_id))
-                assert os.path.isfile(filter_file_path)
-                # rename from chunk id to path name
-                chr_filterfile_path = os.path.join(
-                    work_dir, "{}_{}.gam".format(options.sample_name, name))
-                os.rename(filter_file_path, chr_filterfile_path)
-                chr_gam_keys.append((name, os.path.basename(chr_filterfile_path)))
+            
+        for chunk_id, name in enumerate(options.path_name):
+            # we are relying on convention of vg filter naming output here
+            # if that changes, this will break.
+            filter_file_path = os.path.join(
+                work_dir, "{}-{}.gam".format(options.sample_name, chunk_id))
+            assert os.path.isfile(filter_file_path)
+            # rename from chunk id to path name
+            chr_filterfile_path = os.path.join(
+                work_dir, "{}_{}.gam".format(options.sample_name, name))
+            os.rename(filter_file_path, chr_filterfile_path)
+            chr_gam_keys.append((name, os.path.basename(chr_filterfile_path)))
                 
     else:
         # No path information, just append together without splitting into chromosome

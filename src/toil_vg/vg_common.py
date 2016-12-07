@@ -17,7 +17,7 @@ def add_docker_tool_parse_args(parser):
     """ centralize shared docker options and their defaults """
     parser.add_argument("--no_docker", action="store_true",
                         help="do not use docker for any commands")
-    parser.add_argument("--vg_docker", type=str, default='quay.io/ucsc_cgl/vg:latest',
+    parser.add_argument("--vg_docker", type=str, default='quay.io/glennhickey/vg:latest',
                         help="dockerfile to use for vg")
     parser.add_argument("--bcftools_docker", type=str, default='quay.io/cmarkello/bcftools',
                         help="dockerfile to use for bcftools")
