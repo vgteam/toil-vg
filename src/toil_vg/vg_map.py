@@ -176,7 +176,8 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
 
         # Plan out what to run
         vg_parts = ['vg', 'map', '-f', os.path.basename(fastq_file),
-            '-i', '-M2', '-W', '500', '-u', '0', '-U', '-t', str(job.cores), os.path.basename(graph_file)]
+                    '-i', '-M2', '-W', '500', '-u', '0', '-U',
+                    '-O', '-S', '50', '-a', '-t', str(job.cores), os.path.basename(graph_file)]
 
         if options.index_mode == "rocksdb":
             vg_parts += ['-d', os.path.basename(graph_file+".index"), '-n3', '-k',
