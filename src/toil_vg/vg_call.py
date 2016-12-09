@@ -60,13 +60,13 @@ def chunked_call_parse_args(parser):
     parser.add_argument("--offset", type=int,
                         help="chromosomal position offset. e.g. 43044293")
     parser.add_argument("--filter_opts", type=str,
-                        default="-r 0.9 -d 0.05 -e 0.05 -afu -s 1000 -o 10",
+                        default="-r 0.9 -fu -s 1000 -o 0 -q 15",
                         help="options to pass to chunk_gam. wrap in \"\"")
     parser.add_argument("--pileup_opts", type=str,
-                        default="-w 40 -m 10 -q 10",
+                        default="-q 10 -a",
                         help="options to pass to vg pileup. wrap in \"\"")
     parser.add_argument("--call_opts", type=str,
-                        default="-b 0.4 -f 0.25 -d 10 -s 1",
+                        default="",
                         help="options to pass to vg call. wrap in \"\"")
     parser.add_argument("--genotype_opts", type=str,
                         default="",
@@ -366,7 +366,16 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
     clip_path = chunk_base_name(path_name, out_dir, chunk_i, "_clip.vcf")
     if overwrite or not os.path.isfile(clip_path):
         with open(clip_path, "w") as clip_path_stream:
-            command=['bcftools', 'view', '-r', '{}:{}-{}'.format(path_name, chunk[1] + left_clip + 1, chunk[2] - right_clip), '{}'.format(os.path.basename(vcf_path + ".gz"))]
+            # passing in offset this way pretty hacky, should have its own option
+            call_toks = call_options.split()
+            offset = 0
+            if "-o" in call_toks:
+                offset = int(call_toks[call_toks.index("-o") + 1])
+            elif "--offset" in call_toks:
+                offset = int(call_toks[call_toks.index("--offset") + 1])
+            command=['bcftools', 'view', '-r', '{}:{}-{}'.format(
+                path_name, offset + chunk[1] + left_clip + 1,
+                offset + chunk[2] - right_clip), os.path.basename(vcf_path) + ".gz"]
             options.drunner.call(command, work_dir=out_dir, outfile=clip_path_stream)
 
     # Save clip.vcf files to the output store

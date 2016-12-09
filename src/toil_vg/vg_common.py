@@ -17,7 +17,7 @@ def add_docker_tool_parse_args(parser):
     """ centralize shared docker options and their defaults """
     parser.add_argument("--no_docker", action="store_true",
                         help="do not use docker for any commands")
-    parser.add_argument("--vg_docker", type=str, default='quay.io/ucsc_cgl/vg:latest',
+    parser.add_argument("--vg_docker", type=str, default='quay.io/glennhickey/vg:latest',
                         help="dockerfile to use for vg")
     parser.add_argument("--bcftools_docker", type=str, default='quay.io/cmarkello/bcftools',
                         help="dockerfile to use for bcftools")
@@ -49,6 +49,10 @@ on and off in just one place.  to do: Should go somewhere more central """
         # example:  docker_tool_map['vg'] = 'quay.io/ucsc_cgl/vg:latest'
         self.docker_tool_map = docker_tool_map
 
+    def has_tool(self, tool):
+        # return true if we have an image for this tool
+        return tool in self.docker_tool_map
+
     def call(self, args, work_dir = '.' , outfile = None, errfile = None,
              check_output = False, inputs=[]):
         """ run a command.  decide to use docker based on whether
@@ -75,13 +79,10 @@ on and off in just one place.  to do: Should go somewhere more central """
             # where parameters is an argument list not including command
             tool = self.docker_tool_map[args[0][0]]
             tools = None
-            if args[0][0] == "vg":
-                # todo:  this is a hack because the vg docker currently *does not* expect
-                # command lines passed in to begin with vg.  Seems inconsistent with
-                # all other containers (ex bcftools expects bcftools as first arg)
-                # it's very hard to work around programmatically when supporting
-                # docker/non-docker consistency to have to parse different command lines
-                # differently. 
+            if args[0][0] in ["vg", "rtg"]:
+                # todo:  not all tools have consistent entrypoints.  for instance vg and rtg
+                # have entrypoints but bcftools doesn't.  hack here for now, but need to
+                # have configurable entrypoints (or force image consistency) down the road. 
                 parameters = args[0][1:]
             else:
                 parameters = args[0]
