@@ -59,8 +59,6 @@ def parse_args():
         help="Path to sample reads in fastq format")
     parser.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
-    parser.add_argument("out_dir", type=str,
-        help="directory where all output will be written")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--gcsa_index", type=str,
@@ -241,29 +239,6 @@ def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
 
     return downloadList
 
-def run_download(toil, options, downloadList):
-    """
-    Download and save each file in downloadList to the local directory specified
-    in the out_dir option.
-    THIS IS NOT A TOIL JOB FUNCTION
-    """
-    
-    RealTimeLogger.get().info("Download list: {}".format(downloadList))
-    
-    # Create output directory if it doesn't exist
-    try:
-        os.makedirs(options.out_dir)
-    except OSError as exception:
-        if exception.errno != errno.EEXIST: raise
-    
-    for outputFileID in downloadList:
-        file_basename = os.path.basename(outputFileID[1])
-        RealTimeLogger.get().info("Downloading {} from out_store to {} on the local machine".format(
-            outputFileID[0], os.path.join(options.out_dir, file_basename)))
-        toil.exportFile(outputFileID[0], 'file://'+os.path.join(options.out_dir, file_basename))
-    
-    return
-
 def main():
     """
     Computational Genomics Lab, Genomics Institute, UC Santa Cruz
@@ -339,10 +314,7 @@ def main():
             outputFileIDList = toil.start(root_job)
         else:
             outputFileIDList = toil.restart()
-        
-        # Download output files to the local machine that runs this script
-        run_download(toil, options, outputFileIDList)
-        
+                
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
