@@ -45,20 +45,19 @@ class VGCGLTest(TestCase):
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
         self.base_command = concat('toil-vg',
                                    '--realTimeLogging', '--logDebug', '--edge_max', '5', '--kmer_size',
-                                   '16', '--num_fastq_chunks', '4', '--call_chunk_size', '10000', '--overwrite',
+                                   '16', '--num_fastq_chunks', '4', '--call_chunk_size', '20000', '--overwrite',
                                    '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '8', '--alignment_cores', '8',
                                    '--calling_cores', '8')
-    
-#    def test_chr13_sampleNA12877(self):
-#        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca2.bam.fq', self.workdir])
-#        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/BRCA2_chrom_name_chop_100.vg', self.workdir])
-#        self.sample_reads = os.path.join(self.workdir, 'NA12877.brca2.bam.fq')
-#        self.test_vg_graph = os.path.join(self.workdir, 'BRCA2_chrom_name_chop_100.vg')
-#        self._run(self.base_command, self.test_vg_graph, self.sample_reads, 'NA12877',
-#                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
-#                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '13', '--path_size', '84989')
-#        self._assertOutput('13.vcf')
-    
+        
+        # default output store
+        self.outstore = 'aws:us-west-2:cmarkello-hgvmdebugtest-output'
+        self.local_outstore = os.path.join(self.workdir, 'cmarkello-hgvmdebugtest-output')
+
+        # copy the sequence information for vcf comparison
+        # (lumped in one file out of laziness.  todo: at least split by chromosome)
+        self.chrom_fa = os.path.join(self.workdir, 'chrom.fa.gz')
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/chrom.fa.gz', self.chrom_fa])
+        
     def test_chr17_sampleNA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
@@ -68,8 +67,9 @@ class VGCGLTest(TestCase):
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.workdir, 'file:'+self.workdir+'cmarkello-hgvmdebugtest-input',
-                                   'file:'+self.workdir+'cmarkello-hgvmdebugtest-output', '--path_name', '17', '--path_size', '81189')
-        self._assertOutput('17.vcf', 'file')
+                                   self.local_outstore, '--path_name', '17', '--path_size', '81189', '--call_opts', '--offset 43044293' )
+
+        self._assertOutput('17.vcf', self.local_outstore)
 
     def test_chr19_sampleNA12877(self):
         ''' Test sample LRC KIR output
@@ -82,8 +82,8 @@ class VGCGLTest(TestCase):
         self.test_index = os.path.join(self.workdir, 'lrc_kir_index.tar.gz')
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
-                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--gcsa_index', self.test_index, '--path_name', '19', '--path_size', '50000')
-        self._assertOutput('19.vcf', 'aws')
+                                   self.outstore,  '--gcsa_index', self.test_index, '--path_name', '19', '--path_size', '50000')
+        self._assertOutput('19.vcf', self.outstore)
 
     def test_chr6_MHC_sampleNA12877(self):
         ''' Test sample MHC output
@@ -96,8 +96,8 @@ class VGCGLTest(TestCase):
         self.test_index = os.path.join(self.workdir, 'mhc_index.tar.gz')
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
-                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--gcsa_index', self.test_index, '--path_name', '6', '--path_size', '50000')
-        self._assertOutput('6.vcf', 'aws')
+                                   self.outstore,  '--gcsa_index', self.test_index, '--path_name', '6', '--path_size', '50000')
+        self._assertOutput('6.vcf', self.outstore)
 
     def test_chr5_SMA_sampleNA12877(self):
         ''' Test sample SMA output
@@ -110,58 +110,43 @@ class VGCGLTest(TestCase):
         self.test_index = os.path.join(self.workdir, 'sma_index.tar.gz')
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
-                                   'aws:us-west-2:cmarkello-hgvmdebugtest-output', '--path_name', '5', '--path_size', '50000')
-        self._assertOutput('5.vcf', 'aws')
+                                   self.outstore, '--path_name', '5', '--path_size', '50000')
+        self._assertOutput('5.vcf', self.outstore)
     
     def _run(self, *args):
         args = list(concat(*args))
         log.info('Running %r', args)
         subprocess.check_call(args)
 
-    def _assertOutput(self, testFile, IOStoreType):
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/normal_'+testFile, self.workdir + 'normal_'+testFile])
-        if IOStoreType == 'aws':
-            subprocess.check_call(['aws', 's3', 'cp', 's3://cmarkello-hgvmdebugtest-output/'+testFile+'.gz', self.workdir + testFile+'.gz'])
-        elif IOStoreType == 'file':
-            subprocess.check_call(['cp', self.workdir+'cmarkello-hgvmdebugtest-output/'+testFile+'.gz', self.workdir + testFile+'.gz'])
-        subprocess.check_call(['gzip', '-df', self.workdir + testFile + '.gz'])
-        vcf_reader_expectedvcf = vcf.Reader(open(self.workdir + 'normal_' + testFile ,'r'))
-        vcf_reader_observedvcf = vcf.Reader(open(self.workdir + testFile ,'r'))
-        expList = []
-        obsList = []
-        for expRecord in vcf_reader_expectedvcf:
-            # filter trivial calls.  todo: switch to vcfeval
-            if expRecord.FILTER != 'FAIL' and expRecord.samples[0]['GT'] not in ['0/0', '0|0']:
-                expList.append([expRecord.CHROM, expRecord.POS, expRecord.REF, expRecord.ALT, expRecord.QUAL, expRecord.INFO])
-        for obsRecord in vcf_reader_observedvcf:
-            # filter trivial calls.  todo: switch to vcfeval            
-            if obsRecord.FILTER != 'FAIL' and obsRecord.samples[0]['GT'] not in ['0/0', '0|0']:
-                obsList.append([obsRecord.CHROM, obsRecord.POS, obsRecord.REF, obsRecord.ALT, obsRecord.QUAL, obsRecord.INFO])
-        #self.assertTrue(expList == obsList)
-        # Switch exact match test to minimum .75 F1-score check. This way tests won't
-        # need each to be updated each time various vg parameters get tuned.  But tests
-        # should still fail for errors related to the toil-pipeline itself, which
-        # generally results in crashes or complete nonsense results.
-        # To-do: compare with platinum vcf using vcfeval here instead
-        # todo: switch to vcfeval (and raise to .75)
-        self.assertTrue(self.vcf_f1_score(expList, obsList) >= 0.075)
+    def _assertOutput(self, testFile, outstore, f1_threshold=0.90):
+        s3_input_path = 's3://cgl-pipeline-inputs/vg_cgl/ci/'
+        if outstore.startswith('aws:'):
+            cp = ['aws', 's3', 'cp']
+            output_path = outstore.replace('aws:us-west-2:','s3://')
+        else:
+            cp = ['cp']
+            output_path = outstore
+        testName = testFile + '.gz'
+        normalName = 'normal_' + testFile + '.gz'
+        localTest = os.path.join(self.workdir, testName)
+        localNormal = os.path.join(self.workdir, normalName)
 
-    def vcf_f1_score(self, expList, obsList):
-        # change ALT to string and ignore subsequent columns and make set
-        truthSet = set([tuple(x[:3] + [','.join(str(y) for y in x[3])]) for x in expList])
-        obsSet = set([tuple(x[:3] + [','.join(str(y) for y in x[3])]) for x in obsList])
-        intSet = truthSet & obsSet
+        # copy baseline
+        subprocess.check_call(['aws', 's3', 'cp', os.path.join(s3_input_path, normalName), localNormal])
+        subprocess.check_call(['aws', 's3', 'cp', os.path.join(s3_input_path, normalName) + '.tbi', localNormal + '.tbi'])
 
-        N = len(truthSet)
-        # expect unique truth for set calculations to be accurate
-        assert N == len(expList)
-        TP = len(intSet)
-        FP = len(obsList) - TP
-        FN = N - TP
-        precision = float(TP) / float(TP + FP) if (TP + FP) > 0 else 0.
-        recall = float(TP) / float(TP + FN) if (TP + FN) > 0 else 0.
-        f1 = 2. * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
-        return f1
+        # copy calls
+        subprocess.check_call(cp + [os.path.join(output_path, testName), localTest])
+        subprocess.check_call(cp + [os.path.join(output_path, testName) + '.tbi', localTest + '.tbi'])
+
+        # run vcfeval
+        eval_results = os.path.join(self.workdir, 'eval_results')
+        subprocess.check_call(['toil-vg-vcfeval', self.jobStoreLocal, localTest, localNormal, self.chrom_fa, eval_results,
+                               '--vcfeval_cores', '8'])
+        with open(os.path.join(eval_results, 'f1.txt')) as f1_file:
+            f1_score = float(f1_file.readline().strip())
+        
+        self.assertTrue(f1_score >= f1_threshold)
 
     def tearDown(self):
         shutil.rmtree(self.workdir)
