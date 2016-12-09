@@ -306,7 +306,8 @@ def run_vg_genotype(options, xg_path, vg_path, gam_path, path_name, chunk, chunk
             options.drunner.call(command, work_dir=out_dir,
                         outfile=vgcall_stdout, errfile=vgcall_stderr)
 
-def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, path_size, overlap,
+def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
+               vg_chunk_file_id, gam_chunk_file_id, path_size, overlap,
                pileup_opts, call_options, genotype_options, sample_name, threads, overwrite):
    
     RealTimeLogger.get().info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
@@ -332,8 +333,8 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
 
     # Download the chunked vg and gam files
     RealTimeLogger.get().info("Attempting to read vg_path and gam_path files.")
-    out_store.read_input_file(os.path.basename(vg_path), vg_path) 
-    out_store.read_input_file(os.path.basename(gam_path), gam_path)
+    job.fileStore.readGlobalFile(vg_chunk_file_id, vg_path)
+    job.fileStore.readGlobalFile(gam_chunk_file_id, gam_path)
 
     vcf_path = chunk_base_name(path_name, out_dir, chunk_i, ".vcf")
     
@@ -373,12 +374,17 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
                 offset + chunk[2] - right_clip), os.path.basename(vcf_path) + ".gz"]
             options.drunner.call(command, work_dir=out_dir, outfile=clip_path_stream)
 
+    # save clip.vcf files to job store
+    clip_file_id = job.fileStore.writeGlobalFile(clip_path)
+    
     # Save clip.vcf files to the output store
     out_store.write_output_file(clip_path, os.path.basename(clip_path))
 
-def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_size):
+    return clip_file_id
+
+def run_calling(job, options, index_dir_id, alignment_file_id, path_name, path_size):
     
-    RealTimeLogger.get().info("Running variant calling on path {} from alignment file {}".format(path_name, alignment_file_key))
+    RealTimeLogger.get().info("Running variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
@@ -399,21 +405,21 @@ def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_
 
     # Download the alignment
     alignment_file = "{}/{}.gam".format(work_dir, options.sample_name)
-    out_store.read_input_file(alignment_file_key, alignment_file)
-    
+    job.fileStore.readGlobalFile(alignment_file_id, alignment_file)
+    RealTimeLogger.get().info("BLIN {} size {}".format(alignment_file, os.path.getsize(alignment_file)))
     variant_call_dir = work_dir
 
     # run chunked_call
-    chunks = dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, job.cores, xg_file,
-                                   alignment_file, path_name, path_size, options.sample_name, variant_call_dir,
-                                   options.call_chunk_size, options.overlap, options.filter_opts, options.pileup_opts,
-                                   options.call_opts, options.genotype_opts, options.overwrite)
+    chunks, clip_file_ids = dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, job.cores, xg_file,
+                                                 alignment_file, path_name, path_size, options.sample_name, variant_call_dir,
+                                                 options.call_chunk_size, options.overlap, options.filter_opts, options.pileup_opts,
+                                                 options.call_opts, options.genotype_opts, options.overwrite)
 
-    vcf_file_key = job.addFollowOnJobFn(merge_vcf_chunks, options, index_dir_id, path_name, path_size, chunks, options.overwrite, cores=2, memory="4G", disk="2G").rv()
+    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, index_dir_id, path_name, path_size, chunks, clip_file_ids, options.overwrite, cores=2, memory="4G", disk="2G").rv()
  
-    RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, alignment_file_key))
+    RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
 
-    return vcf_file_key
+    return vcf_gz_tbi_file_id_pair
 
 def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threads,
                           xg_path, gam_path, path_name, path_size, sample_name, out_dir, chunk,
@@ -438,25 +444,32 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
               chunks, filter_opts, overwrite)
 
     # call every chunk in series
+    clip_file_ids = []
     for chunk_i, chunk in enumerate(chunks):
         # make the graph chunk
         chunk_vg(options.drunner, xg_path, path_name, work_dir, chunks, chunk_i, overwrite)
         
         vg_path = chunk_base_name(path_name, work_dir, chunk_i, ".vg")
         gam_path = chunk_base_name(path_name, work_dir, chunk_i, ".gam")
+
+        # write chunks to job store
+        vg_chunk_file_id = job.fileStore.writeGlobalFile(vg_path)
+        gam_chunk_file_id = job.fileStore.writeGlobalFile(gam_path)
         
         # upload split gam files
         out_store.write_output_file(vg_path, os.path.basename(vg_path))
         out_store.write_output_file(gam_path, os.path.basename(gam_path))
         
-        job.addChildJobFn(call_chunk, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
-                           path_size, overlap,
-                           pileup_opts, call_opts, genotype_opts,
-                           sample_name, threads,
-                           overwrite, cores="{}".format(threads), memory="4G", disk="2G")
-    return chunks
+        clip_file_id = job.addChildJobFn(call_chunk, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
+                                         vg_chunk_file_id, gam_chunk_file_id,
+                                         path_size, overlap,
+                                         pileup_opts, call_opts, genotype_opts,
+                                         sample_name, threads,
+                                         overwrite, cores="{}".format(threads), memory="4G", disk="2G").rv()
+        clip_file_ids.append(clip_file_id)
+    return chunks, clip_file_ids
 
-def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, overwrite):
+def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, clip_file_ids, overwrite):
     """ merge a bunch of clipped vcfs created above, taking care to 
     fix up the headers.  everything expected to be sorted already """
     
@@ -477,7 +490,7 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, o
         for chunk_i, chunk in enumerate(chunks):
             clip_path = chunk_base_name(path_name, out_dir, chunk_i, "_clip.vcf")
             # Download clip.vcf file
-            out_store.read_input_file(os.path.basename(clip_path), clip_path)
+            job.fileStore.readGlobalFile(clip_file_ids[chunk_i], clip_path)
 
             if os.path.isfile(clip_path):
                 if first is True:
@@ -501,12 +514,16 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, o
         command=['bcftools', 'tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
         options.drunner.call(command, work_dir=out_dir)
 
+    # Save merged vcf files to the job store
+    vcf_gz_file_id = job.fileStore.writeGlobalFile(vcf_path+".gz")
+    vcf_tbi_file_id = job.fileStore.writeGlobalFile(vcf_path+".gz.tbi")
+    
     # Save merged vcf files to the output store
     out_store.write_output_file(vcf_path, os.path.basename(vcf_path))
     out_store.write_output_file(vcf_path+".gz", os.path.basename(vcf_path+".gz"))
     out_store.write_output_file(vcf_path+".gz.tbi", os.path.basename(vcf_path+".gz.tbi"))
     
-    return os.path.basename(vcf_path)
+    return vcf_gz_file_id, vcf_tbi_file_id
 
 def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
     """ run chunked_call logic by itself.  todo-modularize existing pipeline enough
@@ -523,10 +540,9 @@ def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
     indexDirId = write_global_directory(job.fileStore, indexDir,
                                           cleanup=True, tee=indexPath + ".gz")
 
-    inputGamFileID = options.gam_path
-    vcf_file_key = job.addChildJobFn(run_calling, options, indexDirId, inputGamFileID,
-                                     options.path_name, options.path_size, cores=options.calling_cores,
-                                     memory="4G", disk="2G").rv()
+    vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, indexDirId, inputGamFileID,
+                                             options.path_name, options.path_size, cores=options.calling_cores,
+                                             memory="4G", disk="2G").rv()
     
 def main():
     """ no harm in preserving command line access to chunked_call for debugging """

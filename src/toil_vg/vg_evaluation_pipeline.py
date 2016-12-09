@@ -158,39 +158,39 @@ def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputIn
 def run_pipeline_map(job, options, index_key_and_id, inputReadsFileID):
     """ All mapping, including fastq splitting and gam merging"""
 
-    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1],
+    chr_gam_ids = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1],
                                      inputReadsFileID, cores=3, memory="4G", disk="2G").rv()
 
     return job.addFollowOnJobFn(run_pipeline_call, options, index_key_and_id[1],
-                                chr_gam_keys, cores=2, memory="4G", disk="2G").rv()
+                                chr_gam_ids, cores=2, memory="4G", disk="2G").rv()
 
-def run_pipeline_call(job, options, index_dir_id, chr_gam_keys):
+def run_pipeline_call(job, options, index_dir_id, chr_gam_ids):
     """ Run variant calling on the chromosomes in parallel """
 
     # index the gam keys
     label_map = dict()
-    if len(chr_gam_keys) == 1 and chr_gam_keys[0][0] is None:
+    if len(chr_gam_ids) == 1 and chr_gam_ids[0][0] is None:
         for chr_label in options.path_name:
-            label_map[chr_label] = chr_gam_keys[0][1]
+            label_map[chr_label] = chr_gam_ids[0][1]
     else:
-        for chr_label, gam_key in chr_gam_keys:
-            label_map[chr_label] = gam_key
+        for chr_label, gam_id in chr_gam_ids:
+            label_map[chr_label] = gam_id
     
     # Run variant calling on .gams by chromosome if no path_name or path_size options are set 
     return_value = []
-    vcf_file_key_list = [] 
+    vcf_tbi_file_id_pair_list = [] 
     if options.path_name and options.path_size:
         #Run variant calling
         for chr_label, chr_length in itertools.izip(options.path_name, options.path_size):
-            alignment_file_key = label_map[chr_label]
-            vcf_file_key = job.addChildJobFn(run_calling, options, index_dir_id, alignment_file_key, chr_label, chr_length, cores=options.calling_cores, memory="4G", disk="2G").rv()
-            vcf_file_key_list.append(vcf_file_key)
+            alignment_file_id = label_map[chr_label]
+            vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, index_dir_id, alignment_file_id, chr_label, chr_length, cores=options.calling_cores, memory="4G", disk="2G").rv()
+            vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
     else:
         raise RuntimeError("Invalid or non-existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
 
-    return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, index_dir_id, vcf_file_key_list, cores=2, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, index_dir_id, vcf_tbi_file_id_pair_list, cores=2, memory="4G", disk="2G").rv()
 
-def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
+def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_tbi_file_id_pair_list):
 
     RealTimeLogger.get().info("Completed gam merging and gam path variant calling.")
     RealTimeLogger.get().info("Starting vcf merging vcf files.")
@@ -206,11 +206,11 @@ def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
     read_global_directory(job.fileStore, index_dir_id, graph_dir)
 
     vcf_merging_file_key_list = [] 
-    for vcf_file_key in vcf_file_key_list:
-        vcf_file = "{}/{}.gz".format(work_dir, vcf_file_key)
+    for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
+        vcf_file = "{}/{}.gz".format(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
         vcf_file_idx = "{}.tbi".format(vcf_file)
-        out_store.read_input_file(vcf_file_key+".gz", vcf_file)
-        out_store.read_input_file(vcf_file_key+".gz"+ ".tbi", vcf_file_idx)
+        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[0], vcf_file)
+        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[1], vcf_file_idx)
         vcf_merging_file_key_list.append(os.path.basename(vcf_file))
 
     vcf_merged_file_key = "" 
