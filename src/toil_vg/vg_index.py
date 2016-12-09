@@ -53,6 +53,8 @@ def parse_args():
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")    
+    parser.add_argument("--use_outstore", default=False, action="store_true",
+        help="Use remote output io store to store intermediate files in the pipeline")
 
     # Add indexing options
     index_parse_args(parser)
@@ -61,6 +63,12 @@ def parse_args():
     add_docker_tool_parse_args(parser)
 
     options = parser.parse_args()
+
+    # If out_store argument is set then use_outstore must be True and vice versa
+    if options.out_store is not None:
+        assert options.use_outstore == True
+    else:
+        assert options.use_outstore == False
 
     return parser.parse_args()
 
@@ -85,7 +93,7 @@ def index_parse_args(parser):
         help="number of threads during the indexing step")
 
 
-def run_indexing(job, options):
+def run_indexing(job, options, inputGraphFileID):
     """
     Create a directory with the gcsa and xg indexe files and tar it up
     Return a tuple of its name and id
@@ -95,22 +103,18 @@ def run_indexing(job, options):
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
-    out_store = IOStore.get(options.out_store)
+    if options.use_outstore:
+        out_store = IOStore.get(options.out_store)
 
     graph_file = os.path.basename(options.vg_graph)
 
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
-    # Download local input files from the remote storage container
+    # Download local input files from the toil file store
     graph_dir = work_dir
     robust_makedirs(graph_dir)
-    
-    graph_filename = "{}/graph.vg".format(graph_dir)
-    graph_file_remote_path = graph_file
-    input_store.read_input_file(graph_file_remote_path, graph_filename)
-    
+    graph_filename = job.fileStore.readGlobalFile(inputGraphFileID)
     
     # Now run the indexer.
     RealTimeLogger.get().info("Indexing {}".format(options.vg_graph))
@@ -244,7 +248,8 @@ def run_indexing(job, options):
     RealTimeLogger.get().info("Uploading index of {}".format(
         graph_filename))
     index_key = os.path.basename(index_dir_tgz)
-    out_store.write_output_file(index_dir_tgz, index_key)
+    if options.use_outstore:
+        out_store.write_output_file(index_dir_tgz, index_key)
     RealTimeLogger.get().info("Index {} uploaded successfully".format(
         index_key))
 
@@ -254,18 +259,7 @@ def run_only_indexing(job, options, inputGraphFileID):
     """ run indexing logic by itself.  
     """
 
-    RealTimeLogger.get().info("Uploading files to IO store")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    input_store = IOStore.get(options.input_store)   
-    out_store = IOStore.get(options.out_store)
-
-    input_graph_basename = os.path.basename(options.vg_graph)
-    RealTimeLogger.get().info("Uploading {} to {} on IO store".format(inputGraphFileID, input_graph_basename))
-    fi = job.fileStore.readGlobalFile(inputGraphFileID)
-    input_store.write_output_file(fi, input_graph_basename)
-
-    index_key_and_id = job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
+    index_key_and_id = job.addChildJobFn(run_indexing, options, inputGraphFileID, cores=options.index_cores, memory="4G", disk="2G").rv()
 
     return index_key_and_id
 
@@ -322,7 +316,8 @@ def main():
             index_key_and_id = toil.restart()
             
         # copy the indexes out of the output store and into options.out_dir
-        fetch_output_index(options, index_key_and_id[0])
+        if options.use_outstore:
+            fetch_output_index(options, index_key_and_id[0])
 
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline

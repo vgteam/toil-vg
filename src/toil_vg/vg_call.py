@@ -38,10 +38,21 @@ def parse_args():
                         help="sample name (ex NA12878)")
     parser.add_argument("out_dir", type=str,
                         help="directory where all output will be written")
-    parser.add_argument("input_store",
-                        help="sample input IOStore where input files will be temporarily uploaded")
     parser.add_argument("out_store",
                         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")    
+    parser.add_argument("--use_outstore", default=False, action="store_true",
+        help="Use remote output io store to store intermediate files in the pipeline")
+
+    options = parser.parse_args()
+
+    # path_name and path_size lists must be equal in length
+    assert len(options.path_name) == len(options.path_size)   
+ 
+    # If out_store argument is set then use_outstore must be True and vice versa
+    if options.out_store is not None:
+        assert options.use_outstore == True
+    else:
+        assert options.use_outstore == False
 
     # Add common calling options shared with vg_evaluation_pipeline
     chunked_call_parse_args(parser)
@@ -317,8 +328,6 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    RealTimeLogger.get().info("Attempting to set up the IO stores.")
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
 
     # Define work directory for docker calls
@@ -378,7 +387,6 @@ def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
     
     # Define work directory for docker calls
@@ -459,7 +467,6 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, o
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)   
 
     # Define work directory for docker calls
@@ -476,7 +483,7 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, o
             clip_path = chunk_base_name(path_name, out_dir, chunk_i, "_clip.vcf")
             # Download clip.vcf file
             out_store.read_input_file(os.path.basename(clip_path), clip_path)
-
+            
             if os.path.isfile(clip_path):
                 if first is True:
                     # copy everything including the header
@@ -510,7 +517,7 @@ def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
     """ run chunked_call logic by itself.  todo-modularize existing pipeline enough
     so that we don't need to duplicate this code """
 
-    # run_calling wants the index tarred up insaide toilib's
+    # run_calling wants the index tarred up inside toilib's
     # read/write_global_directory interface.  so we handle that here
     # todo: fix up run_calling interface so we don't need to do this
     # note: the file name important here as it's what run_calling expects
