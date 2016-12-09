@@ -366,7 +366,16 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
     clip_path = chunk_base_name(path_name, out_dir, chunk_i, "_clip.vcf")
     if overwrite or not os.path.isfile(clip_path):
         with open(clip_path, "w") as clip_path_stream:
-            command=['bcftools', 'view', '-r', '{}:{}-{}'.format(path_name, chunk[1] + left_clip + 1, chunk[2] - right_clip), '{}'.format(os.path.basename(vcf_path + ".gz"))]
+            # passing in offset this way pretty hacky, should have its own option
+            call_toks = call_options.split()
+            offset = 0
+            if "-o" in call_toks:
+                offset = int(call_toks[call_toks.index("-o") + 1])
+            elif "--offset" in call_toks:
+                offset = int(call_toks[call_toks.index("--offset") + 1])
+            command=['bcftools', 'view', '-r', '{}:{}-{}'.format(
+                path_name, offset + chunk[1] + left_clip + 1,
+                offset + chunk[2] - right_clip), os.path.basename(vcf_path) + ".gz"]
             options.drunner.call(command, work_dir=out_dir, outfile=clip_path_stream)
 
     # Save clip.vcf files to the output store
