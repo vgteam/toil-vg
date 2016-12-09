@@ -36,8 +36,6 @@ def parse_args():
                         help="size of the reference path in graph")
     parser.add_argument("sample_name", type=str,
                         help="sample name (ex NA12878)")
-    parser.add_argument("out_dir", type=str,
-                        help="directory where all output will be written")
     parser.add_argument("out_store",
                         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")    
 
@@ -529,33 +527,6 @@ def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
     vcf_file_key = job.addChildJobFn(run_calling, options, indexDirId, inputGamFileID,
                                      options.path_name, options.path_size, cores=options.calling_cores,
                                      memory="4G", disk="2G").rv()
-
-    return job.addFollowOnJobFn(wait_for_vcf, vcf_file_key).rv()
-
-def wait_for_vcf(job, vcf_file_key):
-    return vcf_file_key
-
-def fetch_output_vcf(options, vcf_file_key):
-    """ run_calling leaves the vcf output the output store.  copy these over
-    to the output directory 
-    to do - having both outstore and out_dir seems redundant """
-
-    # Create output directory if it doesn't exist
-    try:
-        os.makedirs(options.out_dir)
-    except OSError as exception:
-        if exception.errno != errno.EEXIST: raise
-
-    RealTimeLogger.get().info("Downloading {} to {}".format(vcf_file_key, options.out_dir))
-
-    # Derive run_calling output files from its return value
-    vcf_file = "{}.gz".format(vcf_file_key)
-    vcf_file_idx = "{}.gz.tbi".format(vcf_file_key)
-    out_store = IOStore.get(options.out_store)
-
-    # Read them out of the output store
-    out_store.read_input_file(vcf_file, os.path.join(options.out_dir, vcf_file))
-    out_store.read_input_file(vcf_file, os.path.join(options.out_dir, vcf_file_idx))
     
 def main():
     """ no harm in preserving command line access to chunked_call for debugging """
@@ -588,9 +559,6 @@ def main():
             vcf_file_key = toil.start(root_job)
         else:
             vcf_file_key = toil.restart()
-
-        # copy the vcf out of the output store and into options.out_dir
-        fetch_output_vcf(options, vcf_file_key)
                 
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline

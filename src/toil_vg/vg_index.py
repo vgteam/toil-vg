@@ -45,8 +45,6 @@ def parse_args():
     # General options
     parser.add_argument("vg_graph", type=str,
         help="Input vg graph file path")
-    parser.add_argument("out_dir", type=str,
-        help="directory where all output will be written")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--path_name", nargs='+', type=str,
@@ -253,24 +251,6 @@ def run_only_indexing(job, options, inputGraphFileID):
 
     return index_key_and_id
 
-def fetch_output_index(options, index_key):
-    """ copy from out store to out dir 
-    to do - having both outstore and out_dir seems redundant """
-    
-    # Create output directory if it doesn't exist
-    try:
-        os.makedirs(options.out_dir)
-    except OSError as exception:
-        if exception.errno != errno.EEXIST: raise
-
-    RealTimeLogger.get().info("Downloading {} to {}".format(index_key, options.out_dir))
-
-    # Derive run_calling output files from its return value
-    out_store = IOStore.get(options.out_store)
-
-    # Read them out of the output store
-    out_store.read_input_file(index_key, os.path.join(options.out_dir, index_key))
-
 
 def main():
     """
@@ -305,9 +285,6 @@ def main():
         else:
             index_key_and_id = toil.restart()
             
-        # copy the indexes out of the output store and into options.out_dir
-        fetch_output_index(options, index_key_and_id[0])
-
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  

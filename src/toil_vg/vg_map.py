@@ -50,8 +50,6 @@ def parse_args():
         help="sample name (ex NA12878)")
     parser.add_argument("gcsa_index", type=str,
         help="Path to tar and gzipped folder containing .gcsa, .gcsa.lcp, .xg and .graph index files and graph.vg and to_index.vg files. This is equivalent to the output found in the 'run_indexing' toil job function of this pipeline.")    
-    parser.add_argument("out_dir", type=str,
-        help="directory where all output will be written")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--kmer_size", type=int, default=10,
@@ -301,24 +299,6 @@ def run_only_mapping(job, options, inputIndexFileID, sampleFastqFileID,):
 
     return chr_gam_keys
 
-def fetch_output_gam(options, chr_gam_keys):
-    """ run_only_mapping leaves the gam output the output store.  copy these over
-    to the output directory 
-    to do - having both outstore and out_dir seems redundant """
-
-    # Create output directory if it doesn't exist
-    try:
-        os.makedirs(options.out_dir)
-    except OSError as exception:
-        if exception.errno != errno.EEXIST: raise
-
-    out_store = IOStore.get(options.out_store)
-
-    # Read them out of the output store
-    for chr_name, alignment_file_key in chr_gam_keys:
-        RealTimeLogger.get().info("Downloading {} to {}".format(alignment_file_key, options.out_dir))
-        out_store.read_input_file(alignment_file_key, os.path.join(options.out_dir, alignment_file_key))
-
 def main():
     """
     Wrapper for vg indexing. 
@@ -353,9 +333,6 @@ def main():
         else:
             chr_gam_keys = toil.restart()
             
-        # copy the indexes out of the output store and into options.out_dir
-        fetch_output_gam(options, chr_gam_keys)
-
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
