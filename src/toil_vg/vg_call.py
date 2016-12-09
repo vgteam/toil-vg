@@ -38,8 +38,6 @@ def parse_args():
                         help="sample name (ex NA12878)")
     parser.add_argument("out_dir", type=str,
                         help="directory where all output will be written")
-    parser.add_argument("input_store",
-                        help="sample input IOStore where input files will be temporarily uploaded")
     parser.add_argument("out_store",
                         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")    
 
@@ -318,7 +316,6 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i, 
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
     RealTimeLogger.get().info("Attempting to set up the IO stores.")
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
 
     # Define work directory for docker calls
@@ -387,7 +384,6 @@ def run_calling(job, options, index_dir_id, alignment_file_key, path_name, path_
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
     
     # Define work directory for docker calls
@@ -468,7 +464,6 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, o
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)   
 
     # Define work directory for docker calls
@@ -582,8 +577,8 @@ def main():
         if not toil.options.restart:
 
             # Upload local files to the remote IO Store
-            inputXGFileID = toil.importFile('file://'+options.xg_path)
-            inputGamFileID = toil.importFile('file://'+options.gam_path)
+            inputXGFileID = toil.importFile(clean_toil_path(options.xg_path))
+            inputGamFileID = toil.importFile(clean_toil_path(options.gam_path))
 
             # Make a root job
             root_job = Job.wrapJobFn(run_only_chunked_call, options, inputXGFileID,

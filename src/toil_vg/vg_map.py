@@ -52,8 +52,6 @@ def parse_args():
         help="Path to tar and gzipped folder containing .gcsa, .gcsa.lcp, .xg and .graph index files and graph.vg and to_index.vg files. This is equivalent to the output found in the 'run_indexing' toil job function of this pipeline.")    
     parser.add_argument("out_dir", type=str,
         help="directory where all output will be written")
-    parser.add_argument("input_store",
-        help="sample input IOStore where input files will be temporarily uploaded")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--kmer_size", type=int, default=10,
@@ -88,12 +86,11 @@ def map_parse_args(parser):
         help="number of threads during the alignment step")
 
 
-def run_split_fastq(job, options, index_dir_id):
+def run_split_fastq(job, options, index_dir_id, sample_fastq_id):
     
     RealTimeLogger.get().info("Starting fastq split and alignment...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
     
     # Define work directory for docker calls
@@ -106,8 +103,7 @@ def run_split_fastq(job, options, index_dir_id):
     # We need the sample fastq for alignment
     sample_filename = os.path.basename(options.sample_reads)
     fastq_file = "{}/input.fq".format(work_dir)
-    input_store.read_input_file(sample_filename, fastq_file)
-    
+    job.fileStore.readGlobalFile(sample_fastq_id, fastq_file)    
     
     # Find number of records per fastq chunk
     p1 = Popen(['cat', fastq_file], stdout=PIPE)
@@ -144,7 +140,6 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
     RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
 
     # How long did the alignment take to run, in seconds?
@@ -221,7 +216,6 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
     RealTimeLogger.get().info("Starting gam merging...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
     
     # Define work directory for docker calls
@@ -298,16 +292,12 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
 
     return chr_gam_keys
 
-def run_only_mapping(job, options, inputIndexFileID):
+def run_only_mapping(job, options, inputIndexFileID, sampleFastqFileID,):
     """ run mapping logic by itself.  
     """
-    
-    input_store = IOStore.get(options.input_store)
-
-    #upload the fastq to the input store, where it's expected to be 
-    input_store.write_output_file(options.sample_reads, os.path.basename(options.sample_reads))
-    
-    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, cores=3, memory="4G", disk="2G").rv()
+        
+    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, sampleFastqFileID,
+                                     cores=3, memory="4G", disk="2G").rv()
 
     return chr_gam_keys
 
@@ -351,10 +341,11 @@ def main():
         if not toil.options.restart:
             
             # Upload local files to the remote IO Store
-            inputIndexFileID = toil.importFile('file://'+options.gcsa_index)
+            inputIndexFileID = toil.importFile(clean_toil_path(options.gcsa_index))
+            sampleFastqFileID = toil.importFile(clean_toil_path(options.sample_reads))
             
             # Make a root job
-            root_job = Job.wrapJobFn(run_only_mapping, options, inputIndexFileID,                                     
+            root_job = Job.wrapJobFn(run_only_mapping, options, inputIndexFileID, sampleFastqFileID,
                                      cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download

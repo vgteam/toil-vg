@@ -65,8 +65,7 @@ class VGCGLTest(TestCase):
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/BRCA1_chrom_name_chop_100.vg', self.workdir])
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
-        self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.workdir, 'file:'+self.workdir+'cmarkello-hgvmdebugtest-input',
+        self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877', self.workdir,
                                    self.local_outstore, '--path_name', '17', '--path_size', '81189', '--call_opts', '--offset 43044293' )
 
         self._assertOutput('17.vcf', self.local_outstore)
@@ -80,22 +79,17 @@ class VGCGLTest(TestCase):
         self.sample_reads = os.path.join(self.workdir, 'NA12877.lrc_kir.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg')
         self.test_index = os.path.join(self.workdir, 'lrc_kir_index.tar.gz')
-        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
+        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877', self.workdir,
                                    self.outstore,  '--gcsa_index', self.test_index, '--path_name', '19', '--path_size', '50000')
         self._assertOutput('19.vcf', self.outstore)
 
     def test_chr6_MHC_sampleNA12877(self):
         ''' Test sample MHC output
         '''
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/mhc_index.tar.gz', self.workdir])
-        self.sample_reads = os.path.join(self.workdir, 'NA12877.mhc.bam.small.fq')
-        self.test_vg_graph = os.path.join(self.workdir, 'MHC_chrom_name_chop_100.small.vg')
-        self.test_index = os.path.join(self.workdir, 'mhc_index.tar.gz')
-        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
+        self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq'
+        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg'
+        self.test_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/mhc_index.tar.gz'
+        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877', self.workdir,
                                    self.outstore,  '--gcsa_index', self.test_index, '--path_name', '6', '--path_size', '50000')
         self._assertOutput('6.vcf', self.outstore)
 
@@ -108,8 +102,7 @@ class VGCGLTest(TestCase):
         self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
         self.test_index = os.path.join(self.workdir, 'sma_index.tar.gz')
-        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.workdir, 'aws:us-west-2:cmarkello-hgvmdebugtest-input',
+        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877', self.workdir,
                                    self.outstore, '--path_name', '5', '--path_size', '50000')
         self._assertOutput('5.vcf', self.outstore)
     

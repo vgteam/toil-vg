@@ -148,6 +148,14 @@ def get_files_by_file_size(dirname, reverse=False):
 
     return filepaths
 
+def clean_toil_path(path):
+    """ Try to make input path into something toil friendly """
+    # local path
+    if ':' not in path:
+        return 'file://' + os.path.abspath(path)
+    else:
+        return path
+    
 def batch_iterator(iterator, batch_size):
     """Returns lists of length batch_size.
 
