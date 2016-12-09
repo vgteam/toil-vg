@@ -7,7 +7,7 @@ import textwrap
 import filecmp
 import vcf
 from contextlib import closing
-from unittest import TestCase
+from unittest import TestCase, skip
 from urlparse import urlparse
 from uuid import uuid4
 
@@ -50,8 +50,8 @@ class VGCGLTest(TestCase):
                                    '--calling_cores', '8')
         
         # default output store
-        self.outstore = 'aws:us-west-2:cmarkello-hgvmdebugtest-output'
-        self.local_outstore = os.path.join(self.workdir, 'cmarkello-hgvmdebugtest-output')
+        self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
+        self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
 
         # copy the sequence information for vcf comparison
         # (lumped in one file out of laziness.  todo: at least split by chromosome)
@@ -70,6 +70,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('17.vcf', self.local_outstore)
 
+    @skip("Skipping lrc_kir test")
     def test_chr19_sampleNA12877(self):
         ''' Test sample LRC KIR output
         '''
@@ -83,6 +84,7 @@ class VGCGLTest(TestCase):
                                    self.outstore,  '--gcsa_index', self.test_index, '--path_name', '19', '--path_size', '50000')
         self._assertOutput('19.vcf', self.outstore)
 
+    @skip("Skipping MHC test")
     def test_chr6_MHC_sampleNA12877(self):
         ''' Test sample MHC output
         '''
@@ -93,6 +95,7 @@ class VGCGLTest(TestCase):
                                    self.outstore,  '--gcsa_index', self.test_index, '--path_name', '6', '--path_size', '50000')
         self._assertOutput('6.vcf', self.outstore)
 
+    @skip("Skipping SMA test")
     def test_chr5_SMA_sampleNA12877(self):
         ''' Test sample SMA output
         '''
@@ -145,3 +148,4 @@ class VGCGLTest(TestCase):
         shutil.rmtree(self.workdir)
         subprocess.check_call(['toil', 'clean', self.jobStoreAWS])
         subprocess.check_call(['toil', 'clean', self.jobStoreLocal])
+        
