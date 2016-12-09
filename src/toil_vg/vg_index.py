@@ -47,8 +47,6 @@ def parse_args():
         help="Input vg graph file path")
     parser.add_argument("out_dir", type=str,
         help="directory where all output will be written")
-    parser.add_argument("input_store",
-        help="sample input IOStore where input files will be temporarily uploaded")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--path_name", nargs='+', type=str,
@@ -85,7 +83,7 @@ def index_parse_args(parser):
         help="number of threads during the indexing step")
 
 
-def run_indexing(job, options):
+def run_indexing(job, options, inputGraphFileID):
     """
     Create a directory with the gcsa and xg indexe files and tar it up
     Return a tuple of its name and id
@@ -95,7 +93,6 @@ def run_indexing(job, options):
     
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
 
     graph_file = os.path.basename(options.vg_graph)
@@ -108,9 +105,7 @@ def run_indexing(job, options):
     robust_makedirs(graph_dir)
     
     graph_filename = "{}/graph.vg".format(graph_dir)
-    graph_file_remote_path = graph_file
-    input_store.read_input_file(graph_file_remote_path, graph_filename)
-    
+    job.fileStore.readGlobalFile(inputGraphFileID, graph_filename)    
     
     # Now run the indexer.
     RealTimeLogger.get().info("Indexing {}".format(options.vg_graph))
@@ -254,18 +249,7 @@ def run_only_indexing(job, options, inputGraphFileID):
     """ run indexing logic by itself.  
     """
 
-    RealTimeLogger.get().info("Uploading files to IO store")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    input_store = IOStore.get(options.input_store)   
-    out_store = IOStore.get(options.out_store)
-
-    input_graph_basename = os.path.basename(options.vg_graph)
-    RealTimeLogger.get().info("Uploading {} to {} on IO store".format(inputGraphFileID, input_graph_basename))
-    fi = job.fileStore.readGlobalFile(inputGraphFileID)
-    input_store.write_output_file(fi, input_graph_basename)
-
-    index_key_and_id = job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
+    index_key_and_id = job.addChildJobFn(run_indexing, options, inputGraphFileID, cores=options.index_cores, memory="4G", disk="2G").rv()
 
     return index_key_and_id
 
@@ -310,7 +294,7 @@ def main():
         if not toil.options.restart:
             
             # Upload local files to the remote IO Store
-            inputGraphFileID = toil.importFile('file://'+options.vg_graph)
+            inputGraphFileID = toil.importFile(clean_toil_path(options.vg_graph))
             
             # Make a root job
             root_job = Job.wrapJobFn(run_only_indexing, options, inputGraphFileID,

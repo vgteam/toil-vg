@@ -61,8 +61,6 @@ def parse_args():
         help="sample name (ex NA12878)")
     parser.add_argument("out_dir", type=str,
         help="directory where all output will be written")
-    parser.add_argument("input_store",
-        help="sample input IOStore where input files will be temporarily uploaded")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--gcsa_index", type=str,
@@ -105,29 +103,16 @@ def parse_args():
 #
 # Data is communicated across the chain via the output store (at least for now). 
 
-def run_pipeline_upload(job, options, uploadList):
+def run_pipeline_upload(job, options, inputGraphFileID, inputReadsFileID, inputIndexFileID):
     """
     Upload and file in uploadList to the remote IO store specified
     in the input_store option.
     """
     
-    RealTimeLogger.get().info("Uploading files to IO store")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    input_store = IOStore.get(options.input_store)   
-    out_store = IOStore.get(options.out_store)
+    return job.addFollowOnJobFn(run_pipeline_index, options, inputGraphFileID, inputReadsFileID,
+                                inputIndexFileID, cores=2, memory="4G", disk="2G").rv()
     
-    for file_key in uploadList:
-        file_basename = os.path.basename(file_key[1])
-        RealTimeLogger.get().info("Uploading {} to {} on IO store".format(file_key[0], file_basename))
-        fi = job.fileStore.readGlobalFile(file_key[0])
-        input_store.write_output_file(fi, file_basename)
-
-    inputIndexFileID = uploadList[2][0] if options.gcsa_index else None
-
-    return job.addFollowOnJobFn(run_pipeline_index, options, inputIndexFileID, cores=2, memory="4G", disk="2G").rv()
-    
-def run_pipeline_index(job, options, inputIndexFileID):
+def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputIndexFileID):
     """
     All indexing.  result is a tarball in thie output store.
     """
@@ -136,7 +121,6 @@ def run_pipeline_index(job, options, inputIndexFileID):
 
         # Set up the IO stores each time, since we can't unpickle them on Azure for
         # some reason.
-        input_store = IOStore.get(options.input_store)
         out_store = IOStore.get(options.out_store)
         
         # Download local input files from the remote storage container
@@ -167,16 +151,20 @@ def run_pipeline_index(job, options, inputIndexFileID):
         #Split fastq files
         index_key_and_id = index_key, index_dir_id
     else:
-        index_key_and_id = job.addChildJobFn(run_indexing, options, cores=options.index_cores, memory="4G", disk="2G").rv()
+        index_key_and_id = job.addChildJobFn(run_indexing, options, inputGraphFileID,
+                                             cores=options.index_cores, memory="4G", disk="2G").rv()
 
-    return job.addFollowOnJobFn(run_pipeline_map, options, index_key_and_id, cores=2, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_pipeline_map, options, index_key_and_id,
+                                inputReadsFileID, cores=2, memory="4G", disk="2G").rv()
 
-def run_pipeline_map(job, options, index_key_and_id):
+def run_pipeline_map(job, options, index_key_and_id, inputReadsFileID):
     """ All mapping, including fastq splitting and gam merging"""
 
-    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1], cores=3, memory="4G", disk="2G").rv()
+    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1],
+                                     inputReadsFileID, cores=3, memory="4G", disk="2G").rv()
 
-    return job.addFollowOnJobFn(run_pipeline_call, options, index_key_and_id[1], chr_gam_keys, cores=2, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_pipeline_call, options, index_key_and_id[1],
+                                chr_gam_keys, cores=2, memory="4G", disk="2G").rv()
 
 def run_pipeline_call(job, options, index_dir_id, chr_gam_keys):
     """ Run variant calling on the chromosomes in parallel """
@@ -210,7 +198,6 @@ def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_file_key_list):
     RealTimeLogger.get().info("Starting vcf merging vcf files.")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
-    input_store = IOStore.get(options.input_store)
     out_store = IOStore.get(options.out_store)
 
     # Define work directory for docker calls
@@ -337,15 +324,16 @@ def main():
         if not toil.options.restart:
             
             # Upload local files to the remote IO Store
-            inputGraphFileID = toil.importFile('file://'+options.vg_graph)
-            inputReadsFileID = toil.importFile('file://'+options.sample_reads)
-            uploadList = [[inputGraphFileID, options.vg_graph], [inputReadsFileID, options.sample_reads]]
+            inputGraphFileID = toil.importFile(clean_toil_path(options.vg_graph))
+            inputReadsFileID = toil.importFile(clean_toil_path(options.sample_reads))
             if options.gcsa_index:
-                inputIndexFileID = toil.importFile('file://'+options.gcsa_index)
-                uploadList += [[inputIndexFileID, options.gcsa_index]]
+                inputIndexFileID = toil.importFile(clean_toil_path(options.gcsa_index))
+            else:
+                inputIndexFileID = None
             
             # Make a root job
-            root_job = Job.wrapJobFn(run_pipeline_upload, options, uploadList, cores=2, memory="5G", disk="2G")
+            root_job = Job.wrapJobFn(run_pipeline_upload, options, inputGraphFileID,
+                                     inputReadsFileID, inputIndexFileID, cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download
             outputFileIDList = toil.start(root_job)
