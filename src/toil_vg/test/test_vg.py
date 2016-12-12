@@ -68,7 +68,7 @@ class VGCGLTest(TestCase):
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.local_outstore, '--path_name', '17', '--path_size', '81189', '--call_opts', '--offset 43044293' )
 
-        self._assertOutput('17.vcf', self.local_outstore)
+        self._assertOutput('NA12877_17.vcf', self.local_outstore)
 
     @skip("Skipping lrc_kir test")
     def test_chr19_sampleNA12877(self):
@@ -82,7 +82,7 @@ class VGCGLTest(TestCase):
         self.test_index = os.path.join(self.workdir, 'lrc_kir_index.tar.gz')
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.outstore,  '--gcsa_index', self.test_index, '--path_name', '19', '--path_size', '50000')
-        self._assertOutput('19.vcf', self.outstore)
+        self._assertOutput('NA12877_19.vcf', self.outstore)
 
     @skip("Skipping MHC test")
     def test_chr6_MHC_sampleNA12877(self):
@@ -93,7 +93,7 @@ class VGCGLTest(TestCase):
         self.test_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/mhc_index.tar.gz'
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.outstore,  '--gcsa_index', self.test_index, '--path_name', '6', '--path_size', '50000')
-        self._assertOutput('6.vcf', self.outstore)
+        self._assertOutput('NA12877_6.vcf', self.outstore)
 
     @skip("Skipping SMA test")
     def test_chr5_SMA_sampleNA12877(self):
@@ -107,7 +107,7 @@ class VGCGLTest(TestCase):
         self.test_index = os.path.join(self.workdir, 'sma_index.tar.gz')
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.outstore, '--path_name', '5', '--path_size', '50000')
-        self._assertOutput('5.vcf', self.outstore)
+        self._assertOutput('NA12877_5.vcf', self.outstore)
     
     def _run(self, *args):
         args = list(concat(*args))
@@ -122,7 +122,8 @@ class VGCGLTest(TestCase):
         else:
             cp = ['cp']
             output_path = outstore
-        testName = testFile + '.gz'
+        # todo: clean this to be less hardcoded
+        testName = 'NA12877.vcf.gz'
         normalName = 'normal_' + testFile + '.gz'
         localTest = os.path.join(self.workdir, testName)
         localNormal = os.path.join(self.workdir, normalName)

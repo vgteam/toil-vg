@@ -50,6 +50,9 @@ def parse_args():
     parser.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")    
 
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
+
     # Add indexing options
     index_parse_args(parser)
 
@@ -80,7 +83,6 @@ def index_parse_args(parser):
     parser.add_argument("--index_cores", type=int, default=3,
         help="number of threads during the indexing step")
 
-
 def run_indexing(job, options, inputGraphFileID):
     """
     Create a directory with the gcsa and xg indexe files and tar it up
@@ -103,7 +105,7 @@ def run_indexing(job, options, inputGraphFileID):
     robust_makedirs(graph_dir)
     
     graph_filename = "{}/graph.vg".format(graph_dir)
-    job.fileStore.readGlobalFile(inputGraphFileID, graph_filename)    
+    read_from_store(job, options, inputGraphFileID, graph_filename, use_out_store = False)    
     
     # Now run the indexer.
     RealTimeLogger.get().info("Indexing {}".format(options.vg_graph))

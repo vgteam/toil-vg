@@ -39,6 +39,9 @@ def parse_args():
     parser.add_argument("out_store",
                         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")    
 
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
+
     # Add common calling options shared with vg_evaluation_pipeline
     chunked_call_parse_args(parser)
 
@@ -333,8 +336,8 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
 
     # Download the chunked vg and gam files
     RealTimeLogger.get().info("Attempting to read vg_path and gam_path files.")
-    job.fileStore.readGlobalFile(vg_chunk_file_id, vg_path)
-    job.fileStore.readGlobalFile(gam_chunk_file_id, gam_path)
+    read_from_store(job, options, vg_chunk_file_id, vg_path)
+    read_from_store(job, options, gam_chunk_file_id, gam_path)
 
     vcf_path = chunk_base_name(path_name, out_dir, chunk_i, ".vcf")
     
@@ -375,14 +378,11 @@ def call_chunk(job, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
             options.drunner.call(command, work_dir=out_dir, outfile=clip_path_stream)
 
     # save clip.vcf files to job store
-    clip_file_id = job.fileStore.writeGlobalFile(clip_path)
+    clip_file_id = write_to_store(job, options, clip_path)
     
-    # Save clip.vcf files to the output store
-    out_store.write_output_file(clip_path, os.path.basename(clip_path))
-
     return clip_file_id
 
-def run_calling(job, options, index_dir_id, alignment_file_id, path_name, path_size):
+def run_calling(job, options, index_dir_id, alignment_file_id, path_name, path_size, standalone = False):
     
     RealTimeLogger.get().info("Running variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
     
@@ -405,8 +405,8 @@ def run_calling(job, options, index_dir_id, alignment_file_id, path_name, path_s
 
     # Download the alignment
     alignment_file = "{}/{}.gam".format(work_dir, options.sample_name)
-    job.fileStore.readGlobalFile(alignment_file_id, alignment_file)
-    RealTimeLogger.get().info("BLIN {} size {}".format(alignment_file, os.path.getsize(alignment_file)))
+    use_out_store = False if standalone is True else None
+    read_from_store(job, options, alignment_file_id, alignment_file, use_out_store = use_out_store)
     variant_call_dir = work_dir
 
     # run chunked_call
@@ -415,7 +415,7 @@ def run_calling(job, options, index_dir_id, alignment_file_id, path_name, path_s
                                                  options.call_chunk_size, options.overlap, options.filter_opts, options.pileup_opts,
                                                  options.call_opts, options.genotype_opts, options.overwrite)
 
-    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, index_dir_id, path_name, path_size, chunks, clip_file_ids, options.overwrite, cores=2, memory="4G", disk="2G").rv()
+    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, index_dir_id, path_name, path_size, chunks, clip_file_ids, options.overwrite, standalone = standalone, cores=2, memory="4G", disk="2G").rv()
  
     RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
 
@@ -453,13 +453,9 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
         gam_path = chunk_base_name(path_name, work_dir, chunk_i, ".gam")
 
         # write chunks to job store
-        vg_chunk_file_id = job.fileStore.writeGlobalFile(vg_path)
-        gam_chunk_file_id = job.fileStore.writeGlobalFile(gam_path)
-        
-        # upload split gam files
-        out_store.write_output_file(vg_path, os.path.basename(vg_path))
-        out_store.write_output_file(gam_path, os.path.basename(gam_path))
-        
+        vg_chunk_file_id = write_to_store(job, options, vg_path)
+        gam_chunk_file_id = write_to_store(job, options, gam_path)
+                
         clip_file_id = job.addChildJobFn(call_chunk, options, index_dir_id, xg_path, path_name, chunks, chunk_i,
                                          vg_chunk_file_id, gam_chunk_file_id,
                                          path_size, overlap,
@@ -469,7 +465,7 @@ def dockered_chunked_call(job, options, out_store, work_dir, index_dir_id, threa
         clip_file_ids.append(clip_file_id)
     return chunks, clip_file_ids
 
-def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, clip_file_ids, overwrite):
+def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, clip_file_ids, overwrite, standalone):
     """ merge a bunch of clipped vcfs created above, taking care to 
     fix up the headers.  everything expected to be sorted already """
     
@@ -490,7 +486,7 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, c
         for chunk_i, chunk in enumerate(chunks):
             clip_path = chunk_base_name(path_name, out_dir, chunk_i, "_clip.vcf")
             # Download clip.vcf file
-            job.fileStore.readGlobalFile(clip_file_ids[chunk_i], clip_path)
+            read_from_store(job, options, clip_file_ids[chunk_i], clip_path)
 
             if os.path.isfile(clip_path):
                 if first is True:
@@ -515,14 +511,10 @@ def merge_vcf_chunks(job, options, index_dir_id, path_name, path_size, chunks, c
         options.drunner.call(command, work_dir=out_dir)
 
     # Save merged vcf files to the job store
-    vcf_gz_file_id = job.fileStore.writeGlobalFile(vcf_path+".gz")
-    vcf_tbi_file_id = job.fileStore.writeGlobalFile(vcf_path+".gz.tbi")
-    
-    # Save merged vcf files to the output store
-    out_store.write_output_file(vcf_path, os.path.basename(vcf_path))
-    out_store.write_output_file(vcf_path+".gz", os.path.basename(vcf_path+".gz"))
-    out_store.write_output_file(vcf_path+".gz.tbi", os.path.basename(vcf_path+".gz.tbi"))
-    
+    use_out_store = True if standalone is True else None
+    vcf_gz_file_id = write_to_store(job, options, vcf_path+".gz", use_out_store)
+    vcf_tbi_file_id = write_to_store(job, options, vcf_path+".gz.tbi", use_out_store)
+        
     return vcf_gz_file_id, vcf_tbi_file_id
 
 def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
@@ -535,13 +527,14 @@ def run_only_chunked_call(job, options, inputXGFileID, inputGamFileID):
     # note: the file name important here as it's what run_calling expects
     indexDir = job.fileStore.getLocalTempDir()
     indexPath = os.path.join(indexDir, "graph.vg.xg")
-    job.fileStore.readGlobalFile(inputXGFileID, userPath=indexPath)
+    read_from_store(job, options, inputXGFileID, indexPath)
     RealTimeLogger.get().info("Compressing input index to {}".format(indexPath + ".gz"))
     indexDirId = write_global_directory(job.fileStore, indexDir,
                                           cleanup=True, tee=indexPath + ".gz")
 
     vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, indexDirId, inputGamFileID,
-                                             options.path_name, options.path_size, cores=options.calling_cores,
+                                             options.path_name, options.path_size, standalone=True,
+                                             cores=options.calling_cores,
                                              memory="4G", disk="2G").rv()
     
 def main():

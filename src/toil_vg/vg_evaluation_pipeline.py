@@ -70,6 +70,9 @@ def parse_args():
     parser.add_argument("--restat", default=False, action="store_true",
         help="recompute and overwrite existing stats files")
 
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
+    
     # Add common indexing options shared with vg_index
     index_parse_args(parser)
 
@@ -124,7 +127,7 @@ def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputIn
         # Download local input files from the remote storage container
         graph_dir = job.fileStore.getLocalTempDir()
         robust_makedirs(graph_dir)
-        indexFile = job.fileStore.readGlobalFile(inputIndexFileID)
+        indexFile = read_from_store(job, options, inputIndexFileID, use_out_store=False)
         tar = tarfile.open(indexFile)
         tar.extractall(path=graph_dir)
         tar.close() 
@@ -209,8 +212,8 @@ def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_tbi_file_id_pair_list
     for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
         vcf_file = "{}/{}.gz".format(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
         vcf_file_idx = "{}.tbi".format(vcf_file)
-        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[0], vcf_file)
-        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[1], vcf_file_idx)
+        read_from_store(job, options, vcf_tbi_file_id_pair[0], vcf_file)
+        read_from_store(job, options, vcf_tbi_file_id_pair[1], vcf_file_idx)
         vcf_merging_file_key_list.append(os.path.basename(vcf_file))
 
     vcf_merged_file_key = "" 
@@ -225,19 +228,11 @@ def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_tbi_file_id_pair_list
         vcf_merged_file_key = vcf_merging_file_key_list[0]
 
     # save variant calling results to the output store
-    vcf_file = "{}/{}".format(work_dir, vcf_merged_file_key)
-    vcf_file_idx = "{}/{}.tbi".format(work_dir, vcf_merged_file_key)
-
-    out_store.write_output_file(vcf_file, vcf_merged_file_key)
-    out_store.write_output_file(vcf_file_idx, vcf_merged_file_key + ".tbi")
-
-    
-    #Run downloader to download output IO store files to local output directory.
-    vcf_file_id = job.fileStore.writeGlobalFile(vcf_file)
-    vcf_file_idx_id = job.fileStore.writeGlobalFile(vcf_file_idx) 
-    downloadList = [[vcf_file_id, vcf_merged_file_key], [vcf_file_idx_id, vcf_merged_file_key+".tbi"]]
-
-    return downloadList
+    out_store_key = "{}.vcf.gz".format(options.sample_name)
+    vcf_file = os.path.join(work_dir, vcf_merged_file_key)
+    vcf_file_idx = vcf_file + ".tbi"
+    write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
+    write_to_store(job, options, vcf_file_idx, use_out_store = True, out_store_key = out_store_key + ".tbi") 
 
 def main():
     """
@@ -310,10 +305,10 @@ def main():
             root_job = Job.wrapJobFn(run_pipeline_upload, options, inputGraphFileID,
                                      inputReadsFileID, inputIndexFileID, cores=2, memory="5G", disk="2G")
             
-            # Run the job and store the returned list of output files to download
-            outputFileIDList = toil.start(root_job)
+            # Run the job and store
+            toil.start(root_job)
         else:
-            outputFileIDList = toil.restart()
+            toil.restart()
                 
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
