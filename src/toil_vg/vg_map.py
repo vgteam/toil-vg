@@ -115,12 +115,16 @@ def run_split_fastq(job, options, index_dir_id, sample_fastq_id):
   
     num_chunks = 0 
     record_iter = SeqIO.parse(open(fastq_file),"fastq")
+    gam_chunk_file_ids = []
     for chunk_id in xrange(options.num_fastq_chunks):
         num_chunks += 1
         chunk_id += 1
         chunk_record_iter = itertools.islice(record_iter, 0, num_records_fastq_chunk)
         chunk_filename = "{}/group_{}.fq".format(work_dir, chunk_id)
         count = SeqIO.write(chunk_record_iter, chunk_filename, "fastq")
+
+        # write the chunk to the jbostore
+        chunk_filename_id = job.fileStore.writeGlobalFile(chunk_filename)
         
         # Upload the fastq file chunk
         filename_key = os.path.basename(chunk_filename)
@@ -128,12 +132,13 @@ def run_split_fastq(job, options, index_dir_id, sample_fastq_id):
         RealTimeLogger.get().info("Wrote {} records to {}".format(count, chunk_filename))
         
         #Run graph alignment on each fastq chunk
-        job.addChildJobFn(run_alignment, options, filename_key, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G")
+        gam_file_id = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G").rv()
+        gam_chunk_file_ids.append(gam_file_id)
 
-    return job.addFollowOnJobFn(run_merge_gam, options, num_chunks, index_dir_id, cores=3, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_merge_gam, options, gam_chunk_file_ids, index_dir_id, cores=3, memory="4G", disk="2G").rv()
 
 
-def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
+def run_alignment(job, options, chunk_filename_id, chunk_id, index_dir_id):
 
     RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -155,9 +160,8 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
     graph_file = "{}/graph.vg".format(graph_dir)
 
     # We need the sample fastq for alignment
-    sample_filename = os.path.basename(options.sample_reads)
-    fastq_file = "{}/group_{}.fq".format(work_dir, chunk_id)
-    out_store.read_input_file(filename_key, fastq_file)
+    fastq_file = os.path.join(work_dir, 'chunk_{}.gam'.format(chunk_id))
+    job.fileStore.readGlobalFile(chunk_filename_id, fastq_file)
     
     # And a temp file for our aligner output
     output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
@@ -207,9 +211,12 @@ def run_alignment(job, options, filename_key, chunk_id, index_dir_id):
     # Upload the alignment
     alignment_file_key = os.path.basename(output_file)
     out_store.write_output_file(output_file, alignment_file_key)
-    
 
-def run_merge_gam(job, options, num_chunks, index_dir_id):
+    # Send alignment to store
+    alignment_file_id = job.fileStore.writeGlobalFile(output_file)
+    return alignment_file_id
+
+def run_merge_gam(job, options, chunk_file_ids, index_dir_id):
     
     RealTimeLogger.get().info("Starting gam merging...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -221,10 +228,10 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
     
     # Download the chunked alignments from the outstore to the local work_dir
     gam_chunk_filelist = []
-    for i in xrange(num_chunks):
+    for i, chunk_file_id in enumerate(chunk_file_ids):
         chunk_id = i + 1
         output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
-        out_store.read_input_file(os.path.basename(output_file), output_file)
+        job.fileStore.readGlobalFile(chunk_file_id, output_file)
         gam_chunk_filelist.append(output_file)
 
 
@@ -239,6 +246,7 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
             assert len(options.path_name) == len(options.path_size)
             for name, size in zip(options.path_name, options.path_size):
                 bed_file.write("{}\t0\t{}\n".format(name, size))
+                RealTimeLogger.get().info("BLON BED LINE {}".format("{}\t0\t{}".format(name, size)))
 
         # Download local input files from the remote storage container
         graph_dir = work_dir
@@ -259,14 +267,17 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
                           '-x', os.path.basename(graph_file + ".xg")]
             if i > 0:
                 filter_cmd.append('-A')
+                
             options.drunner.call(filter_cmd, work_dir = work_dir)
-            
+
+
         for chunk_id, name in enumerate(options.path_name):
             # we are relying on convention of vg filter naming output here
             # if that changes, this will break.
             filter_file_path = os.path.join(
                 work_dir, "{}-{}.gam".format(options.sample_name, chunk_id))
             assert os.path.isfile(filter_file_path)
+
             # rename from chunk id to path name
             chr_filterfile_path = os.path.join(
                 work_dir, "{}_{}.gam".format(options.sample_name, name))
@@ -277,27 +288,31 @@ def run_merge_gam(job, options, num_chunks, index_dir_id):
         # No path information, just append together without splitting into chromosome
         merged_gam_path = os.path.join(work_dir, "{}.gam".format(options.sample_name))
         if len(gam_chunk_filelist) > 0:
-            os.rename(gam_chunk_filelist[0], merged_gam_path)
+            shutil.copy(gam_chunk_filelist[0], merged_gam_path)
             with open(merged_gam_path, 'a') as merge_file:
                 for output_chunk_gam in gam_chunk_filelist[1:]:
                     with open(output_chunk_gam) as chunk_file:
                         shutil.copyfileobj(chunk_file, merge_file)                    
         chr_gam_keys = [(None, os.path.basename(merged_gam_path))]
-                    
-    # Upload the merged alignment file
+
+    chr_gam_ids = []
     for name, alignment_key in chr_gam_keys:
+        # Upload the merged alignment file to the job store
+        gam_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, alignment_key))
+        chr_gam_ids.append((name, gam_file_id))
+        # Upload the merged alignment file to output store
         out_store.write_output_file(os.path.join(work_dir, alignment_key), alignment_key)
 
-    return chr_gam_keys
+    return chr_gam_ids
 
 def run_only_mapping(job, options, inputIndexFileID, sampleFastqFileID,):
     """ run mapping logic by itself.  
     """
         
-    chr_gam_keys = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, sampleFastqFileID,
+    chr_gam_ids = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, sampleFastqFileID,
                                      cores=3, memory="4G", disk="2G").rv()
 
-    return chr_gam_keys
+    return chr_gam_ids
 
 def main():
     """
@@ -329,9 +344,9 @@ def main():
                                      cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download
-            chr_gam_keys = toil.start(root_job)
+            chr_gam_ids = toil.start(root_job)
         else:
-            chr_gam_keys = toil.restart()
+            chr_gam_ids = toil.restart()
             
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
