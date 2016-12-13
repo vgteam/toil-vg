@@ -76,12 +76,17 @@ class VGCGLTest(TestCase):
         '''
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.lrc_kir.bam.small.fq', self.workdir])
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/lrc_kir_index.tar.gz', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg.xg', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg.gcsa', self.workdir])
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg.gcsa.lcp', self.workdir])
         self.sample_reads = os.path.join(self.workdir, 'NA12877.lrc_kir.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg')
-        self.test_index = os.path.join(self.workdir, 'lrc_kir_index.tar.gz')
+        self.test_xg_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.xg')
+        self.test_gcsa_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
+        
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.outstore,  '--gcsa_index', self.test_index, '--path_name', '19', '--path_size', '50000')
+                  self.outstore,  '--gcsa_index', self.test_gcsa_index,
+                  '--xg_index', self.test_xg_index, '--path_name', '19', '--path_size', '50000')
         self._assertOutput('NA12877_19.vcf', self.outstore)
 
     @skip("Skipping MHC test")
@@ -90,9 +95,9 @@ class VGCGLTest(TestCase):
         '''
         self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq'
         self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg'
-        self.test_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/mhc_index.tar.gz'
+        self.test_gcsa_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg.gcsa'
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.outstore,  '--gcsa_index', self.test_index, '--path_name', '6', '--path_size', '50000')
+                                   self.outstore,  '--gcsa_index', self.test_gcsa_index, '--path_name', '6', '--path_size', '50000')
         self._assertOutput('NA12877_6.vcf', self.outstore)
 
     @skip("Skipping SMA test")
@@ -101,10 +106,8 @@ class VGCGLTest(TestCase):
         '''
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.sma.bam.small.fq', self.workdir])
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/SMA_chrom_name_chop_100.small.vg', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/sma_index.tar.gz', self.workdir])
         self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
-        self.test_index = os.path.join(self.workdir, 'sma_index.tar.gz')
         self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
                                    self.outstore, '--path_name', '5', '--path_size', '50000')
         self._assertOutput('NA12877_5.vcf', self.outstore)

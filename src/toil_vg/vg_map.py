@@ -48,15 +48,16 @@ def parse_args():
         help="Path to sample reads in fastq format")
     parser.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
+    parser.add_argument("vg_graph", type=str,
+        help="Path to vg graph")
+    parser.add_argument("xg_index", type=str,
+        help="Path to xg index")    
     parser.add_argument("gcsa_index", type=str,
-        help="Path to tar and gzipped folder containing .gcsa, .gcsa.lcp, .xg and .graph index files and graph.vg and to_index.vg files. This is equivalent to the output found in the 'run_indexing' toil job function of this pipeline.")    
+        help="Path to GCSA index")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--kmer_size", type=int, default=10,
         help="size of kmers to use in indexing and mapping")
-    parser.add_argument("--index_mode", choices=["rocksdb", "gcsa-kmer",
-        "gcsa-mem"], default="gcsa-mem",
-        help="type of vg index to use for mapping")
     # these are used for gam merging.  to-do: harmonize these options which are repeated
     # in all the different tools at this point
     parser.add_argument("--path_name", nargs='+', type=str,
@@ -85,9 +86,11 @@ def map_parse_args(parser, stand_alone = False):
         help="number of chunks to split the input fastq file records")
     parser.add_argument("--alignment_cores", type=int, default=3,
         help="number of threads during the alignment step")
-        
+    parser.add_argument("--index_mode", choices=["gcsa-kmer",
+        "gcsa-mem"], default="gcsa-mem",
+        help="type of vg index to use for mapping")        
 
-def run_split_fastq(job, options, index_dir_id, sample_fastq_id):
+def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, sample_fastq_id):
     
     RealTimeLogger.get().info("Starting fastq split and alignment...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -97,14 +100,10 @@ def run_split_fastq(job, options, index_dir_id, sample_fastq_id):
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
-    # Download local input files from the remote storage container
-    graph_dir = work_dir
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
-
     # We need the sample fastq for alignment
     sample_filename = os.path.basename(options.sample_reads)
     fastq_file = "{}/input.fq".format(work_dir)
-    read_from_store(job, options, sample_fastq_id, fastq_file, use_out_store = False)    
+    read_from_store(job, options, sample_fastq_id, fastq_file)
     
     # Find number of records per fastq chunk
     p1 = Popen(['cat', fastq_file], stdout=PIPE)
@@ -131,13 +130,16 @@ def run_split_fastq(job, options, index_dir_id, sample_fastq_id):
         RealTimeLogger.get().info("Wrote {} records to {}".format(count, chunk_filename))
         
         #Run graph alignment on each fastq chunk
-        gam_file_id = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id, index_dir_id, cores=options.alignment_cores, memory="4G", disk="2G").rv()
+        gam_file_id = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id,
+                                        graph_file_id, xg_file_id, gcsa_and_lcp_ids,
+                                        cores=options.alignment_cores, memory="4G", disk="2G").rv()
         gam_chunk_file_ids.append(gam_file_id)
 
-    return job.addFollowOnJobFn(run_merge_gam, options, gam_chunk_file_ids, index_dir_id, cores=3, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_merge_gam, options, gam_chunk_file_ids, xg_file_id,
+                                cores=3, memory="4G", disk="2G").rv()
 
 
-def run_alignment(job, options, chunk_filename_id, chunk_id, index_dir_id):
+def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_file_id, gcsa_and_lcp_ids):
 
     RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -151,20 +153,24 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, index_dir_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     # Download local input files from the remote storage container
-    graph_dir = work_dir
+    graph_file = os.path.join(work_dir, "graph.vg")
+    read_from_store(job, options, graph_file_id, graph_file)
 
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
-    
-    # We know what the vg file in there will be named
-    graph_file = "{}/graph.vg".format(graph_dir)
+    xg_file = graph_file + ".xg"
+    read_from_store(job, options, xg_file_id, xg_file)
+    gcsa_file = graph_file + ".gcsa"
+    gcsa_file_id = gcsa_and_lcp_ids[0]
+    read_from_store(job, options, gcsa_file_id, gcsa_file)
+    lcp_file = gcsa_file + ".lcp"
+    lcp_file_id = gcsa_and_lcp_ids[1]
+    read_from_store(job, options, lcp_file_id, lcp_file)
 
     # We need the sample fastq for alignment
-    fastq_file = os.path.join(work_dir, 'chunk_{}.gam'.format(chunk_id))
+    fastq_file = os.path.join(work_dir, 'chunk_{}.fq'.format(chunk_id))
     read_from_store(job, options, chunk_filename_id, fastq_file)
     
     # And a temp file for our aligner output
-    output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
-
+    output_file = os.path.join(work_dir, "{}_{}.gam".format(options.sample_name, chunk_id))
 
     # Open the file stream for writing
     with open(output_file, "w") as alignment_file:
@@ -176,17 +182,13 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, index_dir_id):
                     '-i', '-M2', '-W', '500', '-u', '0', '-U',
                     '-O', '-S', '50', '-a', '-t', str(job.cores), os.path.basename(graph_file)]
 
-        if options.index_mode == "rocksdb":
-            vg_parts += ['-d', os.path.basename(graph_file+".index"), '-n3', '-k',
-                str(options.kmer_size)]
-        elif options.index_mode == "gcsa-kmer":
+        if options.index_mode == "gcsa-kmer":
             # Use the new default context size in this case
-            vg_parts += ['-x', os.path.basename(graph_file+ ".xg"), '-g', os.path.basename(graph_file + ".gcsa"),
+            vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file),
                 '-n5', '-k', str(options.kmer_size)]
         elif options.index_mode == "gcsa-mem":
             # Don't pass the kmer size, so MEM matching is used
-            vg_parts += ['-x', os.path.basename(graph_file+ ".xg"), '-g', os.path.basename(graph_file+ ".gcsa"),
-                '-n5']
+            vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file), '-n5']
         else:
             raise RuntimeError("invalid indexing mode: " + options.index_mode)
 
@@ -202,7 +204,6 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, index_dir_id):
         # Mark when it's done
         end_time = timeit.default_timer()
         run_time = end_time - start_time
- 
 
     RealTimeLogger.get().info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
     
@@ -210,7 +211,7 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, index_dir_id):
     alignment_file_id = write_to_store(job, options, output_file)
     return alignment_file_id
 
-def run_merge_gam(job, options, chunk_file_ids, index_dir_id):
+def run_merge_gam(job, options, chunk_file_ids, xg_file_id):
     
     RealTimeLogger.get().info("Starting gam merging...")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -242,11 +243,8 @@ def run_merge_gam(job, options, chunk_file_ids, index_dir_id):
                 bed_file.write("{}\t0\t{}\n".format(name, size))
 
         # Download local input files from the remote storage container
-        graph_dir = work_dir
-        read_global_directory(job.fileStore, index_dir_id, graph_dir)
-
-        # We know what the vg file in there will be named
-        graph_file = "{}/graph.vg".format(graph_dir)
+        xg_file = os.path.join(work_dir, "graph.vg.xg")
+        read_from_store(job, options, xg_file_id, xg_file)
 
         for i, output_chunk_gam in enumerate(gam_chunk_filelist):        
             # Use vg filter to merge the gam_chunks back together, while dividing them by
@@ -257,7 +255,7 @@ def run_merge_gam(job, options, chunk_file_ids, index_dir_id):
             filter_cmd = ['vg', 'filter', os.path.basename(output_chunk_gam),
                           '-R', os.path.basename(bed_file_path),
                           '-B', options.sample_name, '-t', str(options.alignment_cores),
-                          '-x', os.path.basename(graph_file + ".xg")]
+                          '-x', os.path.basename(xg_file)]
             if i > 0:
                 filter_cmd.append('-A')
                 
@@ -299,15 +297,6 @@ def run_merge_gam(job, options, chunk_file_ids, index_dir_id):
 
     return chr_gam_ids
 
-def run_only_mapping(job, options, inputIndexFileID, sampleFastqFileID,):
-    """ run mapping logic by itself.  
-    """
-        
-    chr_gam_ids = job.addChildJobFn(run_split_fastq, options, inputIndexFileID, sampleFastqFileID,
-                                     cores=3, memory="4G", disk="2G").rv()
-
-    return chr_gam_ids
-
 def main():
     """
     Wrapper for vg indexing. 
@@ -319,6 +308,10 @@ def main():
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
+
+    # Some file io is dependent on knowing if we're in the pipeline
+    # or standalone. Hack this in here for now
+    options.tool = 'map'
     
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
@@ -330,17 +323,21 @@ def main():
         if not toil.options.restart:
             
             # Upload local files to the remote IO Store
-            inputIndexFileID = toil.importFile(clean_toil_path(options.gcsa_index))
-            sampleFastqFileID = toil.importFile(clean_toil_path(options.sample_reads))
+            inputGraphFileID = import_to_store(toil, options, options.vg_graph)
+            inputXGFileID = import_to_store(toil, options, options.xg_index)
+            inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
+            inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
+            sampleFastqFileID = import_to_store(toil, options, options.sample_reads)
             
             # Make a root job
-            root_job = Job.wrapJobFn(run_only_mapping, options, inputIndexFileID, sampleFastqFileID,
+            root_job = Job.wrapJobFn(run_split_fastq, options, inputGraphFileID, inputXGFileID,
+                                     (inputGCSAFileID, inputLCPFileID), sampleFastqFileID,
                                      cores=2, memory="5G", disk="2G")
             
             # Run the job and store the returned list of output files to download
-            chr_gam_ids = toil.start(root_job)
+            toil.start(root_job)
         else:
-            chr_gam_ids = toil.restart()
+            toil.restart()
             
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline

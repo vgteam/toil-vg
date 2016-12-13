@@ -161,6 +161,28 @@ def clean_toil_path(path):
     else:
         return path
 
+def import_to_store(toil, options, path, use_out_store = None,
+                    out_store_key = None):
+    """
+    Imports a path into the File or IO store
+
+    Abstract all store writing here so we can switch to the out_store
+    when we want to checkpoint an intermeidate file for output
+    or just have all intermediate files in the outstore for debugging.
+    
+    Returns the id in job's file store if use_out_store is True
+    otherwise a key (up to caller to make sure its unique)
+    in the out_store
+
+    By default options.force_outstore is used to toggle between file and 
+    i/o store.  This will be over-ridden by the use_out_store parameter 
+    if the latter is not None
+    """
+    if use_out_store is True or (use_out_store is None and options.force_outstore is True):
+        return write_to_store(None, options, path, use_out_store, out_store_key)
+    else:
+        return toil.importFile(clean_toil_path(path))
+    
 def write_to_store(job, options, path, use_out_store = None,
                    out_store_key = None):
     """
