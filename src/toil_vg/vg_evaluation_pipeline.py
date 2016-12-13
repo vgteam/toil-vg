@@ -258,6 +258,9 @@ def main():
     # or standalone. Hack this in here for now
     options.tool = 'pipeline'
 
+    # Throw error if something wrong with IOStore string
+    IOStore.get(options.out_store)
+
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
         
