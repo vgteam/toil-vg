@@ -70,7 +70,6 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('NA12877_17.vcf', self.local_outstore)
 
-    @skip("Skipping lrc_kir test")
     def test_chr19_sampleNA12877(self):
         ''' Test sample LRC KIR output
         '''
@@ -84,23 +83,21 @@ class VGCGLTest(TestCase):
         self.test_xg_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.xg')
         self.test_gcsa_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
         
-        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                  self.outstore,  '--gcsa_index', self.test_gcsa_index,
+        self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
+                  self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
                   '--xg_index', self.test_xg_index, '--path_name', '19', '--path_size', '50000')
-        self._assertOutput('NA12877_19.vcf', self.outstore)
+        self._assertOutput('NA12877_19.vcf', self.local_outstore)
 
-    @skip("Skipping MHC test")
     def test_chr6_MHC_sampleNA12877(self):
         ''' Test sample MHC output
         '''
         self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq'
         self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg'
         self.test_gcsa_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg.gcsa'
-        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.outstore,  '--gcsa_index', self.test_gcsa_index, '--path_name', '6', '--path_size', '50000')
-        self._assertOutput('NA12877_6.vcf', self.outstore)
+        self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
+                                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index, '--path_name', '6', '--path_size', '50000')
+        self._assertOutput('NA12877_6.vcf', self.local_outstore)
 
-    @skip("Skipping SMA test")
     def test_chr5_SMA_sampleNA12877(self):
         ''' Test sample SMA output
         '''
@@ -108,9 +105,9 @@ class VGCGLTest(TestCase):
         subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/SMA_chrom_name_chop_100.small.vg', self.workdir])
         self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
-        self._run(self.base_command, self.jobStoreAWS, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.outstore, '--path_name', '5', '--path_size', '50000')
-        self._assertOutput('NA12877_5.vcf', self.outstore)
+        self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
+                                   self.local_outstore, '--path_name', '5', '--path_size', '50000')
+        self._assertOutput('NA12877_5.vcf', self.local_outstore)
     
     def _run(self, *args):
         args = list(concat(*args))
