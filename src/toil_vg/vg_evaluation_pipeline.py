@@ -61,8 +61,10 @@ def parse_args():
         help="sample name (ex NA12878)")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
+    parser.add_argument("--xg_index", type=str,
+        help="Path to xg index (to use instead of generating new one)")    
     parser.add_argument("--gcsa_index", type=str,
-        help="Path to tar and gzipped folder containing .gcsa, .gcsa.lcp, .xg and .graph index files and graph.vg and to_index.vg files. This is equivalent to the output found in the 'run_indexing' toil job function of this pipeline.")
+        help="Path to GCSA index (to use instead of generating new one)")
     parser.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")
     parser.add_argument("--path_size", nargs='+', type=int,
@@ -104,70 +106,39 @@ def parse_args():
 #
 # Data is communicated across the chain via the output store (at least for now). 
 
-def run_pipeline_upload(job, options, inputGraphFileID, inputReadsFileID, inputIndexFileID):
-    """
-    Upload and file in uploadList to the remote IO store specified
-    in the input_store option.
-    """
-    
-    return job.addFollowOnJobFn(run_pipeline_index, options, inputGraphFileID, inputReadsFileID,
-                                inputIndexFileID, cores=2, memory="4G", disk="2G").rv()
-    
-def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputIndexFileID):
+
+def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputXGFileID,
+                       inputGCSAFileID, inputLCPFileID):
     """
     All indexing.  result is a tarball in thie output store.
     """
 
-    if options.gcsa_index:
-
-        # Set up the IO stores each time, since we can't unpickle them on Azure for
-        # some reason.
-        out_store = IOStore.get(options.out_store)
-        
-        # Download local input files from the remote storage container
-        graph_dir = job.fileStore.getLocalTempDir()
-        robust_makedirs(graph_dir)
-        indexFile = read_from_store(job, options, inputIndexFileID, use_out_store=False)
-        tar = tarfile.open(indexFile)
-        tar.extractall(path=graph_dir)
-        tar.close() 
-        # Define a file to keep the compressed index in, so we can send it to
-        # the output store.
-        index_dir_tgz = "{}/index.tar.gz".format(
-            job.fileStore.getLocalTempDir())
-        
-        # Now save the indexed graph directory to the file store. It can be
-        # cleaned up since only our children use it.
-        RealTimeLogger.get().info("Compressing index")
-        index_dir_id = write_global_directory(job.fileStore, graph_dir,
-            cleanup=True, tee=index_dir_tgz)
-
-        # Save it to the out_store
-        RealTimeLogger.get().info("Uploading compressed index directory to output store")
-        index_key = os.path.basename(index_dir_tgz)
-        out_store.write_output_file(index_dir_tgz, index_key)
-        RealTimeLogger.get().info("Index {} uploaded successfully".format(
-            index_key))
-
-        #Split fastq files
-        index_key_and_id = index_key, index_dir_id
+    if inputXGFileID is None:
+        xg_file_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileID,
+                                       cores=options.index_cores, memory="4G", disk="2G").rv()
     else:
-        index_key_and_id = job.addChildJobFn(run_indexing, options, inputGraphFileID,
-                                             cores=options.index_cores, memory="4G", disk="2G").rv()
+        xg_file_id = inputXGFileID
+        
+    if inputGCSAFileID is None:
+        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileID,
+                                       cores=options.index_cores, memory="4G", disk="2G").rv()
+    else:
+        assert inputLCPFileID is not None
+        gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
 
-    return job.addFollowOnJobFn(run_pipeline_map, options, index_key_and_id,
+    return job.addFollowOnJobFn(run_pipeline_map, options, inputGraphFileID, xg_file_id, gcsa_and_lcp_ids,
                                 inputReadsFileID, cores=2, memory="4G", disk="2G").rv()
 
-def run_pipeline_map(job, options, index_key_and_id, inputReadsFileID):
+def run_pipeline_map(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
     """ All mapping, including fastq splitting and gam merging"""
 
-    chr_gam_ids = job.addChildJobFn(run_split_fastq, options, index_key_and_id[1],
-                                     inputReadsFileID, cores=3, memory="4G", disk="2G").rv()
+    chr_gam_ids = job.addChildJobFn(run_split_fastq, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids,
+                                     reads_file_id, cores=3, memory="4G", disk="2G").rv()
 
-    return job.addFollowOnJobFn(run_pipeline_call, options, index_key_and_id[1],
+    return job.addFollowOnJobFn(run_pipeline_call, options, graph_file_id, xg_file_id,
                                 chr_gam_ids, cores=2, memory="4G", disk="2G").rv()
 
-def run_pipeline_call(job, options, index_dir_id, chr_gam_ids):
+def run_pipeline_call(job, options, graph_file_id, xg_file_id, chr_gam_ids):
     """ Run variant calling on the chromosomes in parallel """
 
     # index the gam keys
@@ -186,14 +157,17 @@ def run_pipeline_call(job, options, index_dir_id, chr_gam_ids):
         #Run variant calling
         for chr_label, chr_length in itertools.izip(options.path_name, options.path_size):
             alignment_file_id = label_map[chr_label]
-            vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, index_dir_id, alignment_file_id, chr_label, chr_length, cores=options.calling_cores, memory="4G", disk="2G").rv()
+            vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
+                                                     alignment_file_id, chr_label, chr_length,
+                                                     cores=options.calling_cores, memory="4G", disk="2G").rv()
             vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
     else:
         raise RuntimeError("Invalid or non-existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
 
-    return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, index_dir_id, vcf_tbi_file_id_pair_list, cores=2, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, vcf_tbi_file_id_pair_list,
+                                cores=2, memory="4G", disk="2G").rv()
 
-def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_tbi_file_id_pair_list):
+def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
 
     RealTimeLogger.get().info("Completed gam merging and gam path variant calling.")
     RealTimeLogger.get().info("Starting vcf merging vcf files.")
@@ -204,10 +178,6 @@ def run_pipeline_merge_vcf(job, options, index_dir_id, vcf_tbi_file_id_pair_list
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
-    # Download local input files from the remote storage container
-    graph_dir = work_dir
-    read_global_directory(job.fileStore, index_dir_id, graph_dir)
-
     vcf_merging_file_key_list = [] 
     for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
         vcf_file = "{}/{}.gz".format(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
@@ -283,7 +253,11 @@ def main():
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
-    
+
+    # Some file io is dependent on knowing if we're in the pipeline
+    # or standalone. Hack this in here for now
+    options.tool = 'pipeline'
+
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
         
@@ -294,16 +268,24 @@ def main():
         if not toil.options.restart:
             
             # Upload local files to the remote IO Store
-            inputGraphFileID = toil.importFile(clean_toil_path(options.vg_graph))
-            inputReadsFileID = toil.importFile(clean_toil_path(options.sample_reads))
+            inputGraphFileID = import_to_store(toil, options, options.vg_graph)
+            inputReadsFileID = import_to_store(toil, options, options.sample_reads)
             if options.gcsa_index:
-                inputIndexFileID = toil.importFile(clean_toil_path(options.gcsa_index))
+                inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
+                inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
             else:
-                inputIndexFileID = None
+                inputGCSAFileID = None
+                inputLCPFileID = None
+            if options.xg_index:
+                inputXGFileID = import_to_store(toil, options, options.xg_index)
+            else:
+                inputXGFileID = None
             
             # Make a root job
-            root_job = Job.wrapJobFn(run_pipeline_upload, options, inputGraphFileID,
-                                     inputReadsFileID, inputIndexFileID, cores=2, memory="5G", disk="2G")
+            root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileID,
+                                     inputReadsFileID, inputXGFileID, inputGCSAFileID,
+                                     inputLCPFileID,
+                                     cores=2, memory="5G", disk="2G")
             
             # Run the job and store
             toil.start(root_job)
