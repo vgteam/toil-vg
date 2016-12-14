@@ -67,17 +67,17 @@ def parse_args():
 def index_parse_args(parser):
     """ centralize indexing parameters here """
     
-    parser.add_argument("--edge_max", type=int, default=5,
+    parser.add_argument("--edge_max", type=int,
         help="maximum edges to cross in index")
-    parser.add_argument("--kmer_size", type=int, default=10,
+    parser.add_argument("--kmer_size", type=int,
         help="size of kmers to use in indexing and mapping")
-    parser.add_argument("--reindex", default=False, action="store_true",
+    parser.add_argument("--reindex", action="store_true",
         help="don't re-use existing indexed graphs")
     parser.add_argument("--include_pruned", action="store_true",
         help="use the pruned graph in the index")
     parser.add_argument("--include_primary", action="store_true",
         help="use the primary path in the index")
-    parser.add_argument("--index_cores", type=int, default=3,
+    parser.add_argument("--index_cores", type=int,
         help="number of threads during the indexing step")
 
 def run_gcsa_indexing(job, options, inputGraphFileID):
@@ -237,9 +237,9 @@ def run_indexing(job, options, inputGraphFileID):
     """
 
     gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileID,
-                                      cores=options.index_cores, memory="4G", disk="2G").rv()
+                                      cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
     xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileID,
-                                      cores=options.index_cores, memory="4G", disk="2G").rv()
+                                      cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
 
     return xg_index_id, gcsa_and_lcp_ids
 

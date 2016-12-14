@@ -17,7 +17,8 @@ import logging, logging.handlers, SocketServer, struct, socket, threading
 import string
 import urlparse
 import getpass
-import pdb
+import textwrap
+import yaml
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -25,6 +26,7 @@ from Bio import SeqIO
 
 from toil.common import Toil
 from toil.job import Job
+from toil_lib import require
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
 from toil_vg.vg_call import *
@@ -46,51 +48,57 @@ def parse_args():
     # And a formatter class so our examples in the docstring look good. Isn't it
     # convenient how we already wrapped it to 80 characters?
     # See http://docs.python.org/library/argparse.html#formatter-class
-    parser = argparse.ArgumentParser(prog='vg_evaluation_pipeline', description=__doc__,
+    parser = argparse.ArgumentParser(prog='vg_evaluation_pipeline', description=main.__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-
+    
+    subparsers = parser.add_subparsers(dest='command')
+    
+    # Generate subparsers
+    subparsers.add_parser('generate-config', help='Generates an editable config in the current working directory.')
+    
+    # Run subparser
+    parser_run = subparsers.add_parser('run', help='Runs the Toil VG DNA-seq pipeline')
+    parser_run.add_argument('--config', default='config-toil-vg.tsv', type=str,
+                            help='Path to the (filled in) config file, generated with "generate-config". '
+                                '\nDefault value: "%(default)s"')
+    
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    Job.Runner.addToilOptions(parser_run)
     
     # General options
-    parser.add_argument("vg_graph", type=str,
+    parser_run.add_argument("vg_graph", type=str,
         help="Input vg graph file path")
-    parser.add_argument("sample_reads", type=str,
+    parser_run.add_argument("sample_reads", type=str,
         help="Path to sample reads in fastq format")
-    parser.add_argument("sample_name", type=str,
+    parser_run.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
-    parser.add_argument("out_store",
+    parser_run.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
-    parser.add_argument("--xg_index", type=str,
+    parser_run.add_argument("--xg_index", type=str,
         help="Path to xg index (to use instead of generating new one)")    
-    parser.add_argument("--gcsa_index", type=str,
+    parser_run.add_argument("--gcsa_index", type=str,
         help="Path to GCSA index (to use instead of generating new one)")
-    parser.add_argument("--path_name", nargs='+', type=str,
+    parser_run.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")
-    parser.add_argument("--path_size", nargs='+', type=int,
+    parser_run.add_argument("--path_size", nargs='+', type=int,
         help="Size of the reference path in the graph")    
-    parser.add_argument("--restat", default=False, action="store_true",
+    parser_run.add_argument("--restat", default=False, action="store_true",
         help="recompute and overwrite existing stats files")
 
     # Add common options shared with everybody
-    add_common_vg_parse_args(parser)
+    add_common_vg_parse_args(parser_run)
     
     # Add common indexing options shared with vg_index
-    index_parse_args(parser)
+    index_parse_args(parser_run)
 
     # add common mapping options shared with vg_map
-    map_parse_args(parser)
+    map_parse_args(parser_run)
     
     # Add common calling options shared with vg_call
-    chunked_call_parse_args(parser)
+    chunked_call_parse_args(parser_run)
 
     # Add common docker options
-    add_docker_tool_parse_args(parser)
-
-    options = parser.parse_args()
-
-    # path_name and path_size lists must be equal in length
-    assert len(options.path_name) == len(options.path_size)
+    add_docker_tool_parse_args(parser_run)
 
     return parser.parse_args()
 
@@ -204,6 +212,144 @@ def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
     write_to_store(job, options, vcf_file_idx, use_out_store = True, out_store_key = out_store_key + ".tbi") 
 
+def generate_config():
+    return textwrap.dedent("""
+        # Toil VG Pipeline configuration file
+        # This configuration file is formatted in YAML. Simply write the value (at least one space) after the colon.
+        # Edit the values in the configuration file and then rerun the pipeline: "toil-vg run"
+        # 
+        # URLs can take the form: "/", "s3://"
+        # Local inputs follow the URL convention: "/full/path/to/input.txt"
+        # S3 URLs follow the convention: "s3://bucket/directory/file.txt"
+        #
+        # Comments (beginning with #) do not need to be removed. Optional parameters left blank are treated as false or blank.
+        ######################################################################################################################
+
+        ###########################################
+        ### Arguments Shared Between Components ###
+        # Optional: Use output store instead of toil for all intermediate files (use only for debugging)
+        force-outstore: False
+        
+        #############################
+        ### Docker Tool Arguments ###
+        # Optional: Do not use docker for any commands
+        no-docker: False
+        
+        ## Docker Tool List ##
+        ##   Each tool is specified as a list where the first element is the docker image URL,
+        ##   and the second element indicates if the docker image has an entrypoint or not
+        # Optional: Dockerfile to use for vg
+        vg-docker: ['quay.io/glennhickey/vg:latest', True]
+
+        # Optional: Dockerfile to use for bcftools
+        bcftools-docker: ['quay.io/cmarkello/bcftools', False]
+
+        # Optional: Dockerfile to use for tabix
+        tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
+
+        # Optional: Dockerfile to use for jq
+        jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
+        
+        # Optional: Dockerfile to use for rtg
+        rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
+        
+        ##########################
+        ### vg_index Arguments ###
+        # Optional: Maximum edges to cross in index
+        edge-max: 5
+
+        # Optional: Size of kmers to use in indexing and mapping
+        kmer-size: 10
+
+        # Optional: Don't re-use existing indexed graphs
+        reindex: False
+
+        # Optional: Use the pruned graph in the index
+        include-pruned: False
+
+        # Optional: Use the primary path in the index
+        include-primary: True
+
+        # Optional: Number of threads during the indexing step
+        index-cores: 4
+
+        # Optional: Toil job memory allocation for indexing
+        index-mem: '4G'
+
+        # Optional: Toil job disk allocation for indexing
+        index-disk: '2G'
+
+        ########################
+        ### vg_map Arguments ###
+        # Optional: Number of chunks to split the input fastq file records
+        num-fastq-chunks: 3
+        
+        # Optional: Number of threads during the alignment step
+        alignment-cores: 3
+        
+        # Optional: Core arguments for vg mapping
+        vg-map-args: ['-i', '-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
+        
+        # Optional: Toil job memory allocation for mapping
+        alignment-mem: '4G'
+        
+        # Optional: Toil job disk allocation for mapping
+        alignment-disk: '2G'
+
+        # Optional: Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
+        index-mode: gcsa-mem
+
+        #########################
+        ### vg_call Arguments ###
+        # Optional: Overlap option that is passed into make_chunks and call_chunk
+        overlap: 2000
+        
+        # Optional: Chunk size
+        call-chunk-size: 10000000
+
+        # Optional: Chromosomal position offset (eg. 43044293)
+        offset: None
+
+        # Optional: Options to pass to chunk_gam.
+        filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15']
+
+        # Optional: Options to pass to vg pileup.
+        pileup-opts: ['-q', '10', '-a']
+
+        # Optional: Options to pass to vg call.
+        call-opts: ['']
+        
+        # Optional: Options to pass to vg genotype.
+        genotype-opts: ['']
+
+        # Optional: Use vg genotype instead of vg call
+        genotype: False
+
+        # Optional: Number of threads during the variant calling step
+        calling-cores: 4
+        
+        # Optional: Toil job memory allocation for variant calling
+        calling-mem: '4G'
+        
+        # Optional: Toil job disk allocation for variant calling
+        calling-disk: '2G'
+        
+        # Optional: always overwrite existing files
+        overwrite: False
+    """)
+
+def generate_file(file_path, generate_func):
+    """
+    Checks file existance, generates file, and provides message
+    :param str file_path: File location to generate file
+    :param function generate_func: Function used to generate file
+    """
+    require(not os.path.exists(file_path), file_path + ' already exists!')
+    with open(file_path, 'w') as f:
+        f.write(generate_func())
+    print('\t{} has been generated in the current working directory.'.format(os.path.basename(file_path)))
+
+
 def main():
     """
     Computational Genomics Lab, Genomics Institute, UC Santa Cruz
@@ -247,60 +393,102 @@ def main():
     """
 
 
-    RealTimeLogger.start_master()
-    options = parse_args() # This holds the nicely-parsed options object
-
-    # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
-
-    # Some file io is dependent on knowing if we're in the pipeline
-    # or standalone. Hack this in here for now
-    options.tool = 'pipeline'
-
-    # Throw error if something wrong with IOStore string
-    IOStore.get(options.out_store)
-
-    # How long did it take to run the entire pipeline, in seconds?
-    run_time_pipeline = None
+    # Add toil options
+    args = parse_args()
+    
+    # Parse subparsers related to generation of config and manifest
+    if args.command == 'generate-config':
+        yaml_config_out = generate_config()
+        sys.stdout.write(yaml_config_out)
+    elif args.command == 'run':
+        require(os.path.exists(args.config), '{} not found Please run '
+                                               '"toil-vg generate-config"'.format(args.config))
+        # Parse config
+        parsed_config = {x.replace('-', '_'): y for x, y in yaml.load(open(args.config).read()).iteritems()}
+        options = argparse.Namespace(**parsed_config)
         
-    # Mark when we start the pipeline
-    start_time_pipeline = timeit.default_timer()
-    
-    with Toil(options) as toil:
-        if not toil.options.restart:
-            
-            # Upload local files to the remote IO Store
-            inputGraphFileID = import_to_store(toil, options, options.vg_graph)
-            inputReadsFileID = import_to_store(toil, options, options.sample_reads)
-            if options.gcsa_index:
-                inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
-                inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
-            else:
-                inputGCSAFileID = None
-                inputLCPFileID = None
-            if options.xg_index:
-                inputXGFileID = import_to_store(toil, options, options.xg_index)
-            else:
-                inputXGFileID = None
-            
-            # Make a root job
-            root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileID,
-                                     inputReadsFileID, inputXGFileID, inputGCSAFileID,
-                                     inputLCPFileID,
-                                     cores=2, memory="5G", disk="2G")
-            
-            # Run the job and store
-            toil.start(root_job)
+        # Add in options from the program arguments to the arguments in the config file
+        #   program arguments that are also present in the config file will overwrite the
+        #   arguments in the config file
+        for args_key in args.__dict__:
+        # Add in missing program arguments to config option list and
+        # overwrite config options with corresponding options that are not None in program arguments
+            if (args.__dict__[args_key]) or (args_key not in  options.__dict__.keys()):
+                options.__dict__[args_key] = args.__dict__[args_key]
+        ## Options sanity checks
+        # path_name and path_size lists must be equal in length
+        assert len(options.path_name) == len(options.path_size)
+        print('Program Argument List: ', args)
+        print('Final Options List: ')
+        for key in sorted(options.__dict__.keys()):
+            print("option {}: {}".format(key, options.__dict__[key]))
+        # If no arguments provided, print the full help menu
+        if len(sys.argv) == 1:
+            parser.print_help()
+            sys.exit(1)
+        require(options.vg_graph, 'URL not provided for vg graph input')
+        require(options.sample_reads, 'URL not provided for input sample reads')
+        require(options.sample_name, 'No sample name is provided')
+        require(options.path_name, 'No reference path name provided')
+        require(options.path_size, 'No reference path size provided')
+        if options.force_outstore:
+            require(options.out_store, 'If force_outstore is True then out_store must be provided')
         else:
-            toil.restart()
+            require(not options.out_store, 'If force_outstore is False then out_store must not be provided')
+        
+        RealTimeLogger.start_master()
+        
+        # make the docker runner
+        options.drunner = DockerRunner(
+            docker_tool_map = get_docker_tool_map(options))
+
+        # Some file io is dependent on knowing if we're in the pipeline
+        # or standalone. Hack this in here for now
+        options.tool = 'pipeline'
+
+        # Throw error if something wrong with IOStore string
+        IOStore.get(options.out_store)
+
+        # How long did it take to run the entire pipeline, in seconds?
+        run_time_pipeline = None
+        
+        # Mark when we start the pipeline
+        start_time_pipeline = timeit.default_timer()
+        
+        with Toil(options) as toil:
+            if not toil.options.restart:
                 
-    end_time_pipeline = timeit.default_timer()
-    run_time_pipeline = end_time_pipeline - start_time_pipeline
- 
-    print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
-    
-    RealTimeLogger.stop_master()
+                # Upload local files to the remote IO Store
+                inputGraphFileID = import_to_store(toil, options, options.vg_graph)
+                inputReadsFileID = import_to_store(toil, options, options.sample_reads)
+                if options.gcsa_index:
+                    inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
+                    inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
+                else:
+                    inputGCSAFileID = None
+                    inputLCPFileID = None
+                if options.xg_index:
+                    inputXGFileID = import_to_store(toil, options, options.xg_index)
+                else:
+                    inputXGFileID = None
+                
+                # Make a root job
+                root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileID,
+                                         inputReadsFileID, inputXGFileID, inputGCSAFileID,
+                                         inputLCPFileID,
+                                         cores=2, memory="5G", disk="2G")
+                
+                # Run the job and store
+                toil.start(root_job)
+            else:
+                toil.restart()
+                    
+        end_time_pipeline = timeit.default_timer()
+        run_time_pipeline = end_time_pipeline - start_time_pipeline
+     
+        print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
+        
+        RealTimeLogger.stop_master()
 
 if __name__ == "__main__" :
     try:

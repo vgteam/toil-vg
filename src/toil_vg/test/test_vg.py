@@ -43,7 +43,9 @@ class VGCGLTest(TestCase):
         self.workdir = tempfile.mkdtemp()
         self.jobStoreAWS = 'aws:us-west-2:testvg-{}'.format(uuid4())
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
-        self.base_command = concat('toil-vg',
+        self.configFile = '{}/config-toil-vg.tsv'.format(self.workdir)
+        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/config-toil-vg.tsv', self.configFile])
+        self.base_command = concat('toil-vg', 'run', '--config', self.configFile,
                                    '--realTimeLogging', '--logDebug', '--edge_max', '5', '--kmer_size',
                                    '16', '--num_fastq_chunks', '4', '--call_chunk_size', '20000', '--overwrite',
                                    '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '8', '--alignment_cores', '8',
@@ -66,10 +68,11 @@ class VGCGLTest(TestCase):
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.local_outstore, '--path_name', '17', '--path_size', '81189', '--call_opts', '--offset 43044293' )
+                                   self.local_outstore, '--path_name', '17', '--path_size', '81189','--call_opts', '--offset 43044293', '--force_outstore')
 
         self._assertOutput('NA12877_17.vcf', self.local_outstore)
-
+    
+    @skip
     def test_chr19_sampleNA12877(self):
         ''' Test sample LRC KIR output
         '''
@@ -85,9 +88,10 @@ class VGCGLTest(TestCase):
         
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
-                  '--xg_index', self.test_xg_index, '--path_name', '19', '--path_size', '50000')
+                  '--xg_index', self.test_xg_index, '--path_name', '19', '--path_size', '50000', '--force_outstore')
         self._assertOutput('NA12877_19.vcf', self.local_outstore)
 
+    @skip
     def test_chr6_MHC_sampleNA12877(self):
         ''' Test sample MHC output
         '''
@@ -95,9 +99,10 @@ class VGCGLTest(TestCase):
         self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg'
         self.test_gcsa_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg.gcsa'
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index, '--path_name', '6', '--path_size', '50000')
+                                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index, '--path_name', '6', '--path_size', '50000', '--force_outstore')
         self._assertOutput('NA12877_6.vcf', self.local_outstore)
 
+    @skip
     def test_chr5_SMA_sampleNA12877(self):
         ''' Test sample SMA output
         '''
@@ -106,7 +111,7 @@ class VGCGLTest(TestCase):
         self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.local_outstore, '--path_name', '5', '--path_size', '50000')
+                                   self.local_outstore, '--path_name', '5', '--path_size', '50000', '--force_outstore')
         self._assertOutput('NA12877_5.vcf', self.local_outstore)
     
     def _run(self, *args):

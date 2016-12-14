@@ -52,27 +52,19 @@ def parse_args():
 
 def chunked_call_parse_args(parser):
     """ centralize calling parameters here """
-    parser.add_argument("--overlap", type=int, default=2000,
+    parser.add_argument("--overlap", type=int,
                         help="overlap option that is passed into make_chunks and call_chunk")
-    parser.add_argument("--call_chunk_size", type=int, default=10000000,
+    parser.add_argument("--call_chunk_size", type=int,
                         help="chunk size")
     parser.add_argument("--offset", type=int,
                         help="chromosomal position offset. e.g. 43044293")
-    parser.add_argument("--filter_opts", type=str,
-                        default="-r 0.9 -fu -s 1000 -o 0 -q 15",
-                        help="options to pass to chunk_gam. wrap in \"\"")
-    parser.add_argument("--pileup_opts", type=str,
-                        default="-q 10 -a",
-                        help="options to pass to vg pileup. wrap in \"\"")
     parser.add_argument("--call_opts", type=str,
-                        default="",
                         help="options to pass to vg call. wrap in \"\"")
-    parser.add_argument("--genotype_opts", type=str,
-                        default="",
-                        help="options to pass to vg genotype. wrap in \"\"")
     parser.add_argument("--genotype", action="store_true",
                         help="use vg genotype instead of vg call")
-    parser.add_argument("--calling_cores", type=int, default=3,
+    parser.add_argument("--genotype_opts", type=str,
+                        help="options to pass to vg genotype. wrap in \"\"")
+    parser.add_argument("--calling_cores", type=int,
                         help="number of threads during the variant calling step")
     parser.add_argument("--overwrite", action="store_true",
                         help="always overwrite existing files")        
@@ -80,7 +72,7 @@ def chunked_call_parse_args(parser):
 def merge_call_opts(contig, offset, length, call_opts, sample_name, sample_flag = '-S'):
     """ combine input vg call  options with generated options, by adding user offset
     and overriding contigs, sample and sequence length"""
-    user_opts = call_opts.split()
+    user_opts = call_opts
     user_offset, user_contig, user_ref, user_sample, user_length  = None, None, None, None, None
     for i, uo in enumerate(user_opts):
         if uo in ["-o", "--offset"]:
@@ -144,7 +136,7 @@ def chunk_gam(drunner, gam_path, xg_path, path_name, out_dir, chunks, filter_opt
                for i in range(len(chunks))):
         
         out_file = os.path.join(out_dir, path_name + "-chunk")
-        command = [['vg', 'filter', os.path.basename(gam_path), '-x', os.path.basename(xg_path), '-R', os.path.basename(chunk_path), '-B', os.path.basename(out_file)] + filter_opts.split(" ")]
+        command = [['vg', 'filter', os.path.basename(gam_path), '-x', os.path.basename(xg_path), '-R', os.path.basename(chunk_path), '-B', os.path.basename(out_file)] + filter_opts]
         drunner.call(command, work_dir=out_dir)
     
 def xg_path_node_id(drunner, xg_path, path_name, offset, out_dir):
@@ -270,7 +262,7 @@ def run_vg_call(options, xg_path, vg_path, gam_path, path_name, chunk, chunk_i, 
     pu_path = chunk_base_name(path_name, out_dir, chunk_i, ".pu")
     if overwrite or not os.path.isfile(pu_path):
         with open(pu_path, "w") as pu_path_stream:
-            command = [['vg', 'pileup', os.path.basename(vg_path), os.path.basename(gam_path), '-t', str(threads)] + pileup_opts.split(" ")]
+            command = [['vg', 'pileup', os.path.basename(vg_path), os.path.basename(gam_path), '-t', str(threads)] + pileup_opts]
             options.drunner.call(command, work_dir=out_dir, outfile=pu_path_stream)
 
     # do the calling.
@@ -366,7 +358,7 @@ def call_chunk(job, options, xg_file_id, path_name, chunks, chunk_i,
     if overwrite or not os.path.isfile(clip_path):
         with open(clip_path, "w") as clip_path_stream:
             # passing in offset this way pretty hacky, should have its own option
-            call_toks = call_options.split()
+            call_toks = call_options
             offset = 0
             if "-o" in call_toks:
                 offset = int(call_toks[call_toks.index("-o") + 1])
@@ -423,14 +415,19 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_siz
         # write chunks to job store
         vg_chunk_file_id = write_to_store(job, options, vg_path)
         gam_chunk_file_id = write_to_store(job, options, gam_path)
-                
+        
+        # make sure call-opts and genotype-opts are in list format
+        if type(options.call_opts) == str:
+            options.call_opts = options.call_opts.split(" ")
+        if type(options.genotype_opts) == str:
+            options.genotype_opts = options.genotype_opts.split(" ")
         clip_file_id = job.addChildJobFn(call_chunk, options, xg_file_id, path_name, chunks, chunk_i,
                                          vg_chunk_file_id, gam_chunk_file_id,
                                          path_size, options.overlap,
                                          options.pileup_opts, options.call_opts, options.genotype_opts,
                                          options.sample_name, options.calling_cores,
                                          options.overwrite, cores=options.calling_cores,
-                                         memory="4G", disk="2G").rv()
+                                         memory=options.calling_mem, disk=options.calling_disk).rv()
         clip_file_ids.append(clip_file_id)
 
 

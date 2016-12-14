@@ -55,7 +55,7 @@ def vcfeval_parse_args(parser):
 
 def add_vcfeval_docker_tool_parse_args(parser):
     """ vcfeval specific docker options and their defaults """
-    parser.add_argument("--rtg_docker", type=str, default='realtimegenomics/rtg-tools:3.7.1',
+    parser.add_argument("--rtg_docker", type=list, default=['realtimegenomics/rtg-tools:3.7.1', True],
                         help="dockerfile for rtg_tools")
 
 def get_vcfeval_docker_tool_map(options):
