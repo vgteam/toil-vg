@@ -259,6 +259,9 @@ def main():
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now
     options.tool = 'index'
+
+    # Throw error if something wrong with IOStore string
+    IOStore.get(options.out_store)
     
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
