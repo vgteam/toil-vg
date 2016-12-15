@@ -101,8 +101,8 @@ For more information on the latest release of Toil, you can find the documentati
 ### Get test input files from s3
 
 - `mkdir /home/mesosbox/debug_eval_input/`
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/BRCA1_BRCA2_may6.vg /home/mesosbox/debug_eval_input/BRCA1_BRCA2_may6.vg`
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/NA12877.brca1.brca2.bam.fq /home/mesosbox/debug_eval_input/NA12877.brca1.brca2.bam.fq`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/BRCA1_BRCA2_may6.vg /home/mesosbox/debug_eval_input/BRCA1_BRCA2_may6.vg`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca1.brca2.bam.fq /home/mesosbox/debug_eval_input/NA12877.brca1.brca2.bam.fq`
 
 ### Example run of VG toil-pipeline for variant calling on chromosome 13 for sample NA12877
 
@@ -121,9 +121,9 @@ For more information on the latest release of Toil, you can find the documentati
 
 ### Get test output files from s3
 
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/normal_13.vcf /home/mesosbox/debug_eval_output/normal_13.vcf`
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/normal_17.vcf /home/mesosbox/debug_eval_output/normal_17.vcf`
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/normal_vcf_NA12877.vcf /home/mesosbox/debug_eval_output/normal_vcf_NA12877.vcf`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/normal_13.vcf /home/mesosbox/debug_eval_output/normal_13.vcf`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/normal_17.vcf /home/mesosbox/debug_eval_output/normal_17.vcf`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/normal_vcf_NA12877.vcf /home/mesosbox/debug_eval_output/normal_vcf_NA12877.vcf`
 
 ### Test consistancy of chr 13 variant call output
 
@@ -170,8 +170,8 @@ For more information on the latest release of Toil, you can find the documentati
 - `mkdir ~/test_vg_input/`
 - `pip install awscli`
 - Setup aws credentials by running `aws configure` and filling in the prompted parameters.
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/BRCA1_BRCA2_may6.vg ~/test_vg_input/BRCA1_BRCA2_may6.vg`
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/NA12877.brca1.brca2.bam.fq ~/test_vg_input/NA12877.brca1.brca2.bam.fq`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/BRCA1_BRCA2_may6.vg ~/test_vg_input/BRCA1_BRCA2_may6.vg`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca1.brca2.bam.fq ~/test_vg_input/NA12877.brca1.brca2.bam.fq`
 
 ### Example run of VG toil-pipeline for variant calling on chromosome 13 for sample NA12877
 
@@ -181,7 +181,7 @@ For more information on the latest release of Toil, you can find the documentati
 ### Test consistency of chr 13 variant call output
 
 - `gzip -d ~/test_vg_output/13.vcf.gz`
-- `aws s3 cp s3://cmarkello-vgtoil-test--files/normal_13.vcf ~/test_vg_output/normal_13.vcf`
+- `aws s3 cp s3://cgl-pipeline-inputs/vg_cgl/ci/normal_13.vcf ~/test_vg_output/normal_13.vcf`
 - `diff ~/test_vg_output/13.vcf ~/test_vg_output/normal_13.vcf`
 
 
