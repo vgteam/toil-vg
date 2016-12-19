@@ -429,7 +429,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_siz
                                          path_size, options.overlap,
                                          options.pileup_opts, options.call_opts, options.genotype_opts,
                                          options.sample_name, options.calling_cores,
-                                         options.overwrite, cores="{}".format(options.calling_cores),
+                                         options.overwrite, cores=options.calling_cores,
                                          memory="4G", disk="2G").rv()
         clip_file_ids.append(clip_file_id)
 
