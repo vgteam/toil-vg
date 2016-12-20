@@ -10,7 +10,7 @@ latest docker vg tool=quay.io/ucsc_cgl/vg:latest
 """
 from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
-import json, timeit, errno
+import json, timeit, errno, copy
 from uuid import uuid4
 
 from toil.common import Toil
@@ -72,7 +72,7 @@ def chunked_call_parse_args(parser):
 def merge_call_opts(contig, offset, length, call_opts, sample_name, sample_flag = '-S'):
     """ combine input vg call  options with generated options, by adding user offset
     and overriding contigs, sample and sequence length"""
-    user_opts = call_opts
+    user_opts = copy.deepcopy(call_opts)
     user_offset, user_contig, user_ref, user_sample, user_length  = None, None, None, None, None
     for i, uo in enumerate(user_opts):
         if uo in ["-o", "--offset"]:
