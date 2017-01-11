@@ -1,6 +1,8 @@
 #!/usr/bin/env python2.7
 """
-Thin wrapper for vcfeval.  Expects compressed indexed vcfs as input
+Thin wrapper for vcfeval.  Expects compressed indexed vcfs as input. 
+Doesn't really fit in at the moment, but plan on extending into more 
+fully fleshed out evaluation phase. 
 """
 from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
@@ -12,9 +14,10 @@ from toil.job import Job
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
 
-def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__, 
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+def vcfeval_subparser(parser):
+    """
+    Create a subparser for vcf evaluation.  Should pass in results of subparsers.add_parser()
+    """
 
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
@@ -30,6 +33,9 @@ def parse_args():
     parser.add_argument("out_store", type=str,
                         help="vcfeval output store")
 
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
+
     # Add docker options
     add_vcfeval_docker_tool_parse_args(parser)
 
@@ -38,8 +44,6 @@ def parse_args():
 
     # Add common docker options shared with vg_evaluation pipeline
     add_docker_tool_parse_args(parser)
-                        
-    return parser.parse_args()
 
 def vcfeval_parse_args(parser):
     """ centralize calling parameters here """
@@ -151,11 +155,10 @@ def run_vcfeval(job, options,
 
     return f1
 
-def main():
+def vcfeval_main(options):
     """ command line access to toil vcf eval logic"""
     
     RealTimeLogger.start_master()
-    options = parse_args() # This holds the nicely-parsed options object
 
     # make the docker runner
     options.drunner = DockerRunner(
@@ -181,12 +184,12 @@ def main():
             bed_name = "bed_" + os.path.basename(options.bed_regions) if options.bed_regions is not None else None
 
             # Upload local files to the remote IO Store
-            truth_vcf_id = toil.importFile('file://'+options.truth_vcf)
-            call_vcf_id = toil.importFile('file://'+options.call_vcf)
-            truth_tbi_id = toil.importFile('file://'+options.truth_vcf + '.tbi')
-            call_tbi_id = toil.importFile('file://'+options.call_vcf + '.tbi')            
-            fasta_id = toil.importFile('file://'+options.fasta)
-            bed_id = toil.importFile('file://'+options.bed_regions) if options.bed_regions is not None else None
+            truth_vcf_id = import_to_store(toil, options, options.truth_vcf)
+            call_vcf_id = import_to_store(toil, options, options.call_vcf)
+            truth_tbi_id = import_to_store(toil, options, options.truth_vcf + '.tbi')
+            call_tbi_id = import_to_store(toil, options, options.call_vcf + '.tbi')            
+            fasta_id = import_to_store(toil, options, options.fasta)
+            bed_id = import_to_store(toil, options, options.bed_regions) if options.bed_regions is not None else None
             
             # Make a root job
             root_job = Job.wrapJobFn(run_vcfeval, options,
@@ -210,9 +213,3 @@ def main():
     RealTimeLogger.stop_master()
     
     
-if __name__ == "__main__" :
-    try:
-        main()
-    except Exception as e:
-        print(e.message, file=sys.stderr)
-        sys.exit(1)

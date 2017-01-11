@@ -18,9 +18,10 @@ from toil.job import Job
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
 
-def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__, 
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+def call_subparser(parser):
+    """
+    Create a subparser for calling.  Should pass in results of subparsers.add_parser()
+    """
 
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
@@ -48,7 +49,6 @@ def parse_args():
     # Add common docker options shared with vg_evaluation pipeline
     add_docker_tool_parse_args(parser)
                         
-    return parser.parse_args()
 
 def chunked_call_parse_args(parser):
     """ centralize calling parameters here """
@@ -487,11 +487,10 @@ def merge_vcf_chunks(job, options, path_name, path_size, chunks, clip_file_ids, 
         
     return vcf_gz_file_id, vcf_tbi_file_id
     
-def main():
+def call_main(options):
     """ no harm in preserving command line access to chunked_call for debugging """
     
     RealTimeLogger.start_master()
-    options = parse_args() # This holds the nicely-parsed options object
 
     # make the docker runner
     options.drunner = DockerRunner(
@@ -537,11 +536,3 @@ def main():
     RealTimeLogger.stop_master()
     
     
-if __name__ == "__main__" :
-    try:
-        main()
-    except Exception as e:
-        print(e.message, file=sys.stderr)
-        sys.exit(1)
-        
-        

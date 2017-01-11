@@ -32,6 +32,7 @@ from toil_vg.vg_common import *
 from toil_vg.vg_call import *
 from toil_vg.vg_index import *
 from toil_vg.vg_map import *
+from toil_vg.vg_vcfeval import *
 
 def parse_args():
     """
@@ -53,14 +54,37 @@ def parse_args():
     
     subparsers = parser.add_subparsers(dest='command')
     
-    # Generate subparsers
-    subparsers.add_parser('generate-config', help='Generates an editable config in the current working directory.')
+    # Config subparser
+    parser_config = subparsers.add_parser('generate-config',
+                                          help='Generates an editable default config file')
+    parser_config.add_argument('--config', default='config-toil-vg.tsv', type=str,
+                               help='Path to the config file to generate. '
+                               '\nDefault value: "%(default)s"')
     
     # Run subparser
     parser_run = subparsers.add_parser('run', help='Runs the Toil VG DNA-seq pipeline')
-    parser_run.add_argument('--config', default='config-toil-vg.tsv', type=str,
-                            help='Path to the (filled in) config file, generated with "generate-config". '
-                                '\nDefault value: "%(default)s"')
+    pipeline_subparser(parser_run)
+
+    # Index subparser
+    parser_index = subparsers.add_parser('index', help='Runs only the vg indexing')
+    index_subparser(parser_index)
+
+    # Map subparser
+    parser_map = subparsers.add_parser('map', help='Runs only the vg mapping')
+    map_subparser(parser_map)
+
+    # Call subparser
+    parser_call = subparsers.add_parser('call', help='Runs only the vg calling')
+    call_subparser(parser_call)
+
+    # vcfeval subparser
+    parser_vcfeval = subparsers.add_parser('vcfeval', help='Compare two VCFs wit rtg vcfeval')
+    vcfeval_subparser(parser_vcfeval)
+
+    return parser.parse_args()
+
+
+def pipeline_subparser(parser_run):
     
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser_run)
@@ -100,7 +124,6 @@ def parse_args():
     # Add common docker options
     add_docker_tool_parse_args(parser_run)
 
-    return parser.parse_args()
 
 
 # Below are the top level jobs of the vg_evaluation pipeline.  They
@@ -392,103 +415,110 @@ def main():
     boto:           pip install boto (OPTIONAL for runs on AWS machines)
     """
 
-
-    # Add toil options
     args = parse_args()
     
-    # Parse subparsers related to generation of config and manifest
+    # Write out our config file that's necessary for all other subcommands
     if args.command == 'generate-config':
         yaml_config_out = generate_config()
-        sys.stdout.write(yaml_config_out)
-    elif args.command == 'run':
-        require(os.path.exists(args.config), '{} not found Please run '
-                                               '"toil-vg generate-config"'.format(args.config))
-        # Parse config
-        parsed_config = {x.replace('-', '_'): y for x, y in yaml.load(open(args.config).read()).iteritems()}
-        options = argparse.Namespace(**parsed_config)
-        
-        # Add in options from the program arguments to the arguments in the config file
-        #   program arguments that are also present in the config file will overwrite the
-        #   arguments in the config file
-        for args_key in args.__dict__:
+        with open(args.config, 'w') as tgt_config_file:
+            tgt_config_file.write(yaml_config_out)
+        return
+
+    # Else we merge in our config file args with the command line args for
+    # whatever subparser we're in
+    require(os.path.exists(args.config), '{} not found Please run '
+            '"toil-vg generate-config"'.format(args.config))
+    # Parse config
+    parsed_config = {x.replace('-', '_'): y for x, y in yaml.load(open(args.config).read()).iteritems()}
+    options = argparse.Namespace(**parsed_config)
+
+    # Add in options from the program arguments to the arguments in the config file
+    #   program arguments that are also present in the config file will overwrite the
+    #   arguments in the config file
+    for args_key in args.__dict__:
         # Add in missing program arguments to config option list and
         # overwrite config options with corresponding options that are not None in program arguments
-            if (args.__dict__[args_key]) or (args_key not in  options.__dict__.keys()):
-                options.__dict__[args_key] = args.__dict__[args_key]
-        ## Options sanity checks
-        # path_name and path_size lists must be equal in length
-        assert len(options.path_name) == len(options.path_size)
-        print('Program Argument List: ', args)
-        print('Final Options List: ')
-        for key in sorted(options.__dict__.keys()):
-            print("option {}: {}".format(key, options.__dict__[key]))
+        if (args.__dict__[args_key]) or (args_key not in  options.__dict__.keys()):
+            options.__dict__[args_key] = args.__dict__[args_key]
+            ## Options sanity checks
+            # path_name and path_size lists must be equal in length
+
+    print('Program Argument List: ', args)
+    print('Final Options List: ')
+    for key in sorted(options.__dict__.keys()):
+        print("option {}: {}".format(key, options.__dict__[key]))
         # If no arguments provided, print the full help menu
-        if len(sys.argv) == 1:
-            parser.print_help()
-            sys.exit(1)
-        require(options.vg_graph, 'URL not provided for vg graph input')
-        require(options.sample_reads, 'URL not provided for input sample reads')
-        require(options.sample_name, 'No sample name is provided')
-        require(options.path_name, 'No reference path name provided')
-        require(options.path_size, 'No reference path size provided')
-        if options.force_outstore:
-            require(options.out_store, 'If force_outstore is True then out_store must be provided')
-        else:
-            require(not options.out_store, 'If force_outstore is False then out_store must not be provided')
-        
-        RealTimeLogger.start_master()
-        
-        # make the docker runner
-        options.drunner = DockerRunner(
-            docker_tool_map = get_docker_tool_map(options))
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
 
-        # Some file io is dependent on knowing if we're in the pipeline
-        # or standalone. Hack this in here for now
-        options.tool = 'pipeline'
-
-        # Throw error if something wrong with IOStore string
-        IOStore.get(options.out_store)
-
-        # How long did it take to run the entire pipeline, in seconds?
-        run_time_pipeline = None
+    if args.command == 'run':
+        pipeline_main(options)
+    elif args.command == 'index':
+        index_main(options)
+    elif args.command == 'map':
+        map_main(options)
+    elif args.command == 'call':
+        call_main(options)
+    elif args.command == 'vcfeval':
+        vcfeval_main(options)
         
-        # Mark when we start the pipeline
-        start_time_pipeline = timeit.default_timer()
-        
-        with Toil(options) as toil:
-            if not toil.options.restart:
-                
-                # Upload local files to the remote IO Store
-                inputGraphFileID = import_to_store(toil, options, options.vg_graph)
-                inputReadsFileID = import_to_store(toil, options, options.sample_reads)
-                if options.gcsa_index:
-                    inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
-                    inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
-                else:
-                    inputGCSAFileID = None
-                    inputLCPFileID = None
-                if options.xg_index:
-                    inputXGFileID = import_to_store(toil, options, options.xg_index)
-                else:
-                    inputXGFileID = None
-                
-                # Make a root job
-                root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileID,
-                                         inputReadsFileID, inputXGFileID, inputGCSAFileID,
-                                         inputLCPFileID,
-                                         cores=2, memory="5G", disk="2G")
-                
-                # Run the job and store
-                toil.start(root_job)
+    
+def pipeline_main(options):
+    
+    RealTimeLogger.start_master()
+
+    # make the docker runner
+    options.drunner = DockerRunner(
+        docker_tool_map = get_docker_tool_map(options))
+
+    # Some file io is dependent on knowing if we're in the pipeline
+    # or standalone. Hack this in here for now
+    options.tool = 'pipeline'
+
+    # Throw error if something wrong with IOStore string
+    IOStore.get(options.out_store)
+
+    # How long did it take to run the entire pipeline, in seconds?
+    run_time_pipeline = None
+
+    # Mark when we start the pipeline
+    start_time_pipeline = timeit.default_timer()
+
+    with Toil(options) as toil:
+        if not toil.options.restart:
+
+            # Upload local files to the remote IO Store
+            inputGraphFileID = import_to_store(toil, options, options.vg_graph)
+            inputReadsFileID = import_to_store(toil, options, options.sample_reads)
+            if options.gcsa_index:
+                inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
+                inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
             else:
-                toil.restart()
-                    
-        end_time_pipeline = timeit.default_timer()
-        run_time_pipeline = end_time_pipeline - start_time_pipeline
-     
-        print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
-        
-        RealTimeLogger.stop_master()
+                inputGCSAFileID = None
+                inputLCPFileID = None
+            if options.xg_index:
+                inputXGFileID = import_to_store(toil, options, options.xg_index)
+            else:
+                inputXGFileID = None
+
+            # Make a root job
+            root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileID,
+                                     inputReadsFileID, inputXGFileID, inputGCSAFileID,
+                                     inputLCPFileID,
+                                     cores=2, memory="5G", disk="2G")
+
+            # Run the job and store
+            toil.start(root_job)
+        else:
+            toil.restart()
+
+    end_time_pipeline = timeit.default_timer()
+    run_time_pipeline = end_time_pipeline - start_time_pipeline
+
+    print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
+
+    RealTimeLogger.stop_master()
 
 if __name__ == "__main__" :
     try:

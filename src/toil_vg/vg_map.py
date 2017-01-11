@@ -21,23 +21,10 @@ from toil.job import Job
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
 
-def parse_args():
+def map_subparser(parser):
     """
-    Takes in the command-line arguments list (args), and returns a nice argparse
-    result with fields for all the options.
-    
-    Borrows heavily from the argparse documentation examples:
-    <http://docs.python.org/library/argparse.html>
+    Create a subparser for mapping.  Should pass in results of subparsers.add_parser()
     """
-
-    # Construct the parser (which is stored in parser)
-    # Module docstring lives in __doc__
-    # See http://python-forum.com/pythonforum/viewtopic.php?f=3&t=36847
-    # And a formatter class so our examples in the docstring look good. Isn't it
-    # convenient how we already wrapped it to 80 characters?
-    # See http://docs.python.org/library/argparse.html#formatter-class
-    parser = argparse.ArgumentParser(prog='vg_evaluation_pipeline', description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
@@ -73,10 +60,6 @@ def parse_args():
 
     # Add common docker options
     add_docker_tool_parse_args(parser)
-
-    options = parser.parse_args()
-
-    return parser.parse_args()
 
 
 def map_parse_args(parser, stand_alone = False):
@@ -302,13 +285,12 @@ def run_merge_gam(job, options, chunk_file_ids, xg_file_id):
 
     return chr_gam_ids
 
-def main():
+def map_main(options):
     """
     Wrapper for vg map. 
     """
 
     RealTimeLogger.start_master()
-    options = parse_args() # This holds the nicely-parsed options object
 
     # make the docker runner
     options.drunner = DockerRunner(
@@ -353,11 +335,4 @@ def main():
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
     RealTimeLogger.stop_master()
-
-if __name__ == "__main__" :
-    try:
-        main()
-    except Exception as e:
-        print(e.message, file=sys.stderr)
-        sys.exit(1)
 
