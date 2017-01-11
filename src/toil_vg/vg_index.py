@@ -21,23 +21,10 @@ from toil.job import Job
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
 
-def parse_args():
+def index_subparser(parser):
     """
-    Takes in the command-line arguments list (args), and returns a nice argparse
-    result with fields for all the options.
-    
-    Borrows heavily from the argparse documentation examples:
-    <http://docs.python.org/library/argparse.html>
+    Create a subparser for indexing.  Should pass in results of subparsers.add_parser()
     """
-
-    # Construct the parser (which is stored in parser)
-    # Module docstring lives in __doc__
-    # See http://python-forum.com/pythonforum/viewtopic.php?f=3&t=36847
-    # And a formatter class so our examples in the docstring look good. Isn't it
-    # convenient how we already wrapped it to 80 characters?
-    # See http://docs.python.org/library/argparse.html#formatter-class
-    parser = argparse.ArgumentParser(prog='vg_evaluation_pipeline', description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
@@ -59,25 +46,21 @@ def parse_args():
     # Add common docker options
     add_docker_tool_parse_args(parser)
 
-    options = parser.parse_args()
-
-    return parser.parse_args()
-
 
 def index_parse_args(parser):
     """ centralize indexing parameters here """
     
-    parser.add_argument("--edge_max", type=int, default=5,
+    parser.add_argument("--edge_max", type=int,
         help="maximum edges to cross in index")
-    parser.add_argument("--kmer_size", type=int, default=10,
+    parser.add_argument("--kmer_size", type=int,
         help="size of kmers to use in indexing and mapping")
-    parser.add_argument("--reindex", default=False, action="store_true",
+    parser.add_argument("--reindex", action="store_true",
         help="don't re-use existing indexed graphs")
     parser.add_argument("--include_pruned", action="store_true",
         help="use the pruned graph in the index")
     parser.add_argument("--include_primary", action="store_true",
         help="use the primary path in the index")
-    parser.add_argument("--index_cores", type=int, default=3,
+    parser.add_argument("--index_cores", type=int,
         help="number of threads during the indexing step")
 
 def run_gcsa_indexing(job, options, inputGraphFileID):
@@ -237,20 +220,19 @@ def run_indexing(job, options, inputGraphFileID):
     """
 
     gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileID,
-                                      cores=options.index_cores, memory="4G", disk="2G").rv()
+                                      cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
     xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileID,
-                                      cores=options.index_cores, memory="4G", disk="2G").rv()
+                                      cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
 
     return xg_index_id, gcsa_and_lcp_ids
 
 
-def main():
+def index_main(options):
     """
     Wrapper for vg indexing. 
     """
-
+    
     RealTimeLogger.start_master()
-    options = parse_args() # This holds the nicely-parsed options object
 
     # make the docker runner
     options.drunner = DockerRunner(
@@ -290,11 +272,4 @@ def main():
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
     RealTimeLogger.stop_master()
-
-if __name__ == "__main__" :
-    try:
-        main()
-    except Exception as e:
-        print(e.message, file=sys.stderr)
-        sys.exit(1)
 

@@ -16,6 +16,7 @@ import posixpath
 from bd2k.util.iterables import concat
 from boto.s3.connection import S3Connection, Bucket
 from boto.s3.key import Key
+from toil_lib.toillib import IOStore
 
 log = logging.getLogger(__name__)
 
@@ -39,12 +40,22 @@ class VGCGLTest(TestCase):
         # FIXME: pull up into common base class
         logging.basicConfig(level=logging.INFO)
 
+    def _download_input(self, filename, local_path = None):
+        tgt = os.path.join(self.workdir, filename) if local_path is None else local_path
+        with open(tgt, 'w') as f:
+            self.bucket.get_key('/vg_cgl/ci/{}'.format(filename)).get_contents_to_file(f)
+        
     def setUp(self):
         self.workdir = tempfile.mkdtemp()
         self.jobStoreAWS = 'aws:us-west-2:testvg-{}'.format(uuid4())
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
-        self.base_command = concat('toil-vg',
-                                   '--realTimeLogging', '--logDebug', '--edge_max', '5', '--kmer_size',
+        self.configFile = '{}/config-toil-vg.tsv'.format(self.workdir)
+        self.connection = S3Connection()
+        self.bucket = self.connection.get_bucket('cgl-pipeline-inputs')
+        self._download_input('config-toil-vg.tsv', self.configFile)
+        
+        self.base_command = concat('toil-vg', 'run', '--config', self.configFile,
+                                   '--realTimeLogging', '--logInfo', '--edge_max', '5', '--kmer_size',
                                    '16', '--num_fastq_chunks', '4', '--call_chunk_size', '20000', '--overwrite',
                                    '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '8', '--alignment_cores', '8',
                                    '--calling_cores', '8')
@@ -56,28 +67,32 @@ class VGCGLTest(TestCase):
         # copy the sequence information for vcf comparison
         # (lumped in one file out of laziness.  todo: at least split by chromosome)
         self.chrom_fa = os.path.join(self.workdir, 'chrom.fa.gz')
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/chrom.fa.gz', self.chrom_fa])
+        self._download_input('chrom.fa.gz', self.chrom_fa)
+
         
     def test_chr17_sampleNA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.brca1.bam.fq', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/BRCA1_chrom_name_chop_100.vg', self.workdir])
+        self._download_input('NA12877.brca1.bam.fq')
+        self._download_input('BRCA1_chrom_name_chop_100.vg')
+        
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.local_outstore, '--path_name', '17', '--path_size', '81189', '--call_opts', '--offset 43044293' )
+                  self.local_outstore, '--path_name', '17', '--path_size', '81189','--call_opts', '--offset 43044293')
 
         self._assertOutput('NA12877_17.vcf', self.local_outstore)
+    
 
     def test_chr19_sampleNA12877(self):
         ''' Test sample LRC KIR output
         '''
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.lrc_kir.bam.small.fq', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg.xg', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg.gcsa', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/LRC_KIR_chrom_name_chop_100.small.vg.gcsa.lcp', self.workdir])
+        
+        self._download_input('NA12877.lrc_kir.bam.small.fq')
+        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg')
+        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.xg')
+        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
+        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa.lcp')
         self.sample_reads = os.path.join(self.workdir, 'NA12877.lrc_kir.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg')
         self.test_xg_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.xg')
@@ -85,7 +100,7 @@ class VGCGLTest(TestCase):
         
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
-                  '--xg_index', self.test_xg_index, '--path_name', '19', '--path_size', '50000')
+                  '--xg_index', self.test_xg_index, '--path_name', '19', '--path_size', '50000', '--force_outstore')
         self._assertOutput('NA12877_19.vcf', self.local_outstore)
 
     def test_chr6_MHC_sampleNA12877(self):
@@ -101,8 +116,8 @@ class VGCGLTest(TestCase):
     def test_chr5_SMA_sampleNA12877(self):
         ''' Test sample SMA output
         '''
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.sma.bam.small.fq', self.workdir])
-        subprocess.check_call(['aws', 's3', 'cp', 's3://cgl-pipeline-inputs/vg_cgl/ci/SMA_chrom_name_chop_100.small.vg', self.workdir])
+        self._download_input('NA12877.sma.bam.small.fq')
+        self._download_input('SMA_chrom_name_chop_100.small.vg')
         self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
@@ -115,13 +130,6 @@ class VGCGLTest(TestCase):
         subprocess.check_call(args)
 
     def _assertOutput(self, testFile, outstore, f1_threshold=0.90):
-        s3_input_path = 's3://cgl-pipeline-inputs/vg_cgl/ci/'
-        if outstore.startswith('aws:'):
-            cp = ['aws', 's3', 'cp']
-            output_path = outstore.replace('aws:us-west-2:','s3://')
-        else:
-            cp = ['cp']
-            output_path = outstore
         # todo: clean this to be less hardcoded
         testName = 'NA12877.vcf.gz'
         normalName = 'normal_' + testFile + '.gz'
@@ -129,16 +137,18 @@ class VGCGLTest(TestCase):
         localNormal = os.path.join(self.workdir, normalName)
 
         # copy baseline
-        subprocess.check_call(['aws', 's3', 'cp', os.path.join(s3_input_path, normalName), localNormal])
-        subprocess.check_call(['aws', 's3', 'cp', os.path.join(s3_input_path, normalName) + '.tbi', localNormal + '.tbi'])
+        self._download_input(normalName, localNormal)
+        self._download_input(normalName + '.tbi', localNormal + '.tbi')
 
         # copy calls
-        subprocess.check_call(cp + [os.path.join(output_path, testName), localTest])
-        subprocess.check_call(cp + [os.path.join(output_path, testName) + '.tbi', localTest + '.tbi'])
+        io_store = IOStore.get(outstore)
+        io_store.read_input_file(testName, localTest)
+        io_store.read_input_file(testName + '.tbi', localTest + '.tbi')
 
         # run vcfeval
         eval_results = os.path.join(self.workdir, 'eval_results')
-        subprocess.check_call(['toil-vg-vcfeval', self.jobStoreLocal, localTest, localNormal, self.chrom_fa, eval_results,
+        subprocess.check_call(['toil-vg', 'vcfeval', self.jobStoreLocal, localTest,
+                               localNormal, self.chrom_fa, eval_results,
                                '--vcfeval_cores', '8'])
         with open(os.path.join(eval_results, 'f1.txt')) as f1_file:
             f1_score = float(f1_file.readline().strip())

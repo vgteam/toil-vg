@@ -17,19 +17,24 @@ def add_docker_tool_parse_args(parser):
     """ centralize shared docker options and their defaults """
     parser.add_argument("--no_docker", action="store_true",
                         help="do not use docker for any commands")
-    parser.add_argument("--vg_docker", type=str, default='quay.io/glennhickey/vg:latest',
+    parser.add_argument("--vg_docker", type=str,
                         help="dockerfile to use for vg")
-    parser.add_argument("--bcftools_docker", type=str, default='quay.io/cmarkello/bcftools',
+    parser.add_argument("--bcftools_docker", type=str,
                         help="dockerfile to use for bcftools")
-    parser.add_argument("--tabix_docker", type=str, default='quay.io/cmarkello/htslib:latest',
+    parser.add_argument("--tabix_docker", type=str,
                         help="dockerfile to use for tabix")
-    parser.add_argument("--jq_docker", type=str, default='devorbitus/ubuntu-bash-jq-curl',
+    parser.add_argument("--jq_docker", type=str,
                         help="dockerfile to use for jq")
 
 def add_common_vg_parse_args(parser):
     """ centralize some shared io functions and their defaults """
+    parser.add_argument('--config', default='config-toil-vg.tsv', type=str,
+                            help='Path to the (filled in) config file, generated with "generate-config". '
+                                '\nDefault value: "%(default)s"')
+    
     parser.add_argument("--force_outstore", action="store_true",
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
+    
     
 def get_docker_tool_map(options):
     """ convenience function to parse the above _docker options into a dictionary """
@@ -78,27 +83,41 @@ on and off in just one place.  to do: Should go somewhere more central """
         list has size > 1, then piping interface used """
 
         RealTimeLogger.get().info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
-
+        print('')
+        print('ARGS: ', args)
+        print('DOCKER TOOL MAP: ', self.docker_tool_map)
         if len(args) == 1:
             # just one command, use regular docker_call interface
             # where parameters is an argument list not including command
-            tool = self.docker_tool_map[args[0][0]]
+            tool = str(self.docker_tool_map[args[0][0]][0])
             tools = None
-            if args[0][0] in ["vg", "rtg"]:
+            if len(self.docker_tool_map[args[0][0]]) == 2:
+                if self.docker_tool_map[args[0][0]][1]:
+                    # not all tools have consistant entrypoints. vg and rtg have entrypoints
+                    # but bcftools doesn't. This functionality requires the config file to
+                    # operate
+                    parameters = args[0][1:]
+                else:
+                    parameters = args[0]
+            else:
+                if args[0][0] in ["vg", "rtg"]:
                 # todo:  not all tools have consistent entrypoints.  for instance vg and rtg
                 # have entrypoints but bcftools doesn't.  hack here for now, but need to
                 # have configurable entrypoints (or force image consistency) down the road. 
-                parameters = args[0][1:]
-            else:
-                parameters = args[0]
+                    parameters = args[0][1:]
+                else:
+                    parameters = args[0]
         else:
             # there's a pipe.  we use the different piping interface that
             # takes in paramters as a list of single-string commands
             # that include arguments
             tool = None
-            tools = self.docker_tool_map[args[0][0]]
+            tools = str(self.docker_tool_map[args[0][0]][0])
             parameters = [" ".join(x) for x in args]
-
+        print('')
+        print('PARAMETERS: ', parameters)
+        print('TOOL: ', tool)
+        print('TOOLS: ', tools)
         return docker_call(tool=tool, tools=tools, parameters=parameters,
                            work_dir=work_dir, outfile = outfile,
                            errfile = errfile,

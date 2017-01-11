@@ -1,0 +1,123 @@
+
+# Toil VG Pipeline configuration file
+# This configuration file is formatted in YAML. Simply write the value (at least one space) after the colon.
+# Edit the values in the configuration file and then rerun the pipeline: "toil-vg run"
+# 
+# URLs can take the form: "/", "s3://"
+# Local inputs follow the URL convention: "/full/path/to/input.txt"
+# S3 URLs follow the convention: "s3://bucket/directory/file.txt"
+#
+# Comments (beginning with #) do not need to be removed. Optional parameters left blank are treated as false or blank.
+######################################################################################################################
+
+###########################################
+### Arguments Shared Between Components ###
+# Optional: Use output store instead of toil for all intermediate files (use only for debugging)
+force-outstore: False
+
+#############################
+### Docker Tool Arguments ###
+# Optional: Do not use docker for any commands
+no-docker: False
+
+## Docker Tool List ##
+##   Each tool is specified as a list where the first element is the docker image URL,
+##   and the second element indicates if the docker image has an entrypoint or not
+# Optional: Dockerfile to use for vg
+vg-docker: ['quay.io/glennhickey/vg:latest', True]
+
+# Optional: Dockerfile to use for bcftools
+bcftools-docker: ['quay.io/cmarkello/bcftools', False]
+
+# Optional: Dockerfile to use for tabix
+tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
+
+# Optional: Dockerfile to use for jq
+jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
+
+# Optional: Dockerfile to use for rtg
+rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
+
+##########################
+### vg_index Arguments ###
+# Optional: Maximum edges to cross in index
+edge-max: 5
+
+# Optional: Size of kmers to use in indexing and mapping
+kmer-size: 10
+
+# Optional: Don't re-use existing indexed graphs
+reindex: False
+
+# Optional: Use the pruned graph in the index
+include-pruned: False
+
+# Optional: Use the primary path in the index
+include-primary: True
+
+# Optional: Number of threads during the indexing step
+index-cores: 4
+
+# Optional: Toil job memory allocation for indexing
+index-mem: '4G'
+
+# Optional: Toil job disk allocation for indexing
+index-disk: '2G'
+
+########################
+### vg_map Arguments ###
+# Optional: Number of chunks to split the input fastq file records
+num-fastq-chunks: 3
+
+# Optional: Number of threads during the alignment step
+alignment-cores: 3
+
+# Optional: Core arguments for vg mapping
+vg-map-args: ['-i', '-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
+
+# Optional: Toil job memory allocation for mapping
+alignment-mem: '4G'
+
+# Optional: Toil job disk allocation for mapping
+alignment-disk: '2G'
+
+# Optional: Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
+index-mode: gcsa-mem
+
+#########################
+### vg_call Arguments ###
+# Optional: Overlap option that is passed into make_chunks and call_chunk
+overlap: 2000
+
+# Optional: Chunk size
+call-chunk-size: 10000000
+
+# Optional: Chromosomal position offset (eg. 43044293)
+offset: None
+
+# Optional: Options to pass to chunk_gam.
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15']
+
+# Optional: Options to pass to vg pileup.
+pileup-opts: ['-q', '10', '-a']
+
+# Optional: Options to pass to vg call.
+call-opts: ['']
+
+# Optional: Options to pass to vg genotype.
+genotype-opts: ['']
+
+# Optional: Use vg genotype instead of vg call
+genotype: False
+
+# Optional: Number of threads during the variant calling step
+calling-cores: 4
+
+# Optional: Toil job memory allocation for variant calling
+calling-mem: '4G'
+
+# Optional: Toil job disk allocation for variant calling
+calling-disk: '2G'
+
+# Optional: always overwrite existing files
+overwrite: False

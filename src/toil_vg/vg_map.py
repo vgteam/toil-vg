@@ -21,23 +21,10 @@ from toil.job import Job
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
 
-def parse_args():
+def map_subparser(parser):
     """
-    Takes in the command-line arguments list (args), and returns a nice argparse
-    result with fields for all the options.
-    
-    Borrows heavily from the argparse documentation examples:
-    <http://docs.python.org/library/argparse.html>
+    Create a subparser for mapping.  Should pass in results of subparsers.add_parser()
     """
-
-    # Construct the parser (which is stored in parser)
-    # Module docstring lives in __doc__
-    # See http://python-forum.com/pythonforum/viewtopic.php?f=3&t=36847
-    # And a formatter class so our examples in the docstring look good. Isn't it
-    # convenient how we already wrapped it to 80 characters?
-    # See http://docs.python.org/library/argparse.html#formatter-class
-    parser = argparse.ArgumentParser(prog='vg_evaluation_pipeline', description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
@@ -56,7 +43,7 @@ def parse_args():
         help="Path to GCSA index")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
-    parser.add_argument("--kmer_size", type=int, default=10,
+    parser.add_argument("--kmer_size", type=int,
         help="size of kmers to use in indexing and mapping")
     # these are used for gam merging.  to-do: harmonize these options which are repeated
     # in all the different tools at this point
@@ -74,20 +61,16 @@ def parse_args():
     # Add common docker options
     add_docker_tool_parse_args(parser)
 
-    options = parser.parse_args()
-
-    return parser.parse_args()
-
 
 def map_parse_args(parser, stand_alone = False):
     """ centralize indexing parameters here """
 
-    parser.add_argument("--num_fastq_chunks", type=int, default=3,
+    parser.add_argument("--num_fastq_chunks", type=int,
         help="number of chunks to split the input fastq file records")
-    parser.add_argument("--alignment_cores", type=int, default=3,
+    parser.add_argument("--alignment_cores", type=int,
         help="number of threads during the alignment step")
     parser.add_argument("--index_mode", choices=["gcsa-kmer",
-        "gcsa-mem"], default="gcsa-mem",
+        "gcsa-mem"],
         help="type of vg index to use for mapping")        
 
 def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, sample_fastq_id):
@@ -132,7 +115,7 @@ def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, s
         #Run graph alignment on each fastq chunk
         gam_file_id = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id,
                                         graph_file_id, xg_file_id, gcsa_and_lcp_ids,
-                                        cores=options.alignment_cores, memory="4G", disk="2G").rv()
+                                        cores=options.alignment_cores, memory=options.alignment_mem, disk=options.alignment_disk).rv()
         gam_chunk_file_ids.append(gam_file_id)
 
     return job.addFollowOnJobFn(run_merge_gam, options, gam_chunk_file_ids, xg_file_id,
@@ -178,9 +161,14 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_f
         # Start the aligner and have it write to the file
 
         # Plan out what to run
-        vg_parts = ['vg', 'map', '-f', os.path.basename(fastq_file),
-                    '-i', '-M2', '-W', '500', '-u', '0', '-U',
-                    '-O', '-S', '50', '-a', '-t', str(job.cores), os.path.basename(graph_file)]
+        vg_parts = []
+        if hasattr(options, 'vg_map_args'):
+            vg_parts += ['vg', 'map', '-f', os.path.basename(fastq_file), os.path.basename(graph_file)]
+            vg_parts += options.vg_map_args
+        else:
+            vg_parts = ['vg', 'map', '-f', os.path.basename(fastq_file),
+                        '-i', '-M2', '-W', '500', '-u', '0', '-U',
+                        '-O', '-S', '50', '-a', '-t', str(job.cores), os.path.basename(graph_file)]
 
         if options.index_mode == "gcsa-kmer":
             # Use the new default context size in this case
@@ -297,13 +285,12 @@ def run_merge_gam(job, options, chunk_file_ids, xg_file_id):
 
     return chr_gam_ids
 
-def main():
+def map_main(options):
     """
-    Wrapper for vg indexing. 
+    Wrapper for vg map. 
     """
 
     RealTimeLogger.start_master()
-    options = parse_args() # This holds the nicely-parsed options object
 
     # make the docker runner
     options.drunner = DockerRunner(
@@ -348,11 +335,4 @@ def main():
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
     RealTimeLogger.stop_master()
-
-if __name__ == "__main__" :
-    try:
-        main()
-    except Exception as e:
-        print(e.message, file=sys.stderr)
-        sys.exit(1)
 
