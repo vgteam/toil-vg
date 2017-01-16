@@ -100,7 +100,12 @@ def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, s
   
     num_chunks = 0 
     record_iter = SeqIO.parse(open(fastq_file),"fastq")
+    
+    # this will be a list of lists.
+    # gam_chunk_file_ids[i][j], will correspond to the jth path (from options.path_names)
+    # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
+
     for chunk_id in xrange(options.num_fastq_chunks):
         num_chunks += 1
         chunk_id += 1
@@ -113,13 +118,13 @@ def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, s
         RealTimeLogger.get().info("Wrote {} records to {}".format(count, chunk_filename))
         
         #Run graph alignment on each fastq chunk
-        gam_file_id = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id,
+        gam_chunk_ids = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id,
                                         graph_file_id, xg_file_id, gcsa_and_lcp_ids,
                                         cores=options.alignment_cores, memory=options.alignment_mem, disk=options.alignment_disk).rv()
-        gam_chunk_file_ids.append(gam_file_id)
+        gam_chunk_file_ids.append(gam_chunk_ids)
 
-    return job.addFollowOnJobFn(run_merge_gam, options, gam_chunk_file_ids, xg_file_id,
-                                cores=3, memory="4G", disk="2G").rv()
+    return job.addFollowOnJobFn(run_merge_gams, options, gam_chunk_file_ids, cores=options.alignment_cores,
+                                disk=options.alignment_disk).rv()
 
 
 def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_file_id, gcsa_and_lcp_ids):
@@ -194,96 +199,126 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_f
         run_time = end_time - start_time
 
     RealTimeLogger.get().info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
-    
-    # Send alignment to store
-    alignment_file_id = write_to_store(job, options, output_file)
-    return alignment_file_id
 
-def run_merge_gam(job, options, chunk_file_ids, xg_file_id):
+    # Chunk the gam up by chromosome
+    gam_chunks = split_gam_into_chroms(work_dir, options, xg_file, output_file)
+
+    # Write gam_chunks to store
+    gam_chunk_ids = []
+    for gam_chunk in gam_chunks:
+        gam_chunk_ids.append(write_to_store(job, options, gam_chunk))
+
+    return gam_chunk_ids
+
+def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
+    """
+    Create a Rocksdb index then use it to split up the given gam file
+    (a local path) into a separate gam for each chromosome.  
+    Return a list of filenames.  the ith filename will correspond
+    to the ith path in the options.path_name list
+    """
+    if options.path_name is None:
+        # Nothing to split on, just return the whole thing
+        return [gam_file]
+
+    output_index = gam_file + '.index'
     
-    RealTimeLogger.get().info("Starting gam merging...")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    out_store = IOStore.get(options.out_store)
+    # Index the alignment by node
+    start_time = timeit.default_timer()
+
+    index_cmd = ['vg', 'index', '-N', os.path.basename(gam_file),
+                 '-d', os.path.basename(output_index), '-t', str(options.gam_index_cores)]
+    options.drunner.call(index_cmd, work_dir = work_dir)
+        
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealTimeLogger.get().info("Indexed {}. Process took {} seconds.".format(output_index, run_time))
+
+    # Chunk the alignment into chromosomes using the input paths
+
+    # First, we make a list of paths in a format that we can pass to vg chunk
+    path_list_name = os.path.join(work_dir, 'path_list')
+    with open(path_list_name, 'w') as path_list:
+        for path in options.path_name:
+            path_list.write('{}\n'.format(path))
+
+    output_bed_name = os.path.join(work_dir, 'output_bed.bed')
     
+    # Now run vg chunk on the gam index to get our gams
+    chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_file),
+                 '-a', os.path.basename(output_index), '-c', str(options.chunk_context),
+                 '-P', os.path.basename(path_list_name),
+                 '-b', os.path.splitext(os.path.basename(gam_file))[0],
+                 '-t', str(options.alignment_cores),
+                 '-R', output_bed_name]
+    
+    start_time = timeit.default_timer()
+
+    options.drunner.call(chunk_cmd, work_dir = work_dir)
+    
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealTimeLogger.get().info("Chunked {}. Process took {} seconds.".format(gam_file, run_time))
+
+    # scrape up the vg chunk results into a list of paths to the output gam
+    # chunks and return them.  we expect the filenames to be in the 4th column
+    # of the output bed from vg chunk. 
+    gam_chunks = []
+    with open(output_bed_name) as output_bed:
+        for line in output_bed:
+            toks = line.split('\t')
+            if len(toks) > 3:
+                gam_chunks.append(os.path.join(work_dir, os.path.basename(toks[3].strip())))
+                assert os.path.splitext(gam_chunks[-1])[1] == '.gam'
+    assert len(gam_chunks) == len(options.path_name)
+    return gam_chunks
+
+
+def run_merge_gams(job, options, gam_chunk_file_ids):
+    """
+    Merge together gams, doing each chromosome in parallel
+    """
+
+    # If the path name is not known, assume we have one anonymous path
+    path_names = options.path_name
+    if path_names is None:
+        path_names = ['out']
+    chr_gam_ids = []
+
+    for i, chr in enumerate(path_names):
+        shard_ids = [gam_chunk_file_ids[j][i] for j in range(len(gam_chunk_file_ids))]
+        chr_gam_id = job.addChildJobFn(run_merge_chrom_gam, options, chr, shard_ids,
+                                cores=3, memory="4G", disk="2G").rv()
+        chr_gam_ids.append(chr_gam_id)
+    
+    return chr_gam_ids
+
+
+def run_merge_chrom_gam(job, options, chr_name, chunk_file_ids):
+    """
+    Make a chromosome gam by merging up a bunch of gam ids, one 
+    for each  shard.  
+    """
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
-    # Download the chunked alignments from the outstore to the local work_dir
-    gam_chunk_filelist = []
-    for i, chunk_file_id in enumerate(chunk_file_ids):
-        chunk_id = i + 1
-        output_file = "{}/{}_{}.gam".format(work_dir, options.sample_name, chunk_id)
-        read_from_store(job, options, chunk_file_id, output_file)
-        gam_chunk_filelist.append(output_file)
+    output_file = os.path.join(work_dir, '{}_{}.gam'.format(options.sample_name, chr_name))
 
-
-    # list of chromsome name, gam file name (no path) pairs
-    chr_gam_keys = []
-
-    if options.path_name is not None:
-        # Create a bed file of the different chromosomes to pass to vg filter
-        # using information passed in via --path_name and --path_size
-        bed_file_path = os.path.join(work_dir, "bed_regions.bed")
-        with open(bed_file_path, "w") as bed_file:
-            assert len(options.path_name) == len(options.path_size)
-            for name, size in zip(options.path_name, options.path_size):
-                bed_file.write("{}\t0\t{}\n".format(name, size))
-
-        # Download local input files from the remote storage container
-        xg_file = os.path.join(work_dir, "graph.vg.xg")
-        read_from_store(job, options, xg_file_id, xg_file)
-
-        for i, output_chunk_gam in enumerate(gam_chunk_filelist):        
-            # Use vg filter to merge the gam_chunks back together, while dividing them by
-            # chromosome.  todo: should we just create the smaller call-chunks right
-            # here at the same time? also, can we better parallelize?
-            # todo:  clean up options a bit (using mapping cores for filtering) and
-            # see about putting lighter weight filters here too (ex identity)
-            filter_cmd = ['vg', 'filter', os.path.basename(output_chunk_gam),
-                          '-R', os.path.basename(bed_file_path),
-                          '-B', options.sample_name, '-t', str(options.alignment_cores),
-                          '-x', os.path.basename(xg_file)]
-            if i > 0:
-                filter_cmd.append('-A')
+    # Would be nice to be able to do this merge with fewer copies.. 
+    with open(output_file, 'a') as merge_file:
+        for chunk_gam_id in chunk_file_ids:
+            tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
+            read_from_store(job, options, chunk_gam_id, tmp_gam_file)
+            with open(tmp_gam_file) as tmp_f:
+                shutil.copyfileobj(tmp_f, merge_file)
                 
-            options.drunner.call(filter_cmd, work_dir = work_dir)
+    chr_gam_id = write_to_store(job, options, output_file)
 
-
-        for chunk_id, name in enumerate(options.path_name):
-            # we are relying on convention of vg filter naming output here
-            # if that changes, this will break.
-            filter_file_path = os.path.join(
-                work_dir, "{}-{}.gam".format(options.sample_name, chunk_id))
-            assert os.path.isfile(filter_file_path)
-
-            # rename from chunk id to path name
-            chr_filterfile_path = os.path.join(
-                work_dir, "{}_{}.gam".format(options.sample_name, name))
-            os.rename(filter_file_path, chr_filterfile_path)
-            chr_gam_keys.append((name, os.path.basename(chr_filterfile_path)))
-                
-    else:
-        # No path information, just append together without splitting into chromosome
-        merged_gam_path = os.path.join(work_dir, "{}.gam".format(options.sample_name))
-        if len(gam_chunk_filelist) > 0:
-            shutil.copy(gam_chunk_filelist[0], merged_gam_path)
-            with open(merged_gam_path, 'a') as merge_file:
-                for output_chunk_gam in gam_chunk_filelist[1:]:
-                    with open(output_chunk_gam) as chunk_file:
-                        shutil.copyfileobj(chunk_file, merge_file)                    
-        chr_gam_keys = [(None, os.path.basename(merged_gam_path))]
-
-    chr_gam_ids = []
-    for name, alignment_key in chr_gam_keys:
-        # Upload the merged alignment file to the job store
-        gam_file_id = write_to_store(job, options, os.path.join(work_dir, alignment_key))
-        # Checkpoint gam to out store
-        if not options.force_outstore:
-            write_to_store(job, options, os.path.join(work_dir, alignment_key), use_out_store = True)
-        chr_gam_ids.append((name, gam_file_id))
-
-    return chr_gam_ids
+    # checkpoint to out store
+    if not options.force_outstore or options.tool == 'map':
+        write_to_store(job, options, output_file, use_out_store = True)
+            
+    return chr_gam_id
 
 def map_main(options):
     """

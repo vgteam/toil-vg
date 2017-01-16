@@ -23,6 +23,8 @@ no-docker: False
 ## Docker Tool List ##
 ##   Each tool is specified as a list where the first element is the docker image URL,
 ##   and the second element indicates if the docker image has an entrypoint or not
+##   If left blank, then the tool will be run directly from the command line instead
+##   of through docker
 # Optional: Dockerfile to use for vg
 
 vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1976-g828f17e', True]
@@ -73,6 +75,14 @@ num-fastq-chunks: 3
 # Optional: Number of threads during the alignment step
 alignment-cores: 3
 
+# Optional: Number of threads to use for Rocksdb GAM indexing
+# Generally, this should be kept low as speedup drops off radically 
+# after a few threads.
+gam-index-cores: 3
+
+# Optional: Context expansion used for gam chunking
+chunk_context: 20
+
 # Optional: Core arguments for vg mapping
 vg-map-args: ['-i', '-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
 
@@ -84,6 +94,7 @@ alignment-disk: '2G'
 
 # Optional: Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
 index-mode: gcsa-mem
+
 
 #########################
 ### vg_call Arguments ###
