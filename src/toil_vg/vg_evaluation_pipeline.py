@@ -172,22 +172,16 @@ def run_pipeline_map(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, 
 def run_pipeline_call(job, options, graph_file_id, xg_file_id, chr_gam_ids):
     """ Run variant calling on the chromosomes in parallel """
 
-    # index the gam keys
-    label_map = dict()
-    if len(chr_gam_ids) == 1 and chr_gam_ids[0][0] is None:
-        for chr_label in options.path_name:
-            label_map[chr_label] = chr_gam_ids[0][1]
-    else:
-        for chr_label, gam_id in chr_gam_ids:
-            label_map[chr_label] = gam_id
-    
-    # Run variant calling on .gams by chromosome if no path_name or path_size options are set 
     return_value = []
     vcf_tbi_file_id_pair_list = [] 
     if options.path_name and options.path_size:
+        assert len(chr_gam_ids) == len(options.path_name)
+        
         #Run variant calling
-        for chr_label, chr_length in itertools.izip(options.path_name, options.path_size):
-            alignment_file_id = label_map[chr_label]
+        for i in range(len(chr_gam_ids)):
+            alignment_file_id = chr_gam_ids[i]
+            chr_label = options.path_name[i]
+            chr_length = options.path_size[i]
             vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
                                                      alignment_file_id, chr_label, chr_length,
                                                      cores=options.calling_cores, memory="4G", disk="2G").rv()
@@ -261,9 +255,11 @@ def generate_config():
         ## Docker Tool List ##
         ##   Each tool is specified as a list where the first element is the docker image URL,
         ##   and the second element indicates if the docker image has an entrypoint or not
+        ##   If left blank, then the tool will be run directly from the command line instead
+        ##   of through docker
         # Optional: Dockerfile to use for vg
 
-        vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1976-g828f17e', True]
+        vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1980-g38453bf', True]
 
         # Optional: Dockerfile to use for bcftools
         bcftools-docker: ['quay.io/cmarkello/bcftools', False]
@@ -310,6 +306,14 @@ def generate_config():
         
         # Optional: Number of threads during the alignment step
         alignment-cores: 3
+
+        # Optional: Number of threads to use for Rocksdb GAM indexing
+        # Generally, this should be kept low as speedup drops off radically 
+        # after a few threads.
+        gam-index-cores: 3
+
+        # Optional: Context expansion used for gam chunking
+        chunk_context: 20
         
         # Optional: Core arguments for vg mapping
         vg-map-args: ['-i', '-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
@@ -322,6 +326,7 @@ def generate_config():
 
         # Optional: Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
         index-mode: gcsa-mem
+
 
         #########################
         ### vg_call Arguments ###
@@ -452,6 +457,10 @@ def main():
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
+
+    # Relative outstore paths can end up who-knows-where.  Make absolute.
+    if options.out_store[0] == '.':
+        options.out_store = os.path.abspath(options.out_store)
 
     if args.command == 'run':
         pipeline_main(options)

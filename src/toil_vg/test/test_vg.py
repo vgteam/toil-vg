@@ -53,17 +53,17 @@ class VGCGLTest(TestCase):
         self.connection = S3Connection()
         self.bucket = self.connection.get_bucket('cgl-pipeline-inputs')
         self._download_input('config-toil-vg.tsv', self.configFile)
-        
+                
         self.base_command = concat('toil-vg', 'run', '--config', self.configFile,
                                    '--realTimeLogging', '--logInfo', '--edge_max', '5', '--kmer_size',
-                                   '16', '--num_fastq_chunks', '4', '--call_chunk_size', '20000', '--overwrite',
+                                   '16', '--num_fastq_chunks', '4', '--call_chunk_size', '20000',
                                    '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '8', '--alignment_cores', '8',
                                    '--calling_cores', '8')
         
         # default output store
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
-
+                
         # copy the sequence information for vcf comparison
         # (lumped in one file out of laziness.  todo: at least split by chromosome)
         self.chrom_fa = os.path.join(self.workdir, 'chrom.fa.gz')

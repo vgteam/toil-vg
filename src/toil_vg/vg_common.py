@@ -247,7 +247,35 @@ def read_from_store(job, options, id_or_key, path = None, use_out_store = None):
         return out_store.read_input_file(id_or_key, path)
     else:
         return job.fileStore.readGlobalFile(id_or_key, path)
-        
+
+def write_dir_to_store(job, options, path, use_out_store = None):
+    """
+    Need directory interface for rocksdb indexes.  Want to avoid overhead
+    of tar-ing up as they may be big.  Write individual files instead, and 
+    keep track of the names as well as ids (returns list of name/id pairs)
+    """
+    out_pairs = []
+    file_list = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+    for f in file_list:
+        f_id = write_to_store(job, options, f, use_out_store = use_out_store,
+                              out_store_key = path.replace('/', '_'))
+        out_pairs.append(os.path.basename(f), f_id)
+    return out_pairs
+
+def read_dir_from_store(job, options, name_id_pairs, path = None, use_out_store = None):
+    """
+    Need directory interface for rocksdb indexes.  Want to avoid overhead
+    of tar-ing up as they may be big.  Takes as input list of filename/id pairs
+    and reads these into the local directory given
+    """
+    if not os.path.isdir(path):
+        os.mkdir(path)
+
+    for name, key in name_id_pairs:
+        read_from_store(job, options, key, os.path.join(path, name),
+                        use_out_store = use_out_store)
+    
+
 def batch_iterator(iterator, batch_size):
     """Returns lists of length batch_size.
 
