@@ -250,7 +250,7 @@ def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
                  '-P', os.path.basename(path_list_name),
                  '-b', os.path.splitext(os.path.basename(gam_file))[0],
                  '-t', str(options.alignment_cores),
-                 '-R', output_bed_name]
+                 '-R', os.path.basename(output_bed_name)]
     
     start_time = timeit.default_timer()
 

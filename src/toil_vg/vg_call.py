@@ -239,8 +239,8 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_siz
 
     # Index the gam
     gam_index_path = gam_path + '.index'
-    index_cmd = ['vg', 'index', '-N', gam_path, '-d', gam_index_path,
-                 '-t', str(options.gam_index_cores)]
+    index_cmd = ['vg', 'index', '-N', os.path.basename(gam_path), '-d',
+                 os.path.basename(gam_index_path), '-t', str(options.gam_index_cores)]
     options.drunner.call(index_cmd, work_dir=work_dir)
 
     # Chunk the graph and gam, using the xg and rocksdb indexes
