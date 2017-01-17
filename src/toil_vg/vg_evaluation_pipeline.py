@@ -262,6 +262,7 @@ def generate_config():
         ##   Each tool is specified as a list where the first element is the docker image URL,
         ##   and the second element indicates if the docker image has an entrypoint or not
         # Optional: Dockerfile to use for vg
+
         vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1976-g828f17e', True]
 
         # Optional: Dockerfile to use for bcftools
