@@ -458,6 +458,10 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    # Relative outstore paths can end up who-knows-where.  Make absolute.
+    if options.out_store[0] == '.':
+        options.out_store = os.path.abspath(options.out_store)
+
     if args.command == 'run':
         pipeline_main(options)
     elif args.command == 'index':
