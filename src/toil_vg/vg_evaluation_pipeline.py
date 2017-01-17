@@ -259,7 +259,7 @@ def generate_config():
         ##   of through docker
         # Optional: Dockerfile to use for vg
 
-        vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1976-g828f17e', True]
+        vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1980-g38453bf', True]
 
         # Optional: Dockerfile to use for bcftools
         bcftools-docker: ['quay.io/cmarkello/bcftools', False]
