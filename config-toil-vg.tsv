@@ -24,7 +24,8 @@ no-docker: False
 ##   Each tool is specified as a list where the first element is the docker image URL,
 ##   and the second element indicates if the docker image has an entrypoint or not
 # Optional: Dockerfile to use for vg
-vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1951-g94f14be', True]
+
+vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1976-g828f17e', True]
 
 # Optional: Dockerfile to use for bcftools
 bcftools-docker: ['quay.io/cmarkello/bcftools', False]
