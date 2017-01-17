@@ -12,10 +12,8 @@ send feedback or feel free to make a pull request.
 * `virtualenv toilvenv`
 * `source toilvenv/bin/activate`
 * `pip install toil[mesos]==3.5.0a1.dev251`
-* `git clone --recursive https://github.com/cmarkello/toil-lib.git`
-* `pip install ./toil-lib/`
 * `git clone --recursive https://github.com/BD2KGenomics/toil-vg.git`
-* `pip install ./toil-vg/`
+* `pip install --process-dependency-links ./toil-vg/`
 * `pip install boto`
 
 ### Install and setup docker on local machine and run the docker daemon
@@ -91,10 +89,8 @@ For more information on the cgcloud plugin for Toil, you can read about it [here
 
 - `virtualenv --system-site-packages toilvenv`
 - `source toilvenv/bin/activate`
-- `git clone --recursive https://github.com/cmarkello/toil-lib.git`
-- `pip install /home/mesosbox/toil-lib/`
 - `git clone --recursive https://github.com/BD2KGenomics/toil-vg.git`
-- `pip install /home/mesosbox/toil-vg/`
+- `pip install --process-dependency-links /home/mesosbox/toil-vg/`
 
 For more information on the latest release of Toil, you can find the documentation [here](http://toil.readthedocs.io/en/latest/).
 
@@ -160,10 +156,8 @@ For more information on the latest release of Toil, you can find the documentati
 
 - `virtualenv --system-site-packages toilvenv`
 - `source toilvenv/bin/activate`
-- `git clone --recursive https://github.com/cmarkello/toil-lib.git`
-- `pip install ~/toil-lib/`
 - `git clone --recursive https://github.com/BD2KGenomics/toil-vg.git`
-- `pip install ~/toil-vg/`
+- `pip install --process-dependency-links ~/toil-vg/`
 
 ### Get test input files from s3
 
