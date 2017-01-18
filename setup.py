@@ -1,6 +1,6 @@
 import sys
 
-from version import version, required_versions
+from version import version, required_versions, dependency_links
 from setuptools import find_packages, setup
 from setuptools.command.test import test as TestCommand
 
@@ -12,6 +12,7 @@ kwargs = dict(
     author_email='cgl-toil@googlegroups.com',
     url="https://github.com/BD2KGenomics/toil-vg",
     install_requires=[x + y for x, y in required_versions.iteritems()],
+    dependency_links=['git+https://github.com/cmarkello/toil-lib.git#egg=toil-lib-1.1.0a1'],
     tests_require=['pytest==2.8.3'],
     package_dir={'': 'src'},
     packages=find_packages('src'),
