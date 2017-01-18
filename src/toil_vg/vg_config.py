@@ -182,8 +182,6 @@ def apply_config_file_args(args):
         # overwrite config options with corresponding options that are not None in program arguments
         if (args.__dict__[args_key]) or (args_key not in  options.__dict__.keys()):
             options.__dict__[args_key] = args.__dict__[args_key]
-            ## Options sanity checks
-            # path_name and path_size lists must be equal in length
             
     return options
 

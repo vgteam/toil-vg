@@ -49,8 +49,6 @@ def map_subparser(parser):
     # in all the different tools at this point
     parser.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")
-    parser.add_argument("--path_size", nargs='+', type=int,
-        help="Size of the reference path in the graph")    
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)

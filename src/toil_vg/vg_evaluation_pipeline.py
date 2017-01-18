@@ -100,8 +100,6 @@ def pipeline_subparser(parser_run):
         help="Path to GCSA index (to use instead of generating new one)")
     parser_run.add_argument("--path_name", nargs='+', type=str,
         help="Name of reference path in the graph (eg. ref or 17)")
-    parser_run.add_argument("--path_size", nargs='+', type=int,
-        help="Size of the reference path in the graph")    
     parser_run.add_argument("--restat", default=False, action="store_true",
         help="recompute and overwrite existing stats files")
 
@@ -170,20 +168,19 @@ def run_pipeline_call(job, options, graph_file_id, xg_file_id, chr_gam_ids):
 
     return_value = []
     vcf_tbi_file_id_pair_list = [] 
-    if options.path_name and options.path_size:
+    if options.path_name:
         assert len(chr_gam_ids) == len(options.path_name)
         
         #Run variant calling
         for i in range(len(chr_gam_ids)):
             alignment_file_id = chr_gam_ids[i]
             chr_label = options.path_name[i]
-            chr_length = options.path_size[i]
             vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
-                                                     alignment_file_id, chr_label, chr_length,
+                                                     alignment_file_id, chr_label,
                                                      cores=options.calling_cores, memory="4G", disk="2G").rv()
             vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
     else:
-        raise RuntimeError("Invalid or non-existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
+        raise RuntimeError("Invalid or non-existant path_name(s): {}, {}".format(path_name))
 
     return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, vcf_tbi_file_id_pair_list,
                                 cores=2, memory="4G", disk="2G").rv()

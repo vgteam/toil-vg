@@ -77,7 +77,7 @@ class VGCGLTest(TestCase):
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                  self.local_outstore, '--path_name', '17', '--path_size', '81189','--call_opts', '--offset 43044293')
+                  self.local_outstore, '--path_name', '17', '--call_opts', '--offset 43044293')
 
         self._assertOutput('NA12877_17.vcf', self.local_outstore)
     
@@ -98,7 +98,7 @@ class VGCGLTest(TestCase):
         
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
-                  '--xg_index', self.test_xg_index, '--path_name', '19', '--path_size', '50000', '--force_outstore')
+                  '--xg_index', self.test_xg_index, '--path_name', '19', '--force_outstore')
         self._assertOutput('NA12877_19.vcf', self.local_outstore)
 
     def test_chr6_MHC_sampleNA12877(self):
@@ -108,7 +108,7 @@ class VGCGLTest(TestCase):
         self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg'
         self.test_gcsa_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg.gcsa'
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index, '--path_name', '6', '--path_size', '50000')
+                                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index, '--path_name', '6')
         self._assertOutput('NA12877_6.vcf', self.local_outstore)
 
     def test_chr5_SMA_sampleNA12877(self):
@@ -119,7 +119,7 @@ class VGCGLTest(TestCase):
         self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                                   self.local_outstore, '--path_name', '5', '--path_size', '50000')
+                                   self.local_outstore, '--path_name', '5')
         # disabling this test for now as no variants get called,
         # which triggers assert fail when loading the vceval output
         #self._assertOutput('NA12877_5.vcf', self.local_outstore)
