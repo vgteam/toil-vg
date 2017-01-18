@@ -49,12 +49,10 @@ class VGCGLTest(TestCase):
         self.workdir = tempfile.mkdtemp()
         self.jobStoreAWS = 'aws:us-west-2:testvg-{}'.format(uuid4())
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
-        self.configFile = '{}/config-toil-vg.tsv'.format(self.workdir)
         self.connection = S3Connection()
         self.bucket = self.connection.get_bucket('cgl-pipeline-inputs')
-        self._download_input('config-toil-vg.tsv', self.configFile)
                 
-        self.base_command = concat('toil-vg', 'run', '--config', self.configFile,
+        self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--edge_max', '5', '--kmer_size',
                                    '16', '--num_fastq_chunks', '4', '--call_chunk_size', '20000',
                                    '--index_mode', 'gcsa-mem', '--include_primary', '--index_cores', '8', '--alignment_cores', '8',

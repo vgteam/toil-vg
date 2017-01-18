@@ -28,9 +28,8 @@ def add_docker_tool_parse_args(parser):
 
 def add_common_vg_parse_args(parser):
     """ centralize some shared io functions and their defaults """
-    parser.add_argument('--config', default='config-toil-vg.tsv', type=str,
-                            help='Path to the (filled in) config file, generated with "generate-config". '
-                                '\nDefault value: "%(default)s"')
+    parser.add_argument('--config', default=None, type=str,
+                        help='Config file.  Use toil-vg generate-config to see defaults/create new file')
     
     parser.add_argument("--force_outstore", action="store_true",
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
