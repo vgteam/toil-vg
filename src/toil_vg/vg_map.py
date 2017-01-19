@@ -45,12 +45,6 @@ def map_subparser(parser):
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--kmer_size", type=int,
         help="size of kmers to use in indexing and mapping")
-    # these are used for gam merging.  to-do: harmonize these options which are repeated
-    # in all the different tools at this point
-    parser.add_argument("--path_name", nargs='+', type=str,
-        help="Name of reference path in the graph (eg. ref or 17)")
-    parser.add_argument("--path_size", nargs='+', type=int,
-        help="Size of the reference path in the graph")    
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)

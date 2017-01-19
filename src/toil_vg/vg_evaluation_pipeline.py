@@ -17,8 +17,6 @@ import logging, logging.handlers, SocketServer, struct, socket, threading
 import string
 import urlparse
 import getpass
-import textwrap
-import yaml
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -33,6 +31,7 @@ from toil_vg.vg_call import *
 from toil_vg.vg_index import *
 from toil_vg.vg_map import *
 from toil_vg.vg_vcfeval import *
+from toil_vg.vg_config import *
 
 def parse_args():
     """
@@ -56,10 +55,7 @@ def parse_args():
     
     # Config subparser
     parser_config = subparsers.add_parser('generate-config',
-                                          help='Generates an editable default config file')
-    parser_config.add_argument('--config', default='config-toil-vg.tsv', type=str,
-                               help='Path to the config file to generate. '
-                               '\nDefault value: "%(default)s"')
+                                          help='Prints default config file')
     
     # Run subparser
     parser_run = subparsers.add_parser('run', help='Runs the Toil VG DNA-seq pipeline')
@@ -102,10 +98,6 @@ def pipeline_subparser(parser_run):
         help="Path to xg index (to use instead of generating new one)")    
     parser_run.add_argument("--gcsa_index", type=str,
         help="Path to GCSA index (to use instead of generating new one)")
-    parser_run.add_argument("--path_name", nargs='+', type=str,
-        help="Name of reference path in the graph (eg. ref or 17)")
-    parser_run.add_argument("--path_size", nargs='+', type=int,
-        help="Size of the reference path in the graph")    
     parser_run.add_argument("--restat", default=False, action="store_true",
         help="recompute and overwrite existing stats files")
 
@@ -174,20 +166,19 @@ def run_pipeline_call(job, options, graph_file_id, xg_file_id, chr_gam_ids):
 
     return_value = []
     vcf_tbi_file_id_pair_list = [] 
-    if options.path_name and options.path_size:
+    if options.path_name:
         assert len(chr_gam_ids) == len(options.path_name)
         
         #Run variant calling
         for i in range(len(chr_gam_ids)):
             alignment_file_id = chr_gam_ids[i]
             chr_label = options.path_name[i]
-            chr_length = options.path_size[i]
             vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
-                                                     alignment_file_id, chr_label, chr_length,
+                                                     alignment_file_id, chr_label,
                                                      cores=options.calling_cores, memory="4G", disk="2G").rv()
             vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
     else:
-        raise RuntimeError("Invalid or non-existant path_name(s) and/or path_size(s): {}, {}".format(path_name, path_size))
+        raise RuntimeError("Invalid or non-existant path_name(s): {}, {}".format(path_name))
 
     return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, vcf_tbi_file_id_pair_list,
                                 cores=2, memory="4G", disk="2G").rv()
@@ -228,155 +219,6 @@ def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     vcf_file_idx = vcf_file + ".tbi"
     write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
     write_to_store(job, options, vcf_file_idx, use_out_store = True, out_store_key = out_store_key + ".tbi") 
-
-def generate_config():
-    return textwrap.dedent("""
-        # Toil VG Pipeline configuration file
-        # This configuration file is formatted in YAML. Simply write the value (at least one space) after the colon.
-        # Edit the values in the configuration file and then rerun the pipeline: "toil-vg run"
-        # 
-        # URLs can take the form: "/", "s3://"
-        # Local inputs follow the URL convention: "/full/path/to/input.txt"
-        # S3 URLs follow the convention: "s3://bucket/directory/file.txt"
-        #
-        # Comments (beginning with #) do not need to be removed. Optional parameters left blank are treated as false or blank.
-        ######################################################################################################################
-
-        ###########################################
-        ### Arguments Shared Between Components ###
-        # Optional: Use output store instead of toil for all intermediate files (use only for debugging)
-        force-outstore: False
-        
-        #############################
-        ### Docker Tool Arguments ###
-        # Optional: Do not use docker for any commands
-        no-docker: False
-        
-        ## Docker Tool List ##
-        ##   Each tool is specified as a list where the first element is the docker image URL,
-        ##   and the second element indicates if the docker image has an entrypoint or not
-        ##   If left blank, then the tool will be run directly from the command line instead
-        ##   of through docker
-        # Optional: Dockerfile to use for vg
-
-        vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1980-g38453bf', True]
-
-        # Optional: Dockerfile to use for bcftools
-        bcftools-docker: ['quay.io/cmarkello/bcftools', False]
-
-        # Optional: Dockerfile to use for tabix
-        tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
-
-        # Optional: Dockerfile to use for jq
-        jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
-        
-        # Optional: Dockerfile to use for rtg
-        rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
-        
-        ##########################
-        ### vg_index Arguments ###
-        # Optional: Maximum edges to cross in index
-        edge-max: 5
-
-        # Optional: Size of kmers to use in indexing and mapping
-        kmer-size: 10
-
-        # Optional: Don't re-use existing indexed graphs
-        reindex: False
-
-        # Optional: Use the pruned graph in the index
-        include-pruned: False
-
-        # Optional: Use the primary path in the index
-        include-primary: True
-
-        # Optional: Number of threads during the indexing step
-        index-cores: 4
-
-        # Optional: Toil job memory allocation for indexing
-        index-mem: '4G'
-
-        # Optional: Toil job disk allocation for indexing
-        index-disk: '2G'
-
-        ########################
-        ### vg_map Arguments ###
-        # Optional: Number of chunks to split the input fastq file records
-        num-fastq-chunks: 3
-        
-        # Optional: Number of threads during the alignment step
-        alignment-cores: 3
-
-        # Optional: Number of threads to use for Rocksdb GAM indexing
-        # Generally, this should be kept low as speedup drops off radically 
-        # after a few threads.
-        gam-index-cores: 3
-
-        # Optional: Context expansion used for gam chunking
-        chunk_context: 20
-        
-        # Optional: Core arguments for vg mapping
-        vg-map-args: ['-i', '-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
-        
-        # Optional: Toil job memory allocation for mapping
-        alignment-mem: '4G'
-        
-        # Optional: Toil job disk allocation for mapping
-        alignment-disk: '2G'
-
-        # Optional: Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
-        index-mode: gcsa-mem
-
-
-        #########################
-        ### vg_call Arguments ###
-        # Optional: Overlap option that is passed into make_chunks and call_chunk
-        overlap: 2000
-        
-        # Optional: Chunk size
-        call-chunk-size: 10000000
-
-        # Optional: Chromosomal position offset (eg. 43044293)
-        offset: None
-
-        # Optional: Options to pass to chunk_gam.
-        filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15']
-
-        # Optional: Options to pass to vg pileup.
-        pileup-opts: ['-q', '10', '-a']
-
-        # Optional: Options to pass to vg call.
-        call-opts: ['']
-        
-        # Optional: Options to pass to vg genotype.
-        genotype-opts: ['']
-
-        # Optional: Use vg genotype instead of vg call
-        genotype: False
-
-        # Optional: Number of threads during the variant calling step
-        calling-cores: 4
-        
-        # Optional: Toil job memory allocation for variant calling
-        calling-mem: '4G'
-        
-        # Optional: Toil job disk allocation for variant calling
-        calling-disk: '2G'
-        
-        # Optional: always overwrite existing files
-        overwrite: False
-    """)
-
-def generate_file(file_path, generate_func):
-    """
-    Checks file existance, generates file, and provides message
-    :param str file_path: File location to generate file
-    :param function generate_func: Function used to generate file
-    """
-    require(not os.path.exists(file_path), file_path + ' already exists!')
-    with open(file_path, 'w') as f:
-        f.write(generate_func())
-    print('\t{} has been generated in the current working directory.'.format(os.path.basename(file_path)))
 
 
 def main():
@@ -425,42 +267,23 @@ def main():
     
     # Write out our config file that's necessary for all other subcommands
     if args.command == 'generate-config':
-        yaml_config_out = generate_config()
-        with open(args.config, 'w') as tgt_config_file:
-            tgt_config_file.write(yaml_config_out)
+        config_main(args)
         return
 
     # Else we merge in our config file args with the command line args for
     # whatever subparser we're in
-    require(os.path.exists(args.config), '{} not found Please run '
-            '"toil-vg generate-config"'.format(args.config))
-    # Parse config
-    parsed_config = {x.replace('-', '_'): y for x, y in yaml.load(open(args.config).read()).iteritems()}
-    options = argparse.Namespace(**parsed_config)
-
-    # Add in options from the program arguments to the arguments in the config file
-    #   program arguments that are also present in the config file will overwrite the
-    #   arguments in the config file
-    for args_key in args.__dict__:
-        # Add in missing program arguments to config option list and
-        # overwrite config options with corresponding options that are not None in program arguments
-        if (args.__dict__[args_key]) or (args_key not in  options.__dict__.keys()):
-            options.__dict__[args_key] = args.__dict__[args_key]
-            ## Options sanity checks
-            # path_name and path_size lists must be equal in length
-
-    print('Program Argument List: ', args)
-    print('Final Options List: ')
-    for key in sorted(options.__dict__.keys()):
-        print("option {}: {}".format(key, options.__dict__[key]))
-        # If no arguments provided, print the full help menu
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit(1)
+    options = apply_config_file_args(args)
 
     # Relative outstore paths can end up who-knows-where.  Make absolute.
     if options.out_store[0] == '.':
         options.out_store = os.path.abspath(options.out_store)
+
+    if args.command == 'vcfeval':
+        vcfeval_main(options)
+        return
+
+    require(len(options.path_name) > 0, 'At least one reference path name must'
+            ' be specified with --path_name')
 
     if args.command == 'run':
         pipeline_main(options)
@@ -470,8 +293,6 @@ def main():
         map_main(options)
     elif args.command == 'call':
         call_main(options)
-    elif args.command == 'vcfeval':
-        vcfeval_main(options)
         
     
 def pipeline_main(options):
@@ -536,4 +357,3 @@ if __name__ == "__main__" :
     except Exception as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
-

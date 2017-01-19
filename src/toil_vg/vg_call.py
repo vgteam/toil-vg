@@ -11,6 +11,8 @@ from toil.common import Toil
 from toil.job import Job
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
+from toil_lib import require
+
 
 def call_subparser(parser):
     """
@@ -25,10 +27,6 @@ def call_subparser(parser):
                         help="input xg file")
     parser.add_argument("gam_path", type=str,
                         help="input alignment")
-    parser.add_argument("path_name", type=str,
-                        help="name of reference path in graph (ex chr21)")
-    parser.add_argument("path_size", type=int,
-                        help="size of the reference path in graph")
     parser.add_argument("sample_name", type=str,
                         help="sample name (ex NA12878)")
     parser.add_argument("out_store",
@@ -217,7 +215,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     
     return clip_file_id
 
-def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_size):
+def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
     
     RealTimeLogger.get().info("Running variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
         
@@ -264,6 +262,9 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_siz
             if len(toks) > 3:
                 bed_lines.append(toks)
 
+    # Infer the size of the path from our BED
+    path_size = int(bed_lines[-1][2]) - int(bed_lines[0][1])
+
     # Go through the BED output of vg chunk, adding a child calling job for
     # each chunk                
     clip_file_ids = []
@@ -278,7 +279,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_siz
         gam_chunk_file_id = write_to_store(job, options, gam_chunk_path)
         vg_chunk_file_id = write_to_store(job, options, vg_chunk_path)
         clipped_chunk_offset = chunk_i * options.call_chunk_size - chunk_i * options.overlap
-                
+        
         clip_file_id = job.addChildJobFn(call_chunk, options, path_name, chunk_i, len(bed_lines),
                                          chunk_bed_start, clipped_chunk_offset,
                                          vg_chunk_file_id, gam_chunk_file_id, path_size,
@@ -287,7 +288,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_siz
         clip_file_ids.append(clip_file_id)
 
 
-    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, path_name, path_size,
+    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, path_name,
                                                    clip_file_ids, cores=2, memory="4G", disk="2G").rv()
  
     RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
@@ -295,7 +296,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name, path_siz
     return vcf_gz_tbi_file_id_pair
 
 
-def merge_vcf_chunks(job, options, path_name, path_size, clip_file_ids):
+def merge_vcf_chunks(job, options, path_name, clip_file_ids):
     """ merge a bunch of clipped vcfs created above, taking care to 
     fix up the headers.  everything expected to be sorted already """
     
@@ -341,6 +342,9 @@ def call_main(options):
     
     RealTimeLogger.start_master()
 
+    # currently only support (exactly) one path
+    require(len(options.path_name) == 1, "Must pass exactly one reference path with --path_name")
+
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
@@ -367,7 +371,7 @@ def call_main(options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calling, options, inputXGFileID, inputGamFileID,
-                                     options.path_name, options.path_size,
+                                     options.path_name,
                                      cores=options.calling_cores,
                                      memory="4G", disk="2G")
 
