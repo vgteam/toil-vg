@@ -11,10 +11,10 @@ import string
 import urlparse
 import getpass
 import pdb
+import gzip
 
 from math import ceil
 from subprocess import Popen, PIPE
-from Bio import SeqIO
 
 from toil.common import Toil
 from toil.job import Job
@@ -32,7 +32,7 @@ def map_subparser(parser):
     # General options
     
     parser.add_argument("sample_reads", type=str,
-        help="Path to sample reads in fastq format")
+        help="Path to sample reads in fastq format (.fq.gz also supported)")
     parser.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
     parser.add_argument("vg_graph", type=str,
@@ -70,46 +70,44 @@ def map_parse_args(parser, stand_alone = False):
 def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, sample_fastq_id):
     
     RealTimeLogger.get().info("Starting fastq split and alignment...")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    out_store = IOStore.get(options.out_store)
+    start_time = timeit.default_timer()
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
     # We need the sample fastq for alignment
     sample_filename = os.path.basename(options.sample_reads)
-    fastq_file = "{}/input.fq".format(work_dir)
-    read_from_store(job, options, sample_fastq_id, fastq_file)
-    
-    # Find number of records per fastq chunk
-    p1 = Popen(['cat', fastq_file], stdout=PIPE)
-    p2 = Popen(['wc', '-l'], stdin=p1.stdout, stdout=PIPE)
-    p1.stdout.close()
-    num_records_total = int(p2.communicate()[0]) / 4.0
-    num_records_fastq_chunk = ceil(num_records_total / float(options.num_fastq_chunks))
- 
-    # Iterate through records of fastq_file and stream the number of records per fastq
-    #   file chunk into a fastq chunk file
-  
-    num_chunks = 0 
-    record_iter = SeqIO.parse(open(fastq_file),"fastq")
+    fastq_path = os.path.join(work_dir, os.path.basename(options.sample_reads))
+    fastq_gzipped = os.path.splitext(fastq_path)[1] == '.gz'
+    read_from_store(job, options, sample_fastq_id, fastq_path)
+
+    # Split up the fastq into chunks
+    # Note: These files are pretty big.  May be worth it try to speed this up.
+    # - tuning buffering?
+    # - avoiding python (something like zcat | split), way faster in tests. 
+    # - parallelizing the compression
+    fastq_file = gzip.open(fastq_path) if fastq_gzipped is True else open(fastq_path)    
+    fastq_chunk_names = ['chunk-{}.fq.gz'.format(i) for i in range(options.num_fastq_chunks)]
+    fastq_chunk_files = [gzip.open(f, 'w') for f in fastq_chunk_names]
+    for i, line in enumerate(fastq_file):
+        # divide by 8 here because we assume 4 records per line, interleaved
+        fastq_chunk_files[(i / 8) % options.num_fastq_chunks].write(line)
+
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealTimeLogger.get().info("Split fastq into {} chunks. Process took {} seconds.".format(len(fastq_chunk_files), run_time))
     
     # this will be a list of lists.
     # gam_chunk_file_ids[i][j], will correspond to the jth path (from options.path_names)
     # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
 
-    for chunk_id in xrange(options.num_fastq_chunks):
-        num_chunks += 1
-        chunk_id += 1
-        chunk_record_iter = itertools.islice(record_iter, 0, num_records_fastq_chunk)
-        chunk_filename = "{}/group_{}.fq".format(work_dir, chunk_id)
-        count = SeqIO.write(chunk_record_iter, chunk_filename, "fastq")
+    for chunk_id, chunk_file in enumerate(fastq_chunk_files):
+        chunk_file.close()
+        chunk_filename = fastq_chunk_names[chunk_id]
 
         # write the chunk to the jobstore
         chunk_filename_id = write_to_store(job, options, chunk_filename)
-        RealTimeLogger.get().info("Wrote {} records to {}".format(count, chunk_filename))
         
         #Run graph alignment on each fastq chunk
         gam_chunk_ids = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id,
