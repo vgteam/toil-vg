@@ -34,8 +34,6 @@ def index_subparser(parser):
         help="Input vg graph file path")
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
-    parser.add_argument("--path_name", nargs='+', type=str,
-        help="Name of reference path in the graph (eg. ref or 17)")    
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -58,8 +56,6 @@ def index_parse_args(parser):
         help="don't re-use existing indexed graphs")
     parser.add_argument("--include_pruned", action="store_true",
         help="use the pruned graph in the index")
-    parser.add_argument("--include_primary", action="store_true",
-        help="use the primary path in the index")
     parser.add_argument("--index_cores", type=int,
         help="number of threads during the indexing step")
 
@@ -105,35 +101,23 @@ def run_gcsa_indexing(job, options, inputGraphFileID):
             command.append(['vg', 'mod', '-S', '-l', str(options.kmer_size * 2), '-t', str(job.cores)])
             options.drunner.call(command, work_dir=work_dir, outfile=to_index_file)
 
-        if options.include_primary:
+        # Then append in the primary path. Since we don't knoiw what
+        # "it's called, we retain "ref" and all the 19", "6", etc paths
+        # "from 1KG.
 
-            # Then append in the primary path. Since we don't knoiw what
-            # "it's called, we retain "ref" and all the 19", "6", etc paths
-            # "from 1KG.
+        RealTimeLogger.get().info(
+            "Adding primary path to {}".format(to_index_filename))
+        # See
+        # https://github.com/vgteam/vg/issues/318#issuecomment-215102199
 
-            RealTimeLogger.get().info(
-                "Adding primary path to {}".format(to_index_filename))
-            # See
-            # https://github.com/vgteam/vg/issues/318#issuecomment-215102199
+        ref_options = []
+        for name in options.path_name:
+            # Put each in a -r option to retain the path
+            ref_options.append("-r")
+            ref_options.append(name)
 
-            # Generate all the paths names we might have for primary paths.
-            # It should be "ref" but some graphs don't listen
-            RealTimeLogger.get().info("OPTIONS.PATH_NAME: {}".format(options.path_name[0]))
-            RealTimeLogger.get().info("CHR IN OPTIONS.PATH_NAME: {}".format('chr' in options.path_name[0]))
-            if 'chr' in options.path_name[0]:
-                ref_names = (["ref", "chrx", "chrX", "chry", "chrY", "chrm", "chrM"] +
-                    ['chr'+str(x) for x in xrange(1, 23)])
-            else:
-                ref_names = (["ref", "x", "X", "y", "Y", "m", "M"] +
-                    [str(x) for x in xrange(1, 23)])
-            RealTimeLogger.get().info("REF_NAMES: {}".format(ref_names))
-            ref_options = []
-            for name in ref_names:
-                # Put each in a -r option to retain the path
-                ref_options.append("-r")
-                ref_options.append(name)
-
-            # Retain only the specified paths (only one should really exist)
+        # Retain only the specified paths (only one should really exist)
+        if len(options.path_name) > 0:
             command = ['vg', 'mod', '-N'] + ref_options + ['-t', str(job.cores), os.path.basename(graph_filename)]
             options.drunner.call(command, work_dir=work_dir, 
                                  inputs=[graph_filename],

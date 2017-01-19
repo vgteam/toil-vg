@@ -33,7 +33,11 @@ def add_common_vg_parse_args(parser):
     
     parser.add_argument("--force_outstore", action="store_true",
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
-    
+
+    parser.add_argument("--path_name", nargs='+', default=[],
+        help="Name of reference path in the graph. Usually chromosome name (eg. ref or 17).  "
+                        "Can specifiy multiple names separated by spaces.")
+
     
 def get_docker_tool_map(options):
     """ convenience function to parse the above _docker options into a dictionary """

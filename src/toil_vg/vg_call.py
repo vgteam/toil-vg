@@ -11,6 +11,8 @@ from toil.common import Toil
 from toil.job import Job
 from toil_lib.toillib import *
 from toil_vg.vg_common import *
+from toil_lib import require
+
 
 def call_subparser(parser):
     """
@@ -25,8 +27,6 @@ def call_subparser(parser):
                         help="input xg file")
     parser.add_argument("gam_path", type=str,
                         help="input alignment")
-    parser.add_argument("path_name", type=str,
-                        help="name of reference path in graph (ex chr21)")
     parser.add_argument("sample_name", type=str,
                         help="sample name (ex NA12878)")
     parser.add_argument("out_store",
@@ -341,6 +341,9 @@ def call_main(options):
     """ no harm in preserving command line access to chunked_call for debugging """
     
     RealTimeLogger.start_master()
+
+    # currently only support (exactly) one path
+    require(len(options.path_name) == 1, "Must pass exactly one reference path with --path_name")
 
     # make the docker runner
     options.drunner = DockerRunner(

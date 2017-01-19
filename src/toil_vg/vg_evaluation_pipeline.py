@@ -98,8 +98,6 @@ def pipeline_subparser(parser_run):
         help="Path to xg index (to use instead of generating new one)")    
     parser_run.add_argument("--gcsa_index", type=str,
         help="Path to GCSA index (to use instead of generating new one)")
-    parser_run.add_argument("--path_name", nargs='+', type=str,
-        help="Name of reference path in the graph (eg. ref or 17)")
     parser_run.add_argument("--restat", default=False, action="store_true",
         help="recompute and overwrite existing stats files")
 
@@ -280,6 +278,13 @@ def main():
     if options.out_store[0] == '.':
         options.out_store = os.path.abspath(options.out_store)
 
+    if args.command == 'vcfeval':
+        vcfeval_main(options)
+        return
+
+    require(len(options.path_name) > 0, 'At least one reference path name must'
+            ' be specified with --path_name')
+
     if args.command == 'run':
         pipeline_main(options)
     elif args.command == 'index':
@@ -288,8 +293,6 @@ def main():
         map_main(options)
     elif args.command == 'call':
         call_main(options)
-    elif args.command == 'vcfeval':
-        vcfeval_main(options)
         
     
 def pipeline_main(options):
@@ -354,4 +357,3 @@ if __name__ == "__main__" :
     except Exception as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
-
