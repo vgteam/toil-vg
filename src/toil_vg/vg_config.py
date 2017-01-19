@@ -108,8 +108,10 @@ def generate_config():
         # Optional: Context expansion used for gam chunking
         chunk_context: 20
         
-        # Optional: Core arguments for vg mapping
-        vg-map-args: ['-i', '-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
+        # Core arguments for vg mapping
+        # Note -i/--interleaved will be ignored. use the --interleaved option 
+        # on the toil-vg command line instead
+        vg-map-args: ['-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
         
         # Optional: Toil job memory allocation for mapping
         alignment-mem: '4G'
