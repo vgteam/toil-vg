@@ -71,13 +71,13 @@ class VGCGLTest(TestCase):
     def test_chr17_sampleNA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
-        self._download_input('NA12877.brca1.bam.fq')
+        self._download_input('NA12877.brca1.bam.fq.gz')
         self._download_input('BRCA1_chrom_name_chop_100.vg')
         
-        self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq')
+        self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq.gz')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                  self.local_outstore, '--path_name', '17', '--call_opts', '--offset 43044293')
+                  self.local_outstore, '--path_name', '17', '--call_opts', '--offset 43044293', '--interleaved')
 
         self._assertOutput('NA12877_17.vcf', self.local_outstore)
     
