@@ -65,7 +65,10 @@ def map_parse_args(parser, stand_alone = False):
         help="number of threads during the alignment step")
     parser.add_argument("--index_mode", choices=["gcsa-kmer",
         "gcsa-mem"],
-        help="type of vg index to use for mapping")        
+        help="type of vg index to use for mapping")
+    parser.add_argument("--interleaved", action="store_true", default=False,
+                        help="treat fastq as interleaved read pairs")
+
 
 def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, sample_fastq_id):
     
@@ -159,13 +162,16 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_f
 
         # Plan out what to run
         vg_parts = []
-        if hasattr(options, 'vg_map_args'):
-            vg_parts += ['vg', 'map', '-f', os.path.basename(fastq_file), os.path.basename(graph_file)]
-            vg_parts += options.vg_map_args
-        else:
-            vg_parts = ['vg', 'map', '-f', os.path.basename(fastq_file),
-                        '-i', '-M2', '-W', '500', '-u', '0', '-U',
-                        '-O', '-S', '50', '-a', '-t', str(job.cores), os.path.basename(graph_file)]
+        vg_parts += ['vg', 'map', '-f', os.path.basename(fastq_file), os.path.basename(graph_file)]
+        vg_parts += options.vg_map_args
+
+        # Override the -i flag in args with the --interleaved command-line flag
+        if options.interleaved is True and '-i' not in vg_parts and '--interleaved' not in vg_parts:
+            vg_parts += ['-i']
+        elif options.interleaved is False and 'i' in vg_parts:
+            del vg_parts[vg_parts.index('-i')]
+        if options.interleaved is False and '--interleaved' in vg_parts:
+            del vg_parts[vg_parts.index('--interleaved')]
 
         if options.index_mode == "gcsa-kmer":
             # Use the new default context size in this case

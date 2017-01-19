@@ -77,7 +77,7 @@ class VGCGLTest(TestCase):
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq.gz')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
         self._run(self.base_command, self.jobStoreLocal, self.test_vg_graph, self.sample_reads, 'NA12877',
-                  self.local_outstore, '--path_name', '17', '--call_opts', '--offset 43044293')
+                  self.local_outstore, '--path_name', '17', '--call_opts', '--offset 43044293', '--interleaved')
 
         self._assertOutput('NA12877_17.vcf', self.local_outstore)
     
