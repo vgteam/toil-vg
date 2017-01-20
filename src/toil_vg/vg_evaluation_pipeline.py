@@ -133,7 +133,8 @@ def pipeline_subparser(parser_run):
 def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputXGFileID,
                        inputGCSAFileID, inputLCPFileID):
     """
-    All indexing.  result is a tarball in thie output store.
+    All indexing.  result is a tarball in thie output store.  Will also do the fastq
+    splitting, which doesn't depend on indexing. 
     """
 
     if inputXGFileID is None:
@@ -151,16 +152,20 @@ def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputXG
         assert inputLCPFileID is not None
         gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
 
+    fastq_chunk_ids = job.addChildJobFn(run_split_fastq, options, inputReadsFileID, cores=options.fq_split_cores,
+                                        memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
+
     return job.addFollowOnJobFn(run_pipeline_map, options, inputGraphFileID, xg_file_id, gcsa_and_lcp_ids,
-                                inputReadsFileID, cores=options.misc_cores, memory=options.misc_mem,
+                                fastq_chunk_ids, cores=options.misc_cores, memory=options.misc_mem,
                                 disk=options.misc_disk).rv()
 
-def run_pipeline_map(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
-    """ All mapping, including fastq splitting and gam merging"""
+def run_pipeline_map(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
+    """ All mapping, then gam merging.  fastq is split in above step"""
 
-    chr_gam_ids = job.addChildJobFn(run_split_fastq, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids,
-                                     reads_file_id, cores=options.fq_split_cores,
-                                    memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
+    chr_gam_ids = job.addChildJobFn(run_whole_alignment, options, graph_file_id,
+                                    xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids,
+                                    cores=options.misc_cores, memory=options.misc_mem,
+                                    disk=options.misc_disk).rv()
 
     return job.addFollowOnJobFn(run_pipeline_call, options, graph_file_id, xg_file_id,
                                 chr_gam_ids, cores=options.misc_cores, memory=options.misc_mem,
