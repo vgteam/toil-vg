@@ -104,22 +104,18 @@ def run_split_fastq(job, options, sample_fastq_id):
     # 4 lines per read
     chunk_lines = chunk_size * 4
 
-    # TODO: Would like to pipe gzip to split, but can't figure
-    # out how to do with current docker interface.
-
-    # Unzip the input reads if necessary, the result will be BIG
+    # Note we do this on the command line because Python is too slow
+    # Assume: gzip installed (can't do this command in docker with current interface)
+    uc_fastq_name = fastq_path if not fastq_gzipped else 'input_reads.fq'
     if fastq_gzipped:
-        uc_fastq_path = os.path.join(work_dir, 'input_reads.fq')
-        with open(uc_fastq_path, 'w') as uc_file:
-            cmd = ['gzip', '-d', '-c', os.path.basename(fastq_path)]
-            options.drunner.call(cmd, work_dir = work_dir, outfile = uc_file)
+        cmd = [['gzip', '-d', '-c', os.path.basename(fastq_path)]]
     else:
-        uc_fastq_path = fastq_path
+        cmd = [['cat', os.path.basename(fastq_path)]]
+        
+    cmd.append(['split', '-l', str(chunk_lines), '--filter=gzip > $FILE.fq.gz',
+                '-', 'fq_chunk.'])
 
-    # Split using split
-    cmd = ['split', '-l', str(chunk_lines), '--filter=gzip > $FILE.fq.gz',
-           os.path.basename(uc_fastq_path), 'fq_chunk.']
-    options.drunner.call(cmd, work_dir = work_dir)
+    options.drunner.call_directly(cmd, work_dir, None, None, False, [])
 
     fastq_chunk_ids = []
     for chunk_name in os.listdir(work_dir):
