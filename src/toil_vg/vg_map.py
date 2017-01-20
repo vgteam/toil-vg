@@ -59,8 +59,8 @@ def map_subparser(parser):
 def map_parse_args(parser, stand_alone = False):
     """ centralize indexing parameters here """
 
-    parser.add_argument("--num_fastq_chunks", type=int,
-        help="number of chunks to split the input fastq file records")
+    parser.add_argument("--reads_per_chunk", type=int,
+        help="number of reads for each mapping job")
     parser.add_argument("--alignment_cores", type=int,
         help="number of threads during the alignment step")
     parser.add_argument("--index_mode", choices=["gcsa-kmer",
@@ -71,8 +71,16 @@ def map_parse_args(parser, stand_alone = False):
     parser.add_argument("--map-opts", type=str,
                         help="arguments for vg map (wrapped in \"\")")
 
+def run_mapping(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
+    """ split the fastq, then align each chunk """
+    fastq_chunk_ids = job.addChildJobFn(run_split_fastq, options, reads_file_id, cores=options.fq_split_cores,
+                                        memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
 
-def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, sample_fastq_id):
+    return job.addFollowOnJobFn(run_whole_alignment, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids,
+                                fastq_chunk_ids, cores=options.misc_cores,
+                                memory=options.misc_mem, disk=options.misc_disk).rv()    
+
+def run_split_fastq(job, options, sample_fastq_id):
     
     RealTimeLogger.get().info("Starting fastq split and alignment...")
     start_time = timeit.default_timer()
@@ -87,35 +95,51 @@ def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, s
     read_from_store(job, options, sample_fastq_id, fastq_path)
 
     # Split up the fastq into chunks
-    # Note: These files are pretty big.  May be worth it try to speed this up.
-    # - tuning buffering?
-    # - avoiding python (something like zcat | split), way faster in tests. 
-    # - parallelizing the compression
-    fastq_file = gzip.open(fastq_path) if fastq_gzipped is True else open(fastq_path)    
-    fastq_chunk_names = ['chunk-{}.fq.gz'.format(i) for i in range(options.num_fastq_chunks)]
-    fastq_chunk_files = [gzip.open(f, 'w') for f in fastq_chunk_names]
-    for i, line in enumerate(fastq_file):
-        # divide by 8 here because we assume 4 records per line, interleaved
-        fastq_chunk_files[(i / 8) % options.num_fastq_chunks].write(line)
 
+    # Make sure chunk size even in case paired interleaved
+    chunk_size = options.reads_per_chunk
+    if chunk_size % 2 != 0:
+        chunk_size += 1
+
+    # 4 lines per read
+    chunk_lines = chunk_size * 4
+
+    # Note we do this on the command line because Python is too slow
+    # Assume: gzip installed (can't do this command in docker with current interface)
+    uc_fastq_name = fastq_path if not fastq_gzipped else 'input_reads.fq'
+    if fastq_gzipped:
+        cmd = [['gzip', '-d', '-c', os.path.basename(fastq_path)]]
+    else:
+        cmd = [['cat', os.path.basename(fastq_path)]]
+        
+    cmd.append(['split', '-l', str(chunk_lines), '--filter=gzip > $FILE.fq.gz',
+                '-', 'fq_chunk.'])
+
+    options.drunner.call_directly(cmd, work_dir, None, None, False, [])
+
+    fastq_chunk_ids = []
+    for chunk_name in os.listdir(work_dir):
+        if chunk_name.endswith('.fq.gz') and chunk_name.startswith('fq_chunk'):
+            fastq_chunk_ids.append(write_to_store(job, options, os.path.join(work_dir, chunk_name)))
+        
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealTimeLogger.get().info("Split fastq into {} chunks. Process took {} seconds.".format(len(fastq_chunk_files), run_time))
+    RealTimeLogger.get().info("Split fastq into {} chunks. Process took {} seconds.".format(len(fastq_chunk_ids), run_time))
+
+    return fastq_chunk_ids
+
+def run_whole_alignment(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
+    """ align all fastq chunks in parallel
+    """
     
     # this will be a list of lists.
     # gam_chunk_file_ids[i][j], will correspond to the jth path (from options.path_names)
     # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
 
-    for chunk_id, chunk_file in enumerate(fastq_chunk_files):
-        chunk_file.close()
-        chunk_filename = fastq_chunk_names[chunk_id]
-
-        # write the chunk to the jobstore
-        chunk_filename_id = write_to_store(job, options, chunk_filename)
-        
+    for chunk_id, chunk_filename_id in enumerate(fastq_chunk_ids):        
         #Run graph alignment on each fastq chunk
-        gam_chunk_ids = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id,
+        gam_chunk_ids = job.addChildJobFn(run_chunk_alignment, options, chunk_filename_id, chunk_id,
                                           graph_file_id, xg_file_id, gcsa_and_lcp_ids,
                                           cores=options.alignment_cores, memory=options.alignment_mem,
                                           disk=options.alignment_disk).rv()
@@ -125,7 +149,7 @@ def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, s
                                 memory=options.misc_mem, disk=options.misc_disk).rv()
 
 
-def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_file_id, gcsa_and_lcp_ids):
+def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_file_id, gcsa_and_lcp_ids):
 
     RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -359,11 +383,11 @@ def map_main(options):
             sampleFastqFileID = import_to_store(toil, options, options.sample_reads)
             
             # Make a root job
-            root_job = Job.wrapJobFn(run_split_fastq, options, inputGraphFileID, inputXGFileID,
+            root_job = Job.wrapJobFn(run_mapping, options, inputGraphFileID, inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID), sampleFastqFileID,
-                                     cores=options.fq_split_cores,
-                                     memory=options.fq_split_mem,
-                                     disk=options.fq_split_disk)
+                                     cores=options.misc_cores,
+                                     memory=options.misc_mem,
+                                     disk=options.misc_disk)
             
             # Run the job and store the returned list of output files to download
             toil.start(root_job)

@@ -54,9 +54,9 @@ class VGCGLTest(TestCase):
                 
         self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--edge_max', '5', '--kmer_size',
-                                   '16', '--num_fastq_chunks', '4', '--call_chunk_size', '20000',
-                                   '--index_mode', 'gcsa-mem', '--index_cores', '8', '--alignment_cores', '8',
-                                   '--calling_cores', '8')
+                                   '16', '--reads_per_chunk', '8000', '--call_chunk_size', '20000',
+                                   '--index_mode', 'gcsa-mem', '--index_cores', '7', '--alignment_cores', '4',
+                                   '--calling_cores', '4')
         
         # default output store
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())

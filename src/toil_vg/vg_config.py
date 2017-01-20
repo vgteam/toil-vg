@@ -52,7 +52,7 @@ def generate_config():
         index-disk: '2G'
 
         # Resources for fastq splitting and gam merging
-        # (current simplementation is single threaded for both)
+        # fastq spilt can use up to 2 cores, gam merging single threaded
         fq-split-cores: 1
         fq-split-mem: '4G'
         fq-split-disk: '2G'
@@ -63,7 +63,7 @@ def generate_config():
         gam-index-cores: 1
 
         # Resources for *each* vg map job
-        # the number of vg map jobs is controlled by num-fastq-chunks (below)
+        # the number of vg map jobs is controlled by reads-per-chunk (below)
         alignment-cores: 1
         alignment-mem: '4G'
         alignment-disk: '2G'
@@ -129,8 +129,9 @@ def generate_config():
         ########################
         ### vg_map Arguments ###
 
-        # Number of chunks to split the input fastq file records
-        num-fastq-chunks: 3
+        # Number of reads per chunk to use when splitting up fastq.  
+        # Each chunk will correspond to a vg map job
+        reads-per-chunk: 10000000
         
         # Context expansion used for gam chunking
         chunk_context: 50
