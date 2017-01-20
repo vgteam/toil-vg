@@ -34,7 +34,7 @@ def add_common_vg_parse_args(parser):
     parser.add_argument("--force_outstore", action="store_true",
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
 
-    parser.add_argument("--path_name", nargs='+', default=[],
+    parser.add_argument("--path_name", nargs='+', 
         help="Name of reference path in the graph. Usually chromosome name (eg. ref or 17).  "
                         "Can specifiy multiple names separated by spaces.")
 
@@ -86,9 +86,8 @@ on and off in just one place.  to do: Should go somewhere more central """
         list has size > 1, then piping interface used """
 
         RealTimeLogger.get().info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
-        print('')
-        print('ARGS: ', args)
-        print('DOCKER TOOL MAP: ', self.docker_tool_map)
+        start_time = timeit.default_timer()
+        
         if len(args) == 1:
             # just one command, use regular docker_call interface
             # where parameters is an argument list not including command
@@ -117,20 +116,25 @@ on and off in just one place.  to do: Should go somewhere more central """
             tool = None
             tools = str(self.docker_tool_map[args[0][0]][0])
             parameters = [" ".join(x) for x in args]
-        print('')
-        print('PARAMETERS: ', parameters)
-        print('TOOL: ', tool)
-        print('TOOLS: ', tools)
-        return docker_call(tool=tool, tools=tools, parameters=parameters,
+
+        ret = docker_call(tool=tool, tools=tools, parameters=parameters,
                            work_dir=work_dir, outfile = outfile,
                            errfile = errfile,
                            check_output = check_output,
                            inputs=inputs)
 
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+        RealTimeLogger.get().info("Successfully docker ran {} in {} seconds.".format(
+            " | ".join(" ".join(x) for x in args), run_time))
+
+        return ret
+
     def call_directly(self, args, work_dir, outfile, errfile, check_output, inputs):
         """ Just run the command without docker """
 
         RealTimeLogger.get().info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
+        start_time = timeit.default_timer()
 
         # this is all that docker_call does with the inputs parameter:
         for filename in inputs:
@@ -155,6 +159,11 @@ on and off in just one place.  to do: Should go somewhere more central """
             if sts != 0:            
                 raise Exception("Command {} returned with non-zero exit status {}".format(
                     " ".join(args[i]), sts))
+
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+        RealTimeLogger.get().info("Successfully ran {} in {} seconds.".format(
+            " | ".join(" ".join(x) for x in args), run_time))            
 
         if check_output:
             return output
