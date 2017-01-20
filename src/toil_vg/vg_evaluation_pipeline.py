@@ -138,28 +138,33 @@ def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputXG
 
     if inputXGFileID is None:
         xg_file_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileID,
-                                       cores=options.index_cores, memory="4G", disk="2G").rv()
+                                       cores=options.index_cores, memory=options.index_mem,
+                                       disk=options.index_disk).rv()
     else:
         xg_file_id = inputXGFileID
         
     if inputGCSAFileID is None:
         gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileID,
-                                       cores=options.index_cores, memory="4G", disk="2G").rv()
+                                             cores=options.index_cores, memory=options.index_mem,
+                                             disk=options.index_disk).rv()
     else:
         assert inputLCPFileID is not None
         gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
 
     return job.addFollowOnJobFn(run_pipeline_map, options, inputGraphFileID, xg_file_id, gcsa_and_lcp_ids,
-                                inputReadsFileID, cores=2, memory="4G", disk="2G").rv()
+                                inputReadsFileID, cores=options.misc_cores, memory=options.misc_mem,
+                                disk=options.misc_disk).rv()
 
 def run_pipeline_map(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
     """ All mapping, including fastq splitting and gam merging"""
 
     chr_gam_ids = job.addChildJobFn(run_split_fastq, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids,
-                                     reads_file_id, cores=3, memory="4G", disk="2G").rv()
+                                     reads_file_id, cores=options.fq_split_cores,
+                                    memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
 
     return job.addFollowOnJobFn(run_pipeline_call, options, graph_file_id, xg_file_id,
-                                chr_gam_ids, cores=2, memory="4G", disk="2G").rv()
+                                chr_gam_ids, cores=options.misc_cores, memory=options.misc_mem,
+                                disk=options.misc_disk).rv()
 
 def run_pipeline_call(job, options, graph_file_id, xg_file_id, chr_gam_ids):
     """ Run variant calling on the chromosomes in parallel """
@@ -175,13 +180,17 @@ def run_pipeline_call(job, options, graph_file_id, xg_file_id, chr_gam_ids):
             chr_label = options.path_name[i]
             vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
                                                      alignment_file_id, chr_label,
-                                                     cores=options.calling_cores, memory="4G", disk="2G").rv()
+                                                     cores=options.call_chunk_cores,
+                                                     memory=options.call_chunk_mem,
+                                                     disk=options.call_chunk_disk).rv()
             vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
     else:
         raise RuntimeError("Invalid or non-existant path_name(s): {}, {}".format(path_name))
 
     return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, vcf_tbi_file_id_pair_list,
-                                cores=2, memory="4G", disk="2G").rv()
+                                cores=options.call_chunk_cores,
+                                memory=options.call_chunk_mem,
+                                disk=options.call_chunk_disk).rv()
 
 def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
 
@@ -282,8 +291,8 @@ def main():
         vcfeval_main(options)
         return
 
-    require(len(options.path_name) > 0, 'At least one reference path name must'
-            ' be specified with --path_name')
+    require(options.path_name is not None and len(options.path_name) > 0,
+            'At least one reference path name must be specified with --path_name')
 
     if args.command == 'run':
         pipeline_main(options)
@@ -337,7 +346,8 @@ def pipeline_main(options):
             root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileID,
                                      inputReadsFileID, inputXGFileID, inputGCSAFileID,
                                      inputLCPFileID,
-                                     cores=2, memory="5G", disk="2G")
+                                     cores=options.misc_cores, memory=options.misc_mem,
+                                     disk=options.misc_disk)
 
             # Run the job and store
             toil.start(root_job)

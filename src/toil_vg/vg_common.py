@@ -34,7 +34,7 @@ def add_common_vg_parse_args(parser):
     parser.add_argument("--force_outstore", action="store_true",
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
 
-    parser.add_argument("--path_name", nargs='+', default=[],
+    parser.add_argument("--path_name", nargs='+', 
         help="Name of reference path in the graph. Usually chromosome name (eg. ref or 17).  "
                         "Can specifiy multiple names separated by spaces.")
 

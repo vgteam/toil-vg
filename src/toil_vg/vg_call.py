@@ -48,14 +48,14 @@ def chunked_call_parse_args(parser):
                         help="overlap option that is passed into make_chunks and call_chunk")
     parser.add_argument("--call_chunk_size", type=int,
                         help="chunk size")
-    parser.add_argument("--offset", type=int,
-                        help="chromosomal position offset. e.g. 43044293")
     parser.add_argument("--call_opts", type=str,
-                        help="options to pass to vg call. wrap in \"\"")
+                        help="arguments to pass to vg call (wrapped in \"\")")
     parser.add_argument("--genotype", action="store_true",
                         help="use vg genotype instead of vg call")
     parser.add_argument("--genotype_opts", type=str,
-                        help="options to pass to vg genotype. wrap in \"\"")
+                        help="arguments to pass to vg genotype (wrapped in \"\")")
+    parser.add_argument("--filter_opts", type=str,
+                        help="argument to pass to vg filter (wrapped in \"\")")
     parser.add_argument("--calling_cores", type=int,
                         help="number of threads during the variant calling step")
         
@@ -222,13 +222,6 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
-    # make sure call-opts and genotype-opts are in list format
-    # todo -- clean this out
-    if type(options.call_opts) == str:
-        options.call_opts = options.call_opts.split(" ")
-    if type(options.genotype_opts) == str:
-        options.genotype_opts = options.genotype_opts.split(" ")
-
     # Download the input from the store
     xg_path = os.path.join(work_dir, 'graph.vg.xg')
     read_from_store(job, options, xg_file_id, xg_path)
@@ -289,7 +282,10 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
 
 
     vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, path_name,
-                                                   clip_file_ids, cores=2, memory="4G", disk="2G").rv()
+                                                   clip_file_ids,
+                                                   cores=options.call_chunk_cores,
+                                                   memory=options.call_chunk_mem,
+                                                   disk=options.call_chunk_disk).rv()
  
     RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
 
@@ -371,9 +367,10 @@ def call_main(options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calling, options, inputXGFileID, inputGamFileID,
-                                     options.path_name,
-                                     cores=options.calling_cores,
-                                     memory="4G", disk="2G")
+                                     options.path_name[0],
+                                     cores=options.call_chunk_cores,
+                                     memory=options.call_chunk_mem,
+                                     disk=options.call_chunk_disk)
 
             
             # Run the job and store the returned list of output files to download

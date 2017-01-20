@@ -67,7 +67,9 @@ def map_parse_args(parser, stand_alone = False):
         "gcsa-mem"],
         help="type of vg index to use for mapping")
     parser.add_argument("--interleaved", action="store_true", default=False,
-                        help="treat fastq as interleaved read pairs")
+                        help="treat fastq as interleaved read pairs.  overrides map-args")
+    parser.add_argument("--map-opts", type=str,
+                        help="arguments for vg map (wrapped in \"\")")
 
 
 def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, sample_fastq_id):
@@ -114,12 +116,13 @@ def run_split_fastq(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, s
         
         #Run graph alignment on each fastq chunk
         gam_chunk_ids = job.addChildJobFn(run_alignment, options, chunk_filename_id, chunk_id,
-                                        graph_file_id, xg_file_id, gcsa_and_lcp_ids,
-                                        cores=options.alignment_cores, memory=options.alignment_mem, disk=options.alignment_disk).rv()
+                                          graph_file_id, xg_file_id, gcsa_and_lcp_ids,
+                                          cores=options.alignment_cores, memory=options.alignment_mem,
+                                          disk=options.alignment_disk).rv()
         gam_chunk_file_ids.append(gam_chunk_ids)
 
-    return job.addFollowOnJobFn(run_merge_gams, options, gam_chunk_file_ids, cores=options.alignment_cores,
-                                disk=options.alignment_disk).rv()
+    return job.addFollowOnJobFn(run_merge_gams, options, gam_chunk_file_ids, cores=options.misc_cores,
+                                memory=options.misc_mem, disk=options.misc_disk).rv()
 
 
 def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_file_id, gcsa_and_lcp_ids):
@@ -162,8 +165,9 @@ def run_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_f
 
         # Plan out what to run
         vg_parts = []
-        vg_parts += ['vg', 'map', '-f', os.path.basename(fastq_file), os.path.basename(graph_file)]
-        vg_parts += options.vg_map_args
+        vg_parts += ['vg', 'map', '-f', os.path.basename(fastq_file), os.path.basename(graph_file),
+                     '-t', str(options.alignment_cores)]
+        vg_parts += options.map_opts
 
         # Override the -i flag in args with the --interleaved command-line flag
         if options.interleaved is True and '-i' not in vg_parts and '--interleaved' not in vg_parts:
@@ -286,7 +290,9 @@ def run_merge_gams(job, options, gam_chunk_file_ids):
     for i, chr in enumerate(path_names):
         shard_ids = [gam_chunk_file_ids[j][i] for j in range(len(gam_chunk_file_ids))]
         chr_gam_id = job.addChildJobFn(run_merge_chrom_gam, options, chr, shard_ids,
-                                cores=3, memory="4G", disk="2G").rv()
+                                       cores=options.fq_split_cores,
+                                       memory=options.fq_split_mem,
+                                       disk=options.fq_split_disk).rv()
         chr_gam_ids.append(chr_gam_id)
     
     return chr_gam_ids
@@ -355,7 +361,9 @@ def map_main(options):
             # Make a root job
             root_job = Job.wrapJobFn(run_split_fastq, options, inputGraphFileID, inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID), sampleFastqFileID,
-                                     cores=2, memory="5G", disk="2G")
+                                     cores=options.fq_split_cores,
+                                     memory=options.fq_split_mem,
+                                     disk=options.fq_split_disk)
             
             # Run the job and store the returned list of output files to download
             toil.start(root_job)

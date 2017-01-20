@@ -52,8 +52,6 @@ def index_parse_args(parser):
         help="maximum edges to cross in index")
     parser.add_argument("--kmer_size", type=int,
         help="size of kmers to use in indexing and mapping")
-    parser.add_argument("--reindex", action="store_true",
-        help="don't re-use existing indexed graphs")
     parser.add_argument("--include_pruned", action="store_true",
         help="use the pruned graph in the index")
     parser.add_argument("--index_cores", type=int,
@@ -65,6 +63,7 @@ def run_gcsa_indexing(job, options, inputGraphFileID):
     """
     
     RealTimeLogger.get().info("Starting gcsa indexing...")
+    start_time = timeit.default_timer()
     
     graph_name = os.path.basename(options.vg_graph)
 
@@ -163,12 +162,18 @@ def run_gcsa_indexing(job, options, inputGraphFileID):
         lcp_file_id = write_to_store(job, options, os.path.join(work_dir, gcsa_filename) + ".lcp")
         return gcsa_file_id, lcp_file_id
 
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealTimeLogger.get().info("Finished GCSA index. Process took {} seconds.".format(run_time))
+
+
 
 def run_xg_indexing(job, options, inputGraphFileID):
     """ Make the xg index and return its store id
     """
     
     RealTimeLogger.get().info("Starting xg indexing...")
+    start_time = timeit.default_timer()
     
     graph_name = os.path.basename(options.vg_graph)
 
@@ -197,6 +202,11 @@ def run_xg_indexing(job, options, inputGraphFileID):
     if options.tool != 'index':
         xg_file_id = write_to_store(job, options, os.path.join(work_dir, xg_filename))
         return xg_file_id
+
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealTimeLogger.get().info("Finished XG index. Process took {} seconds.".format(run_time))
+
     
 
 def run_indexing(job, options, inputGraphFileID):
@@ -243,7 +253,9 @@ def index_main(options):
             
             # Make a root job
             root_job = Job.wrapJobFn(run_indexing, options, inputGraphFileID,
-                                     cores=2, memory="5G", disk="2G")
+                                     cores=options.misc_cores,
+                                     memory=options.misc_mem,
+                                     disk=options.misc_disk)
             
             # Run the job and store the returned list of output files to download
             index_key_and_id = toil.start(root_job)
