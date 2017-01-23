@@ -26,6 +26,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil_lib import require
 from toil_lib.toillib import *
+from toil_lib import require
 from toil_vg.vg_common import *
 from toil_vg.vg_call import *
 from toil_vg.vg_index import *
@@ -86,8 +87,6 @@ def pipeline_subparser(parser_run):
     Job.Runner.addToilOptions(parser_run)
     
     # General options
-    parser_run.add_argument("vg_graph", type=str,
-        help="Input vg graph file path")
     parser_run.add_argument("sample_reads", type=str,
         help="Path to sample reads in fastq format")
     parser_run.add_argument("sample_name", type=str,
@@ -98,8 +97,6 @@ def pipeline_subparser(parser_run):
         help="Path to xg index (to use instead of generating new one)")    
     parser_run.add_argument("--gcsa_index", type=str,
         help="Path to GCSA index (to use instead of generating new one)")
-    parser_run.add_argument("--restat", default=False, action="store_true",
-        help="recompute and overwrite existing stats files")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser_run)
@@ -130,7 +127,7 @@ def pipeline_subparser(parser_run):
 # Data is communicated across the chain via the output store (at least for now). 
 
 
-def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputXGFileID,
+def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputXGFileID,
                        inputGCSAFileID, inputLCPFileID):
     """
     All indexing.  result is a tarball in thie output store.  Will also do the fastq
@@ -138,14 +135,14 @@ def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputXG
     """
 
     if inputXGFileID is None:
-        xg_file_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileID,
+        xg_file_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
                                        cores=options.index_cores, memory=options.index_mem,
                                        disk=options.index_disk).rv()
     else:
         xg_file_id = inputXGFileID
         
     if inputGCSAFileID is None:
-        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileID,
+        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileIDs,
                                              cores=options.index_cores, memory=options.index_mem,
                                              disk=options.index_disk).rv()
     else:
@@ -155,42 +152,39 @@ def run_pipeline_index(job, options, inputGraphFileID, inputReadsFileID, inputXG
     fastq_chunk_ids = job.addChildJobFn(run_split_fastq, options, inputReadsFileID, cores=options.fq_split_cores,
                                         memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
 
-    return job.addFollowOnJobFn(run_pipeline_map, options, inputGraphFileID, xg_file_id, gcsa_and_lcp_ids,
+    return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
                                 fastq_chunk_ids, cores=options.misc_cores, memory=options.misc_mem,
                                 disk=options.misc_disk).rv()
 
-def run_pipeline_map(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
+def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
-    chr_gam_ids = job.addChildJobFn(run_whole_alignment, options, graph_file_id,
+    chr_gam_ids = job.addChildJobFn(run_whole_alignment, options,
                                     xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids,
                                     cores=options.misc_cores, memory=options.misc_mem,
                                     disk=options.misc_disk).rv()
 
-    return job.addFollowOnJobFn(run_pipeline_call, options, graph_file_id, xg_file_id,
+    return job.addFollowOnJobFn(run_pipeline_call, options, xg_file_id,
                                 chr_gam_ids, cores=options.misc_cores, memory=options.misc_mem,
                                 disk=options.misc_disk).rv()
 
-def run_pipeline_call(job, options, graph_file_id, xg_file_id, chr_gam_ids):
+def run_pipeline_call(job, options, xg_file_id, chr_gam_ids):
     """ Run variant calling on the chromosomes in parallel """
 
     return_value = []
     vcf_tbi_file_id_pair_list = [] 
-    if options.path_name:
-        assert len(chr_gam_ids) == len(options.path_name)
-        
-        #Run variant calling
-        for i in range(len(chr_gam_ids)):
-            alignment_file_id = chr_gam_ids[i]
-            chr_label = options.path_name[i]
-            vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
-                                                     alignment_file_id, chr_label,
-                                                     cores=options.call_chunk_cores,
-                                                     memory=options.call_chunk_mem,
-                                                     disk=options.call_chunk_disk).rv()
-            vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
-    else:
-        raise RuntimeError("Invalid or non-existant path_name(s): {}, {}".format(path_name))
+    assert len(chr_gam_ids) == len(options.chroms)
+
+    #Run variant calling
+    for i in range(len(chr_gam_ids)):
+        alignment_file_id = chr_gam_ids[i]
+        chr_label = options.chroms[i]
+        vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
+                                                 alignment_file_id, chr_label,
+                                                 cores=options.call_chunk_cores,
+                                                 memory=options.call_chunk_mem,
+                                                 disk=options.call_chunk_disk).rv()
+        vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
 
     return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, vcf_tbi_file_id_pair_list,
                                 cores=options.call_chunk_cores,
@@ -296,8 +290,8 @@ def main():
         vcfeval_main(options)
         return
 
-    require(options.path_name is not None and len(options.path_name) > 0,
-            'At least one reference path name must be specified with --path_name')
+    require(options.chroms is not None and len(options.chroms) > 0,
+            'at least one chromosome must be specified with --chroms')
 
     if args.command == 'run':
         pipeline_main(options)
@@ -321,6 +315,9 @@ def pipeline_main(options):
     # or standalone. Hack this in here for now
     options.tool = 'pipeline'
 
+    require(len(options.chroms) == len(options.graphs), '--chrom and --graph must have'
+            ' same number of arguments')
+
     # Throw error if something wrong with IOStore string
     IOStore.get(options.out_store)
 
@@ -334,7 +331,9 @@ def pipeline_main(options):
         if not toil.options.restart:
 
             # Upload local files to the remote IO Store
-            inputGraphFileID = import_to_store(toil, options, options.vg_graph)
+            inputGraphFileIDs = []
+            for graph in options.graphs:
+                inputGraphFileIDs.append(import_to_store(toil, options, graph))
             inputReadsFileID = import_to_store(toil, options, options.sample_reads)
             if options.gcsa_index:
                 inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
@@ -348,7 +347,7 @@ def pipeline_main(options):
                 inputXGFileID = None
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileID,
+            root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileIDs,
                                      inputReadsFileID, inputXGFileID, inputGCSAFileID,
                                      inputLCPFileID,
                                      cores=options.misc_cores, memory=options.misc_mem,

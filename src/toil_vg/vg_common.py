@@ -33,10 +33,10 @@ def add_common_vg_parse_args(parser):
     
     parser.add_argument("--force_outstore", action="store_true",
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
-
-    parser.add_argument("--path_name", nargs='+', 
-        help="Name of reference path in the graph. Usually chromosome name (eg. ref or 17).  "
-                        "Can specifiy multiple names separated by spaces.")
+                        
+    parser.add_argument("--chroms", nargs='+',
+                        help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
+                        " specified, must be same length/order as --chroms")
 
     
 def get_docker_tool_map(options):
@@ -74,6 +74,9 @@ on and off in just one place.  to do: Should go somewhere more central """
         # from here on, we assume our args is a list of lists
         if len(args) == 0 or len(args) > 0 and type(args[0]) is not list:
             args = [args]
+        # convert everything to string
+        for i in range(len(args)):
+            args[i] = [str(x) for x in args[i]]
         if args[0][0] in self.docker_tool_map:
             return self.call_with_docker(args, work_dir, outfile, errfile, check_output, inputs)
         else:

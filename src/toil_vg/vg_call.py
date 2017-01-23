@@ -339,7 +339,7 @@ def call_main(options):
     RealTimeLogger.start_master()
 
     # currently only support (exactly) one path
-    require(len(options.path_name) == 1, "Must pass exactly one reference path with --path_name")
+    require(len(options.chroms) == 1, "Must pass exactly one reference path with --chroms")
 
     # make the docker runner
     options.drunner = DockerRunner(
@@ -367,7 +367,7 @@ def call_main(options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calling, options, inputXGFileID, inputGamFileID,
-                                     options.path_name[0],
+                                     options.chroms[0],
                                      cores=options.call_chunk_cores,
                                      memory=options.call_chunk_mem,
                                      disk=options.call_chunk_disk)

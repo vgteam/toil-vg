@@ -35,8 +35,6 @@ def map_subparser(parser):
         help="Path to sample reads in fastq format (.fq.gz also supported)")
     parser.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
-    parser.add_argument("vg_graph", type=str,
-        help="Path to vg graph")
     parser.add_argument("xg_index", type=str,
         help="Path to xg index")    
     parser.add_argument("gcsa_index", type=str,
@@ -71,12 +69,12 @@ def map_parse_args(parser, stand_alone = False):
     parser.add_argument("--map-opts", type=str,
                         help="arguments for vg map (wrapped in \"\")")
 
-def run_mapping(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
+def run_mapping(job, options, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
     """ split the fastq, then align each chunk """
     fastq_chunk_ids = job.addChildJobFn(run_split_fastq, options, reads_file_id, cores=options.fq_split_cores,
                                         memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
 
-    return job.addFollowOnJobFn(run_whole_alignment, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids,
+    return job.addFollowOnJobFn(run_whole_alignment, options, xg_file_id, gcsa_and_lcp_ids,
                                 fastq_chunk_ids, cores=options.misc_cores,
                                 memory=options.misc_mem, disk=options.misc_disk).rv()    
 
@@ -128,19 +126,19 @@ def run_split_fastq(job, options, sample_fastq_id):
 
     return fastq_chunk_ids
 
-def run_whole_alignment(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
+def run_whole_alignment(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
     """ align all fastq chunks in parallel
     """
     
     # this will be a list of lists.
-    # gam_chunk_file_ids[i][j], will correspond to the jth path (from options.path_names)
+    # gam_chunk_file_ids[i][j], will correspond to the jth path (from options.chroms)
     # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
 
     for chunk_id, chunk_filename_id in enumerate(fastq_chunk_ids):        
         #Run graph alignment on each fastq chunk
         gam_chunk_ids = job.addChildJobFn(run_chunk_alignment, options, chunk_filename_id, chunk_id,
-                                          graph_file_id, xg_file_id, gcsa_and_lcp_ids,
+                                          xg_file_id, gcsa_and_lcp_ids,
                                           cores=options.alignment_cores, memory=options.alignment_mem,
                                           disk=options.alignment_disk).rv()
         gam_chunk_file_ids.append(gam_chunk_ids)
@@ -149,7 +147,7 @@ def run_whole_alignment(job, options, graph_file_id, xg_file_id, gcsa_and_lcp_id
                                 memory=options.misc_mem, disk=options.misc_disk).rv()
 
 
-def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id, xg_file_id, gcsa_and_lcp_ids):
+def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, gcsa_and_lcp_ids):
 
     RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -164,7 +162,6 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, graph_file_id
 
     # Download local input files from the remote storage container
     graph_file = os.path.join(work_dir, "graph.vg")
-    read_from_store(job, options, graph_file_id, graph_file)
 
     xg_file = graph_file + ".xg"
     read_from_store(job, options, xg_file_id, xg_file)
@@ -243,9 +240,6 @@ def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
     Return a list of filenames.  the ith filename will correspond
     to the ith path in the options.path_name list
     """
-    if options.path_name is None:
-        # Nothing to split on, just return the whole thing
-        return [gam_file]
 
     output_index = gam_file + '.index'
     
@@ -265,7 +259,7 @@ def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
     # First, we make a list of paths in a format that we can pass to vg chunk
     path_list_name = os.path.join(work_dir, 'path_list')
     with open(path_list_name, 'w') as path_list:
-        for path in options.path_name:
+        for path in options.chroms:
             path_list.write('{}\n'.format(path))
 
     output_bed_name = os.path.join(work_dir, 'output_bed.bed')
@@ -296,7 +290,7 @@ def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
             if len(toks) > 3:
                 gam_chunks.append(os.path.join(work_dir, os.path.basename(toks[3].strip())))
                 assert os.path.splitext(gam_chunks[-1])[1] == '.gam'
-    assert len(gam_chunks) == len(options.path_name)
+    assert len(gam_chunks) == len(options.chroms)
     return gam_chunks
 
 
@@ -305,13 +299,9 @@ def run_merge_gams(job, options, gam_chunk_file_ids):
     Merge together gams, doing each chromosome in parallel
     """
 
-    # If the path name is not known, assume we have one anonymous path
-    path_names = options.path_name
-    if path_names is None:
-        path_names = ['out']
     chr_gam_ids = []
 
-    for i, chr in enumerate(path_names):
+    for i, chr in enumerate(options.chroms):
         shard_ids = [gam_chunk_file_ids[j][i] for j in range(len(gam_chunk_file_ids))]
         chr_gam_id = job.addChildJobFn(run_merge_chrom_gam, options, chr, shard_ids,
                                        cores=options.fq_split_cores,
@@ -376,14 +366,13 @@ def map_main(options):
         if not toil.options.restart:
             
             # Upload local files to the remote IO Store
-            inputGraphFileID = import_to_store(toil, options, options.vg_graph)
             inputXGFileID = import_to_store(toil, options, options.xg_index)
             inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
             inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
             sampleFastqFileID = import_to_store(toil, options, options.sample_reads)
             
             # Make a root job
-            root_job = Job.wrapJobFn(run_mapping, options, inputGraphFileID, inputXGFileID,
+            root_job = Job.wrapJobFn(run_mapping, options,inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID), sampleFastqFileID,
                                      cores=options.misc_cores,
                                      memory=options.misc_mem,

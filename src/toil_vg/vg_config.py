@@ -84,10 +84,6 @@ def generate_config():
         ### Arguments Shared Between Components ###
         # Use output store instead of toil for all intermediate files (use only for debugging)
         force-outstore: False
-
-        # Use the following reference paths.  Some possibilities for whole human genome below:
-        # path-name: ['1', '2', '3', '4', '5', '6', '7', '8' '9' '10', '11', '12', '13', '14', '15', 16', '17', '18', '19', '20', '21', '22', 'X', 'Y']
-        # path-name: ['1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8' '9' '10', 'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 16', 'chr17', 'chr18', 'chr19', 'chr20', 'chr21', 'chr22', 'chrX', 'chrY']
         
         #############################
         ### Docker Tool Arguments ###
@@ -117,14 +113,21 @@ def generate_config():
         
         ##########################
         ### vg_index Arguments ###
-        # Maximum edges to cross in index
-        edge-max: 5
 
-        # Size of kmers to use in indexing and mapping
-        kmer-size: 10
+        # Options to pass to vg mod for pruning phase. (if empty list, phase skipped)
+        # The primary path will always be added back onto the pruned grpah
+        prune-opts: ['-p', '-l', '16', '-S', '-e', '5']
 
-        # Use the pruned graph in the index
-        include-pruned: False
+        # Options to pass to 2nd vg mod for pruning phase.  The input will
+        # will be piped in from the prune-opts command above.  Will be 
+        # skipped if empty list
+        prune-opts-2: ['-S', '-l', '32']
+
+        # Options to pass to vg kmers.
+        kmers-opts: ['-g', '-B', '-k', '16', '-H', '1000000000', '-T', '1000000001']
+
+        # Options to pass to vg gcsa indexing
+        gcsa-opts: ['-X', '3', '-Z', '3000']
 
         ########################
         ### vg_map Arguments ###
