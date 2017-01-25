@@ -53,38 +53,46 @@ def index_parse_args(parser):
     parser.add_argument("--index_cores", type=int,
         help="number of threads during the indexing step")
 
-def compute_gcsa_kmers(options, cores, work_dir, graph_filename, chrom):
+def run_gcsa_kmers(job, options, graph_i, input_graph_id):
     """
-    Make the kmers file, return the path
+    Make the kmers file, return its id
     """
     RealTimeLogger.get().info("Starting gcsa kmers...")
     start_time = timeit.default_timer()
 
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Download input graph
+    graph_filename = os.path.join(work_dir, os.path.basename(options.graphs[graph_i]))
+    read_from_store(job, options, input_graph_id, graph_filename)
+
     # Output
     output_kmers_filename = graph_filename + '.kmers'
-    
+
     # Place where we put pruned vg
     to_index_filename = graph_filename
     
     if len(options.prune_opts) > 0:
         to_index_filename = os.path.join(work_dir, "to_index.vg")
         with open(to_index_filename, "w") as to_index_file:
-            pcores = cores if len(options.prune_opts_2) == 0 else cores / 2
             command = ['vg', 'mod', os.path.basename(graph_filename), '-t',
-                       str(pcores)] + options.prune_opts
+                       str(job.cores)] + options.prune_opts
             # tack on 2nd vg mod command if specified
             # note: perhaps this is a bakeoff relic that we don't need anymore
             # if we push -S to first command. 
             if len(options.prune_opts_2) > 0:
                 command = [command]
-                command.append(['vg', 'mod', '-', '-t', str(pcores)] + options.prune_opts_2)
+                command.append(['vg', 'mod', '-', '-t', str(job.cores)] + options.prune_opts_2)
             options.drunner.call(command, work_dir=work_dir, outfile=to_index_file)
-
+            
             # Then append in the primary path.
-            command = ['vg', 'mod', '-N', '-r', chrom]
-            command += ['-t', str(cores), os.path.basename(graph_filename)]
+            command = ['vg', 'mod', '-N', '-r', options.chroms[graph_i]]
+            command += ['-t', str(job.cores), os.path.basename(graph_filename)]
             options.drunner.call(command, work_dir=work_dir, outfile=to_index_file)
 
+    time.sleep(1)
+    
     # Now we have the combined to-index graph in one vg file. We'll load
     # it (which deduplicates nodes/edges) and then find kmers.
     RealTimeLogger.get().info("Finding kmers in {} to {}".format(
@@ -92,7 +100,7 @@ def compute_gcsa_kmers(options, cores, work_dir, graph_filename, chrom):
 
     # Make the GCSA2 kmers file
     with open(output_kmers_filename, "w") as kmers_file:
-        command = ['vg', 'kmers',  os.path.basename(to_index_filename), '-t', str(cores)]
+        command = ['vg', 'kmers',  os.path.basename(to_index_filename), '-t', str(job.cores)]
         command += options.kmers_opts
         options.drunner.call(command, work_dir=work_dir, outfile=kmers_file)
 
@@ -100,13 +108,38 @@ def compute_gcsa_kmers(options, cores, work_dir, graph_filename, chrom):
     if to_index_filename != graph_filename:
         os.remove(to_index_filename)
 
+    # Back to store
+    output_kmers_id = write_to_store(job, options, output_kmers_filename)
+
     end_time = timeit.default_timer()
     run_time = end_time - start_time
     RealTimeLogger.get().info("Finished GCSA kmers. Process took {} seconds.".format(run_time))
 
-    return output_kmers_filename
+    return output_kmers_id
+
+def run_gcsa_prep(job, options, input_graph_ids):
+    """
+    Do all the preprocessing for gcsa indexing (pruning and kmers)
+    Then launch the indexing as follow-on
+    """    
+    RealTimeLogger.get().info("Starting gcsa preprocessing...")
+    start_time = timeit.default_timer()     
+
+    kmers_ids = []
     
-def run_gcsa_indexing(job, options, input_graph_ids):
+    # Compute our kmers for each input graph (in series)
+    # is it worth it to distrbute?  files are so big to move around...
+    for graph_i, input_graph_id in enumerate(input_graph_ids):
+        kmers_id = job.addChildJobFn(run_gcsa_kmers, options, graph_i, input_graph_id,
+                                     cores=options.index_cores, memory=options.index_mem,
+                                     disk=options.index_disk).rv()
+        kmers_ids.append(kmers_id)
+
+    return job.addFollowOnJobFn(run_gcsa_indexing, options, kmers_ids,
+                                cores=options.index_cores, memory=options.index_mem,
+                                disk=options.index_disk).rv()
+    
+def run_gcsa_indexing(job, options, kmers_ids):
     """
     Make the gcsa2 index. Return its store id
     """
@@ -117,15 +150,13 @@ def run_gcsa_indexing(job, options, input_graph_ids):
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
+    # Download all the kmers.  
     kmers_filenames = []
     
-    # Compute our kmers for each input graph (in series)
-    # is it worth it to distrbute?  files are so big to move around...
-    for graph_i, input_graph_id in enumerate(input_graph_ids):
-        graph_filename = os.path.join(work_dir, os.path.basename(options.graphs[graph_i]))
-        read_from_store(job, options, input_graph_id, graph_filename)
-        kmers_filenames.append(compute_gcsa_kmers(options, job.cores, work_dir,
-                                                  graph_filename, options.chroms[graph_i]))
+    for graph_i, kmers_id in enumerate(kmers_ids):
+        kmers_filename = os.path.join(work_dir, os.path.basename(options.graphs[graph_i]) + '.kmers')
+        read_from_store(job, options, kmers_id, kmers_filename)
+        kmers_filenames.append(kmers_filename)
 
     # Where do we put the GCSA2 index?
     gcsa_filename = "genome.gcsa"
@@ -198,8 +229,8 @@ def run_indexing(job, options, inputGraphFileIDs):
     """ run indexing logic by itself.  Return pair of idx for xg and gcsa output index files  
     """
 
-    gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileIDs,
-                                      cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
+    gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, options, inputGraphFileIDs,
+                                      cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
     xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
                                       cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
 
