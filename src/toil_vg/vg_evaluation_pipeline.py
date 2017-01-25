@@ -142,9 +142,9 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputX
         xg_file_id = inputXGFileID
         
     if inputGCSAFileID is None:
-        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_indexing, options, inputGraphFileIDs,
-                                             cores=options.index_cores, memory=options.index_mem,
-                                             disk=options.index_disk).rv()
+        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, options, inputGraphFileIDs,
+                                             cores=options.misc_cores, memory=options.misc_mem,
+                                             disk=options.misc_disk).rv()
     else:
         assert inputLCPFileID is not None
         gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
