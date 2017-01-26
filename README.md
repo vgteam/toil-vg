@@ -97,8 +97,8 @@ Setup credentials for your AWS account in `~/.aws/credentials`:
 ### Startup a Toil EC2 cluster with 4 m4.xlarge nodes
 
     cgcloud create-cluster toil -s 3 -t m4.xlarge --cluster-name toil-setup-test
-    cgcloud ssh --admin -c toil-setup-test toil-leader 'sudo apt-get install -y git python-virtualenv && sudo pip install awscli
-    cgcloud ssh-cluster --admin --cluster-name toil-setup-test toil 'sudo pip install toil[aws,mesos]==3.5.0a1.dev251
+    cgcloud ssh --admin -c toil-setup-test toil-leader 'sudo apt-get install -y git python-virtualenv && sudo pip install awscli'
+    cgcloud ssh-cluster --admin --cluster-name toil-setup-test toil 'sudo pip install toil[aws,mesos]==3.5.0a1.dev251'
 
 ### Log onto leader node and set up dependencies
 
@@ -106,7 +106,7 @@ Setup credentials for your AWS account in `~/.aws/credentials`:
     virtualenv --system-site-packages toilvenv
     source toilvenv/bin/activate
     git clone --recursive https://github.com/BD2KGenomics/toil-vg.git
-    pip install --process-dependency-links /home/mesosbox/toil-vg/`
+    pip install --process-dependency-links /home/mesosbox/toil-vg/
 
 ### Get test input files from s3
 Any vg greaph (with primary reference path) and corresponding reads can be used here.   
