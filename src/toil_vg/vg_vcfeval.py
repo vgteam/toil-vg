@@ -11,7 +11,6 @@ from uuid import uuid4
 
 from toil.common import Toil
 from toil.job import Job
-from toil_lib.toillib import *
 from toil_vg.vg_common import *
 
 def vcfeval_subparser(parser):
@@ -158,8 +157,6 @@ def run_vcfeval(job, options,
 def vcfeval_main(options):
     """ command line access to toil vcf eval logic"""
     
-    RealTimeLogger.start_master()
-
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = dict(get_docker_tool_map(options).items() +
@@ -209,7 +206,5 @@ def vcfeval_main(options):
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
-    
-    RealTimeLogger.stop_master()
     
     

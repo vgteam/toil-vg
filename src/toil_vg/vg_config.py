@@ -14,7 +14,7 @@ import getpass
 import pdb
 import textwrap
 import yaml
-from toil_lib import require
+from toil_vg.vg_common import require
 
 # TODO: configure RPATH-equivalent on OS X for finding libraries without environment variables at runtime
 def generate_config():

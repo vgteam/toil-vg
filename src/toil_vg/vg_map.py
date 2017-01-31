@@ -18,7 +18,7 @@ from subprocess import Popen, PIPE
 
 from toil.common import Toil
 from toil.job import Job
-from toil_lib.toillib import *
+from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 
 def map_subparser(parser):
@@ -80,7 +80,7 @@ def run_mapping(job, options, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
 
 def run_split_fastq(job, options, sample_fastq_id):
     
-    RealTimeLogger.get().info("Starting fastq split and alignment...")
+    RealtimeLogger.info("Starting fastq split and alignment...")
     start_time = timeit.default_timer()
     
     # Define work directory for docker calls
@@ -122,7 +122,7 @@ def run_split_fastq(job, options, sample_fastq_id):
         
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealTimeLogger.get().info("Split fastq into {} chunks. Process took {} seconds.".format(len(fastq_chunk_ids), run_time))
+    RealtimeLogger.info("Split fastq into {} chunks. Process took {} seconds.".format(len(fastq_chunk_ids), run_time))
 
     return fastq_chunk_ids
 
@@ -149,7 +149,7 @@ def run_whole_alignment(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_
 
 def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, gcsa_and_lcp_ids):
 
-    RealTimeLogger.get().info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
+    RealtimeLogger.info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
     out_store = IOStore.get(options.out_store)
@@ -208,23 +208,23 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, g
         else:
             raise RuntimeError("invalid indexing mode: " + options.index_mode)
 
-        RealTimeLogger.get().info(
+        RealtimeLogger.info(
             "Running VG for {} against {}: {}".format(options.sample_name, graph_file,
             " ".join(vg_parts)))
         
         # Mark when we start the alignment
         start_time = timeit.default_timer()
         command = vg_parts
-        options.drunner.call(command, work_dir = work_dir, outfile=alignment_file)
+        options.drunner.call(job, command, work_dir = work_dir, outfile=alignment_file)
         
         # Mark when it's done
         end_time = timeit.default_timer()
         run_time = end_time - start_time
 
-    RealTimeLogger.get().info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
+    RealtimeLogger.info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
 
     # Chunk the gam up by chromosome
-    gam_chunks = split_gam_into_chroms(work_dir, options, xg_file, output_file)
+    gam_chunks = split_gam_into_chroms(job, work_dir, options, xg_file, output_file)
 
     # Write gam_chunks to store
     gam_chunk_ids = []
@@ -233,7 +233,7 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, g
 
     return gam_chunk_ids
 
-def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
+def split_gam_into_chroms(job, work_dir, options, xg_file, gam_file):
     """
     Create a Rocksdb index then use it to split up the given gam file
     (a local path) into a separate gam for each chromosome.  
@@ -248,11 +248,11 @@ def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
 
     index_cmd = ['vg', 'index', '-N', os.path.basename(gam_file),
                  '-d', os.path.basename(output_index), '-t', str(options.gam_index_cores)]
-    options.drunner.call(index_cmd, work_dir = work_dir)
+    options.drunner.call(job, index_cmd, work_dir = work_dir)
         
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealTimeLogger.get().info("Indexed {}. Process took {} seconds.".format(output_index, run_time))
+    RealtimeLogger.info("Indexed {}. Process took {} seconds.".format(output_index, run_time))
 
     # Chunk the alignment into chromosomes using the input paths
 
@@ -274,11 +274,11 @@ def split_gam_into_chroms(work_dir, options, xg_file, gam_file):
     
     start_time = timeit.default_timer()
 
-    options.drunner.call(chunk_cmd, work_dir = work_dir)
+    options.drunner.call(job, chunk_cmd, work_dir = work_dir)
     
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealTimeLogger.get().info("Chunked {}. Process took {} seconds.".format(gam_file, run_time))
+    RealtimeLogger.info("Chunked {}. Process took {} seconds.".format(gam_file, run_time))
 
     # scrape up the vg chunk results into a list of paths to the output gam
     # chunks and return them.  we expect the filenames to be in the 4th column
@@ -343,8 +343,6 @@ def map_main(options):
     Wrapper for vg map. 
     """
 
-    RealTimeLogger.start_master()
-
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
@@ -388,5 +386,3 @@ def map_main(options):
  
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
-    RealTimeLogger.stop_master()
-

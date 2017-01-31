@@ -14,10 +14,10 @@
 
 version = '1.1.0a1'
 
-required_versions = {'toil': '==3.5.0a1.dev251',
-                     'toil-lib': '==1.1.0a1',
-                     'pyyaml': '==3.11',
-                     'biopython': '==1.67',
-                     'pyvcf': '==0.6.8'}
+required_versions = {'toil': '>=3.5.0a1.dev251',
+                     'pyyaml': '>=3.11',
+                     'biopython': '>=1.67',
+                     'pyvcf': '>=0.6.8',
+                     'boto3': '>=1.4.4'}
 
-dependency_links = ['git+https://github.com/cmarkello/toil-lib.git#egg=toil-lib-1.1.0a1']
+dependency_links = []

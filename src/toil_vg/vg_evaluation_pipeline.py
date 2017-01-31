@@ -24,9 +24,7 @@ from Bio import SeqIO
 
 from toil.common import Toil
 from toil.job import Job
-from toil_lib import require
-from toil_lib.toillib import *
-from toil_lib import require
+from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_call import *
 from toil_vg.vg_index import *
@@ -193,8 +191,8 @@ def run_pipeline_call(job, options, xg_file_id, chr_gam_ids):
 
 def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
 
-    RealTimeLogger.get().info("Completed gam merging and gam path variant calling.")
-    RealTimeLogger.get().info("Starting vcf merging vcf files.")
+    RealtimeLogger.info("Completed gam merging and gam path variant calling.")
+    RealtimeLogger.info("Starting vcf merging vcf files.")
     # Set up the IO stores each time, since we can't unpickle them on Azure for
     # some reason.
     out_store = IOStore.get(options.out_store)
@@ -215,9 +213,9 @@ def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
         # merge vcf files
         vcf_merged_file_key = "{}.vcf.gz".format(options.sample_name)
         command=['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key), ' '.join(vcf_merging_file_key_list)]
-        options.drunner.call(command, work_dir=work_dir)
+        options.drunner.call(job, command, work_dir=work_dir)
         command=['bcftools', 'tabix', '-f', '-p', 'vcf', os.path.basename(vcf_merged_file_key)]
-        options.drunner.call(command, work_dir=work_dir)
+        options.drunner.call(job, command, work_dir=work_dir)
     else:
         vcf_merged_file_key = vcf_merging_file_key_list[0]
 
@@ -305,8 +303,6 @@ def main():
     
 def pipeline_main(options):
     
-    RealTimeLogger.start_master()
-
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
@@ -362,8 +358,6 @@ def pipeline_main(options):
     run_time_pipeline = end_time_pipeline - start_time_pipeline
 
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
-
-    RealTimeLogger.stop_master()
 
 if __name__ == "__main__" :
     try:

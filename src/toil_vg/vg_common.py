@@ -10,8 +10,9 @@ from uuid import uuid4
 
 from toil.common import Toil
 from toil.job import Job
-from toil_lib.toillib import *
-from toil_lib.programs import docker_call
+from toil.realtimeLogger import RealtimeLogger
+from toil_vg.iostore import IOStore
+from toil_vg.docker import dockerCall, dockerCheckOutput, _fixPermissions
 
 def add_docker_tool_parse_args(parser):
     """ centralize shared docker options and their defaults """
@@ -66,7 +67,7 @@ on and off in just one place.  to do: Should go somewhere more central """
         # return true if we have an image for this tool
         return tool in self.docker_tool_map
 
-    def call(self, args, work_dir = '.' , outfile = None, errfile = None,
+    def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
              check_output = False, inputs=[]):
         """ run a command.  decide to use docker based on whether
         its in the docker_tool_map.  args is either the usual argument list,
@@ -78,24 +79,24 @@ on and off in just one place.  to do: Should go somewhere more central """
         for i in range(len(args)):
             args[i] = [str(x) for x in args[i]]
         if args[0][0] in self.docker_tool_map:
-            return self.call_with_docker(args, work_dir, outfile, errfile, check_output, inputs)
+            return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, inputs)
         else:
             return self.call_directly(args, work_dir, outfile, errfile, check_output, inputs)
         
-    def call_with_docker(self, args, work_dir, outfile, errfile, check_output, inputs): 
+    def call_with_docker(self, job, args, work_dir, outfile, errfile, check_output, inputs): 
         """ Thin wrapper for docker_call that will use internal lookup to
         figure out the location of the docker file.  Only exposes docker_call
         parameters used so far.  expect args as list of lists.  if (toplevel)
         list has size > 1, then piping interface used """
 
-        RealTimeLogger.get().info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
+        RealtimeLogger.info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
+
+        tool = str(self.docker_tool_map[args[0][0]][0])
         
         if len(args) == 1:
-            # just one command, use regular docker_call interface
-            # where parameters is an argument list not including command
-            tool = str(self.docker_tool_map[args[0][0]][0])
-            tools = None
+            # one command: we check entry point (stripping first arg if necessary)
+            # and pass in single args list
             if len(self.docker_tool_map[args[0][0]]) == 2:
                 if self.docker_tool_map[args[0][0]][1]:
                     # not all tools have consistant entrypoints. vg and rtg have entrypoints
@@ -104,31 +105,29 @@ on and off in just one place.  to do: Should go somewhere more central """
                     parameters = args[0][1:]
                 else:
                     parameters = args[0]
-            else:
-                if args[0][0] in ["vg", "rtg"]:
-                # todo:  not all tools have consistent entrypoints.  for instance vg and rtg
-                # have entrypoints but bcftools doesn't.  hack here for now, but need to
-                # have configurable entrypoints (or force image consistency) down the road. 
-                    parameters = args[0][1:]
-                else:
-                    parameters = args[0]
         else:
-            # there's a pipe.  we use the different piping interface that
-            # takes in paramters as a list of single-string commands
-            # that include arguments
-            tool = None
-            tools = str(self.docker_tool_map[args[0][0]][0])
-            parameters = [" ".join(x) for x in args]
+            # can leave as is for piped interface which takes list of args lists
+            # and doesn't worry about entrypoints since everything goes through bash -c
+            parameters = args
 
-        ret = docker_call(tool=tool, tools=tools, parameters=parameters,
-                           work_dir=work_dir, outfile = outfile,
-                           errfile = errfile,
-                           check_output = check_output,
-                           inputs=inputs)
+        dc = dockerCheckOutput if check_output is True else dockerCall
+                    
+        ret = dc(job, tool, parameters = parameters,
+                 workDir=work_dir, outfile = outfile)
+        
+        # This isn't running through reliably by itself.  Will assume it's
+        # because I took docker.py out of toil, and leave here until we revert to
+        # toil's docker
+        #
+        # Note: It's the tabix docker call in merge_vcf_chunks that's problematic
+        #       It complains that the container can't be found, so fixPermissions
+        #       doesn't get run afterward.  
+        #
+        _fixPermissions(tool, work_dir)
 
         end_time = timeit.default_timer()
         run_time = end_time - start_time
-        RealTimeLogger.get().info("Successfully docker ran {} in {} seconds.".format(
+        RealtimeLogger.info("Successfully docker ran {} in {} seconds.".format(
             " | ".join(" ".join(x) for x in args), run_time))
 
         return ret
@@ -136,7 +135,7 @@ on and off in just one place.  to do: Should go somewhere more central """
     def call_directly(self, args, work_dir, outfile, errfile, check_output, inputs):
         """ Just run the command without docker """
 
-        RealTimeLogger.get().info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
+        RealtimeLogger.info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
 
         # this is all that docker_call does with the inputs parameter:
@@ -165,7 +164,7 @@ on and off in just one place.  to do: Should go somewhere more central """
 
         end_time = timeit.default_timer()
         run_time = end_time - start_time
-        RealTimeLogger.get().info("Successfully ran {} in {} seconds.".format(
+        RealtimeLogger.info("Successfully ran {} in {} seconds.".format(
             " | ".join(" ".join(x) for x in args), run_time))            
 
         if check_output:
@@ -319,3 +318,8 @@ def batch_iterator(iterator, batch_size):
             batch.append(entry)
         if batch:
             yield batch
+
+def require(expression, message):
+    if not expression:
+        raise UserError('\n\n' + message + '\n\n')
+            
