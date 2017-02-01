@@ -18,9 +18,8 @@ from Bio import SeqIO
 
 from toil.common import Toil
 from toil.job import Job
-from toil_lib.toillib import *
+from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_lib import require
 
 def index_subparser(parser):
     """
@@ -53,11 +52,14 @@ def index_parse_args(parser):
     parser.add_argument("--index_cores", type=int,
         help="number of threads during the indexing step")
 
+    parser.add_argument("--index_name", type=str,
+                        help="name of index files. <name>.xg, <name>.gcsa etc.")
+
 def run_gcsa_kmers(job, options, graph_i, input_graph_id):
     """
     Make the kmers file, return its id
     """
-    RealTimeLogger.get().info("Starting gcsa kmers...")
+    RealtimeLogger.info("Starting gcsa kmers...")
     start_time = timeit.default_timer()
 
     # Define work directory for docker calls
@@ -84,25 +86,25 @@ def run_gcsa_kmers(job, options, graph_i, input_graph_id):
             if len(options.prune_opts_2) > 0:
                 command = [command]
                 command.append(['vg', 'mod', '-', '-t', str(job.cores)] + options.prune_opts_2)
-            options.drunner.call(command, work_dir=work_dir, outfile=to_index_file)
+            options.drunner.call(job, command, work_dir=work_dir, outfile=to_index_file)
             
             # Then append in the primary path.
             command = ['vg', 'mod', '-N', '-r', options.chroms[graph_i]]
             command += ['-t', str(job.cores), os.path.basename(graph_filename)]
-            options.drunner.call(command, work_dir=work_dir, outfile=to_index_file)
+            options.drunner.call(job, command, work_dir=work_dir, outfile=to_index_file)
 
     time.sleep(1)
     
     # Now we have the combined to-index graph in one vg file. We'll load
     # it (which deduplicates nodes/edges) and then find kmers.
-    RealTimeLogger.get().info("Finding kmers in {} to {}".format(
+    RealtimeLogger.info("Finding kmers in {} to {}".format(
         to_index_filename, output_kmers_filename))
 
     # Make the GCSA2 kmers file
     with open(output_kmers_filename, "w") as kmers_file:
         command = ['vg', 'kmers',  os.path.basename(to_index_filename), '-t', str(job.cores)]
         command += options.kmers_opts
-        options.drunner.call(command, work_dir=work_dir, outfile=kmers_file)
+        options.drunner.call(job, command, work_dir=work_dir, outfile=kmers_file)
 
     # Dont' need to keep pruned graph around after kmers computed.
     if to_index_filename != graph_filename:
@@ -113,7 +115,7 @@ def run_gcsa_kmers(job, options, graph_i, input_graph_id):
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealTimeLogger.get().info("Finished GCSA kmers. Process took {} seconds.".format(run_time))
+    RealtimeLogger.info("Finished GCSA kmers. Process took {} seconds.".format(run_time))
 
     return output_kmers_id
 
@@ -122,7 +124,7 @@ def run_gcsa_prep(job, options, input_graph_ids):
     Do all the preprocessing for gcsa indexing (pruning and kmers)
     Then launch the indexing as follow-on
     """    
-    RealTimeLogger.get().info("Starting gcsa preprocessing...")
+    RealtimeLogger.info("Starting gcsa preprocessing...")
     start_time = timeit.default_timer()     
 
     kmers_ids = []
@@ -144,7 +146,7 @@ def run_gcsa_indexing(job, options, kmers_ids):
     Make the gcsa2 index. Return its store id
     """
     
-    RealTimeLogger.get().info("Starting gcsa indexing...")
+    RealtimeLogger.info("Starting gcsa indexing...")
     start_time = timeit.default_timer()     
 
     # Define work directory for docker calls
@@ -159,13 +161,13 @@ def run_gcsa_indexing(job, options, kmers_ids):
         kmers_filenames.append(kmers_filename)
 
     # Where do we put the GCSA2 index?
-    gcsa_filename = "genome.gcsa"
+    gcsa_filename = "{}.gcsa".format(options.index_name)
 
     command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + options.gcsa_opts
     command += ['-t', str(job.cores)]
     for kmers_filename in kmers_filenames:
         command += ['-i', os.path.basename(kmers_filename)]
-    options.drunner.call(command, work_dir=work_dir)
+    options.drunner.call(job, command, work_dir=work_dir)
 
     # Checkpoint index to output store
     if not options.force_outstore or options.tool == 'index':
@@ -180,13 +182,13 @@ def run_gcsa_indexing(job, options, kmers_ids):
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealTimeLogger.get().info("Finished GCSA index. Process took {} seconds.".format(run_time))
+    RealtimeLogger.info("Finished GCSA index. Process took {} seconds.".format(run_time))
 
 def run_xg_indexing(job, options, inputGraphFileIDs):
     """ Make the xg index and return its store id
     """
     
-    RealTimeLogger.get().info("Starting xg indexing...")
+    RealtimeLogger.info("Starting xg indexing...")
     start_time = timeit.default_timer()
     
     # Define work directory for docker calls
@@ -200,15 +202,15 @@ def run_xg_indexing(job, options, inputGraphFileIDs):
         graph_filenames.append(os.path.basename(graph_filename))
 
     # Where do we put the XG index?
-    xg_filename = graph_filename + ".xg"
+    xg_filename = "{}.xg".format(options.index_name)
 
     # Now run the indexer.
-    RealTimeLogger.get().info("XG Indexing {}".format(str(graph_filenames)))            
+    RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))            
 
     command = ['vg', 'index', '-t', str(job.cores), '-x', os.path.basename(xg_filename)]
     command += graph_filenames
     
-    options.drunner.call(command, work_dir=work_dir)
+    options.drunner.call(job, command, work_dir=work_dir)
 
     # Checkpoint index to output store
     if not options.force_outstore or options.tool == 'index':
@@ -221,7 +223,7 @@ def run_xg_indexing(job, options, inputGraphFileIDs):
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealTimeLogger.get().info("Finished XG index. Process took {} seconds.".format(run_time))
+    RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
     
 
@@ -242,8 +244,6 @@ def index_main(options):
     Wrapper for vg indexing. 
     """
     
-    RealTimeLogger.start_master()
-
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
@@ -288,5 +288,3 @@ def index_main(options):
  
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
-    RealTimeLogger.stop_master()
-

@@ -9,9 +9,8 @@ from uuid import uuid4
 
 from toil.common import Toil
 from toil.job import Job
-from toil_lib.toillib import *
+from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_lib import require
 
 
 def call_subparser(parser):
@@ -90,18 +89,18 @@ def merge_call_opts(contig, offset, length, call_opts, sample_name, sample_flag 
         opts += " -l {}".format(length)
     return opts
 
-def sort_vcf(drunner, vcf_path, sorted_vcf_path):
+def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
     vcf_dir, vcf_name = os.path.split(vcf_path)
     with open(sorted_vcf_path, "w") as outfile:
-        drunner.call([['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
+        drunner.call(job, [['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
                      work_dir=vcf_dir)
     with open(sorted_vcf_path, "a") as outfile:
-        drunner.call([['bcftools', 'view', '-H', vcf_name],
+        drunner.call(job, [['bcftools', 'view', '-H', vcf_name],
                       ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
                      work_dir=vcf_dir)
 
-def run_vg_call(options, xg_path, vg_path, gam_path, path_name, chunk_offset, path_size, work_dir, vcf_path):
+def run_vg_call(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset, path_size, work_dir, vcf_path):
     """ Create a VCF with vg call """
                         
     # do the pileup.  this is the most resource intensive step,
@@ -113,7 +112,7 @@ def run_vg_call(options, xg_path, vg_path, gam_path, path_name, chunk_offset, pa
                     '-x', os.path.basename(xg_path), '-t', '1'] + options.filter_opts]
         command.append(['vg', 'pileup', os.path.basename(vg_path), '-',
                         '-t', str(options.calling_cores)] + options.pileup_opts)
-        options.drunner.call(command, work_dir=work_dir, outfile=pu_path_stream)
+        options.drunner.call(job, command, work_dir=work_dir, outfile=pu_path_stream)
 
     # do the calling.
     merged_call_opts = merge_call_opts(path_name, chunk_offset, path_size,
@@ -121,11 +120,11 @@ def run_vg_call(options, xg_path, vg_path, gam_path, path_name, chunk_offset, pa
     with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
         command = [['vg', 'call', os.path.basename(vg_path), os.path.basename(pu_path), '-t',
                  str(options.calling_cores)] + str(merged_call_opts).split()]
-        options.drunner.call(command, work_dir=work_dir,
+        options.drunner.call(job, command, work_dir=work_dir,
                              outfile=vgcall_stdout, errfile=vgcall_stderr)
  
                 
-def run_vg_genotype(options, xg_path, vg_path, gam_path, path_name, chunk_offset, path_size, work_dir, vcf_path):
+def run_vg_genotype(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset, path_size, work_dir, vcf_path):
                     
     """ Create a VCF with vg genotype """
 
@@ -135,12 +134,12 @@ def run_vg_genotype(options, xg_path, vg_path, gam_path, path_name, chunk_offset
     with open(filter_gam_path, 'w') as filter_stdout:
         command = ['vg', 'filter', os.path.basename(gam_path), '-t', str(options.calling_cores),
                    '-x', os.path.basename(xg_path)] + options.filter_opts
-        options.drunner.call(command, work_dir=work_dir, outfile=filter_stdout)
+        options.drunner.call(job, command, work_dir=work_dir, outfile=filter_stdout)
                
     # Make a gam index
     gam_index_path = os.path.join(work_dir, os.path.basename(filter_gam_path) + ".index")
     command = ['vg', 'index', '-N', os.path.basename(filter_gam_path), '-d', os.path.basename(gam_index_path)]
-    options.drunner.call(command, work_dir=work_dir)
+    options.drunner.call(job, command, work_dir=work_dir)
 
     # Do the genotyping
     merged_genotype_opts = merge_call_opts(path_name, chunk_offset, path_size,
@@ -149,14 +148,14 @@ def run_vg_genotype(options, xg_path, vg_path, gam_path, path_name, chunk_offset
 
         command=[['vg', 'genotype', os.path.basename(vg_path), os.path.basename(gam_index_path),
                   '-t', str(options.calling_cores), '-v'] + str(merged_genotype_opts).split()]
-        options.drunner.call(command, work_dir=work_dir,
+        options.drunner.call(job, command, work_dir=work_dir,
                              outfile=vgcall_stdout, errfile=vgcall_stderr)
 
 def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
                vg_chunk_file_id, gam_chunk_file_id, path_size):
     """ create VCF from a given chunk """
    
-    RealTimeLogger.get().info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
+    RealtimeLogger.info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -173,24 +172,24 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     # get the xg index, required for vg filter -D.
     # todo? can we avoid this somehow?  is it better to copy in a big xg than regenerate?
     xg_path = os.path.join(work_dir, 'chunk_{}_{}.xg'.format(path_name, chunk_offset))
-    options.drunner.call(['vg', 'index', os.path.basename(vg_path), '-x',
+    options.drunner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
                           os.path.basename(xg_path), '-t', str(options.calling_cores)],
                          work_dir = work_dir)
     # Run vg call
     if options.genotype:
-        run_vg_genotype(options, xg_path, vg_path, gam_path, path_name, chunk_offset,
+        run_vg_genotype(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset,
                         path_size, work_dir, vcf_path)
     else:
-        run_vg_call(options, xg_path, vg_path, gam_path, path_name, chunk_offset,
+        run_vg_call(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset,
                     path_size, work_dir, vcf_path)
 
     # Sort the output
-    sort_vcf(options.drunner, vcf_path + ".us", vcf_path)
-    options.drunner.call(['rm', vcf_path + '.us'])
+    sort_vcf(job, options.drunner, vcf_path + ".us", vcf_path)
+    options.drunner.call(job, ['rm', vcf_path + '.us'])
     command=['bgzip', '{}'.format(os.path.basename(vcf_path))]
-    options.drunner.call(command, work_dir=work_dir)
+    options.drunner.call(job, command, work_dir=work_dir)
     command=['tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
-    options.drunner.call(command, work_dir=work_dir)
+    options.drunner.call(job, command, work_dir=work_dir)
     
     # do the vcf clip
     left_clip = 0 if chunk_i == 0 else options.overlap / 2
@@ -208,7 +207,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
             path_name, offset + clipped_chunk_offset + left_clip + 1,
             offset + clipped_chunk_offset + options.call_chunk_size - right_clip),
                  os.path.basename(vcf_path) + ".gz"]
-        options.drunner.call(command, work_dir=work_dir, outfile=clip_path_stream)
+        options.drunner.call(job, command, work_dir=work_dir, outfile=clip_path_stream)
 
     # save clip.vcf files to job store
     clip_file_id = write_to_store(job, options, clip_path)
@@ -217,7 +216,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
 
 def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
     
-    RealTimeLogger.get().info("Running variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
+    RealtimeLogger.info("Running variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
         
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -232,7 +231,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
     gam_index_path = gam_path + '.index'
     index_cmd = ['vg', 'index', '-N', os.path.basename(gam_path), '-d',
                  os.path.basename(gam_index_path), '-t', str(options.gam_index_cores)]
-    options.drunner.call(index_cmd, work_dir=work_dir)
+    options.drunner.call(job, index_cmd, work_dir=work_dir)
 
     # Chunk the graph and gam, using the xg and rocksdb indexes
     output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(path_name))
@@ -245,7 +244,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
                  '-b', 'call_chunk_{}'.format(path_name),
                  '-t', str(options.calling_cores),
                  '-R', os.path.basename(output_bed_chunks_path)]
-    options.drunner.call(chunk_cmd, work_dir=work_dir)
+    options.drunner.call(job, chunk_cmd, work_dir=work_dir)
 
     # Scrape the BED into memory
     bed_lines = []
@@ -287,7 +286,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
                                                    memory=options.call_chunk_mem,
                                                    disk=options.call_chunk_disk).rv()
  
-    RealTimeLogger.get().info("Completed variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
+    RealtimeLogger.info("Completed variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
 
     return vcf_gz_tbi_file_id_pair
 
@@ -310,21 +309,21 @@ def merge_vcf_chunks(job, options, path_name, clip_file_ids):
         if chunk_i == 0:
             # copy everything including the header
             with open(vcf_path, "w") as outfile:
-                options.drunner.call(['cat', os.path.basename(clip_path)], outfile=outfile,
+                options.drunner.call(job, ['cat', os.path.basename(clip_path)], outfile=outfile,
                                      work_dir=work_dir)
         else:
             # add on everythin but header
             with open(vcf_path, "a") as outfile:
-                options.drunner.call(['bcftools', 'view', '-H', os.path.basename(clip_path)],
+                options.drunner.call(job, ['bcftools', 'view', '-H', os.path.basename(clip_path)],
                                      outfile=outfile, work_dir=work_dir)
 
     # add a compressed indexed version
     vcf_gz_file = vcf_path + ".gz"
     with open(vcf_gz_file, "w") as vcf_gz_file_stream:
         command=['bgzip', '-c', '{}'.format(os.path.basename(vcf_path))]
-        options.drunner.call(command, work_dir=work_dir, outfile=vcf_gz_file_stream)
+        options.drunner.call(job, command, work_dir=work_dir, outfile=vcf_gz_file_stream)
     command=['bcftools', 'tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
-    options.drunner.call(command, work_dir=work_dir)
+    options.drunner.call(job, command, work_dir=work_dir)
 
     # Save merged vcf files to the job store
     use_out_store = True if options.tool == 'call' else None
@@ -336,8 +335,6 @@ def merge_vcf_chunks(job, options, path_name, clip_file_ids):
 def call_main(options):
     """ no harm in preserving command line access to chunked_call for debugging """
     
-    RealTimeLogger.start_master()
-
     # currently only support (exactly) one path
     require(len(options.chroms) == 1, "Must pass exactly one reference path with --chroms")
 
@@ -383,6 +380,5 @@ def call_main(options):
  
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
-    RealTimeLogger.stop_master()
     
     

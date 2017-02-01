@@ -14,7 +14,7 @@ import getpass
 import pdb
 import textwrap
 import yaml
-from toil_lib import require
+from toil_vg.vg_common import require
 
 # TODO: configure RPATH-equivalent on OS X for finding libraries without environment variables at runtime
 def generate_config():
@@ -113,6 +113,9 @@ def generate_config():
         
         ##########################
         ### vg_index Arguments ###
+
+        # Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
+        index-name: 'genome'
 
         # Options to pass to vg mod for pruning phase. (if empty list, phase skipped)
         # The primary path will always be added back onto the pruned grpah

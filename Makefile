@@ -96,15 +96,11 @@ check_build_reqs:
 
 
 prepare: check_venv
-	rm -fr ${PWD}/toil-lib
-	git clone --recursive https://github.com/cmarkello/toil-lib.git ${PWD}/toil-lib/
 	$(pip) install numpy==1.11.2
 	$(pip) install pytest==2.8.3 toil[aws,mesos]==3.5.0a1.dev241 biopython==1.67
-	$(pip) install ${PWD}/toil-lib/
 	pip list
 clean_prepare: check_venv
-	rm -rf ${PWD}/toil-lib/
-	- $(pip) uninstall -y pytest toil-lib biopython numpy
+	- $(pip) uninstall -y pytest biopython numpy
 
 check_venv:
 	@$(python) -c 'import sys; sys.exit( int( not hasattr(sys, "real_prefix") ) )' \

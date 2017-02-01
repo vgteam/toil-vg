@@ -11,7 +11,6 @@ from uuid import uuid4
 
 from toil.common import Toil
 from toil.job import Job
-from toil_lib.toillib import *
 from toil_vg.vg_common import *
 
 def vcfeval_subparser(parser):
@@ -72,7 +71,7 @@ def get_vcfeval_docker_tool_map(options):
     return dmap
     
     
-def vcfeval(work_dir, call_vcf_name, truth_vcf_name,
+def vcfeval(job, work_dir, call_vcf_name, truth_vcf_name,
             sdf_name, outdir_name, bed_name, options):
 
     """ create and run the vcfeval command """
@@ -88,7 +87,7 @@ def vcfeval(work_dir, call_vcf_name, truth_vcf_name,
     if len(options.vcfeval_filtering_opts) > 0:
         cmd += options.vcfeval_filtering_opts.split()
 
-    options.drunner.call(cmd, work_dir=work_dir)
+    options.drunner.call(job, cmd, work_dir=work_dir)
 
     # get the F1 out of summary.txt
     # expect header on 1st line and data on 3rd
@@ -139,10 +138,10 @@ def run_vcfeval(job, options,
             bed_name = os.path.join('/data', bed_name)
 
     # make an indexed sequence (todo: allow user to pass one in)
-    options.drunner.call(['rtg', 'format',  fasta_name, '-o', sdf_name], work_dir=work_dir)    
+    options.drunner.call(job, ['rtg', 'format',  fasta_name, '-o', sdf_name], work_dir=work_dir)    
 
     # run the vcf_eval command
-    f1 = vcfeval(work_dir, call_vcf_name, truth_vcf_name,
+    f1 = vcfeval(job, work_dir, call_vcf_name, truth_vcf_name,
                  sdf_name, out_name, bed_name, options)
 
     # todo : write everything to output store.
@@ -158,8 +157,6 @@ def run_vcfeval(job, options,
 def vcfeval_main(options):
     """ command line access to toil vcf eval logic"""
     
-    RealTimeLogger.start_master()
-
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = dict(get_docker_tool_map(options).items() +
@@ -209,7 +206,5 @@ def vcfeval_main(options):
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
     print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
-    
-    RealTimeLogger.stop_master()
     
     

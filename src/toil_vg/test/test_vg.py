@@ -16,7 +16,7 @@ import posixpath
 from bd2k.util.iterables import concat
 from boto.s3.connection import S3Connection, Bucket
 from boto.s3.key import Key
-from toil_lib.toillib import IOStore
+from toil_vg.iostore import IOStore
 
 log = logging.getLogger(__name__)
 
