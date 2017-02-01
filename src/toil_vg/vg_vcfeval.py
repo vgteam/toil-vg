@@ -71,7 +71,7 @@ def get_vcfeval_docker_tool_map(options):
     return dmap
     
     
-def vcfeval(work_dir, call_vcf_name, truth_vcf_name,
+def vcfeval(job, work_dir, call_vcf_name, truth_vcf_name,
             sdf_name, outdir_name, bed_name, options):
 
     """ create and run the vcfeval command """
@@ -87,7 +87,7 @@ def vcfeval(work_dir, call_vcf_name, truth_vcf_name,
     if len(options.vcfeval_filtering_opts) > 0:
         cmd += options.vcfeval_filtering_opts.split()
 
-    options.drunner.call(cmd, work_dir=work_dir)
+    options.drunner.call(job, cmd, work_dir=work_dir)
 
     # get the F1 out of summary.txt
     # expect header on 1st line and data on 3rd
@@ -138,10 +138,10 @@ def run_vcfeval(job, options,
             bed_name = os.path.join('/data', bed_name)
 
     # make an indexed sequence (todo: allow user to pass one in)
-    options.drunner.call(['rtg', 'format',  fasta_name, '-o', sdf_name], work_dir=work_dir)    
+    options.drunner.call(job, ['rtg', 'format',  fasta_name, '-o', sdf_name], work_dir=work_dir)    
 
     # run the vcf_eval command
-    f1 = vcfeval(work_dir, call_vcf_name, truth_vcf_name,
+    f1 = vcfeval(job, work_dir, call_vcf_name, truth_vcf_name,
                  sdf_name, out_name, bed_name, options)
 
     # todo : write everything to output store.
