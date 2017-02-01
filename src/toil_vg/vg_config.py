@@ -114,6 +114,9 @@ def generate_config():
         ##########################
         ### vg_index Arguments ###
 
+        # Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
+        index-name: 'genome'
+
         # Options to pass to vg mod for pruning phase. (if empty list, phase skipped)
         # The primary path will always be added back onto the pruned grpah
         prune-opts: ['-p', '-l', '16', '-S', '-e', '5']

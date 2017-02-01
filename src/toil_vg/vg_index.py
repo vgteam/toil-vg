@@ -52,6 +52,9 @@ def index_parse_args(parser):
     parser.add_argument("--index_cores", type=int,
         help="number of threads during the indexing step")
 
+    parser.add_argument("--index_name", type=str,
+                        help="name of index files. <name>.xg, <name>.gcsa etc.")
+
 def run_gcsa_kmers(job, options, graph_i, input_graph_id):
     """
     Make the kmers file, return its id
@@ -158,7 +161,7 @@ def run_gcsa_indexing(job, options, kmers_ids):
         kmers_filenames.append(kmers_filename)
 
     # Where do we put the GCSA2 index?
-    gcsa_filename = "genome.gcsa"
+    gcsa_filename = "{}.gcsa".format(options.index_name)
 
     command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + options.gcsa_opts
     command += ['-t', str(job.cores)]
@@ -199,7 +202,7 @@ def run_xg_indexing(job, options, inputGraphFileIDs):
         graph_filenames.append(os.path.basename(graph_filename))
 
     # Where do we put the XG index?
-    xg_filename = "genome.xg"
+    xg_filename = "{}.xg".format(options.index_name)
 
     # Now run the indexer.
     RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))            
