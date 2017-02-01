@@ -97,7 +97,7 @@ def generate_config():
         ##   of through docker. no-docker (above) overrides all these options. 
         # Dockerfile to use for vg
 
-        vg-docker: ['quay.io/glennhickey/vg:v1.4.0-1980-g38453bf', True]
+        vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2134-g161bec5', True]
 
         # Dockerfile to use for bcftools
         bcftools-docker: ['quay.io/cmarkello/bcftools', False]
