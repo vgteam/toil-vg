@@ -45,8 +45,14 @@ def generate_config():
         misc-cores: 1
         misc-mem: '1G'
         misc-disk: '1G'
+    
+        # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
+        # this stage generally cannot take advantage of more than one thread
+        prune-cores: 1
+        prune-mem: '4G'
+        prune-disk: '2G'
 
-        # Resources allotted for xg and gcaa indexing. 
+        # Resources allotted for xg and gcsa indexing and kmers computing
         index-cores: 1
         index-mem: '4G'
         index-disk: '2G'
