@@ -10,10 +10,7 @@
 
 `toil-vg map`: Produce graph alignment (gam) from input reads and index
 
-`toil-vg call`: Produce VCF from input index and alignement (for since chromosome)
-
-### Guide: Running the CGL HGVM project VG Pipeline using Toil
-This guide attempts to walk the user through running this pipline using the VG framework from start to finish.  
+`toil-vg call`: Produce VCF from input index and alignement (for single chromosome)
 
 ## Basic start-to-finish run on a local mac or linux machine
 
@@ -98,7 +95,7 @@ Setup credentials for your AWS account in `~/.aws/credentials`:
 
     cgcloud create-cluster toil -s 3 -t m4.xlarge --cluster-name toil-setup-test
     cgcloud ssh --admin -c toil-setup-test toil-leader 'sudo apt-get install -y git python-virtualenv && sudo pip install awscli'
-    cgcloud ssh-cluster --admin --cluster-name toil-setup-test toil 'sudo pip install toil[aws,mesos]==3.5.0a1.dev251'
+    cgcloud ssh-cluster --admin --cluster-name toil-setup-test toil 'sudo pip install toil[aws,mesos]==3.5.0a1.dev251 boto3'
 
 ### Log onto leader node and set up dependencies
 
