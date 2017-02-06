@@ -68,6 +68,12 @@ def generate_config():
         # after a few threads.
         gam-index-cores: 1
 
+        # Number of threads to use for splitting GAMs into chromosomes using vg chunk
+        # For each core, a whole-chromosome .vg graph must be processed in memory,
+        # so this number should be well below the number of chromosomes unless 
+        # a lot of memory (>512G ?) is available. 
+        gam-split-cores: 1
+
         # Resources for *each* vg map job
         # the number of vg map jobs is controlled by reads-per-chunk (below)
         alignment-cores: 1

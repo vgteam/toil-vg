@@ -174,7 +174,7 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, g
     read_from_store(job, options, lcp_file_id, lcp_file)
 
     # We need the sample fastq for alignment
-    fastq_file = os.path.join(work_dir, 'chunk_{}.fq'.format(chunk_id))
+    fastq_file = os.path.join(work_dir, 'chunk_{}.fq.gz'.format(chunk_id))
     read_from_store(job, options, chunk_filename_id, fastq_file)
     
     # And a temp file for our aligner output
@@ -270,7 +270,7 @@ def split_gam_into_chroms(job, work_dir, options, xg_file, gam_file):
                  '-a', os.path.basename(output_index), '-c', str(options.chunk_context),
                  '-P', os.path.basename(path_list_name),
                  '-b', os.path.splitext(os.path.basename(gam_file))[0],
-                 '-t', str(options.alignment_cores),
+                 '-t', str(options.gam_split_cores),
                  '-R', os.path.basename(output_bed_name)]
     
     start_time = timeit.default_timer()
