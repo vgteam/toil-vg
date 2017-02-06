@@ -66,7 +66,7 @@ def map_parse_args(parser, stand_alone = False):
         help="type of vg index to use for mapping")
     parser.add_argument("--interleaved", action="store_true", default=False,
                         help="treat fastq as interleaved read pairs.  overrides map-args")
-    parser.add_argument("--map-opts", type=str,
+    parser.add_argument("--map_opts", type=str,
                         help="arguments for vg map (wrapped in \"\")")
 
 def run_mapping(job, options, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
