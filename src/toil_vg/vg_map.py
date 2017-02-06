@@ -109,11 +109,12 @@ def run_split_fastq(job, options, sample_fastq_id):
         cmd = [['gzip', '-d', '-c', os.path.basename(fastq_path)]]
     else:
         cmd = [['cat', os.path.basename(fastq_path)]]
-        
-    cmd.append(['split', '-l', str(chunk_lines), '--filter=gzip > $FILE.fq.gz',
+
+    cmd.append(['split', '-l', str(chunk_lines),
+                '--filter=pigz -p {} > $FILE.fq.gz'.format(max(1, int(options.fq_split_cores) - 1)),
                 '-', 'fq_chunk.'])
 
-    options.drunner.call_directly(cmd, work_dir, None, None, False, [])
+    options.drunner.call(job, cmd, work_dir = work_dir, tool_name='pigz')
 
     fastq_chunk_ids = []
     for chunk_name in os.listdir(work_dir):
