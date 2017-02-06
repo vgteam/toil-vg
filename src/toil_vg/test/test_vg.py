@@ -56,7 +56,7 @@ class VGCGLTest(TestCase):
                                    '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                                    '--call_chunk_size', '20000',
                                    '--index_mode', 'gcsa-mem', '--index_cores', '7', '--alignment_cores', '4',
-                                   '--calling_cores', '4')
+                                   '--calling_cores', '4', '--vcfeval_cores', '4')
         
         # default output store
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
@@ -73,14 +73,19 @@ class VGCGLTest(TestCase):
         '''
         self._download_input('NA12877.brca1.bam.fq.gz')
         self._download_input('BRCA1_chrom_name_chop_100.vg')
+        self._download_input('normal_NA12877_17.vcf.gz')
+        self._download_input('normal_NA12877_17.vcf.gz.tbi')                
         
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq.gz')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
+        self.baseline = os.path.join(self.workdir, 'normal_NA12877_17.vcf.gz')
+        
         self._run(self.base_command, self.jobStoreLocal, self.sample_reads, 'NA12877',
                   self.local_outstore, '--graphs',  self.test_vg_graph, '--chroms', '17',
-                  '--call_opts', '--offset 43044293', '--interleaved')
+                  '--call_opts', '--offset 43044293', '--interleaved',
+                  '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
-        self._assertOutput('NA12877_17.vcf', self.local_outstore)
+        self._assertOutput('NA12877', self.local_outstore)
     
 
     def test_chr19_sampleNA12877(self):
@@ -92,16 +97,22 @@ class VGCGLTest(TestCase):
         self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.xg')
         self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
         self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa.lcp')
+        self._download_input('normal_NA12877_19.vcf.gz')
+        self._download_input('normal_NA12877_19.vcf.gz.tbi')        
+
         self.sample_reads = os.path.join(self.workdir, 'NA12877.lrc_kir.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg')
         self.test_xg_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.xg')
         self.test_gcsa_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
+        self.baseline = os.path.join(self.workdir, 'normal_NA12877_19.vcf.gz')
         
         self._run(self.base_command, self.jobStoreLocal, self.sample_reads, 'NA12877',
                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
                   '--xg_index', self.test_xg_index, '--graphs', self.test_vg_graph,
-                  '--chroms', '19', '--force_outstore')
-        self._assertOutput('NA12877_19.vcf', self.local_outstore)
+                  '--chroms', '19', '--force_outstore', '--vcfeval_baseline', self.baseline,
+                  '--vcfeval_fasta', self.chrom_fa)
+        
+        self._assertOutput('NA12877', self.local_outstore)
 
     def test_chr6_MHC_sampleNA12877(self):
         ''' Test sample MHC output
@@ -109,10 +120,14 @@ class VGCGLTest(TestCase):
         self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq'
         self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg'
         self.test_gcsa_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg.gcsa'
+        self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/normal_NA12877_6.vcf.gz'
+        
         self._run(self.base_command, self.jobStoreLocal, self.sample_reads, 'NA12877',
                   self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
-                  '--graphs', self.test_vg_graph, '--chroms', '6')
-        self._assertOutput('NA12877_6.vcf', self.local_outstore)
+                  '--graphs', self.test_vg_graph, '--chroms', '6',
+                  '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
+        
+        self._assertOutput('NA12877', self.local_outstore)
 
     def test_chr5_SMA_sampleNA12877(self):
         ''' Test sample SMA output
@@ -132,28 +147,14 @@ class VGCGLTest(TestCase):
         log.info('Running %r', args)
         subprocess.check_call(args)
 
-    def _assertOutput(self, testFile, outstore, f1_threshold=0.90):
-        # todo: clean this to be less hardcoded
-        testName = 'NA12877.vcf.gz'
-        normalName = 'normal_' + testFile + '.gz'
-        localTest = os.path.join(self.workdir, testName)
-        localNormal = os.path.join(self.workdir, normalName)
+    def _assertOutput(self, sample_name, outstore, f1_threshold=0.90):
 
-        # copy baseline
-        self._download_input(normalName, localNormal)
-        self._download_input(normalName + '.tbi', localNormal + '.tbi')
-
-        # copy calls
+        # grab the f1.txt file
+        local_f1 = os.path.join(self.workdir, 'f1.txt')
         io_store = IOStore.get(outstore)
-        io_store.read_input_file(testName, localTest)
-        io_store.read_input_file(testName + '.tbi', localTest + '.tbi')
+        io_store.read_input_file('{}_vcfeval_output_f1.txt'.format(sample_name), local_f1)
 
-        # run vcfeval
-        eval_results = os.path.join(self.workdir, 'eval_results')
-        subprocess.check_call(['toil-vg', 'vcfeval', self.jobStoreLocal, localTest,
-                               localNormal, self.chrom_fa, eval_results,
-                               '--vcfeval_cores', '8'])
-        with open(os.path.join(eval_results, 'f1.txt')) as f1_file:
+        with open(local_f1) as f1_file:
             f1_score = float(f1_file.readline().strip())
         
         self.assertTrue(f1_score >= f1_threshold)
