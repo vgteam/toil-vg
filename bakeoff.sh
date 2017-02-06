@@ -72,7 +72,7 @@ rm -f $F1FILE
 run_bakeoff_region BRCA1 17 43044293
 run_bakeoff_region BRCA2 13 32314860
 run_bakeoff_region SMA 5 692168181
-run_bakeoff_region LRC_KIR 9 54025633
+run_bakeoff_region LRC_KIR 19 54025633
 run_bakeoff_region MHC 6 28510119
 
 
