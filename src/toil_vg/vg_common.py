@@ -19,13 +19,17 @@ def add_docker_tool_parse_args(parser):
     parser.add_argument("--no_docker", action="store_true",
                         help="do not use docker for any commands")
     parser.add_argument("--vg_docker", type=str,
-                        help="dockerfile to use for vg")
+                        help="docker container to use for vg")
     parser.add_argument("--bcftools_docker", type=str,
-                        help="dockerfile to use for bcftools")
+                        help="docker container to use for bcftools")
     parser.add_argument("--tabix_docker", type=str,
-                        help="dockerfile to use for tabix")
+                        help="docker container to use for tabix")
     parser.add_argument("--jq_docker", type=str,
-                        help="dockerfile to use for jq")
+                        help="docker container to use for jq")
+    parser.add_argument("--rtg_docker", type=str,
+                        help="docker container to use for rtg vcfeval")
+    parser.add_argument("--pigz_docker", type=str,
+                        help="docker container to use for pigz")    
 
 def add_common_vg_parse_args(parser):
     """ centralize some shared io functions and their defaults """
@@ -50,6 +54,8 @@ def get_docker_tool_map(options):
         dmap["tabix"] = options.tabix_docker
         dmap["bgzip"] = options.tabix_docker
         dmap["jq"] = options.jq_docker
+        dmap["rtg"] = options.rtg_docker
+        dmap["pigz"] = options.pigz_docker
 
     # to do: could be a good place to do an existence check on these tools
 
@@ -68,7 +74,7 @@ on and off in just one place.  to do: Should go somewhere more central """
         return tool in self.docker_tool_map
 
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
-             check_output = False, inputs=[]):
+             check_output = False, tool_name=None):
         """ run a command.  decide to use docker based on whether
         its in the docker_tool_map.  args is either the usual argument list,
         or a list of lists (in the case of a chain of piped commands)  """
@@ -78,12 +84,13 @@ on and off in just one place.  to do: Should go somewhere more central """
         # convert everything to string
         for i in range(len(args)):
             args[i] = [str(x) for x in args[i]]
-        if args[0][0] in self.docker_tool_map:
-            return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, inputs)
+        name = tool_name if tool_name is not None else args[0][0]
+        if name in self.docker_tool_map:
+            return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
         else:
-            return self.call_directly(args, work_dir, outfile, errfile, check_output, inputs)
+            return self.call_directly(args, work_dir, outfile, errfile, check_output)
         
-    def call_with_docker(self, job, args, work_dir, outfile, errfile, check_output, inputs): 
+    def call_with_docker(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
         """ Thin wrapper for docker_call that will use internal lookup to
         figure out the location of the docker file.  Only exposes docker_call
         parameters used so far.  expect args as list of lists.  if (toplevel)
@@ -92,7 +99,10 @@ on and off in just one place.  to do: Should go somewhere more central """
         RealtimeLogger.info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
 
-        tool = str(self.docker_tool_map[args[0][0]][0])
+        # we use the first argument to look up the tool in the docker map
+        # but allow overriding of this with the tool_name parameter
+        name = tool_name if tool_name is not None else args[0][0]
+        tool = str(self.docker_tool_map[name][0])
         
         if len(args) == 1:
             # one command: we check entry point (stripping first arg if necessary)
@@ -132,15 +142,11 @@ on and off in just one place.  to do: Should go somewhere more central """
 
         return ret
 
-    def call_directly(self, args, work_dir, outfile, errfile, check_output, inputs):
+    def call_directly(self, args, work_dir, outfile, errfile, check_output):
         """ Just run the command without docker """
 
         RealtimeLogger.info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
-
-        # this is all that docker_call does with the inputs parameter:
-        for filename in inputs:
-            assert(os.path.isfile(os.path.join(work_dir, filename)))
 
         procs = []
         for i in range(len(args)):

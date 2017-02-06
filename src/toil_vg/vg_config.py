@@ -58,7 +58,7 @@ def generate_config():
         index-disk: '2G'
 
         # Resources for fastq splitting and gam merging
-        # fastq spilt can use up to 2 cores, gam merging single threaded
+        # Important to assign as many cores as possible here for large fastq inputs
         fq-split-cores: 1
         fq-split-mem: '4G'
         fq-split-disk: '2G'
@@ -106,21 +106,24 @@ def generate_config():
         ##   and the second element indicates if the docker image has an entrypoint or not
         ##   If left blank or commented, then the tool will be run directly from the command line instead
         ##   of through docker. no-docker (above) overrides all these options. 
-        # Dockerfile to use for vg
 
+        # Docker container to use for vg
         vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2134-g161bec5', True]
 
-        # Dockerfile to use for bcftools
+        # Docker container to use for bcftools
         bcftools-docker: ['quay.io/cmarkello/bcftools', False]
 
-        # Dockerfile to use for tabix
+        # Docker container to use for tabix
         tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
 
-        # Dockerfile to use for jq
+        # Docker container to use for jq
         jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
         
-        # Dockerfile to use for rtg
+        # Docker container to use for rtg
         rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
+
+        # Docker container to use for pigz
+        pigz-docker: ['quay.io/glennhickey/pigz:latest', True]
         
         ##########################
         ### vg_index Arguments ###
