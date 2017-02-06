@@ -50,6 +50,7 @@ def get_docker_tool_map(options):
         dmap["tabix"] = options.tabix_docker
         dmap["bgzip"] = options.tabix_docker
         dmap["jq"] = options.jq_docker
+        dmap["rtg"] = options.rtg_docker
 
     # to do: could be a good place to do an existence check on these tools
 

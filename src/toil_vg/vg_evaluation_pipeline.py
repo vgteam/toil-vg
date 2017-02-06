@@ -95,6 +95,10 @@ def pipeline_subparser(parser_run):
         help="Path to xg index (to use instead of generating new one)")    
     parser_run.add_argument("--gcsa_index", type=str,
         help="Path to GCSA index (to use instead of generating new one)")
+    parser_run.add_argument("--vcfeval_baseline", type=str,
+        help="Path to baseline VCF file for comparison (must be bgzipped and have .tbi)")
+    parser_run.add_argument("--vcfeval_fasta", type=str,
+        help="Path to DNA sequence file, required for vcfeval. Maybe be gzipped")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser_run)
@@ -108,9 +112,11 @@ def pipeline_subparser(parser_run):
     # Add common calling options shared with vg_call
     chunked_call_parse_args(parser_run)
 
+    # Add common calling options shared with vg_vcfeval
+    vcfeval_parse_args(parser_run)
+
     # Add common docker options
     add_docker_tool_parse_args(parser_run)
-
 
 
 # Below are the top level jobs of the vg_evaluation pipeline.  They
@@ -126,7 +132,8 @@ def pipeline_subparser(parser_run):
 
 
 def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputXGFileID,
-                       inputGCSAFileID, inputLCPFileID):
+                       inputGCSAFileID, inputLCPFileID, inputVCFFileID, inputTBIFileID,
+                       inputFastaFileID, inputBeDFileID):
     """
     All indexing.  result is a tarball in thie output store.  Will also do the fastq
     splitting, which doesn't depend on indexing. 
@@ -151,10 +158,12 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputX
                                         memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
 
     return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
-                                fastq_chunk_ids, cores=options.misc_cores, memory=options.misc_mem,
-                                disk=options.misc_disk).rv()
+                                fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
+                                inputFastaFileID, inputBeDFileID, cores=options.misc_cores,
+                                memory=options.misc_mem, disk=options.misc_disk).rv()
 
-def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
+def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids,
+                     baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, options,
@@ -163,10 +172,12 @@ def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids
                                     disk=options.misc_disk).rv()
 
     return job.addFollowOnJobFn(run_pipeline_call, options, xg_file_id,
-                                chr_gam_ids, cores=options.misc_cores, memory=options.misc_mem,
+                                chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
+                                fasta_id, bed_id, cores=options.misc_cores, memory=options.misc_mem,
                                 disk=options.misc_disk).rv()
 
-def run_pipeline_call(job, options, xg_file_id, chr_gam_ids):
+def run_pipeline_call(job, options, xg_file_id, chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
+                      fasta_id, bed_id):
     """ Run variant calling on the chromosomes in parallel """
 
     return_value = []
@@ -185,11 +196,14 @@ def run_pipeline_call(job, options, xg_file_id, chr_gam_ids):
         vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
 
     return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, vcf_tbi_file_id_pair_list,
+                                baseline_vcf_id, baseline_tbi_id,
+                                fasta_id, bed_id,
                                 cores=options.call_chunk_cores,
                                 memory=options.call_chunk_mem,
                                 disk=options.call_chunk_disk).rv()
 
-def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
+def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list, baseline_vcf_id, baseline_tbi_id,
+                           fasta_id, bed_id):
 
     RealtimeLogger.info("Completed gam merging and gam path variant calling.")
     RealtimeLogger.info("Starting vcf merging vcf files.")
@@ -223,9 +237,23 @@ def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     out_store_key = "{}.vcf.gz".format(options.sample_name)
     vcf_file = os.path.join(work_dir, vcf_merged_file_key)
     vcf_file_idx = vcf_file + ".tbi"
-    write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
-    write_to_store(job, options, vcf_file_idx, use_out_store = True, out_store_key = out_store_key + ".tbi") 
+    vcf_file_id = write_to_store(job, options, vcf_file)
+    vcf_idx_file_id = write_to_store(job, options, vcf_file_idx)
 
+    # checkpoint to output store if not done above
+    if not options.force_outstore:
+        write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
+        write_to_store(job, options, vcf_file_idx, use_out_store = True, out_store_key = out_store_key + ".tbi") 
+
+
+    # optionally run vcfeval at the very end.  output will end up in the outstore.
+    # f1 score will be returned.
+    if baseline_vcf_id is not None:
+        return job.addFollowOnJobFn(run_vcfeval, options, baseline_vcf_id, baseline_tbi_id,
+                                    vcf_file_id, vcf_idx_file_id, fasta_id, bed_id,
+                                    cores=options.vcfeval_cores,
+                                    memory=options.vcfeval_mem,
+                                    disk=options.vcfeval_disk).rv()
 
 def main():
     """
@@ -341,11 +369,25 @@ def pipeline_main(options):
                 inputXGFileID = import_to_store(toil, options, options.xg_index)
             else:
                 inputXGFileID = None
+            if options.vcfeval_baseline is not None:
+                assert options.vcfeval_baseline.endswith('.vcf.gz')
+                assert options.vcfeval_fasta is not None
+                inputVCFFileID = import_to_store(toil, options, options.vcfeval_baseline)
+                inputTBIFileID = import_to_store(toil, options, options.vcfeval_baseline + '.tbi')
+                inputFastaFileID = import_to_store(toil, options, options.vcfeval_fasta)
+                inputBedFileID = import_to_store(toil, options, options.vcfeval_bed_regions) \
+                                 if options.vcfeval_bed_regions is not None else None
+            else:
+                inputVCFFileID = None
+                inputTBIFileID = None
+                inputFastaFileID = None
+                inputBedFileID = None
 
             # Make a root job
             root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileIDs,
                                      inputReadsFileID, inputXGFileID, inputGCSAFileID,
-                                     inputLCPFileID,
+                                     inputLCPFileID, inputVCFFileID, inputTBIFileID,
+                                     inputFastaFileID, inputBedFileID,
                                      cores=options.misc_cores, memory=options.misc_mem,
                                      disk=options.misc_disk)
 

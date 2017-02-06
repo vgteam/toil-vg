@@ -86,6 +86,11 @@ def generate_config():
         calling-mem: '4G'
         calling-disk: '2G'
 
+        # Resources for vcfeval
+        vcfeval-cores: 1
+        vcfeval-mem: '4G'
+        vcfeval-disk: '2G'
+
         ###########################################
         ### Arguments Shared Between Components ###
         # Use output store instead of toil for all intermediate files (use only for debugging)
@@ -181,6 +186,14 @@ def generate_config():
 
         # Use vg genotype instead of vg call
         genotype: False
+
+        #########################
+        ### vcfeval Arguments ###
+        # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
+        vcfeval-opts: []
+
+        # BED region file for vcfeval
+        vcfeval-bed-regions:
         
     """)
 

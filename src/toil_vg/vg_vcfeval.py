@@ -1,8 +1,7 @@
 #!/usr/bin/env python2.7
 """
-Thin wrapper for vcfeval.  Expects compressed indexed vcfs as input. 
-Doesn't really fit in at the moment, but plan on extending into more 
-fully fleshed out evaluation phase. 
+Thin wrapper for vcfeval, as a convenience to stick a vcfeval output directory
+along with the other toil-vg output.  Can be run standalone as well.
 """
 from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
@@ -24,9 +23,9 @@ def vcfeval_subparser(parser):
     # General options
     parser.add_argument("call_vcf", type=str,
                         help="input vcf (must be bgzipped and have .tbi")
-    parser.add_argument("truth_vcf", type=str,
+    parser.add_argument("vcfeval_baseline", type=str,
                         help="truth vcf (must be bgzipped and have .tbi")
-    parser.add_argument("fasta", type=str,
+    parser.add_argument("vcfeval_fasta", type=str,
                         help="fasta file containing the DNA sequence.  Can be"
                         " gzipped with .gz extension")
     parser.add_argument("out_store", type=str,
@@ -34,9 +33,6 @@ def vcfeval_subparser(parser):
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
-
-    # Add docker options
-    add_vcfeval_docker_tool_parse_args(parser)
 
     # Add common calling options shared with vg_evaluation_pipeline
     vcfeval_parse_args(parser)
@@ -47,45 +43,30 @@ def vcfeval_subparser(parser):
 def vcfeval_parse_args(parser):
     """ centralize calling parameters here """
 
-    parser.add_argument("--bed_regions", type=int,
+    parser.add_argument("--vcfeval_bed_regions", type=int,
                         help="BED file of regions to consider")
-    parser.add_argument("--vcfeval_filtering_opts", type=str,
+    parser.add_argument("--vcfeval_opts", type=str,
                         help="Additional filtering options for vcfeval",
                         default="")
     parser.add_argument("--vcfeval_cores", type=int,
                         default=1,
                         help="Cores to use for vcfeval")
-
-def add_vcfeval_docker_tool_parse_args(parser):
-    """ vcfeval specific docker options and their defaults """
-    parser.add_argument("--rtg_docker", type=list, default=['realtimegenomics/rtg-tools:3.7.1', True],
-                        help="dockerfile for rtg_tools")
-
-def get_vcfeval_docker_tool_map(options):
-    """ convenience function to parse the above _docker options into a dictionary """
-
-    dmap = dict()
-    if not options.no_docker:
-        dmap["rtg"] = options.rtg_docker
-
-    return dmap
     
-    
-def vcfeval(job, work_dir, call_vcf_name, truth_vcf_name,
+def vcfeval(job, work_dir, call_vcf_name, vcfeval_baseline_name,
             sdf_name, outdir_name, bed_name, options):
 
     """ create and run the vcfeval command """
 
     cmd = ['rtg', 'vcfeval', '--calls', call_vcf_name,
-           '--baseline', truth_vcf_name,
+           '--baseline', vcfeval_baseline_name,
            '--template', sdf_name, '--output', outdir_name,
            '--threads', str(options.vcfeval_cores)]
 
     if bed_name is not None:
         cmd += ['--evaluation-regions', os.path.basename(bed_name)]
 
-    if len(options.vcfeval_filtering_opts) > 0:
-        cmd += options.vcfeval_filtering_opts.split()
+    if len(options.vcfeval_opts) > 0:
+        cmd += options.vcfeval_opts.split()
 
     options.drunner.call(job, cmd, work_dir=work_dir)
 
@@ -100,28 +81,34 @@ def vcfeval(job, work_dir, call_vcf_name, truth_vcf_name,
         assert len(data) == len(header)
         return float(data[-1])    
     
-def run_vcfeval(job, options,
-                truth_vcf_name, truth_vcf_id, truth_tbi_id,
-                call_vcf_name, call_vcf_id, call_tbi_id,
-                fasta_name, fasta_id,
-                bed_name, bed_id):                
+def run_vcfeval(job, options, vcfeval_baseline_id, vcfeval_baseline_tbi_id, call_vcf_id, call_tbi_id,
+                fasta_id, bed_id):                
     """ run vcf_eval, return f1 score """
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
 
+    vcfeval_baseline_name = "truth_" + os.path.basename(options.vcfeval_baseline)
+    call_vcf_name = "calls.vcf.gz"
+    fasta_name = "fa_" + os.path.basename(options.vcfeval_fasta)
+    bed_name = "bed_" + os.path.basename(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None   
     # download into local temp directory
-    for id,name in [(truth_vcf_id, truth_vcf_name),
-                    (truth_tbi_id, truth_vcf_name + '.tbi'),
+    for id,name in [(vcfeval_baseline_id, vcfeval_baseline_name),
+                    (vcfeval_baseline_tbi_id, vcfeval_baseline_name + '.tbi'),
                     (call_vcf_id, call_vcf_name),
                     (call_tbi_id, call_vcf_name + '.tbi'),
                     (fasta_id, fasta_name),
                     (bed_id, bed_name)]:
         if id is not None:
-            job.fileStore.readGlobalFile(id, os.path.join(work_dir, name))
+            read_from_store(job, options, id, os.path.join(work_dir, name))
 
+    try:
+        out_tag = '{}_vcfeval_output'.format(options.sample_name)
+    except:
+        out_tag = 'vcfeval_output'
+        
     # output directory
-    out_name = "vcfeval_output"
+    out_name = out_tag
     # indexed sequence
     sdf_name = fasta_name + ".sdf"
     
@@ -132,7 +119,7 @@ def run_vcfeval(job, options,
         fasta_name = os.path.join('/data', fasta_name)
         sdf_name = os.path.join('/data', sdf_name)
         call_vcf_name = os.path.join('/data', call_vcf_name)
-        truth_vcf_name = os.path.join('/data', truth_vcf_name)
+        vcfeval_baseline_name = os.path.join('/data', vcfeval_baseline_name)
         out_name = os.path.join('/data', out_name)
         if bed_name is not None:
             bed_name = os.path.join('/data', bed_name)
@@ -141,16 +128,22 @@ def run_vcfeval(job, options,
     options.drunner.call(job, ['rtg', 'format',  fasta_name, '-o', sdf_name], work_dir=work_dir)    
 
     # run the vcf_eval command
-    f1 = vcfeval(job, work_dir, call_vcf_name, truth_vcf_name,
+    f1 = vcfeval(job, work_dir, call_vcf_name, vcfeval_baseline_name,
                  sdf_name, out_name, bed_name, options)
 
-    # todo : write everything to output store.
-    # (just sticking the f1 score in a text file for now)
-    f1_path = os.path.join(work_dir, "f1.txt")
+    # copy results to the output store
+    # 1) vcfeval_output_f1.txt (used currently by tests script)
+    f1_path = os.path.join(work_dir, "f1.txt")    
     with open(f1_path, "w") as f:
-        f.write(str(f1))    
-    out_store = IOStore.get(options.out_store)   
-    out_store.write_output_file(f1_path, "f1.txt")
+        f.write(str(f1))
+    write_to_store(job, options, os.path.join(work_dir, out_tag, 'summary.txt'), use_out_store = True,
+                   out_store_key = '{}_summary.txt'.format(out_tag))
+    # 2) vcfeval_output_summary.txt
+    write_to_store(job, options, f1_path, use_out_store = True,
+                   out_store_key = '{}_f1.txt'.format(out_tag))
+    options.drunner.call(job, ['tar', 'czf', out_tag + '.tar.gz', out_tag], work_dir = work_dir)
+    # 3) vcfeval_output.tar.gz -- whole shebang
+    write_to_store(job, options, os.path.join(work_dir, out_tag + '.tar.gz'), use_out_store = True)
 
     return f1
 
@@ -159,9 +152,8 @@ def vcfeval_main(options):
     
     # make the docker runner
     options.drunner = DockerRunner(
-        docker_tool_map = dict(get_docker_tool_map(options).items() +
-                               get_vcfeval_docker_tool_map(options).items()))
-        
+        docker_tool_map = get_docker_tool_map(options))
+    
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
         
@@ -169,31 +161,27 @@ def vcfeval_main(options):
     start_time_pipeline = timeit.default_timer()
 
     # we can relax this down the road by optionally doing some compression/indexing
-    assert options.truth_vcf.endswith(".vcf.gz")
+    assert options.vcfeval_baseline.endswith(".vcf.gz")
     assert options.call_vcf.endswith(".vcf.gz")
     
     with Toil(options) as toil:
         if not toil.options.restart:
 
-            truth_vcf_name = "truth_" + os.path.basename(options.truth_vcf)
-            call_vcf_name = "call_" + os.path.basename(options.call_vcf)
-            fasta_name = "fa_" + os.path.basename(options.fasta)
-            bed_name = "bed_" + os.path.basename(options.bed_regions) if options.bed_regions is not None else None
-
             # Upload local files to the remote IO Store
-            truth_vcf_id = import_to_store(toil, options, options.truth_vcf)
+            vcfeval_baseline_id = import_to_store(toil, options, options.vcfeval_baseline)
             call_vcf_id = import_to_store(toil, options, options.call_vcf)
-            truth_tbi_id = import_to_store(toil, options, options.truth_vcf + '.tbi')
+            vcfeval_baseline_tbi_id = import_to_store(toil, options, options.vcfeval_baseline + '.tbi')
             call_tbi_id = import_to_store(toil, options, options.call_vcf + '.tbi')            
-            fasta_id = import_to_store(toil, options, options.fasta)
-            bed_id = import_to_store(toil, options, options.bed_regions) if options.bed_regions is not None else None
+            fasta_id = import_to_store(toil, options, options.vcfeval_fasta)
+            bed_id = import_to_store(toil, options, options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
             
             # Make a root job
             root_job = Job.wrapJobFn(run_vcfeval, options,
-                                     truth_vcf_name, truth_vcf_id, truth_tbi_id,
-                                     call_vcf_name, call_vcf_id, call_tbi_id,
-                                     fasta_name, fasta_id, bed_name, bed_id,
-                                     cores=2, memory="5G", disk="2G")
+                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                                     call_vcf_id, call_tbi_id,
+                                     fasta_id, bed_id,
+                                     cores=options.vcfeval_cores, memory=options.vcfeval_mem,
+                                     disk=options.vcfeval_disk)
             
             # Run the job
             f1 = toil.start(root_job)
