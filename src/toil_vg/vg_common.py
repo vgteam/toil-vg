@@ -39,10 +39,6 @@ def add_common_vg_parse_args(parser):
     parser.add_argument("--force_outstore", action="store_true",
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
                         
-    parser.add_argument("--chroms", nargs='+',
-                        help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
-                        " specified, must be same length/order as --chroms")
-
     
 def get_docker_tool_map(options):
     """ convenience function to parse the above _docker options into a dictionary """
@@ -120,10 +116,10 @@ on and off in just one place.  to do: Should go somewhere more central """
             # and doesn't worry about entrypoints since everything goes through bash -c
             parameters = args
 
-        dc = dockerCheckOutput if check_output is True else dockerCall
-                    
-        ret = dc(job, tool, parameters = parameters,
-                 workDir=work_dir, outfile = outfile)
+        if check_output is True:
+            ret = dockerCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
+        else:
+            ret = dockerCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
         
         # This isn't running through reliably by itself.  Will assume it's
         # because I took docker.py out of toil, and leave here until we revert to
@@ -328,4 +324,24 @@ def batch_iterator(iterator, batch_size):
 def require(expression, message):
     if not expression:
         raise UserError('\n\n' + message + '\n\n')
-            
+
+def parse_id_ranges(job, options, id_ranges_file_id):
+    """Returns list of triples chrom, start, end
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+    id_range_file = os.path.join(work_dir, 'id_ranges.tsv')
+    read_from_store(job, options, id_ranges_file_id, id_range_file)
+    return parse_id_ranges_file(id_range_file)
+
+def parse_id_ranges_file(id_ranges_filename):
+    """Returns list of triples chrom, start, end
+    """
+    id_ranges = []
+    with open(id_ranges_filename) as f:
+        for line in f:
+            toks = line.split()
+            if len(toks) == 3:
+                id_ranges.append((toks[0], int(toks[1]), int(toks[2])))
+    return id_ranges
+                                 
+                

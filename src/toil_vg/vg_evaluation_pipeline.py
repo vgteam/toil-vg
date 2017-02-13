@@ -95,6 +95,9 @@ def pipeline_subparser(parser_run):
         help="Path to xg index (to use instead of generating new one)")    
     parser_run.add_argument("--gcsa_index", type=str,
         help="Path to GCSA index (to use instead of generating new one)")
+    parser_run.add_argument("--id_ranges", type=str,
+        help="Path to file with node id ranges for each chromosome in BED format.  If not"
+                            " supplied, will be generated from --graphs)")
     parser_run.add_argument("--vcfeval_baseline", type=str,
         help="Path to baseline VCF file for comparison (must be bgzipped and have .tbi)")
     parser_run.add_argument("--vcfeval_fasta", type=str,
@@ -132,7 +135,8 @@ def pipeline_subparser(parser_run):
 
 
 def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputXGFileID,
-                       inputGCSAFileID, inputLCPFileID, inputVCFFileID, inputTBIFileID,
+                       inputGCSAFileID, inputLCPFileID, inputIDRangesFileID,
+                       inputVCFFileID, inputTBIFileID,
                        inputFastaFileID, inputBeDFileID):
     """
     All indexing.  result is a tarball in thie output store.  Will also do the fastq
@@ -154,40 +158,49 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputX
         assert inputLCPFileID is not None
         gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
 
+    if inputIDRangesFileID is None: 
+        id_ranges_file_id  = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
+                                               cores=options.misc_cores,
+                                               memory=options.misc_mem, disk=options.misc_disk).rv()
+    else:
+        id_ranges_file_id = inputIDRangesFileID
+
     fastq_chunk_ids = job.addChildJobFn(run_split_fastq, options, inputReadsFileID, cores=options.fq_split_cores,
                                         memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
 
+
     return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
-                                fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
+                                id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
                                 inputFastaFileID, inputBeDFileID, cores=options.misc_cores,
                                 memory=options.misc_mem, disk=options.misc_disk).rv()
 
-def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids,
+def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, options,
-                                    xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids,
+                                    xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
                                     cores=options.misc_cores, memory=options.misc_mem,
                                     disk=options.misc_disk).rv()
 
-    return job.addFollowOnJobFn(run_pipeline_call, options, xg_file_id,
+    return job.addFollowOnJobFn(run_pipeline_call, options, xg_file_id, id_ranges_file_id,
                                 chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
                                 fasta_id, bed_id, cores=options.misc_cores, memory=options.misc_mem,
                                 disk=options.misc_disk).rv()
 
-def run_pipeline_call(job, options, xg_file_id, chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
-                      fasta_id, bed_id):
+def run_pipeline_call(job, options, xg_file_id, id_ranges_file_id, chr_gam_ids, baseline_vcf_id,
+                      baseline_tbi_id, fasta_id, bed_id):
     """ Run variant calling on the chromosomes in parallel """
 
     return_value = []
-    vcf_tbi_file_id_pair_list = [] 
-    assert len(chr_gam_ids) == len(options.chroms)
+    vcf_tbi_file_id_pair_list = []
+    chroms = [x[0] for x in parse_id_ranges(job, options, id_ranges_file_id)]
+    assert len(chr_gam_ids) == len(chroms)
 
     #Run variant calling
     for i in range(len(chr_gam_ids)):
         alignment_file_id = chr_gam_ids[i]
-        chr_label = options.chroms[i]
+        chr_label = chroms[i]
         vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
                                                  alignment_file_id, chr_label,
                                                  cores=options.call_chunk_cores,
@@ -316,9 +329,6 @@ def main():
         vcfeval_main(options)
         return
 
-    require(options.chroms is not None and len(options.chroms) > 0,
-            'at least one chromosome must be specified with --chroms')
-
     if args.command == 'run':
         pipeline_main(options)
     elif args.command == 'index':
@@ -339,8 +349,12 @@ def pipeline_main(options):
     # or standalone. Hack this in here for now
     options.tool = 'pipeline'
 
-    require(len(options.chroms) == len(options.graphs), '--chrom and --graph must have'
-            ' same number of arguments')
+    if options.graphs is not None and len(options.graphs) > 0:
+        require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
+                ' same number of arguments')
+    else:
+        require(options.id_ranges is not None, 'at least one of --id_ranges and --graphs'
+                ' must be used')
 
     # Throw error if something wrong with IOStore string
     IOStore.get(options.out_store)
@@ -369,6 +383,10 @@ def pipeline_main(options):
                 inputXGFileID = import_to_store(toil, options, options.xg_index)
             else:
                 inputXGFileID = None
+            if options.id_ranges:
+                inputIDRangesFileID = import_to_store(toil, options, options.id_ranges)
+            else:
+                inputIDRangesFileID = None
             if options.vcfeval_baseline is not None:
                 assert options.vcfeval_baseline.endswith('.vcf.gz')
                 assert options.vcfeval_fasta is not None
@@ -386,7 +404,8 @@ def pipeline_main(options):
             # Make a root job
             root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileIDs,
                                      inputReadsFileID, inputXGFileID, inputGCSAFileID,
-                                     inputLCPFileID, inputVCFFileID, inputTBIFileID,
+                                     inputLCPFileID, inputIDRangesFileID,
+                                     inputVCFFileID, inputTBIFileID,
                                      inputFastaFileID, inputBedFileID,
                                      cores=options.misc_cores, memory=options.misc_mem,
                                      disk=options.misc_disk)

@@ -49,6 +49,10 @@ def index_parse_args(parser):
     parser.add_argument("--graphs", nargs='+', required=True,
                         help="input graph(s). one per chromosome (separated by space)")
 
+    parser.add_argument("--chroms", nargs='+',
+                        help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
+                        " specified, must be same length/order as --chroms")
+
     parser.add_argument("--index_cores", type=int,
         help="number of threads during the indexing step")
 
@@ -248,7 +252,74 @@ def run_xg_indexing(job, options, inputGraphFileIDs):
     run_time = end_time - start_time
     RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
+def run_id_ranges(job, options, inputGraphFileIDs):
+    """ Make a file of chrom_name <tab> first_id <tab> last_id covering the 
+    id ranges of all chromosomes.  This is to speed up gam splitting down the road. 
+    """
     
+    RealtimeLogger.info("Starting id ranges...")
+    start_time = timeit.default_timer()
+    
+    # Our id ranges (list of triples)
+    id_ranges = []
+
+    # Get the range for one graph per job. 
+    for i, graph_id in enumerate(inputGraphFileIDs):
+        id_range = job.addChildJobFn(run_id_range, options, i, graph_id,
+                                     cores=options.index_cores,
+                                     memory=options.index_mem, disk=options.index_disk).rv()
+        
+        id_ranges.append(id_range)
+
+    # Merge them into a file and return its id
+    return job.addFollowOnJobFn(run_merge_id_ranges, options, id_ranges,
+                                cores=options.misc_cores, memory=options.misc_mem,
+                                disk=options.misc_disk).rv()
+
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Finished id ranges. Process took {} seconds.".format(run_time))
+    
+def run_id_range(job, options, graph_i, graph_id):
+    """
+    Compute a node id range for a graph (which should be an entire contig/chromosome with
+    contiguous id space -- see vg ids) using vg stats
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # download graph
+    graph_filename = os.path.join(work_dir, '{}.vg'.format(options.chroms[graph_i]))
+    read_from_store(job, options, graph_id, graph_filename)
+
+    #run vg stats
+    #expect result of form node-id-range <tab> first:last
+    command = ['vg', 'stats', '-r', os.path.basename(graph_filename)]
+    stats_out = options.drunner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
+    assert stats_out[0] == 'node-id-range'
+    first, last = stats_out[1].split(':')
+
+    return options.chroms[graph_i], first, last
+    
+def run_merge_id_ranges(job, options, id_ranges):
+    """ create a BED-style file of id ranges
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Where do we put the XG index?
+    id_range_filename = os.path.join(work_dir, '{}_id_ranges.tsv'.format(options.index_name))
+
+    with open(id_range_filename, 'w') as f:
+        for id_range in id_ranges:
+            f.write('{}\t{}\t{}\n'.format(*id_range))
+
+    # Checkpoint index to output store
+    if not options.force_outstore or options.tool == 'index':
+        write_to_store(job, options, id_range_filename, use_out_store = True)
+
+    # Not in standalone Mode, then we write it to the file store
+    if options.tool != 'index':
+        id_range_file_id = write_to_store(job, options, id_range_filename)
+        return id_range_file_id
 
 def run_indexing(job, options, inputGraphFileIDs):
     """ run indexing logic by itself.  Return pair of idx for xg and gcsa output index files  
@@ -258,6 +329,8 @@ def run_indexing(job, options, inputGraphFileIDs):
                                       cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
     xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
                                       cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
+    id_ranges_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
+                                     cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
 
     return xg_index_id, gcsa_and_lcp_ids
 
@@ -275,7 +348,8 @@ def index_main(options):
     # or standalone. Hack this in here for now
     options.tool = 'index'
 
-    require(len(options.chroms) == len(options.graphs), '--chrom and --graph must have'
+    require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
+    require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
             ' same number of arguments')
 
     # Throw error if something wrong with IOStore string

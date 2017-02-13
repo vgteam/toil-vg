@@ -39,6 +39,9 @@ def map_subparser(parser):
         help="Path to xg index")    
     parser.add_argument("gcsa_index", type=str,
         help="Path to GCSA index")
+    parser.add_argument("id_ranges", type=str,
+        help="Path to file with node id ranges for each chromosome in BED format.  If not"
+                            " supplied, will be generated from --graphs)")        
     parser.add_argument("out_store",
         help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
     parser.add_argument("--kmer_size", type=int,
@@ -69,13 +72,13 @@ def map_parse_args(parser, stand_alone = False):
     parser.add_argument("--map_opts", type=str,
                         help="arguments for vg map (wrapped in \"\")")
 
-def run_mapping(job, options, xg_file_id, gcsa_and_lcp_ids, reads_file_id):
+def run_mapping(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_file_id):
     """ split the fastq, then align each chunk """
     fastq_chunk_ids = job.addChildJobFn(run_split_fastq, options, reads_file_id, cores=options.fq_split_cores,
                                         memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
 
     return job.addFollowOnJobFn(run_whole_alignment, options, xg_file_id, gcsa_and_lcp_ids,
-                                fastq_chunk_ids, cores=options.misc_cores,
+                                id_ranges_file_id, fastq_chunk_ids, cores=options.misc_cores,
                                 memory=options.misc_mem, disk=options.misc_disk).rv()    
 
 def run_split_fastq(job, options, sample_fastq_id):
@@ -127,28 +130,30 @@ def run_split_fastq(job, options, sample_fastq_id):
 
     return fastq_chunk_ids
 
-def run_whole_alignment(job, options, xg_file_id, gcsa_and_lcp_ids, fastq_chunk_ids):
+def run_whole_alignment(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids):
     """ align all fastq chunks in parallel
     """
     
     # this will be a list of lists.
-    # gam_chunk_file_ids[i][j], will correspond to the jth path (from options.chroms)
+    # gam_chunk_file_ids[i][j], will correspond to the jth path (from id_ranges)
     # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
 
     for chunk_id, chunk_filename_id in enumerate(fastq_chunk_ids):        
         #Run graph alignment on each fastq chunk
         gam_chunk_ids = job.addChildJobFn(run_chunk_alignment, options, chunk_filename_id, chunk_id,
-                                          xg_file_id, gcsa_and_lcp_ids,
+                                          xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
                                           cores=options.alignment_cores, memory=options.alignment_mem,
                                           disk=options.alignment_disk).rv()
         gam_chunk_file_ids.append(gam_chunk_ids)
 
-    return job.addFollowOnJobFn(run_merge_gams, options, gam_chunk_file_ids, cores=options.misc_cores,
+    return job.addFollowOnJobFn(run_merge_gams, options, id_ranges_file_id, gam_chunk_file_ids,
+                                cores=options.misc_cores,
                                 memory=options.misc_mem, disk=options.misc_disk).rv()
 
 
-def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, gcsa_and_lcp_ids):
+def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, gcsa_and_lcp_ids,
+                        id_ranges_file_id):
 
     RealtimeLogger.info("Starting alignment on {} chunk {}".format(options.sample_name, chunk_id))
     # Set up the IO stores each time, since we can't unpickle them on Azure for
@@ -172,6 +177,8 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, g
     lcp_file = gcsa_file + ".lcp"
     lcp_file_id = gcsa_and_lcp_ids[1]
     read_from_store(job, options, lcp_file_id, lcp_file)
+    id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
+    read_from_store(job, options, id_ranges_file_id, id_ranges_file)
 
     # We need the sample fastq for alignment
     fastq_file = os.path.join(work_dir, 'chunk_{}.fq.gz'.format(chunk_id))
@@ -225,7 +232,7 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, g
     RealtimeLogger.info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
 
     # Chunk the gam up by chromosome
-    gam_chunks = split_gam_into_chroms(job, work_dir, options, xg_file, output_file)
+    gam_chunks = split_gam_into_chroms(job, work_dir, options, xg_file, id_ranges_file, output_file)
 
     # Write gam_chunks to store
     gam_chunk_ids = []
@@ -234,7 +241,7 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, g
 
     return gam_chunk_ids
 
-def split_gam_into_chroms(job, work_dir, options, xg_file, gam_file):
+def split_gam_into_chroms(job, work_dir, options, xg_file, id_ranges_file, gam_file):
     """
     Create a Rocksdb index then use it to split up the given gam file
     (a local path) into a separate gam for each chromosome.  
@@ -244,43 +251,29 @@ def split_gam_into_chroms(job, work_dir, options, xg_file, gam_file):
 
     output_index = gam_file + '.index'
     
-    # Index the alignment by node
-    start_time = timeit.default_timer()
 
     index_cmd = ['vg', 'index', '-N', os.path.basename(gam_file),
                  '-d', os.path.basename(output_index), '-t', str(options.gam_index_cores)]
     options.drunner.call(job, index_cmd, work_dir = work_dir)
         
-    end_time = timeit.default_timer()
-    run_time = end_time - start_time
-    RealtimeLogger.info("Indexed {}. Process took {} seconds.".format(output_index, run_time))
-
-    # Chunk the alignment into chromosomes using the input paths
-
-    # First, we make a list of paths in a format that we can pass to vg chunk
-    path_list_name = os.path.join(work_dir, 'path_list')
-    with open(path_list_name, 'w') as path_list:
-        for path in options.chroms:
-            path_list.write('{}\n'.format(path))
+    # Chunk the alignment into chromosomes using the id ranges
+    # (note by using id ranges and 0 context and -a we avoid costly subgraph extraction)
 
     output_bed_name = os.path.join(work_dir, 'output_bed.bed')
     
     # Now run vg chunk on the gam index to get our gams
+    # Note: using -a -c 0 -i bypasses subgraph extraction, which is important
+    # as it saves a ton of time and memory
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_file),
-                 '-a', os.path.basename(output_index), '-c', str(options.chunk_context),
-                 '-P', os.path.basename(path_list_name),
+                 '-a', os.path.basename(output_index), '-c', '0',
+                 '-r', os.path.basename(id_ranges_file),
                  '-b', os.path.splitext(os.path.basename(gam_file))[0],
                  '-t', str(options.gam_split_cores),
-                 '-R', os.path.basename(output_bed_name)]
+                 '-R', os.path.basename(output_bed_name),
+                 '-i']
     
-    start_time = timeit.default_timer()
-
     options.drunner.call(job, chunk_cmd, work_dir = work_dir)
     
-    end_time = timeit.default_timer()
-    run_time = end_time - start_time
-    RealtimeLogger.info("Chunked {}. Process took {} seconds.".format(gam_file, run_time))
-
     # scrape up the vg chunk results into a list of paths to the output gam
     # chunks and return them.  we expect the filenames to be in the 4th column
     # of the output bed from vg chunk. 
@@ -291,18 +284,20 @@ def split_gam_into_chroms(job, work_dir, options, xg_file, gam_file):
             if len(toks) > 3:
                 gam_chunks.append(os.path.join(work_dir, os.path.basename(toks[3].strip())))
                 assert os.path.splitext(gam_chunks[-1])[1] == '.gam'
-    assert len(gam_chunks) == len(options.chroms)
+
     return gam_chunks
 
 
-def run_merge_gams(job, options, gam_chunk_file_ids):
+def run_merge_gams(job, options, id_ranges_file_id, gam_chunk_file_ids):
     """
     Merge together gams, doing each chromosome in parallel
     """
-
+    id_ranges = parse_id_ranges(job, options, id_ranges_file_id)
+    chroms = [x[0] for x in id_ranges]
+    
     chr_gam_ids = []
 
-    for i, chr in enumerate(options.chroms):
+    for i, chr in enumerate(chroms):
         shard_ids = [gam_chunk_file_ids[j][i] for j in range(len(gam_chunk_file_ids))]
         chr_gam_id = job.addChildJobFn(run_merge_chrom_gam, options, chr, shard_ids,
                                        cores=options.fq_split_cores,
@@ -368,11 +363,13 @@ def map_main(options):
             inputXGFileID = import_to_store(toil, options, options.xg_index)
             inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
             inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
+            inputIDRangesFileID = import_to_store(toil, options, options.id_ranges)
             sampleFastqFileID = import_to_store(toil, options, options.sample_reads)
             
             # Make a root job
             root_job = Job.wrapJobFn(run_mapping, options,inputXGFileID,
-                                     (inputGCSAFileID, inputLCPFileID), sampleFastqFileID,
+                                     (inputGCSAFileID, inputLCPFileID),
+                                     inputIDRangesFileID, sampleFastqFileID,
                                      cores=options.misc_cores,
                                      memory=options.misc_mem,
                                      disk=options.misc_disk)
