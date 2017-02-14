@@ -26,6 +26,8 @@ def call_subparser(parser):
                         help="input xg file")
     parser.add_argument("gam_path", type=str,
                         help="input alignment")
+    parser.add_argument("path_name", type=str,
+                        help="name of vg path to use for reference")
     parser.add_argument("sample_name", type=str,
                         help="sample name (ex NA12878)")
     parser.add_argument("out_store",
@@ -335,9 +337,6 @@ def merge_vcf_chunks(job, options, path_name, clip_file_ids):
 def call_main(options):
     """ no harm in preserving command line access to chunked_call for debugging """
     
-    # currently only support (exactly) one path
-    require(len(options.chroms) == 1, "Must pass exactly one reference path with --chroms")
-
     # make the docker runner
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
@@ -364,7 +363,7 @@ def call_main(options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calling, options, inputXGFileID, inputGamFileID,
-                                     options.chroms[0],
+                                     options.path_name,
                                      cores=options.call_chunk_cores,
                                      memory=options.call_chunk_mem,
                                      disk=options.call_chunk_disk)
