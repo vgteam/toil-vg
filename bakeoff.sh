@@ -26,8 +26,8 @@ OPTS='--index_cores 7 --alignment_cores 7 --calling_cores 7 --vcfeval_cores 7 --
 # Hack in support for switching between mesos and local here
 # (Note, for job store and out store, we will tack on -REGION to make them unique)
 if [ "$MESOS" == "1" ]; then
-	 JOB_STORE="$aws:us-west-2:glennhickey-bakeoff-job-store"
-	 OUT_STORE="$aws:us-west-2:glennhickey-bakeoff-out-store"
+	 JOB_STORE="aws:us-west-2:glennhickey-bakeoff-job-store"
+	 OUT_STORE="aws:us-west-2:glennhickey-bakeoff-out-store"
 	 CP_OUT_STORE="s3://glennhickey-bakeoff-out-store"
 	 BS_OPTS="--batchSystem=mesos --mesosMaster=mesos-master:5050"
 	 CP_CMD="aws s3 cp"
@@ -48,12 +48,12 @@ function run_bakeoff_region {
 	 local OFFSET=$3
 
 	 # erase the job store and f1 output
-	 toil clean ${JOB_STORE}-${REGION}
-	 F1_SCORE="${CP_OUT_STORE}-${REGION}/NA12878_vcfeval_output_f1.txt"
+	 toil clean ${JOB_STORE}-${REGION,,}
+	 F1_SCORE="${CP_OUT_STORE}-${REGION,,}/NA12878_vcfeval_output_f1.txt"
 	 $RM_CMD $F1_SCORE
 
 	 # run the whole pipeline
-	 toil-vg run ${JOB_STORE}-${REGION} ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz NA12878 ${OUT_STORE}-${REGION} --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${OPTS}
+	 toil-vg run ${JOB_STORE}-${REGION,,} ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz NA12878 ${OUT_STORE}-${REGION,,} --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${OPTS}
 
 	 # harvest the f1 output and append it to our table
 	 rm -f temp_f1.txt
@@ -71,7 +71,7 @@ rm -f $F1FILE
 
 run_bakeoff_region BRCA1 17 43044293
 run_bakeoff_region BRCA2 13 32314860
-run_bakeoff_region SMA 5 692168181
+run_bakeoff_region SMA 5 69216818
 run_bakeoff_region LRC_KIR 19 54025633
 run_bakeoff_region MHC 6 28510119
 
