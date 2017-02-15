@@ -145,8 +145,8 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputX
 
     if inputXGFileID is None:
         xg_file_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
-                                       cores=options.index_cores, memory=options.index_mem,
-                                       disk=options.index_disk).rv()
+                                       cores=options.xg_index_cores, memory=options.xg_index_mem,
+                                       disk=options.xg_index_disk).rv()
     else:
         xg_file_id = inputXGFileID
         

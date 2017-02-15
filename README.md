@@ -60,6 +60,16 @@
     toil-vg run ./local-toilvg-jobstore ./test_vg_input/NA12877.brca1.brca2.bam.fq NA12877 ./local-toilvg-output --graphs ./test_vg_input/BRCA1_BRCA2_may6.vg --chroms 13 --index_cores 2 --alignment_cores 2 --calling_cores 2 
 
 
+## Configuration file
+
+A configuration file can be used as an alternative to most command line options.  A default configuration file can be generated using
+
+    toil-vg generate-config > config.yaml
+
+Pass this file to `toil-vg` commands using the `--config` option.
+
+For non-trivial inputs, care must be taken to specify the resource requirements for the different phases, as they all default to single-core and 4G of ram. 
+
 ## Basic start-to-finish run of the Toi-VG pipeline on Amazon EC2
 
 ### Install and setup local cgcloud

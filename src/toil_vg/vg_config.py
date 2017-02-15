@@ -45,17 +45,32 @@ def generate_config():
         misc-cores: 1
         misc-mem: '1G'
         misc-disk: '1G'
+
+        # Resources allotted for xg indexing.
+        # this stage generally cannot take advantage of more than one thread
+        # For whole genome, suggest 200G mem and disk
+        xg-index-cores: 1
+        xg-index-mem: '4G'
+        xg-index-disk: '2G'
     
         # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
         # this stage generally cannot take advantage of more than one thread
+        # For whole genome, suggest 60G mem and disk
         prune-cores: 1
         prune-mem: '4G'
         prune-disk: '2G'
 
-        # Resources allotted for xg and gcsa indexing and kmers computing
-        index-cores: 1
-        index-mem: '4G'
-        index-disk: '2G'
+        # Resources allotted for gcsa kmers.  
+        # For whole genome, suggest 70G mem and disk
+        kmers-cores: 1
+        kmers-mem: '4G'
+        kmers-disk: '2G'
+
+        # Resources allotted gcsa indexing
+        # For whole genome, suggest 200G mem and 3T disk
+        gcsa-index-cores: 1
+        gcsa-index-mem: '4G'
+        gcsa-index-disk: '2G'
 
         # Resources for fastq splitting and gam merging
         # Important to assign as many cores as possible here for large fastq inputs
@@ -68,14 +83,9 @@ def generate_config():
         # after a few threads.
         gam-index-cores: 1
 
-        # Number of threads to use for splitting GAMs into chromosomes using vg chunk
-        # For each core, a whole-chromosome .vg graph must be processed in memory,
-        # so this number should be well below the number of chromosomes unless 
-        # a lot of memory (>512G ?) is available. 
-        gam-split-cores: 1
-
         # Resources for *each* vg map job
         # the number of vg map jobs is controlled by reads-per-chunk (below)
+        # For whole genome, suggest 100G memory and disk for whole genome
         alignment-cores: 1
         alignment-mem: '4G'
         alignment-disk: '2G'
@@ -83,11 +93,13 @@ def generate_config():
         # Resources for chunking up a graph/gam for calling (and merging)
         # typically take xg for whoe grpah, and gam for a chromosome,
         # and split up into chunks of call-chunk-size (below)
+        # For whole genome, suggest 20G memory and 100G disk
         call-chunk-cores: 1
         call-chunk-mem: '4G'
         call-chunk-disk: '2G'
 
         # Resources for calling each chunk (currently includes pileup/call/genotype)
+        # For whole genome, suggest 20G memory and 20G disk
         calling-cores: 1
         calling-mem: '4G'
         calling-disk: '2G'
