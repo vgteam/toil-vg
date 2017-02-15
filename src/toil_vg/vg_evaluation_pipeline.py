@@ -55,6 +55,7 @@ def parse_args():
     # Config subparser
     parser_config = subparsers.add_parser('generate-config',
                                           help='Prints default config file')
+    config_subparser(parser_config)
     
     # Run subparser
     parser_run = subparsers.add_parser('run', help='Runs the Toil VG DNA-seq pipeline')
@@ -145,8 +146,8 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputX
 
     if inputXGFileID is None:
         xg_file_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
-                                       cores=options.index_cores, memory=options.index_mem,
-                                       disk=options.index_disk).rv()
+                                       cores=options.xg_index_cores, memory=options.xg_index_mem,
+                                       disk=options.xg_index_disk).rv()
     else:
         xg_file_id = inputXGFileID
         
@@ -349,12 +350,13 @@ def pipeline_main(options):
     # or standalone. Hack this in here for now
     options.tool = 'pipeline'
 
-    if options.graphs is not None and len(options.graphs) > 0:
+    if options.graphs:
         require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
                 ' same number of arguments')
-    else:
-        require(options.id_ranges is not None, 'at least one of --id_ranges and --graphs'
-                ' must be used')
+        
+    if not options.xg_index or not options.gcsa_index or not options.id_ranges:
+        require(options.graphs and options.chroms, '--chroms and --graphs must be specified'
+                ' unless --xg_index --gcsa_index and --id_ranges used')
 
     # Throw error if something wrong with IOStore string
     IOStore.get(options.out_store)
