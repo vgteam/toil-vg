@@ -268,7 +268,7 @@ def split_gam_into_chroms(job, work_dir, options, xg_file, id_ranges_file, gam_f
                  '-a', os.path.basename(output_index), '-c', '0',
                  '-r', os.path.basename(id_ranges_file),
                  '-b', os.path.splitext(os.path.basename(gam_file))[0],
-                 '-t', str(options.gam_split_cores),
+                 '-t', str(options.alignment_cores),
                  '-R', os.path.basename(output_bed_name),
                  '-i']
     

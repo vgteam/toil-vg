@@ -53,8 +53,11 @@ def index_parse_args(parser):
                         help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
                         " specified, must be same length/order as --chroms")
 
-    parser.add_argument("--index_cores", type=int,
-        help="number of threads during the indexing step")
+    parser.add_argument("--gcsa_index_cores", type=int,
+        help="number of threads during the gcsa indexing step")
+
+    parser.add_argument("--kmers_cores", type=int,
+        help="number of threads during the gcsa kmers step")
 
     parser.add_argument("--index_name", type=str,
                         help="name of index files. <name>.xg, <name>.gcsa etc.")
@@ -108,8 +111,8 @@ def run_gcsa_prune(job, options, graph_i, input_graph_id):
     
     return job.addFollowOnJobFn(run_gcsa_kmers, options, graph_i,
                                 pruned_graph_id, 
-                                cores=options.index_cores, memory=options.index_mem,
-                                disk=options.index_disk).rv()
+                                cores=options.kmers_cores, memory=options.kmers_mem,
+                                disk=options.kmers_disk).rv()
 
 def run_gcsa_kmers(job, options, graph_i, input_graph_id):
     """
@@ -165,8 +168,8 @@ def run_gcsa_prep(job, options, input_graph_ids):
         kmers_ids.append(kmers_id)
 
     return job.addFollowOnJobFn(run_gcsa_indexing, options, kmers_ids,
-                                cores=options.index_cores, memory=options.index_mem,
-                                disk=options.index_disk).rv()
+                                cores=options.gcsa_index_cores, memory=options.gcsa_index_mem,
+                                disk=options.gcsa_index_disk).rv()
     
 def run_gcsa_indexing(job, options, kmers_ids):
     """
@@ -266,8 +269,8 @@ def run_id_ranges(job, options, inputGraphFileIDs):
     # Get the range for one graph per job. 
     for i, graph_id in enumerate(inputGraphFileIDs):
         id_range = job.addChildJobFn(run_id_range, options, i, graph_id,
-                                     cores=options.index_cores,
-                                     memory=options.index_mem, disk=options.index_disk).rv()
+                                     cores=options.prune_cores,
+                                     memory=options.prune_mem, disk=options.prune_disk).rv()
         
         id_ranges.append(id_range)
 
@@ -328,7 +331,7 @@ def run_indexing(job, options, inputGraphFileIDs):
     gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, options, inputGraphFileIDs,
                                       cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
     xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
-                                      cores=options.index_cores, memory=options.index_mem, disk=options.index_disk).rv()
+                                      cores=options.xg_index_cores, memory=options.xg_index_mem, disk=options.xg_index_disk).rv()
     id_ranges_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
                                      cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
 
