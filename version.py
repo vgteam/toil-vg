@@ -18,6 +18,7 @@ required_versions = {'toil': '>=3.5.0a1.dev251',
                      'pyyaml': '>=3.11',
                      'biopython': '>=1.67',
                      'pyvcf': '>=0.6.8',
-                     'boto3': '>=1.4.4'}
+                     'boto3': '>=1.4.4',
+                     'awscli': '>=1.10.1'}
 
 dependency_links = []

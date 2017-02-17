@@ -7,28 +7,47 @@
 ## For now, all we have is the basic logic to do one run of bakeoff, expecting
 ## virtualenv etc has already been set up. 
 
+usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\n" 1>&2; exit 1; }
+
+FAST=0
+MESOS=0
+
+while getopts "fm" o; do
+    case "${o}" in
+        f)
+            FAST=1
+            ;;
+        m)
+            MESOS=1
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
+
+shift $((OPTIND-1))
+
 if [ "$#" -ne 2 ]; then
-	 echo "Syntax $0 <MESOS> <F1FILE>"
-	 echo "(MESOS = [0,1])"
+	 usage
 	 exit 1
 fi
 
 # all input data expected to be here:
 BAKEOFF_STORE="s3://glennhickey-bakeoff-store"
 
-# set to 1 to toggle mesos / s3
-MESOS=$1
+PREFIX=$1
 F1FILE=$2
 
 # General Options
-OPTS='--index_cores 7 --alignment_cores 7 --calling_cores 7 --vcfeval_cores 7 --realTimeLogging --logInfo'
+OPTS='--gcsa_index_cores 7 --kmers_cores 7 --alignment_cores 7 --calling_cores 7 --vcfeval_cores 7 --realTimeLogging --logInfo'
 
 # Hack in support for switching between mesos and local here
 # (Note, for job store and out store, we will tack on -REGION to make them unique)
 if [ "$MESOS" == "1" ]; then
-	 JOB_STORE="aws:us-west-2:glennhickey-bakeoff-job-store"
-	 OUT_STORE="aws:us-west-2:glennhickey-bakeoff-out-store"
-	 CP_OUT_STORE="s3://glennhickey-bakeoff-out-store"
+	 JOB_STORE="aws:us-west-2:${PREFIX}-bakeoff-job-store"
+	 OUT_STORE="aws:us-west-2:${PREFIX}-bakeoff-out-store"
+	 CP_OUT_STORE="s3://${PREFIX}-bakeoff-out-store"
 	 BS_OPTS="--batchSystem=mesos --mesosMaster=mesos-master:5050"
 	 CP_CMD="aws s3 cp"
 	 RM_CMD="aws s3 rm"
@@ -55,6 +74,8 @@ function run_bakeoff_region {
 	 # run the whole pipeline
 	 toil-vg run ${JOB_STORE}-${REGION,,} ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz NA12878 ${OUT_STORE}-${REGION,,} --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${OPTS}
 
+	 toil-vg clean ${JOB_STORE}-${REGION,,}
+
 	 # harvest the f1 output and append it to our table
 	 rm -f temp_f1.txt
 	 $CP_CMD $F1_SCORE ./temp_f1.txt
@@ -70,10 +91,25 @@ function run_bakeoff_region {
 rm -f $F1FILE
 
 run_bakeoff_region BRCA1 17 43044293
-run_bakeoff_region BRCA2 13 32314860
-run_bakeoff_region SMA 5 69216818
-run_bakeoff_region LRC-KIR 19 54025633
-run_bakeoff_region MHC 6 28510119
+if [ "$FAST" != "1" ]; then
+	 run_bakeoff_region BRCA2 13 32314860
+	 run_bakeoff_region SMA 5 69216818
+	 run_bakeoff_region LRC-KIR 19 54025633
+	 run_bakeoff_region MHC 6 28510119
+fi
 
+echo "Created the following:"
+echo ${JOB_STORE}-brca1
+echo ${OUT_STORE}-brca1
+if [ "$FAST" != "1" ]; then
+	 echo ${JOB_STORE}-brca2
+	 echo ${OUT_STORE}-brca2
+	 echo ${JOB_STORE}-sma
+	 echo ${OUT_STORE}-sma
+	 echo ${JOB_STORE}-lrc-kir
+	 echo ${OUT_STORE}-lrc-kir
+	 echo ${JOB_STORE}-mhc
+	 echo ${OUT_STORE}-mhc
+fi
 
         
