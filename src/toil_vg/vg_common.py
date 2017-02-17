@@ -116,10 +116,21 @@ on and off in just one place.  to do: Should go somewhere more central """
             # and doesn't worry about entrypoints since everything goes through bash -c
             parameters = args
 
+        docker_parameters = None
+        # vg uses TMPDIR for temporary files
+        # this is particularly important for gcsa, which makes massive files.
+        # we will default to keeping these in our working directory
+        if work_dir is not None:
+            docker_parameters = ['--rm', '--log-driver', 'none', '-v',
+                                 os.path.abspath(work_dir) + ':/data',
+                                 '--env', 'TMPDIR=.']
+
         if check_output is True:
-            ret = dockerCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
+            ret = dockerCheckOutput(job, tool, parameters=parameters,
+                                    dockerParameters=docker_parameters, workDir=work_dir)
         else:
-            ret = dockerCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
+            ret = dockerCall(job, tool, parameters=parameters, dockerParameters=docker_parameters,
+                             workDir=work_dir, outfile = outfile)
         
         # This isn't running through reliably by itself.  Will assume it's
         # because I took docker.py out of toil, and leave here until we revert to
@@ -144,6 +155,12 @@ on and off in just one place.  to do: Should go somewhere more central """
         RealtimeLogger.info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
 
+        # vg uses TMPDIR for temporary files
+        # this is particularly important for gcsa, which makes massive files.
+        # we will default to keeping these in our working directory
+        my_env = os.environ.copy()
+        my_env['TMPDIR'] = '.'
+
         procs = []
         for i in range(len(args)):
             stdin = procs[i-1].stdout if i > 0 else None
@@ -151,8 +168,9 @@ on and off in just one place.  to do: Should go somewhere more central """
                 stdout = outfile
             else:
                 stdout = subprocess.PIPE
+
             procs.append(subprocess.Popen(args[i], stdout=stdout, stderr=errfile,
-                                          stdin=stdin, cwd=work_dir))
+                                          stdin=stdin, cwd=work_dir, env=my_env))
             
         for p in procs[:-1]:
             p.stdout.close()
