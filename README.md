@@ -52,8 +52,6 @@ Pass this file to `toil-vg` commands using the `--config` option.
 
 For non-trivial inputs, care must be taken to specify the resource requirements for the different pipeline phases (via the command line or by editing the config file), as they all default to single-core and 4G of ram.
 
-To generate a default configuration suitable for processing a whole genome on 32 cores instances, run
-
     toil-vg generate-config --whole_genome > config_wg.yaml
 
 ## Testing

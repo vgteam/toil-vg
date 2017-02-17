@@ -391,6 +391,7 @@ call-chunk-size: 8000000
 # Context expansion used for graph chunking
 chunk_context: 50
 
+
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '20', '-C', '999']
 
