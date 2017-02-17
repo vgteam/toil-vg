@@ -147,7 +147,7 @@ If they aren't available via a URL, download the input (chopped, common id space
 
 Run the indexing (will take a couple days).  Make sure to edit the jobstore and output store agurments. Note that this invocation assumes 23 chromosome vg graphs are present in the current directory with names 1.vg, 2.vg ... X.vg, Y.vg.  Edit the `--graphs` and `--chroms` arguments to change. 
 
-    toil-vg index aws:us-west-2:myname-s3-jobstore aws:us-west-2:my-s3-outstore --workDir /mnt/persistent/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo /mnt/persistent/var/lib/mesos/$i.vg; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index 2> index.log
+    toil-vg index aws:us-west-2:myname-s3-jobstore aws:us-west-2:my-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo /mnt/ephemeral/var/lib/mesos/$i.vg; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index 2> index.log
 
 If successful, this will produce for files in the S3 output store
 
@@ -175,11 +175,11 @@ Log on and switch to large disk volume
     cd /mnt/ephemeral/var/lib/mesos/
     toil-vg generate-config --whole_genome > wg.yaml
 
-If they aren't available via a URL, download the input reads fastq (or fastq.gz) file using `aria2c -s 10`.  If it is paired end, add `--interleaved` to the command below.  
+If they aren't available via a URL, download the input reads fastq (or fastq.gz) file using `aria2c -s 10 -x 10`.  If it is paired end, add `--interleaved` to the command below.  
 
 Run the mapping.  Make sure to edit the jobstore and output store agurments, as well as the input index arguments to reflect the correct locations
 
-    toil-vg run aws:us-west-2:myname-s3-jobstore ./reads.fastq.gz SAMPLE_NAME aws:us-west-2:my-s3-outstore --workDir /mnt/persistent/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050 --gcsa_index s3://my-s3-outstore/my_index.gcsa --xg_index s3://my-s3-outstore/my_index.xg --id_ranges s3://my-s3-outstore/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index 2> index.log
+    toil-vg run aws:us-west-2:myname-s3-jobstore ./reads.fastq.gz SAMPLE_NAME aws:us-west-2:my-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050 --gcsa_index s3://my-s3-outstore/my_index.gcsa --xg_index s3://my-s3-outstore/my_index.xg --id_ranges s3://my-s3-outstore/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index 2> index.log
 
 If successful, this will produce gam files for each chromsome, as well as one VCF in the S3 output store
 
