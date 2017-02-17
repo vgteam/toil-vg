@@ -133,7 +133,7 @@ Note that bakeoff.sh script will create some S3 buckets of the form `myname-bake
 
 Indexing requires lots of storage and RAM, and much of it cannot be distributed (single call to `vg index`).  We therefore use a single node.
 
-    cglcoud create-cluster toil -s 1 --instance-type i2.8xlarge  --leader-instance-type r3.xlarge --cluster-name toil-index-cluster
+    cgcloud create-cluster toil -s 1 --instance-type i2.8xlarge  --leader-instance-type r3.xlarge --cluster-name toil-index-cluster
     cgcloud ssh-cluster --admin --cluster-name toil-index-cluster toil 'sudo pip install toil-vg'
 
 Log on and switch to large disk volume.  It is best to run jobs within screen. 
