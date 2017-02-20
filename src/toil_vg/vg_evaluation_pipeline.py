@@ -330,6 +330,10 @@ def main():
         vcfeval_main(options)
         return
 
+    # Make sure the output store exists and is valid, and through
+    # a little record of the command line options and version inside it. 
+    init_out_store(options, args.command)
+
     if args.command == 'run':
         pipeline_main(options)
     elif args.command == 'index':
@@ -372,8 +376,9 @@ def pipeline_main(options):
 
             # Upload local files to the remote IO Store
             inputGraphFileIDs = []
-            for graph in options.graphs:
-                inputGraphFileIDs.append(import_to_store(toil, options, graph))
+            if options.graphs:
+                for graph in options.graphs:
+                    inputGraphFileIDs.append(import_to_store(toil, options, graph))
             inputReadsFileID = import_to_store(toil, options, options.sample_reads)
             if options.gcsa_index:
                 inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)

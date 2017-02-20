@@ -145,7 +145,7 @@ Log on and switch to large disk volume.  It is best to run jobs within screen.
 
 If they aren't available via a URL, download the input (chopped, common id space) .vg graphs, as [created here for example](https://github.com/vgteam/vg/wiki/working-with-a-whole-genome-variation-graph): 
 
-Run the indexing (will take a couple days).  **Make sure to edit the jobstore and output store agurments to change "myname"**. Note that this invocation assumes 24 chromosome vg graphs are present in the current directory with names 1.vg, 2.vg ... X.vg, Y.vg.  Edit the `--graphs` and `--chroms` arguments to change. 
+Run the indexing (will take a couple days).  **Make sure to edit the jobstore and output store agurments to change "myname"**. Note that this invocation assumes 24 chromosome vg graphs are present in the current directory with names 1.vg, 2.vg ... X.vg, Y.vg.  Edit the `--graphs` and `--chroms` arguments to change.  It will take approximatesly 40 hours.
 
     toil-vg index aws:us-west-2:myname-s3-jobstore aws:us-west-2:myname-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo /mnt/ephemeral/var/lib/mesos/$i.vg; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index 2> index.log
 
@@ -165,7 +165,7 @@ Terminate the cluster
 This part of the pipeline is more distributed, so we make a larger cluster with less storage.  Note: indexing, mapping, and calling can be done in a single invocation of `toil-vg run` (by leaving out `--gcsa_index`, `--xg_index`, and `--id_ranges`) if you feel your setup is up to it.   
 
     cglcoud create-cluster toil -s 8 --instance-type r3.8xlarge  --leader-instance-type r3.2xlarge --cluster-name toil-map-cluster
-    cgcloud ssh --admin -c toil-mac-cluster toil-leader 'sudo apt-get install -y aria2'    
+    cgcloud ssh --admin -c toil-map-cluster toil-leader 'sudo apt-get install -y aria2'    
     cgcloud ssh-cluster --admin --cluster-name toil-map-cluster toil 'sudo pip install toil-vg'
 
 Log on and switch to large disk volume
@@ -175,13 +175,13 @@ Log on and switch to large disk volume
     cd /mnt/ephemeral/var/lib/mesos/
     toil-vg generate-config --whole_genome > wg.yaml
 
-If they aren't available via a URL, download the input reads fastq (or fastq.gz) file using `aria2c -s 10 -x 10`.  If it is paired end, add `--interleaved` to the command below.  
+If they aren't available via a URL, download the input reads fastq (or fastq.gz) file using `aria2c -s 10 -x 10`.  Below assumes reads are paired end.  If not, remove `--interleaved` to the command below.  
 
-Run the mapping.  **Make sure to edit the jobstore and output store agurments, as well as the input index arguments to reflect the correct locations**
+Run the mapping.  **Make sure to edit the jobstore and output store agurments, as well as the input index and reads arguments and to reflect the correct locations**
 
-    toil-vg run aws:us-west-2:myname-s3-jobstore ./reads.fastq.gz SAMPLE_NAME aws:us-west-2:myname-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050 --gcsa_index s3://my-s3-outstore/my_index.gcsa --xg_index s3://my-s3-outstore/my_index.xg --id_ranges s3://my-s3-outstore/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index 2> index.log
+    toil-vg run aws:us-west-2:myname-s3-jobstore ./reads.fastq.gz SAMPLE_NAME aws:us-west-2:myname-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050 --gcsa_index s3://my-s3-outstore/my_index.gcsa --xg_index s3://my-s3-outstore/my_index.xg --id_ranges s3://my-s3-outstore/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved 2> map.log
 
-If successful, this will produce gam files for each chromsome, as well as one VCF in the S3 output store
+If successful, this will produce a gam file for each chromsome, as well as a whole-genome VCF in the S3 output store
 
 Terminate the cluster
 
@@ -196,7 +196,7 @@ Terminate the cluster
 - Follow the instructions on setup. You will need to specify the following parameters as defined [here](https://github.com/BD2KGenomics/toil/tree/master/contrib/azure#template-parameters).
 - Login to the master node of the Azure cluster by running `ssh <your_user_name>@<your_cluster_name>.<your_zone>.cloudapp.azure.com -p 2211`.
 
-Remaing steps are identical to AWS, beginning with **Log onto leader node and set up dependencies** section above
+Remaing steps are identical to running on AWS
 
 ## Local test without AWS data
 

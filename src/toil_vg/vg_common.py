@@ -7,6 +7,7 @@ from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno
 from uuid import uuid4
+import pkg_resources, tempfile, datetime
 
 from toil.common import Toil
 from toil.job import Job
@@ -214,6 +215,27 @@ def clean_toil_path(path):
     else:
         return path
 
+def init_out_store(options, command):
+    """
+    Write a little bit of logging to the output store.
+    
+    Rely on IOStore to create the store if it doesn't exist
+    as well as to check its a valid location. 
+
+    Do this at very beginning to avoid finding an outstore issue
+    after hours spent computing
+     
+    """
+    f = tempfile.NamedTemporaryFile(delete=True)
+    now = datetime.datetime.now()
+    f.write('{}\ntoil-vg {} version {}\nOptions:'.format(now, command,
+                    pkg_resources.get_distribution('toil-vg').version))
+    for key,val in options.__dict__.items():
+        f.write('{}: {}\n'.format(key, val))
+    f.flush()
+    IOStore.get(options.out_store).write_output_file(f.name, 'toil-vg-{}.txt'.format(command))
+    f.close()
+
 def import_to_store(toil, options, path, use_out_store = None,
                     out_store_key = None):
     """
@@ -341,7 +363,7 @@ def batch_iterator(iterator, batch_size):
 
 def require(expression, message):
     if not expression:
-        raise UserError('\n\n' + message + '\n\n')
+        raise Exception('\n\n' + message + '\n\n')
 
 def parse_id_ranges(job, options, id_ranges_file_id):
     """Returns list of triples chrom, start, end
