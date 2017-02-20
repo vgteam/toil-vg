@@ -11,6 +11,7 @@ import string
 import urlparse
 import getpass
 import pdb
+import logging
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -20,6 +21,8 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
+
+logger = logging.getLogger(__name__)
 
 def index_subparser(parser):
     """
@@ -366,12 +369,17 @@ def index_main(options):
     
     with Toil(options) as toil:
         if not toil.options.restart:
+
+            start_time = timeit.default_timer()
             
             # Upload local files to the remote IO Store
             inputGraphFileIDs = []
             for graph in options.graphs:
                 inputGraphFileIDs.append(import_to_store(toil, options, graph))
-            
+
+            end_time = timeit.default_timer()
+            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+
             # Make a root job
             root_job = Job.wrapJobFn(run_indexing, options, inputGraphFileIDs,
                                      cores=options.misc_cores,

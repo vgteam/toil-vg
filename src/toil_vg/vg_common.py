@@ -8,12 +8,15 @@ import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno
 from uuid import uuid4
 import pkg_resources, tempfile, datetime
+import logging
 
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.iostore import IOStore
 from toil_vg.docker import dockerCall, dockerCheckOutput, _fixPermissions
+
+logger = logging.getLogger(__name__)
 
 def add_docker_tool_parse_args(parser):
     """ centralize shared docker options and their defaults """
@@ -253,8 +256,10 @@ def import_to_store(toil, options, path, use_out_store = None,
     i/o store.  This will be over-ridden by the use_out_store parameter 
     if the latter is not None
     """
+    logger.info("Importing {}".format(path))
+
     if use_out_store is True or (use_out_store is None and options.force_outstore is True):
-        return write_to_store(None, options, path, use_out_store, out_store_key)
+        return  write_to_store(None, options, path, use_out_store, out_store_key)
     else:
         return toil.importFile(clean_toil_path(path))
     
