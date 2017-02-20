@@ -46,7 +46,7 @@ def index_subparser(parser):
 def index_parse_args(parser):
     """ centralize indexing parameters here """
 
-    parser.add_argument("--graphs", nargs='+', required=True,
+    parser.add_argument("--graphs", nargs='+',
                         help="input graph(s). one per chromosome (separated by space)")
 
     parser.add_argument("--chroms", nargs='+',
