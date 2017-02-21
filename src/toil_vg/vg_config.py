@@ -175,7 +175,7 @@ interleaved: False
 # Core arguments for vg mapping (do not include file names or -t/--threads)
 # Note -i/--interleaved will be ignored. use the --interleaved option 
 # on the toil-vg command line instead
-map-opts: ['-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
+map-opts: ['-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a', '-n', '5']
 
 # Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
 index-mode: gcsa-mem
