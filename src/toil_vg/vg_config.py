@@ -124,7 +124,7 @@ no-docker: False
 ##   of through docker. no-docker (above) overrides all these options. 
 
 # Docker container to use for vg
-vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2213-gdce81f8', True]
+vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2257-gd329e79', True]
 
 # Docker container to use for bcftools
 bcftools-docker: ['quay.io/cmarkello/bcftools', False]
@@ -175,7 +175,7 @@ interleaved: False
 # Core arguments for vg mapping (do not include file names or -t/--threads)
 # Note -i/--interleaved will be ignored. use the --interleaved option 
 # on the toil-vg command line instead
-map-opts: ['-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a']
+map-opts: ['-M2', '-W', '500', '-u', '0', '-U', '-O', '-S', '50', '-a', '-n', '5']
 
 # Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
 index-mode: gcsa-mem

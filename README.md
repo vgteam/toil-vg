@@ -2,7 +2,7 @@
 ## University of California, Santa Cruz Genomics Institute
 ### Please contact us on [github with any issues](https://github.com/BD2KGenomics/toil-vg/issues/new)
 
-[vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using varition graphs.  Toil-vg is a [toil](https://github.com/BD2KGenomics/toil)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
+[vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [toil](https://github.com/BD2KGenomics/toil)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
 
 `toil-vg run`: Given input graphs (one per chromosome) and reads (fastq file), produce a graph index (index can also be input), graph alignment (GAM), VCF variant calls, and (optionally) VCF comparison results. 
 
@@ -10,36 +10,36 @@
 
 `toil-vg map`: Produce graph alignment (gam) from input reads and index
 
-`toil-vg call`: Produce VCF from input index and alignement (for single chromosome)
+`toil-vg call`: Produce VCF from input index and alignment (for single chromosome)
 
 ## Installation
 
 ### Pip Installation
 
-Installation requires Python.  We recommend installing within vituralenv as follows
+Installation requires Python.  We recommend installing within virtualenv as follows
 
     virtualenv toilvenv
     source toilvenv/bin/activate
     pip install toil-vg
 
 ### Docker
-#### On linux
-* Go to the main docker site and follow the instructions for the relevant linux distribution [here](https://docs.docker.com/engine/installation/linux/)
-* Test to see if the docker daemon is running by running `docker version`
-* If running `docker version` doesn't work, try adding `user` to docker group.
-    * `sudo usermod -aG docker $USER`
-    * log out and log back in
 
+toil-vg runs vg, along with some other tools, via [Docker](http://www.docker.com).  Docker can be installed locally (not required when running via cgcloud), as follows. 
+
+#### On linux
+Install Docker via instructions for the relevant linux distribution [here](https://docs.docker.com/engine/installation/linux/). Test to see if the docker daemon is running by running `docker version`.  If running `docker version` doesn't work, try adding `user` to docker group, then log out and back in.
+
+    sudo usermod -aG docker $USER`
+   
 #### On Mac
-* Install docker via instrictions found [here](https://docs.docker.com/docker-for-mac/)
-* Test to see if the docker daemon is running by running `docker version`
-* If running `docker version` doesn't work, try adding docker environment variables
-    * `docker-machine start`
-    * `docker-machine env`
-    * `eval "$(docker-machine env default)"`
+Install Docker via instructions found [here](https://docs.docker.com/docker-for-mac/). Test to see if the docker daemon is running by running `docker version`.  If running `docker version` doesn't work, try adding docker environment variables
+
+    docker-machine start
+    docker-machine env
+    eval "$(docker-machine env default)"
     
 #### Running without Docker
-* It can be useful, especially for developers to run commands directly without docker.  This can be done by useing the `--no_docker` flag when running toil-vg, but all command-line tools (vg, bcftools, samtools, etc) must all be runnable from the command line.  
+It can be useful, especially for developers to run commands directly without docker.  This can be done by using the `--no_docker` flag when running toil-vg, but all command-line tools (vg, bcftools, samtools, etc) must all be runnable from the command line.  
 
 
 ## Configuration
@@ -51,6 +51,8 @@ A configuration file can be used as an alternative to most command line options.
 Pass this file to `toil-vg` commands using the `--config` option.
 
 For non-trivial inputs, care must be taken to specify the resource requirements for the different pipeline phases (via the command line or by editing the config file), as they all default to single-core and 4G of ram.
+
+To generate a default configuration for running at genome scale on a cluster with 32 cores, use
 
     toil-vg generate-config --whole_genome > config_wg.yaml
 
@@ -72,16 +74,14 @@ In both cases, verify that f1.tsv contains a number (should be approx. 0.9).  No
 
 The jobStore and outStore arguments to toil-vg are directories that will be created if they do not already exist.  When starting a new job, toil will complain if the jobStore exists, so use `toil clean <jobStore>` first.  When running on Mesos, these stores should be S3 buckets.  They are specified using the following format aws:region:bucket (see examples below).
 
-All other input files can either either be local (best to specifiy absolute path) or URLs specified in the normal manner, ex : htpp://address/input_file or s3://bucket/input_file.  The config file must always be local.
+All other input files can either either be local (best to specify absolute path) or URLs specified in the normal manner, ex : http://address/input_file or s3://bucket/input_file.  The config file must always be local.  When using an S3 jobstore, it is preferable to pass input files from S3 as well, as they load much faster and less cluster time will be wasted importing data. 
 
 
 ## Running on Amazon EC2 with cgcloud
 
 ### Install and setup cgcloud
 
-For more information on the cgcloud core tools, you can find them [here](https://github.com/BD2KGenomics/cgcloud/blob/master/README.md).
-For more information on the cgcloud plugin for Toil and setting up AWS credentials, you can read about it [here](https://github.com/BD2KGenomics/cgcloud/blob/master/toil/README.rst).
-For more information on the latest release of Toil, you can find the documentation [here](http://toil.readthedocs.io/en/latest/).
+Please see [here for more information on the cgcloud core tools](https://github.com/BD2KGenomics/cgcloud/blob/master/README.md), [here for more information on the cgcloud plugin for Toil and setting up AWS credentials](https://github.com/BD2KGenomics/cgcloud/blob/master/toil/README.rst), and [here for more information on the latest release of Toil](http://toil.readthedocs.io/en/latest/).
 
     sudo apt-get install python-virtualenv
     virtualenv ~/cgcloud
@@ -145,7 +145,8 @@ Log on and switch to large disk volume.  It is best to run jobs within screen.
 
 If they aren't available via a URL, download the input (chopped, common id space) .vg graphs, as [created here for example](https://github.com/vgteam/vg/wiki/working-with-a-whole-genome-variation-graph): 
 
-Run the indexing (will take a couple days).  **Make sure to edit the jobstore and output store agurments to change "myname"**. Note that this invocation assumes 24 chromosome vg graphs are present in the current directory with names 1.vg, 2.vg ... X.vg, Y.vg.  Edit the `--graphs` and `--chroms` arguments to change.  It will take approximatesly 40 hours.
+
+Run the indexing (will take about 40 hours).  **Make sure to edit the jobstore and output store arguments to change "myname"**. Note that this invocation assumes 24 chromosome vg graphs are present in the current directory with names 1.vg, 2.vg ... X.vg, Y.vg.  Edit the `--graphs` and `--chroms` arguments to change. 
 
     toil-vg index aws:us-west-2:myname-s3-jobstore aws:us-west-2:myname-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo /mnt/ephemeral/var/lib/mesos/$i.vg; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index 2> index.log
 
@@ -175,13 +176,14 @@ Log on and switch to large disk volume
     cd /mnt/ephemeral/var/lib/mesos/
     toil-vg generate-config --whole_genome > wg.yaml
 
-If they aren't available via a URL, download the input reads fastq (or fastq.gz) file using `aria2c -s 10 -x 10`.  Below assumes reads are paired end.  If not, remove `--interleaved` to the command below.  
+It is best to pass in large input files via S3 when possible, but if they aren't available via a URL, download the input reads fastq (or fastq.gz) file using `aria2c -s 10 -x 10 url`.  If the reads are not paired-end, remove `--interleaved` from the command below.  
 
 Run the mapping.  **Make sure to edit the jobstore and output store agurments, as well as the input index and reads arguments and to reflect the correct locations**
 
-    toil-vg run aws:us-west-2:myname-s3-jobstore ./reads.fastq.gz SAMPLE_NAME aws:us-west-2:myname-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050 --gcsa_index s3://my-s3-outstore/my_index.gcsa --xg_index s3://my-s3-outstore/my_index.xg --id_ranges s3://my-s3-outstore/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved 2> map.log
+    toil-vg run aws:us-west-2:myname-s3-jobstore ./reads.fastq.gz SAMPLE_NAME aws:us-west-2:myname-s3-outstore --workDir /mnt/ephemeral/var/lib/mesos/  --batchSystem=mesos --mesosMaster=mesos-master:5050 --gcsa_index s3://myname-s3-outstore/my_index.gcsa --xg_index s3://myname-s3-outstore/my_index.xg --id_ranges s3://myname-s3-outstore/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved 2> map.log
 
 If successful, this will produce a gam file for each chromsome, as well as a whole-genome VCF in the S3 output store
+
 
 Terminate the cluster
 
@@ -196,7 +198,7 @@ Terminate the cluster
 - Follow the instructions on setup. You will need to specify the following parameters as defined [here](https://github.com/BD2KGenomics/toil/tree/master/contrib/azure#template-parameters).
 - Login to the master node of the Azure cluster by running `ssh <your_user_name>@<your_cluster_name>.<your_zone>.cloudapp.azure.com -p 2211`.
 
-Remaing steps are identical to running on AWS
+The remaining steps are identical to running on AWS
 
 ## Local test without AWS data
 

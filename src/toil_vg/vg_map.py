@@ -212,10 +212,10 @@ def run_chunk_alignment(job, options, chunk_filename_id, chunk_id, xg_file_id, g
         if options.index_mode == "gcsa-kmer":
             # Use the new default context size in this case
             vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file),
-                '-n5', '-k', str(options.kmer_size)]
+                '-k', str(options.kmer_size)]
         elif options.index_mode == "gcsa-mem":
             # Don't pass the kmer size, so MEM matching is used
-            vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file), '-n5']
+            vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file)]
         else:
             raise RuntimeError("invalid indexing mode: " + options.index_mode)
 
