@@ -4,14 +4,16 @@ Generate a VCF from a GAM and XG by splitting into GAM/VG chunks.
 """
 from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
-import json, timeit, errno, copy
+import json, timeit, errno, copy, time
 from uuid import uuid4
+import logging
 
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 
+logger = logging.getLogger(__name__)
 
 def call_subparser(parser):
     """
@@ -357,9 +359,14 @@ def call_main(options):
     with Toil(options) as toil:
         if not toil.options.restart:
 
+            start_time = timeit.default_timer()
+
             # Upload local files to the remote IO Store
             inputXGFileID = import_to_store(toil, options, options.xg_path)
             inputGamFileID = import_to_store(toil, options, options.gam_path)
+
+            end_time = timeit.default_timer()
+            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calling, options, inputXGFileID, inputGamFileID,

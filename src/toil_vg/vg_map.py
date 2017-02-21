@@ -12,6 +12,7 @@ import urlparse
 import getpass
 import pdb
 import gzip
+import logging
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -20,6 +21,8 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
+
+logger = logging.getLogger(__name__)
 
 def map_subparser(parser):
     """
@@ -358,6 +361,8 @@ def map_main(options):
     
     with Toil(options) as toil:
         if not toil.options.restart:
+
+            start_time = timeit.default_timer()
             
             # Upload local files to the remote IO Store
             inputXGFileID = import_to_store(toil, options, options.xg_index)
@@ -365,7 +370,10 @@ def map_main(options):
             inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
             inputIDRangesFileID = import_to_store(toil, options, options.id_ranges)
             sampleFastqFileID = import_to_store(toil, options, options.sample_reads)
-            
+
+            end_time = timeit.default_timer()
+            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+
             # Make a root job
             root_job = Job.wrapJobFn(run_mapping, options,inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID),

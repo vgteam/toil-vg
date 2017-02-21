@@ -17,6 +17,7 @@ import logging, logging.handlers, SocketServer, struct, socket, threading
 import string
 import urlparse
 import getpass
+import logging
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -31,6 +32,8 @@ from toil_vg.vg_index import *
 from toil_vg.vg_map import *
 from toil_vg.vg_vcfeval import *
 from toil_vg.vg_config import *
+
+logger = logging.getLogger(__name__)
 
 def parse_args():
     """
@@ -374,6 +377,8 @@ def pipeline_main(options):
     with Toil(options) as toil:
         if not toil.options.restart:
 
+            start_time = timeit.default_timer()
+            
             # Upload local files to the remote IO Store
             inputGraphFileIDs = []
             if options.graphs:
@@ -407,6 +412,9 @@ def pipeline_main(options):
                 inputTBIFileID = None
                 inputFastaFileID = None
                 inputBedFileID = None
+
+            end_time = timeit.default_timer()
+            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
             root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileIDs,
