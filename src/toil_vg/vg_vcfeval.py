@@ -5,12 +5,15 @@ along with the other toil-vg output.  Can be run standalone as well.
 """
 from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
-import json, timeit, errno
+import json, time, timeit, errno
 from uuid import uuid4
+import logging
 
 from toil.common import Toil
 from toil.job import Job
 from toil_vg.vg_common import *
+
+logger = logging.getLogger(__name__)
 
 def vcfeval_subparser(parser):
     """
@@ -167,6 +170,8 @@ def vcfeval_main(options):
     with Toil(options) as toil:
         if not toil.options.restart:
 
+            start_time = timeit.default_timer()
+            
             # Upload local files to the remote IO Store
             vcfeval_baseline_id = import_to_store(toil, options, options.vcfeval_baseline)
             call_vcf_id = import_to_store(toil, options, options.call_vcf)
@@ -174,7 +179,10 @@ def vcfeval_main(options):
             call_tbi_id = import_to_store(toil, options, options.call_vcf + '.tbi')            
             fasta_id = import_to_store(toil, options, options.vcfeval_fasta)
             bed_id = import_to_store(toil, options, options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
-            
+
+            end_time = timeit.default_timer()
+            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+
             # Make a root job
             root_job = Job.wrapJobFn(run_vcfeval, options,
                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id,
