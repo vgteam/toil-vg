@@ -34,7 +34,7 @@ def index_subparser(parser):
     
     # General options
     parser.add_argument("out_store",
-        help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
+        help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)

@@ -26,14 +26,18 @@ def call_subparser(parser):
     # General options
     parser.add_argument("xg_path", type=str,
                         help="input xg file")
-    parser.add_argument("gam_path", type=str,
-                        help="input alignment")
-    parser.add_argument("path_name", type=str,
-                        help="name of vg path to use for reference")
     parser.add_argument("sample_name", type=str,
                         help="sample name (ex NA12878)")
     parser.add_argument("out_store",
-                        help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")    
+                        help="output store.  All output written here. Path specified "
+                        "using same syntax as toil jobStore")
+    parser.add_argument("--chroms", nargs='+', required=True,
+                        help="Name(s) of reference path in graph(s) (separated by space)."
+                        " Must be same length/order as --gams")
+    # todo: move to chunked_call_parse_args and share with toil-vg run
+    parser.add_argument("--gams", nargs='+', required=True,
+                        help="GAMs to call.  One per chromosome. Must be same length/order as --chroms")
+    
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -218,6 +222,73 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     
     return clip_file_id
 
+def run_all_calling(job, options, xg_file_id, chr_gam_ids, chroms):
+    """
+    Call all the chromosomes and return a merged up vcf/tbi pair
+    """
+    vcf_tbi_file_id_pair_list = []
+    assert len(chr_gam_ids) > 0
+    for i in range(len(chr_gam_ids)):
+        alignment_file_id = chr_gam_ids[i]
+        chr_label = chroms[i]
+        vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
+                                                 alignment_file_id, chr_label,
+                                                 cores=options.call_chunk_cores,
+                                                 memory=options.call_chunk_mem,
+                                                 disk=options.call_chunk_disk).rv()
+        vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
+
+    return job.addFollowOnJobFn(run_merge_vcf, options, vcf_tbi_file_id_pair_list,
+                                cores=options.call_chunk_cores,
+                                memory=options.call_chunk_mem,
+                                disk=options.call_chunk_disk).rv()
+
+def run_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
+    """ Merge up a bunch of chromosome VCFs """
+
+    RealtimeLogger.info("Completed gam merging and gam path variant calling.")
+    RealtimeLogger.info("Starting vcf merging vcf files.")
+    # Set up the IO stores each time, since we can't unpickle them on Azure for
+    # some reason.
+    out_store = IOStore.get(options.out_store)
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    vcf_merging_file_key_list = [] 
+    for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
+        vcf_file = "{}/{}.gz".format(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
+        vcf_file_idx = "{}.tbi".format(vcf_file)
+        read_from_store(job, options, vcf_tbi_file_id_pair[0], vcf_file)
+        read_from_store(job, options, vcf_tbi_file_id_pair[1], vcf_file_idx)
+        vcf_merging_file_key_list.append(os.path.basename(vcf_file))
+
+    vcf_merged_file_key = "" 
+    if len(vcf_merging_file_key_list) > 1:
+        # merge vcf files
+        vcf_merged_file_key = "{}.vcf.gz".format(options.sample_name)
+        command=['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key), ' '.join(vcf_merging_file_key_list)]
+        options.drunner.call(job, command, work_dir=work_dir)
+        command=['bcftools', 'tabix', '-f', '-p', 'vcf', os.path.basename(vcf_merged_file_key)]
+        options.drunner.call(job, command, work_dir=work_dir)
+    else:
+        vcf_merged_file_key = vcf_merging_file_key_list[0]
+
+    # save variant calling results to the output store
+    out_store_key = "{}.vcf.gz".format(options.sample_name)
+    vcf_file = os.path.join(work_dir, vcf_merged_file_key)
+    vcf_file_idx = vcf_file + ".tbi"
+    vcf_file_id = write_to_store(job, options, vcf_file)
+    vcf_idx_file_id = write_to_store(job, options, vcf_file_idx)
+
+    # checkpoint to output store if not done above
+    if not options.force_outstore:
+        write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
+        write_to_store(job, options, vcf_file_idx, use_out_store = True, out_store_key = out_store_key + ".tbi")
+
+    return vcf_file_id, vcf_idx_file_id
+
+
 def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
     
     RealtimeLogger.info("Running variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
@@ -246,7 +317,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
                  '-s', str(options.call_chunk_size),
                  '-o', str(options.overlap),
                  '-b', 'call_chunk_{}'.format(path_name),
-                 '-t', str(options.calling_cores),
+                 '-t', str(options.call_chunk_cores),
                  '-R', os.path.basename(output_bed_chunks_path)]
     options.drunner.call(job, chunk_cmd, work_dir=work_dir)
 
@@ -343,6 +414,9 @@ def call_main(options):
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
 
+    require(len(options.chroms) == len(options.gams), 'Same number of chromosomes '
+            ' must be specified with --chroms and --gams')
+    
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now
     options.tool = 'call'
@@ -363,17 +437,19 @@ def call_main(options):
 
             # Upload local files to the remote IO Store
             inputXGFileID = import_to_store(toil, options, options.xg_path)
-            inputGamFileID = import_to_store(toil, options, options.gam_path)
+            inputGamFileIDs = []
+            for inputGamFileID in options.gams:
+                inputGamFileIDs.append(import_to_store(toil, options, inputGamFileID))
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_calling, options, inputXGFileID, inputGamFileID,
-                                     options.path_name,
-                                     cores=options.call_chunk_cores,
-                                     memory=options.call_chunk_mem,
-                                     disk=options.call_chunk_disk)
+            root_job = Job.wrapJobFn(run_all_calling, options, inputXGFileID, inputGamFileIDs,
+                                     options.chroms,
+                                     cores=options.misc_cores,
+                                     memory=options.misc_mem,
+                                     disk=options.misc_disk)
 
             
             # Run the job and store the returned list of output files to download

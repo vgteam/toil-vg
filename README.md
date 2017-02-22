@@ -8,9 +8,9 @@
 
 `toil-vg index`: Produce an index from input graph(s).
 
-`toil-vg map`: Produce graph alignment (gam) from input reads and index
+`toil-vg map`: Produce graph alignment (gam) for each chromosome from input reads and index
 
-`toil-vg call`: Produce VCF from input index and alignment (for single chromosome)
+`toil-vg call`: Produce VCF from input index and chromosome gam(s)
 
 ## Installation
 
@@ -165,7 +165,7 @@ Terminate the cluster
 
 This part of the pipeline is more distributed, so we make a larger cluster with less storage.  Note: indexing, mapping, and calling can be done in a single invocation of `toil-vg run` (by leaving out `--gcsa_index`, `--xg_index`, and `--id_ranges`) if you feel your setup is up to it.   
 
-    cglcoud create-cluster toil -s 8 --instance-type r3.8xlarge  --leader-instance-type r3.2xlarge --cluster-name toil-map-cluster
+    cgcloud create-cluster toil -s 8 --instance-type r3.8xlarge  --leader-instance-type r3.2xlarge --cluster-name toil-map-cluster
     cgcloud ssh --admin -c toil-map-cluster toil-leader 'sudo apt-get install -y aria2'    
     cgcloud ssh-cluster --admin --cluster-name toil-map-cluster toil 'sudo pip install toil-vg'
 

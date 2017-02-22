@@ -46,26 +46,22 @@ misc-disk: '1G'
 
 # Resources allotted for xg indexing.
 # this stage generally cannot take advantage of more than one thread
-# For whole genome, suggest 200G mem and disk
 xg-index-cores: 1
 xg-index-mem: '4G'
 xg-index-disk: '2G'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
-# For whole genome, suggest 60G mem and disk
 prune-cores: 1
 prune-mem: '4G'
 prune-disk: '2G'
 
 # Resources allotted for gcsa kmers.  
-# For whole genome, suggest 70G mem and disk
 kmers-cores: 1
 kmers-mem: '4G'
 kmers-disk: '2G'
 
 # Resources allotted gcsa indexing
-# For whole genome, suggest 200G mem and 3T disk
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
 gcsa-index-disk: '2G'
@@ -83,7 +79,6 @@ gam-index-cores: 1
 
 # Resources for *each* vg map job
 # the number of vg map jobs is controlled by reads-per-chunk (below)
-# For whole genome, suggest 100G memory and disk for whole genome
 alignment-cores: 1
 alignment-mem: '4G'
 alignment-disk: '2G'
@@ -91,13 +86,11 @@ alignment-disk: '2G'
 # Resources for chunking up a graph/gam for calling (and merging)
 # typically take xg for whoe grpah, and gam for a chromosome,
 # and split up into chunks of call-chunk-size (below)
-# For whole genome, suggest 20G memory and 100G disk
 call-chunk-cores: 1
 call-chunk-mem: '4G'
 call-chunk-disk: '2G'
 
 # Resources for calling each chunk (currently includes pileup/call/genotype)
-# For whole genome, suggest 20G memory and 20G disk
 calling-cores: 1
 calling-mem: '4G'
 calling-disk: '2G'
@@ -246,26 +239,22 @@ misc-disk: '1G'
 
 # Resources allotted for xg indexing.
 # this stage generally cannot take advantage of more than one thread
-# For whole genome, suggest 200G mem and disk
 xg-index-cores: 1
 xg-index-mem: '200G'
 xg-index-disk: '200G'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
-# For whole genome, suggest 60G mem and disk
 prune-cores: 2
 prune-mem: '60G'
 prune-disk: '60G'
 
 # Resources allotted for gcsa kmers.  
-# For whole genome, suggest 70G mem and disk
 kmers-cores: 16
 kmers-mem: '70G'
 kmers-disk: '60G'
 
 # Resources allotted gcsa indexing
-# For whole genome, suggest 200G mem and 3T disk
 gcsa-index-cores: 32
 gcsa-index-mem: '200G'
 gcsa-index-disk: '3000G'
@@ -283,7 +272,6 @@ gam-index-cores: 6
 
 # Resources for *each* vg map job
 # the number of vg map jobs is controlled by reads-per-chunk (below)
-# For whole genome, suggest 100G memory and disk for whole genome
 alignment-cores: 32
 alignment-mem: '100G'
 alignment-disk: '100G'
@@ -291,15 +279,13 @@ alignment-disk: '100G'
 # Resources for chunking up a graph/gam for calling (and merging)
 # typically take xg for whoe grpah, and gam for a chromosome,
 # and split up into chunks of call-chunk-size (below)
-# For whole genome, suggest 20G memory and 100G disk
-call-chunk-cores: 2
-call-chunk-mem: '20G'
+call-chunk-cores: 8
+call-chunk-mem: '64G'
 call-chunk-disk: '100G'
 
 # Resources for calling each chunk (currently includes pileup/call/genotype)
-# For whole genome, suggest 20G memory and 20G disk
-calling-cores: 32
-calling-mem: '32G'
+calling-cores: 8
+calling-mem: '60G'
 calling-disk: '32G'
 
 # Resources for vcfeval
