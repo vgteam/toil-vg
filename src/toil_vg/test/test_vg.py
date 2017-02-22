@@ -72,18 +72,21 @@ class VGCGLTest(TestCase):
     def test_chr17_sampleNA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
-        self._download_input('NA12877.brca1.bam.fq.gz')
+        self._download_input('NA12877.brca1.bam_1.fq.gz')
+        self._download_input('NA12877.brca1.bam_2.fq.gz')
         self._download_input('BRCA1_chrom_name_chop_100.vg')
         self._download_input('normal_NA12877_17.vcf.gz')
         self._download_input('normal_NA12877_17.vcf.gz.tbi')                
         
-        self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam.fq.gz')
+        self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz')
+        self.sample_reads2 = os.path.join(self.workdir, 'NA12877.brca1.bam_2.fq.gz')
         self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
         self.baseline = os.path.join(self.workdir, 'normal_NA12877_17.vcf.gz')
         
-        self._run(self.base_command, self.jobStoreLocal, self.sample_reads, 'NA12877',
-                  self.local_outstore, '--graphs',  self.test_vg_graph, '--chroms', '17',
-                  '--call_opts', '--offset 43044293', '--interleaved',
+        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
+                  self.local_outstore, '--fastq', self.sample_reads, self.sample_reads2, '--graphs',
+                  self.test_vg_graph, '--chroms', '17',
+                  '--call_opts', '--offset 43044293', 
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore)
@@ -107,8 +110,8 @@ class VGCGLTest(TestCase):
         self.test_gcsa_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
         self.baseline = os.path.join(self.workdir, 'normal_NA12877_19.vcf.gz')
         
-        self._run(self.base_command, self.jobStoreLocal, self.sample_reads, 'NA12877',
-                  self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
+        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
+                  self.local_outstore,  '--fastq', self.sample_reads, '--gcsa_index', self.test_gcsa_index,
                   '--xg_index', self.test_xg_index, '--graphs', self.test_vg_graph,
                   '--chroms', '19', '--force_outstore', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa)
@@ -123,8 +126,9 @@ class VGCGLTest(TestCase):
         self.test_gcsa_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg.gcsa'
         self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/normal_NA12877_6.vcf.gz'
         
-        self._run(self.base_command, self.jobStoreLocal, self.sample_reads, 'NA12877',
-                  self.local_outstore,  '--gcsa_index', self.test_gcsa_index,
+        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
+                  self.local_outstore,  '--fastq', self.sample_reads,
+                  '--gcsa_index', self.test_gcsa_index,
                   '--graphs', self.test_vg_graph, '--chroms', '6',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
         
@@ -137,8 +141,9 @@ class VGCGLTest(TestCase):
         self._download_input('SMA_chrom_name_chop_100.small.vg')
         self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
-        self._run(self.base_command, self.jobStoreLocal, self.sample_reads, 'NA12877',
-                  self.local_outstore, '--graphs', self.test_vg_graph, '--chroms', '5')
+        self._run(self.base_command, self.jobStoreLocal,  'NA12877',
+                  self.local_outstore, '--fastq', self.sample_reads, '--graphs',
+                  self.test_vg_graph, '--chroms', '5')
         # disabling this test for now as no variants get called,
         # which triggers assert fail when loading the vceval output
         #self._assertOutput('NA12877_5.vcf', self.local_outstore)

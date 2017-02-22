@@ -89,8 +89,6 @@ def pipeline_subparser(parser_run):
     Job.Runner.addToilOptions(parser_run)
     
     # General options
-    parser_run.add_argument("sample_reads", type=str,
-        help="Path to sample reads in fastq format")
     parser_run.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
     parser_run.add_argument("out_store",
@@ -137,7 +135,7 @@ def pipeline_subparser(parser_run):
 # Data is communicated across the chain via the output store (at least for now). 
 
 
-def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputXGFileID,
+def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, inputXGFileID,
                        inputGCSAFileID, inputLCPFileID, inputIDRangesFileID,
                        inputVCFFileID, inputTBIFileID,
                        inputFastaFileID, inputBeDFileID):
@@ -168,9 +166,11 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileID, inputX
     else:
         id_ranges_file_id = inputIDRangesFileID
 
-    fastq_chunk_ids = job.addChildJobFn(run_split_fastq, options, inputReadsFileID, cores=options.fq_split_cores,
-                                        memory=options.fq_split_mem, disk=options.fq_split_disk).rv()
-
+    fastq_chunk_ids = []
+    for fastq_i, reads_file_id in enumerate(inputReadsFileIDs):
+        fastq_chunk_ids.append(job.addChildJobFn(run_split_fastq, options, fastq_i, reads_file_id,
+                                                 cores=options.fq_split_cores,
+                                                 memory=options.fq_split_mem, disk=options.fq_split_disk).rv())
 
     return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
@@ -305,6 +305,11 @@ def pipeline_main(options):
         require(options.graphs and options.chroms, '--chroms and --graphs must be specified'
                 ' unless --xg_index --gcsa_index and --id_ranges used')
 
+    require(len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
+            ' passed with --fastq')
+    require(options.interleaved == False or len(options.fastq) == 1,
+            '--interleaved cannot be used when > 1 fastq given')    
+
     # Throw error if something wrong with IOStore string
     IOStore.get(options.out_store)
 
@@ -324,7 +329,9 @@ def pipeline_main(options):
             if options.graphs:
                 for graph in options.graphs:
                     inputGraphFileIDs.append(import_to_store(toil, options, graph))
-            inputReadsFileID = import_to_store(toil, options, options.sample_reads)
+            inputReadsFileIDs = []
+            for sample_reads in options.fastq:
+                inputReadsFileIDs.append(import_to_store(toil, options, sample_reads))                    
             if options.gcsa_index:
                 inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
                 inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
@@ -358,7 +365,7 @@ def pipeline_main(options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileIDs,
-                                     inputReadsFileID, inputXGFileID, inputGCSAFileID,
+                                     inputReadsFileIDs, inputXGFileID, inputGCSAFileID,
                                      inputLCPFileID, inputIDRangesFileID,
                                      inputVCFFileID, inputTBIFileID,
                                      inputFastaFileID, inputBedFileID,
