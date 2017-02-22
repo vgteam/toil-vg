@@ -401,9 +401,8 @@ def merge_vcf_chunks(job, options, path_name, clip_file_ids):
     options.drunner.call(job, command, work_dir=work_dir)
 
     # Save merged vcf files to the job store
-    use_out_store = True if options.tool == 'call' else None
-    vcf_gz_file_id = write_to_store(job, options, vcf_path+".gz", use_out_store)
-    vcf_tbi_file_id = write_to_store(job, options, vcf_path+".gz.tbi", use_out_store)
+    vcf_gz_file_id = write_to_store(job, options, vcf_path+".gz")
+    vcf_tbi_file_id = write_to_store(job, options, vcf_path+".gz.tbi")
         
     return vcf_gz_file_id, vcf_tbi_file_id
     
