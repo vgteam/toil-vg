@@ -44,9 +44,9 @@ def map_subparser(parser):
         help="Path to GCSA index")
     parser.add_argument("id_ranges", type=str,
         help="Path to file with node id ranges for each chromosome in BED format.  If not"
-                            " supplied, will be generated from --graphs)")        
+                            " supplied, will be generated from --graphs)")
     parser.add_argument("out_store",
-        help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
+        help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--kmer_size", type=int,
         help="size of kmers to use in indexing and mapping")
 

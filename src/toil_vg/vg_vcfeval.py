@@ -31,8 +31,8 @@ def vcfeval_subparser(parser):
     parser.add_argument("vcfeval_fasta", type=str,
                         help="fasta file containing the DNA sequence.  Can be"
                         " gzipped with .gz extension")
-    parser.add_argument("out_store", type=str,
-                        help="vcfeval output store")
+    parser.add_argument("out_store",
+                            help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -84,12 +84,14 @@ def vcfeval(job, work_dir, call_vcf_name, vcfeval_baseline_name,
         assert len(data) == len(header)
         return float(data[-1])    
     
-def run_vcfeval(job, options, vcfeval_baseline_id, vcfeval_baseline_tbi_id, call_vcf_id, call_tbi_id,
+def run_vcfeval(job, options, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
                 fasta_id, bed_id):                
     """ run vcf_eval, return f1 score """
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
+
+    call_vcf_id, call_tbi_id = vcf_tbi_id_pair[0], vcf_tbi_id_pair[1]
 
     vcfeval_baseline_name = "truth_" + os.path.basename(options.vcfeval_baseline)
     call_vcf_name = "calls.vcf.gz"

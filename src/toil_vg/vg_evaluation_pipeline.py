@@ -94,7 +94,7 @@ def pipeline_subparser(parser_run):
     parser_run.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
     parser_run.add_argument("out_store",
-        help="output IOStore to create and fill with files that will be downloaded to the local machine where this toil script was run")
+        help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser_run.add_argument("--xg_index", type=str,
         help="Path to xg index (to use instead of generating new one)")    
     parser_run.add_argument("--gcsa_index", type=str,
@@ -130,7 +130,6 @@ def pipeline_subparser(parser_run):
 # form a chain of "follow-on" jobs as follows:
 #
 # run_pipeline_upload --> run_pipeline_index --> run_pipeline_map --> run_pipeline_call
-# --> run_pipeline_merge_vcf
 #
 # Each part of this chain spawns a child job that can also be run independently
 # using one of vg_index.main, vg_map.main etc.
@@ -196,81 +195,22 @@ def run_pipeline_call(job, options, xg_file_id, id_ranges_file_id, chr_gam_ids, 
                       baseline_tbi_id, fasta_id, bed_id):
     """ Run variant calling on the chromosomes in parallel """
 
-    return_value = []
-    vcf_tbi_file_id_pair_list = []
     chroms = [x[0] for x in parse_id_ranges(job, options, id_ranges_file_id)]
     assert len(chr_gam_ids) == len(chroms)
 
-    #Run variant calling
-    for i in range(len(chr_gam_ids)):
-        alignment_file_id = chr_gam_ids[i]
-        chr_label = chroms[i]
-        vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
-                                                 alignment_file_id, chr_label,
-                                                 cores=options.call_chunk_cores,
-                                                 memory=options.call_chunk_mem,
-                                                 disk=options.call_chunk_disk).rv()
-        vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
-
-    return job.addFollowOnJobFn(run_pipeline_merge_vcf, options, vcf_tbi_file_id_pair_list,
-                                baseline_vcf_id, baseline_tbi_id,
-                                fasta_id, bed_id,
-                                cores=options.call_chunk_cores,
-                                memory=options.call_chunk_mem,
-                                disk=options.call_chunk_disk).rv()
-
-def run_pipeline_merge_vcf(job, options, vcf_tbi_file_id_pair_list, baseline_vcf_id, baseline_tbi_id,
-                           fasta_id, bed_id):
-
-    RealtimeLogger.info("Completed gam merging and gam path variant calling.")
-    RealtimeLogger.info("Starting vcf merging vcf files.")
-    # Set up the IO stores each time, since we can't unpickle them on Azure for
-    # some reason.
-    out_store = IOStore.get(options.out_store)
-
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-    
-    vcf_merging_file_key_list = [] 
-    for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
-        vcf_file = "{}/{}.gz".format(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
-        vcf_file_idx = "{}.tbi".format(vcf_file)
-        read_from_store(job, options, vcf_tbi_file_id_pair[0], vcf_file)
-        read_from_store(job, options, vcf_tbi_file_id_pair[1], vcf_file_idx)
-        vcf_merging_file_key_list.append(os.path.basename(vcf_file))
-
-    vcf_merged_file_key = "" 
-    if len(vcf_merging_file_key_list) > 1:
-        # merge vcf files
-        vcf_merged_file_key = "{}.vcf.gz".format(options.sample_name)
-        command=['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key), ' '.join(vcf_merging_file_key_list)]
-        options.drunner.call(job, command, work_dir=work_dir)
-        command=['bcftools', 'tabix', '-f', '-p', 'vcf', os.path.basename(vcf_merged_file_key)]
-        options.drunner.call(job, command, work_dir=work_dir)
-    else:
-        vcf_merged_file_key = vcf_merging_file_key_list[0]
-
-    # save variant calling results to the output store
-    out_store_key = "{}.vcf.gz".format(options.sample_name)
-    vcf_file = os.path.join(work_dir, vcf_merged_file_key)
-    vcf_file_idx = vcf_file + ".tbi"
-    vcf_file_id = write_to_store(job, options, vcf_file)
-    vcf_idx_file_id = write_to_store(job, options, vcf_file_idx)
-
-    # checkpoint to output store if not done above
-    if not options.force_outstore:
-        write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
-        write_to_store(job, options, vcf_file_idx, use_out_store = True, out_store_key = out_store_key + ".tbi") 
-
+    vcf_tbi_wg_id_pair = job.addChildJobFn(run_all_calling, options, xg_file_id, chr_gam_ids, chroms,
+                                           cores=options.misc_cores, memory=options.misc_mem,
+                                           disk=options.misc_disk).rv()
 
     # optionally run vcfeval at the very end.  output will end up in the outstore.
     # f1 score will be returned.
     if baseline_vcf_id is not None:
-        return job.addFollowOnJobFn(run_vcfeval, options, baseline_vcf_id, baseline_tbi_id,
-                                    vcf_file_id, vcf_idx_file_id, fasta_id, bed_id,
+        return job.addFollowOnJobFn(run_vcfeval, options, vcf_tbi_wg_id_pair,
+                                    baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id,
                                     cores=options.vcfeval_cores,
                                     memory=options.vcfeval_mem,
                                     disk=options.vcfeval_disk).rv()
+                      
 
 def main():
     """

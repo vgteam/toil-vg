@@ -74,7 +74,7 @@ function run_bakeoff_region {
 	 # run the whole pipeline
 	 toil-vg run ${JOB_STORE}-${REGION,,} ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz NA12878 ${OUT_STORE}-${REGION,,} --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${OPTS}
 
-	 toil-vg clean ${JOB_STORE}-${REGION,,}
+	 toil clean ${JOB_STORE}-${REGION,,}
 
 	 # harvest the f1 output and append it to our table
 	 rm -f temp_f1.txt
