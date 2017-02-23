@@ -40,13 +40,12 @@ def map_subparser(parser):
         help="Path to xg index")    
     parser.add_argument("gcsa_index", type=str,
         help="Path to GCSA index")
-    parser.add_argument("id_ranges", type=str,
-        help="Path to file with node id ranges for each chromosome in BED format.  If not"
-                            " supplied, will be generated from --graphs)")
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
+    parser.add_argument("--id_ranges", type=str, default=None,
+        help="Path to file with node id ranges for each chromosome in BED format.")
     parser.add_argument("--kmer_size", type=int,
-        help="size of kmers to use in indexing and mapping")
+        help="size of kmers to use in gcsa-kmer mapping mode")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -180,9 +179,7 @@ def run_chunk_alignment(job, options, chunk_filename_ids, chunk_id, xg_file_id, 
     lcp_file = gcsa_file + ".lcp"
     lcp_file_id = gcsa_and_lcp_ids[1]
     read_from_store(job, options, lcp_file_id, lcp_file)
-    id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
-    read_from_store(job, options, id_ranges_file_id, id_ranges_file)
-
+    
     # We need the sample fastq(s) for alignment
     fastq_files = []
     for j, chunk_filename_id in enumerate(chunk_filename_ids):
@@ -238,15 +235,25 @@ def run_chunk_alignment(job, options, chunk_filename_ids, chunk_id, xg_file_id, 
 
     RealtimeLogger.info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
 
-    # Chunk the gam up by chromosome
-    gam_chunks = split_gam_into_chroms(job, work_dir, options, xg_file, id_ranges_file, output_file)
+    if id_ranges_file_id is not None:
+        # Break GAM into multiple chunks at the end. So we need the file
+        # defining those chunks.
+        id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
+        read_from_store(job, options, id_ranges_file_id, id_ranges_file)
 
-    # Write gam_chunks to store
-    gam_chunk_ids = []
-    for gam_chunk in gam_chunks:
-        gam_chunk_ids.append(write_to_store(job, options, gam_chunk))
+        # Chunk the gam up by chromosome
+        gam_chunks = split_gam_into_chroms(job, work_dir, options, xg_file, id_ranges_file, output_file)
 
-    return gam_chunk_ids
+        # Write gam_chunks to store
+        gam_chunk_ids = []
+        for gam_chunk in gam_chunks:
+            gam_chunk_ids.append(write_to_store(job, options, gam_chunk))
+
+        return gam_chunk_ids
+        
+    else:
+        # We can just report one chunk of everything
+        return [write_to_store(job, options, output_file)]
 
 def split_gam_into_chroms(job, work_dir, options, xg_file, id_ranges_file, gam_file):
     """
@@ -299,8 +306,15 @@ def run_merge_gams(job, options, id_ranges_file_id, gam_chunk_file_ids):
     """
     Merge together gams, doing each chromosome in parallel
     """
-    id_ranges = parse_id_ranges(job, options, id_ranges_file_id)
-    chroms = [x[0] for x in id_ranges]
+    
+    if id_ranges_file_id is not None:
+        # Get the real chromosome names
+        id_ranges = parse_id_ranges(job, options, id_ranges_file_id)
+        chroms = [x[0] for x in id_ranges]
+    else:
+        # Dump everything in a single default chromosome chunk with a default
+        # name
+        chroms = ["default"]
     
     chr_gam_ids = []
 
@@ -377,7 +391,10 @@ def map_main(options):
             inputXGFileID = import_to_store(toil, options, options.xg_index)
             inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
             inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
-            inputIDRangesFileID = import_to_store(toil, options, options.id_ranges)
+            if options.id_ranges is not None:
+                inputIDRangesFileID = import_to_store(toil, options, options.id_ranges)
+            else:
+                inputIDRangesFileID = None
             sampleFastqFileIDs = []
             for sample_reads in options.fastq:
                 sampleFastqFileIDs.append(import_to_store(toil, options, sample_reads))
