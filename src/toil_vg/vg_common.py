@@ -13,8 +13,8 @@ import logging
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
+from toil.lib.docker import dockerCall, dockerCheckOutput, _fixPermissions
 from toil_vg.iostore import IOStore
-from toil_vg.docker import dockerCall, dockerCheckOutput, _fixPermissions
 
 logger = logging.getLogger(__name__)
 

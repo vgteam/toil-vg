@@ -284,8 +284,8 @@ call-chunk-mem: '64G'
 call-chunk-disk: '100G'
 
 # Resources for calling each chunk (currently includes pileup/call/genotype)
-calling-cores: 8
-calling-mem: '60G'
+calling-cores: 4
+calling-mem: '30G'
 calling-disk: '32G'
 
 # Resources for vcfeval

@@ -14,7 +14,7 @@
 
 version = '1.1.0a1'
 
-required_versions = {'toil': '>=3.5.0a1.dev251',
+required_versions = {'toil': '>=3.6.0',
                      'pyyaml': '>=3.11',
                      'biopython': '>=1.67',
                      'pyvcf': '>=0.6.8',
