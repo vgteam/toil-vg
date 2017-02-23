@@ -366,7 +366,7 @@ def map_main(options):
 
     require(len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
-    require(options.interleaved == False or len(options.fast1) == 1,
+    require(options.interleaved == False or len(options.fastq) == 1,
             '--interleaved cannot be used when > 1 fastq given')
     
     # Some file io is dependent on knowing if we're in the pipeline
