@@ -257,8 +257,8 @@ def run_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     
     vcf_merging_file_key_list = [] 
     for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
-        vcf_file = "{}/{}.gz".format(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
-        vcf_file_idx = "{}.tbi".format(vcf_file)
+        vcf_file = os.path.join(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
+        vcf_file_idx = '{}.tbi'.format(vcf_file)
         read_from_store(job, options, vcf_tbi_file_id_pair[0], vcf_file)
         read_from_store(job, options, vcf_tbi_file_id_pair[1], vcf_file_idx)
         vcf_merging_file_key_list.append(os.path.basename(vcf_file))
@@ -267,7 +267,8 @@ def run_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     if len(vcf_merging_file_key_list) > 1:
         # merge vcf files
         vcf_merged_file_key = "{}.vcf.gz".format(options.sample_name)
-        command=['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key), ' '.join(vcf_merging_file_key_list)]
+        command = ['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key)]
+        command +=  vcf_merging_file_key_list
         options.drunner.call(job, command, work_dir=work_dir)
         command=['bcftools', 'tabix', '-f', '-p', 'vcf', os.path.basename(vcf_merged_file_key)]
         options.drunner.call(job, command, work_dir=work_dir)
@@ -278,9 +279,10 @@ def run_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     out_store_key = "{}.vcf.gz".format(options.sample_name)
     vcf_file = os.path.join(work_dir, vcf_merged_file_key)
     vcf_file_idx = vcf_file + ".tbi"
+    
     vcf_file_id = write_to_store(job, options, vcf_file)
     vcf_idx_file_id = write_to_store(job, options, vcf_file_idx)
-
+    
     # checkpoint to output store if not done above
     if not options.force_outstore:
         write_to_store(job, options, vcf_file, use_out_store = True, out_store_key = out_store_key)
