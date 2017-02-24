@@ -63,13 +63,69 @@ class VGCGLTest(TestCase):
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
                 
-        # copy the sequence information for vcf comparison
+        # the sequence information for vcf comparison
         # (lumped in one file out of laziness.  todo: at least split by chromosome)
-        self.chrom_fa = os.path.join(self.workdir, 'chrom.fa.gz')
-        self._download_input('chrom.fa.gz', self.chrom_fa)
+        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/chrom.fa.gz'
 
+    def test_1_sim_small(self):
+        ''' 
+        This test uses simulated reads from the small dataset from vg, created as follows:
+        vg construct -r test/small/x.fa -v test/small/x.vcf.gz > small.vg
+        vg index -x small.xg small.vg
+        vg sim -x small.xg  -l 100 -n 10000 -s 0 -e 0.001 -i 0.0001 > small_sim_reads
+        # Reads converted to small_sim_reads.fq with script setting qualities to B
+        (small.vcf.gz and small.fa.gz below are just x.vcf.gz and x.fa from input)
+        '''
+        self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/small_sim_reads.fq.gz'
+        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vg'
+        self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vcf.gz'
+        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
+
+        self._run(self.base_command, self.jobStoreLocal, 'sample',
+                  self.local_outstore,  '--fastq', self.sample_reads,
+                  '--graphs', self.test_vg_graph,
+                  '--chroms', 'x', '--vcfeval_baseline', self.baseline,
+                  '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy')
         
-    def test_chr17_sampleNA12877(self):
+        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
+
+    def test_2_sim_small_standalone(self):
+        ''' 
+        Same as above, but chain standalone tools instead of toil-vg run
+        '''
+        self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/small_sim_reads.fq.gz'
+        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vg'
+        self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vcf.gz'
+        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
+        
+        self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                  '--graphs', self.test_vg_graph, '--chroms', 'x',
+                   '--gcsa_index_cores', '7', '--kmers_cores', '7',
+                  '--realTimeLogging', '--logInfo', '--index_name', 'small')
+
+        self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
+                  os.path.join(self.local_outstore, 'small.xg'),
+                  os.path.join(self.local_outstore, 'small.gcsa'),
+                  self.local_outstore,  '--fastq', self.sample_reads,
+                  '--id_ranges', os.path.join(self.local_outstore, 'small_id_ranges.tsv'),
+                  '--alignment_cores', '7', '--reads_per_chunk', '8000',
+                  '--realTimeLogging', '--logInfo')
+        
+        self._run('toil-vg', 'call', self.jobStoreLocal,
+                  os.path.join(self.local_outstore, 'small.xg'), 'sample',
+                  self.local_outstore, '--gams', os.path.join(self.local_outstore, 'sample_x.gam'), 
+                  '--chroms', 'x', '--call_chunk_size', '20000', '--calling_cores', '4',
+                  '--realTimeLogging', '--logInfo')
+
+        self._run('toil-vg', 'vcfeval', self.jobStoreLocal,
+                  os.path.join(self.local_outstore, 'sample.vcf.gz'), self.baseline,
+                  self.chrom_fa, self.local_outstore,
+                  '--vcfeval_opts', ' --squash-ploidy',
+                  '--realTimeLogging', '--logInfo')
+        
+        self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
+
+    def test_3_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
         self._download_input('NA12877.brca1.bam_1.fq.gz')
@@ -90,9 +146,8 @@ class VGCGLTest(TestCase):
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore)
-    
 
-    def test_chr19_sampleNA12877(self):
+    def test_4_LRC_KIR_small_NA12877(self):
         ''' Test sample LRC KIR output
         '''
         
@@ -102,13 +157,16 @@ class VGCGLTest(TestCase):
         self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
         self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa.lcp')
         self._download_input('normal_NA12877_19.vcf.gz')
-        self._download_input('normal_NA12877_19.vcf.gz.tbi')        
+        self._download_input('normal_NA12877_19.vcf.gz.tbi')
+        self._download_input('chrom.fa.gz')
 
         self.sample_reads = os.path.join(self.workdir, 'NA12877.lrc_kir.bam.small.fq')
         self.test_vg_graph = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg')
         self.test_xg_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.xg')
         self.test_gcsa_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
         self.baseline = os.path.join(self.workdir, 'normal_NA12877_19.vcf.gz')
+        # must be local for --force_outstore
+        self.chrom_fa = os.path.join(self.workdir, 'chrom.fa.gz')
         
         self._run(self.base_command, self.jobStoreLocal, 'NA12877',
                   self.local_outstore,  '--fastq', self.sample_reads, '--gcsa_index', self.test_gcsa_index,
@@ -118,7 +176,7 @@ class VGCGLTest(TestCase):
         
         self._assertOutput('NA12877', self.local_outstore)
 
-    def test_chr6_MHC_sampleNA12877(self):
+    def test_5_MHC_small_NA12877(self):
         ''' Test sample MHC output
         '''
         self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq'
@@ -133,20 +191,6 @@ class VGCGLTest(TestCase):
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
         
         self._assertOutput('NA12877', self.local_outstore)
-
-    def test_chr5_SMA_sampleNA12877(self):
-        ''' Test sample SMA output
-        '''
-        self._download_input('NA12877.sma.bam.small.fq')
-        self._download_input('SMA_chrom_name_chop_100.small.vg')
-        self.sample_reads = os.path.join(self.workdir, 'NA12877.sma.bam.small.fq')
-        self.test_vg_graph = os.path.join(self.workdir, 'SMA_chrom_name_chop_100.small.vg')
-        self._run(self.base_command, self.jobStoreLocal,  'NA12877',
-                  self.local_outstore, '--fastq', self.sample_reads, '--graphs',
-                  self.test_vg_graph, '--chroms', '5')
-        # disabling this test for now as no variants get called,
-        # which triggers assert fail when loading the vceval output
-        #self._assertOutput('NA12877_5.vcf', self.local_outstore)
     
     def _run(self, *args):
         args = list(concat(*args))
@@ -158,7 +202,10 @@ class VGCGLTest(TestCase):
         # grab the f1.txt file
         local_f1 = os.path.join(self.workdir, 'f1.txt')
         io_store = IOStore.get(outstore)
-        io_store.read_input_file('{}_vcfeval_output_f1.txt'.format(sample_name), local_f1)
+        f1_path = 'vcfeval_output_f1.txt'
+        if sample_name:
+            f1_path = sample_name + '_' + f1_path
+        io_store.read_input_file(f1_path, local_f1)
 
         with open(local_f1) as f1_file:
             f1_score = float(f1_file.readline().strip())
