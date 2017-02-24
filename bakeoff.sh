@@ -72,7 +72,7 @@ function run_bakeoff_region {
 	 $RM_CMD $F1_SCORE
 
 	 # run the whole pipeline
-	 toil-vg run ${JOB_STORE}-${REGION,,} ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz NA12878 ${OUT_STORE}-${REGION,,} --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${OPTS}
+	 toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${OPTS}
 
 	 toil clean ${JOB_STORE}-${REGION,,}
 
