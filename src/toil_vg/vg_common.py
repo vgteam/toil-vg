@@ -258,6 +258,10 @@ def import_to_store(toil, options, path, use_out_store = None,
     """
     logger.info("Importing {}".format(path))
 
+    require(not options.force_outstore or clean_toil_path(path).startswith('file://'),
+            '--force_outstore can only be used with local input files'
+            ' (triggered by {})'.format(path))
+
     if use_out_store is True or (use_out_store is None and options.force_outstore is True):
         return  write_to_store(None, options, path, use_out_store, out_store_key)
     else:
