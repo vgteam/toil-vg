@@ -46,11 +46,11 @@ def vcfeval_subparser(parser):
 def vcfeval_parse_args(parser):
     """ centralize calling parameters here """
 
-    parser.add_argument("--vcfeval_bed_regions", type=int,
+    parser.add_argument("--vcfeval_bed_regions", type=str,
                         help="BED file of regions to consider")
     parser.add_argument("--vcfeval_opts", type=str,
-                        help="Additional filtering options for vcfeval",
-                        default="")
+                        help="Additional options for vcfeval (wrapped in \"\")",
+                        default=None)
     parser.add_argument("--vcfeval_cores", type=int,
                         default=1,
                         help="Cores to use for vcfeval")
@@ -66,10 +66,10 @@ def vcfeval(job, work_dir, call_vcf_name, vcfeval_baseline_name,
            '--threads', str(options.vcfeval_cores)]
 
     if bed_name is not None:
-        cmd += ['--evaluation-regions', os.path.basename(bed_name)]
+        cmd += ['--evaluation-regions', bed_name]
 
-    if len(options.vcfeval_opts) > 0:
-        cmd += options.vcfeval_opts.split()
+    if options.vcfeval_opts:
+        cmd += options.vcfeval_opts
 
     options.drunner.call(job, cmd, work_dir=work_dir)
 
@@ -187,12 +187,12 @@ def vcfeval_main(options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_vcfeval, options,
+                                     (call_vcf_id, call_tbi_id),
                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                                     call_vcf_id, call_tbi_id,
                                      fasta_id, bed_id,
                                      cores=options.vcfeval_cores, memory=options.vcfeval_mem,
                                      disk=options.vcfeval_disk)
-            
+
             # Run the job
             f1 = toil.start(root_job)
         else:

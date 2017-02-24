@@ -412,9 +412,9 @@ def apply_config_file_args(args):
     """
 
     # turn --*_opts from strings to lists to be consistent with config file
-    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts']:
+    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
-            args.__dict__[x_opts] = args.__dict__[x_opts].split(' ')
+            args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
             # get rid of any -t or --threads while we're at it
             for t in ['-t', '--threads']:
                 if t in args.__dict__[x_opts]:
