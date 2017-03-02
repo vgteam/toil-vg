@@ -146,51 +146,6 @@ class VGCGLTest(TestCase):
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore)
-
-    def test_4_LRC_KIR_small_NA12877(self):
-        ''' Test sample LRC KIR output
-        '''
-        
-        self._download_input('NA12877.lrc_kir.bam.small.fq')
-        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg')
-        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.xg')
-        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
-        self._download_input('LRC_KIR_chrom_name_chop_100.small.vg.gcsa.lcp')
-        self._download_input('normal_NA12877_19.vcf.gz')
-        self._download_input('normal_NA12877_19.vcf.gz.tbi')
-        self._download_input('chrom.fa.gz')
-
-        self.sample_reads = os.path.join(self.workdir, 'NA12877.lrc_kir.bam.small.fq')
-        self.test_vg_graph = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg')
-        self.test_xg_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.xg')
-        self.test_gcsa_index = os.path.join(self.workdir, 'LRC_KIR_chrom_name_chop_100.small.vg.gcsa')
-        self.baseline = os.path.join(self.workdir, 'normal_NA12877_19.vcf.gz')
-        # must be local for --force_outstore
-        self.chrom_fa = os.path.join(self.workdir, 'chrom.fa.gz')
-        
-        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
-                  self.local_outstore,  '--fastq', self.sample_reads, '--gcsa_index', self.test_gcsa_index,
-                  '--xg_index', self.test_xg_index, '--graphs', self.test_vg_graph,
-                  '--chroms', '19', '--force_outstore', '--vcfeval_baseline', self.baseline,
-                  '--vcfeval_fasta', self.chrom_fa)
-        
-        self._assertOutput('NA12877', self.local_outstore)
-
-    def test_5_MHC_small_NA12877(self):
-        ''' Test sample MHC output
-        '''
-        self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/NA12877.mhc.bam.small.fq'
-        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg'
-        self.test_gcsa_index = 's3://cgl-pipeline-inputs/vg_cgl/ci/MHC_chrom_name_chop_100.small.vg.gcsa'
-        self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/normal_NA12877_6.vcf.gz'
-        
-        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
-                  self.local_outstore,  '--fastq', self.sample_reads,
-                  '--gcsa_index', self.test_gcsa_index,
-                  '--graphs', self.test_vg_graph, '--chroms', '6',
-                  '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
-        
-        self._assertOutput('NA12877', self.local_outstore)
     
     def _run(self, *args):
         args = list(concat(*args))
