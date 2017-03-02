@@ -7,18 +7,22 @@
 ## For now, all we have is the basic logic to do one run of bakeoff, expecting
 ## virtualenv etc has already been set up. 
 
-usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\n" 1>&2; exit 1; }
+usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\t-D\tno Docker\n\n" 1>&2; exit 1; }
 
 FAST=0
 MESOS=0
+DOCKER=1
 
-while getopts "fm" o; do
+while getopts "fmD" o; do
     case "${o}" in
         f)
             FAST=1
             ;;
         m)
             MESOS=1
+            ;;
+        D)
+            DOCKER=0
             ;;
         *)
             usage
@@ -60,6 +64,13 @@ else
 	 RM_CMD="rm"
 fi
 
+# Hack in support for turning Docker on and off
+if [ "$DOCKER" == "0" ]; then
+    DOCKER_OPTS="--no_docker"
+else
+    DOCKER_OPTS=""
+fi
+
 # Run toil-vg on a bakeoff region
 function run_bakeoff_region {
 	 local REGION=$1
@@ -72,7 +83,7 @@ function run_bakeoff_region {
 	 $RM_CMD $F1_SCORE
 
 	 # run the whole pipeline
-	 toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${OPTS}
+	 toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${OPTS}
 
 	 toil clean ${JOB_STORE}-${REGION,,}
 
