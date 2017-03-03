@@ -7,13 +7,15 @@
 ## For now, all we have is the basic logic to do one run of bakeoff, expecting
 ## virtualenv etc has already been set up. 
 
-usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\t-D\tno Docker\n\n" 1>&2; exit 1; }
+usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\t-D\tno Docker\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\n" 1>&2; exit 1; }
 
 FAST=0
 MESOS=0
 DOCKER=1
+CORES=7
+CONFIG=0
 
-while getopts "fmD" o; do
+while getopts "fmDt:c:" o; do
     case "${o}" in
         f)
             FAST=1
@@ -23,6 +25,12 @@ while getopts "fmD" o; do
             ;;
         D)
             DOCKER=0
+            ;;
+        t)
+            CORES=$OPTARG
+            ;;
+        c)
+            CONFIG=$OPTARG
             ;;
         *)
             usage
@@ -44,7 +52,10 @@ PREFIX=$1
 F1FILE=$2
 
 # General Options
-OPTS='--gcsa_index_cores 7 --kmers_cores 7 --alignment_cores 7 --calling_cores 7 --vcfeval_cores 7 --realTimeLogging --logInfo'
+OPTS="--gcsa_index_cores ${CORES} --kmers_cores ${CORES} --alignment_cores ${CORES} --calling_cores ${CORES} --vcfeval_cores ${CORES} --realTimeLogging --logInfo"
+if [ "$CONFIG" != "0" ]; then
+	 OPTS="${OPTS} --config ${CONFIG}"
+fi
 
 # Hack in support for switching between mesos and local here
 # (Note, for job store and out store, we will tack on -REGION to make them unique)
