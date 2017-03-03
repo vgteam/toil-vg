@@ -51,7 +51,6 @@ class VGCGLTest(TestCase):
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
         self.connection = S3Connection()
         self.bucket = self.connection.get_bucket('cgl-pipeline-inputs')
-                
         self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                                    '--call_chunk_size', '20000',
@@ -62,10 +61,6 @@ class VGCGLTest(TestCase):
         # default output store
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
-                
-        # the sequence information for vcf comparison
-        # (lumped in one file out of laziness.  todo: at least split by chromosome)
-        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/chrom.fa.gz'
 
     def test_1_sim_small(self):
         ''' 
@@ -130,22 +125,24 @@ class VGCGLTest(TestCase):
         '''
         self._download_input('NA12877.brca1.bam_1.fq.gz')
         self._download_input('NA12877.brca1.bam_2.fq.gz')
-        self._download_input('BRCA1_chrom_name_chop_100.vg')
-        self._download_input('normal_NA12877_17.vcf.gz')
-        self._download_input('normal_NA12877_17.vcf.gz.tbi')                
+        self._download_input('snp1kg-brca1.vg')
+        self._download_input('platinum_NA12877_BRCA1.vcf.gz.tbi')
+        self._download_input('platinum_NA12877_BRCA1.vcf.gz')
+        self._download_input('BRCA1.fa.gz')
         
         self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz')
         self.sample_reads2 = os.path.join(self.workdir, 'NA12877.brca1.bam_2.fq.gz')
-        self.test_vg_graph = os.path.join(self.workdir, 'BRCA1_chrom_name_chop_100.vg')
-        self.baseline = os.path.join(self.workdir, 'normal_NA12877_17.vcf.gz')
+        self.test_vg_graph = os.path.join(self.workdir, 'snp1kg-brca1.vg')
+        self.baseline = os.path.join(self.workdir, 'platinum_NA12877_BRCA1.vcf.gz')
+        self.chrom_fa = os.path.join(self.workdir, 'BRCA1.fa.gz')
         
         self._run(self.base_command, self.jobStoreLocal, 'NA12877',
                   self.local_outstore, '--fastq', self.sample_reads, self.sample_reads2, '--graphs',
                   self.test_vg_graph, '--chroms', '17',
-                  '--call_opts', '--offset 43044293', 
+                  '--call_opts', '--offset 43044293',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
-        self._assertOutput('NA12877', self.local_outstore)
+        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.53)
     
     def _run(self, *args):
         args = list(concat(*args))
@@ -164,7 +161,6 @@ class VGCGLTest(TestCase):
 
         with open(local_f1) as f1_file:
             f1_score = float(f1_file.readline().strip())
-        
         self.assertTrue(f1_score >= f1_threshold)
 
     def tearDown(self):
