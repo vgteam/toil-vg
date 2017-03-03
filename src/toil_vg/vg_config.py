@@ -117,7 +117,7 @@ no-docker: False
 ##   of through docker. no-docker (above) overrides all these options. 
 
 # Docker container to use for vg
-vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2303-gbe67608', True]
+vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2332-g356c597', True]
 
 # Docker container to use for bcftools
 bcftools-docker: ['quay.io/cmarkello/bcftools', False]
@@ -310,7 +310,7 @@ no-docker: False
 ##   of through docker. no-docker (above) overrides all these options. 
 
 # Docker container to use for vg
-vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2303-gbe67608', True]
+vg-docker: ['quay.io/glennhickey/vg:v1.4.0-2332-g356c597', True]
 
 # Docker container to use for bcftools
 bcftools-docker: ['quay.io/cmarkello/bcftools', False]
