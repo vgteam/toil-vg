@@ -100,6 +100,11 @@ vcfeval-cores: 1
 vcfeval-mem: '4G'
 vcfeval-disk: '2G'
 
+# Resources for vg sim
+sim-cores: 2
+sim-mem: '4G'
+sim-disk: '2G'
+
 ###########################################
 ### Arguments Shared Between Components ###
 # Use output store instead of toil for all intermediate files (use only for debugging)
@@ -207,6 +212,11 @@ vcfeval-opts: []
 # BED region file for vcfeval
 vcfeval-bed-regions:
 
+#########################
+### sim Arguments ###
+# Options to pass to vg sim (should not include -x, -s, -n or -a)
+sim-opts: []
+
 """)
 
 whole_genome_config = textwrap.dedent("""
@@ -292,6 +302,11 @@ calling-disk: '32G'
 vcfeval-cores: 32
 vcfeval-mem: '64G'
 vcfeval-disk: '64G'
+
+# Resources for vg sim
+sim-cores: 2
+sim-mem: '4G'
+sim-disk: '2G'
 
 ###########################################
 ### Arguments Shared Between Components ###
@@ -401,6 +416,11 @@ vcfeval-opts: []
 # BED region file for vcfeval
 vcfeval-bed-regions:
 
+#########################
+### sim Arguments ###
+# Options to pass to vg sim (should not include -x, -n, -s or -a)
+sim-opts: []
+
 """)
 
 def generate_config(whole_genome = False):
@@ -412,7 +432,7 @@ def apply_config_file_args(args):
     """
 
     # turn --*_opts from strings to lists to be consistent with config file
-    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts']:
+    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
             # get rid of any -t or --threads while we're at it
