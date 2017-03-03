@@ -142,7 +142,7 @@ class VGCGLTest(TestCase):
                   '--call_opts', '--offset 43044293',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
-        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.53)
+        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.48)
     
     def _run(self, *args):
         args = list(concat(*args))
