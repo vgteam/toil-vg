@@ -213,9 +213,12 @@ vcfeval-opts: []
 vcfeval-bed-regions:
 
 #########################
-### sim Arguments ###
-# Options to pass to vg sim (should not include -x, -s, -n or -a)
+### sim and mapeval Arguments ###
+# Options to pass to vg sim (should not include -x, -n, -s or -a)
 sim-opts: []
+
+# Options to pass to bwa
+bwa-opts: []
 
 """)
 
@@ -417,9 +420,13 @@ vcfeval-opts: []
 vcfeval-bed-regions:
 
 #########################
-### sim Arguments ###
+### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
 sim-opts: []
+
+# Options to pass to bwa
+bwa-opts: []
+
 
 """)
 
@@ -432,7 +439,8 @@ def apply_config_file_args(args):
     """
 
     # turn --*_opts from strings to lists to be consistent with config file
-    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts']:
+    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
+                   'bwa_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
             # get rid of any -t or --threads while we're at it

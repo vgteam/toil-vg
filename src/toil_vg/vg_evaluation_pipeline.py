@@ -33,6 +33,7 @@ from toil_vg.vg_map import *
 from toil_vg.vg_vcfeval import *
 from toil_vg.vg_config import *
 from toil_vg.vg_sim import *
+from toil_vg.vg_mapeval import *
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,10 @@ def parse_args():
     # sim subparser
     parser_sim = subparsers.add_parser('sim', help='Simulate reads and alignments')
     sim_subparser(parser_sim)
+
+    # mapeval subparser
+    parser_mapeval = subparsers.add_parser('mapeval', help='Compare mapping results')
+    mapeval_subparser(parser_mapeval)
 
     return parser.parse_args()
 
@@ -292,6 +297,8 @@ def main():
         call_main(options)
     elif args.command == 'sim':
         sim_main(options)
+    elif args.command == 'mapeval':
+        mapeval_main(options)
         
     
 def pipeline_main(options):
