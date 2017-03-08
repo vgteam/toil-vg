@@ -176,11 +176,9 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, input
     else:
         id_ranges_file_id = inputIDRangesFileID
 
-    fastq_chunk_ids = []
-    for fastq_i, reads_file_id in enumerate(inputReadsFileIDs):
-        fastq_chunk_ids.append(job.addChildJobFn(run_split_fastq, options, fastq_i, reads_file_id,
-                                                 cores=options.fq_split_cores,
-                                                 memory=options.fq_split_mem, disk=options.fq_split_disk).rv())
+    fastq_chunk_ids = job.addChildJobFn(run_split_reads, options, inputReadsFileIDs,
+                                        cores=options.misc_cores, memory=options.misc_mem,
+                                        disk=options.misc_disk).rv()
 
     return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
@@ -319,10 +317,12 @@ def pipeline_main(options):
         require(options.graphs and options.chroms, '--chroms and --graphs must be specified'
                 ' unless --xg_index --gcsa_index and --id_ranges used')
 
-    require(len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
+    require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
-    require(options.interleaved == False or len(options.fastq) == 1,
-            '--interleaved cannot be used when > 1 fastq given')    
+    require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
+            '--interleaved cannot be used when > 1 fastq given')
+    require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
+            'reads must be speficied with either --fastq or --gam_reads')    
 
     # Throw error if something wrong with IOStore string
     IOStore.get(options.out_store)
@@ -344,8 +344,11 @@ def pipeline_main(options):
                 for graph in options.graphs:
                     inputGraphFileIDs.append(import_to_store(toil, options, graph))
             inputReadsFileIDs = []
-            for sample_reads in options.fastq:
-                inputReadsFileIDs.append(import_to_store(toil, options, sample_reads))                    
+            if options.fastq:
+                for sample_reads in options.fastq:
+                    inputReadsFileIDs.append(import_to_store(toil, options, sample_reads))
+            else:
+                inputReadsFileIDs.append(import_to_store(toil, options, options.gam_input_reads))
             if options.gcsa_index:
                 inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
                 inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")

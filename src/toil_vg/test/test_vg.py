@@ -117,7 +117,7 @@ class VGCGLTest(TestCase):
                   self.chrom_fa, self.local_outstore,
                   '--vcfeval_opts', ' --squash-ploidy',
                   '--realTimeLogging', '--logInfo')
-        
+
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
 
     def test_3_BRCA1_NA12877(self):
