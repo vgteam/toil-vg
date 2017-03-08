@@ -10,3 +10,5 @@ __pycache__
 /bin/s3am
 /awscli/
 /bin/awscli
+*.DONE
+*.docker

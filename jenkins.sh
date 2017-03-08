@@ -31,10 +31,14 @@ export PATH=$PATH:${PWD}/bin
 make prepare
 make develop
 make test
+make docker
+make test_docker
 make clean
 
 # clean working copy to satisfy corresponding check in Makefile
 rm -rf bin awscli s3am
 make pypi
+make push_docker
+make clean_docker
 
 rm -rf .env $TMPDIR
