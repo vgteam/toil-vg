@@ -8,15 +8,23 @@ from __future__ import print_function
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, SocketServer, struct, socket, threading
-import string
+import string, math
 import urlparse
 import getpass
 import pdb
 import gzip
 import logging
+from collections import Counter
 
 from math import ceil
 from subprocess import Popen, PIPE
+
+try:
+    import numpy as np
+    from sklearn.metrics import roc_auc_score, average_precision_score, r2_score
+    have_sklearn = True
+except:
+    have_sklearn = False
 
 from toil.common import Toil
 from toil.job import Job
@@ -437,11 +445,9 @@ def run_process_comparisons(job, options, names, compare_ids):
             write_to_store(job, options, compare_file, use_out_store = True)
             write_tsv(compare_file, name)
 
-            map_stats.append([job.addChildJobFn(run_count_reads, options, name, compare_id, cores=options.misc_cores,
+            map_stats.append([job.addChildJobFn(run_acc, options, name, compare_id, cores=options.misc_cores,
                                                 memory=options.misc_mem, disk=options.misc_disk).rv(),
                               job.addChildJobFn(run_auc, options, name, compare_id, cores=options.misc_cores,
-                                                memory=options.misc_mem, disk=options.misc_disk).rv(),
-                              job.addChildJobFn(run_acc, options, name, compare_id, cores=options.misc_cores,
                                                 memory=options.misc_mem, disk=options.misc_disk).rv(),
                               job.addChildJobFn(run_qq, options, name, compare_id, cores=options.misc_cores,
                                                 memory=options.misc_mem, disk=options.misc_disk).rv()])
@@ -458,37 +464,12 @@ def run_write_stats(job, options, names, map_stats):
     work_dir = job.fileStore.getLocalTempDir()
     stats_file = os.path.join(work_dir, 'stats.tsv')
     with open(stats_file, 'w') as stats_out:
-        stats_out.write('aligner\tcount\tacc\tauc\tqq-r\n')
+        stats_out.write('aligner\tcount\tacc\tauc\t\aupr\tqq-r\n')
         for name, stats in zip(names, map_stats):
-            stats_out.write('{}\t{}\t{}\t{}\n'.format(name, stats[0], stats[2], stats[1], stats[3]))
+            stats_out.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
+                                                              stats[1][0], stats[1][1], stats[2]))
 
     write_to_store(job, options, stats_file, use_out_store = True)
-
-def run_count_reads(job, options, name, compare_id):
-    """
-    Number of values in the table.  Mostly a sanity check to make sure same everywhere
-    """
-    work_dir = job.fileStore.getLocalTempDir()
-
-    compare_file = os.path.join(work_dir, '{}.compare'.format(name))
-    read_from_store(job, options, compare_id, compare_file)
-
-    total = 0
-    with open(compare_file) as compare_f:
-        for line in compare_f:
-            total += 1
-    return total
-    
-def run_auc(job, options, name, compare_id):
-    """
-    AUC of roc plot
-    """
-    work_dir = job.fileStore.getLocalTempDir()
-
-    compare_file = os.path.join(work_dir, '{}.compare'.format(name))
-    read_from_store(job, options, compare_id, compare_file)
-
-    return 0
 
 def run_acc(job, options, name, compare_id):
     """
@@ -508,20 +489,69 @@ def run_acc(job, options, name, compare_id):
             total += 1
             if toks[1] == '1':
                 correct += 1
-
-    return float(correct) / float(total) if total > 0 else 0
-
-def run_qq(job, options, name, compare_id):
+                
+    acc = float(correct) / float(total) if total > 0 else 0
+    return total, acc
+    
+def run_auc(job, options, name, compare_id):
     """
-    some measure of qq consistency 
+    AUC of roc plot
     """
+    if not have_sklearn:
+        return ["sklearn_not_installed"] * 2 
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare'.format(name))
     read_from_store(job, options, compare_id, compare_file)
 
-    return 0
+    try:
+        data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2)).T
+        auc = roc_auc_score(data[0], data[1])
+        aupr = average_precision_score(data[0], data[1])
+    except:
+        # will happen if file is empty
+        auc, aupr = 0, 0
 
+    return auc, aupr    
+
+def run_qq(job, options, name, compare_id):
+    """
+    some measure of qq consistency 
+    """
+    if not have_sklearn:
+        return "sklearn_not_installed"
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    compare_file = os.path.join(work_dir, '{}.compare'.format(name))
+    read_from_store(job, options, compare_id, compare_file)
+
+    try:
+        data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
+
+        # this can surley be sped up if necessary
+        correct = Counter()
+        total = Counter()
+        for row in data:
+            correct[row[1]] += row[0]
+            total[row[1]] += 1
+
+        qual_scores = []
+        qual_observed = []            
+        for qual, cor in correct.items():
+            qual_scores.append(qual)
+            p_err = max(1. - float(cor) / float(total[qual]), sys.float_info.epsilon)
+            observed_score =-10. * math.log10(p_err)
+            qual_observed.append(observed_score)
+
+        # should do non-linear regression as well? 
+        r2 = r2_score(qual_observed, qual_scores)
+    except:
+        # will happen if file is empty
+        r2 = 'fail'
+
+    return r2
     
 def mapeval_main(options):
     """
