@@ -43,7 +43,6 @@ help:
 
 
 python=python2.7
-#pip=${PWD}/.env/bin/pip2.7
 pip=pip2.7
 tests=src
 extras=
@@ -124,6 +123,17 @@ check_running_on_jenkins:
 	@test -n "$$BUILD_NUMBER" \
 		|| ( echo "$(red)This target should only be invoked on Jenkins.$(normal)" ; false )
 
+clean_docker:
+	-cd docker && make clean
+
+test_docker:
+	cd docker && make test
+
+docker:
+	cd docker && make
+
+push_docker: docker
+	cd docker && make push
 
 .PHONY: help \
 		prepare \
@@ -135,4 +145,8 @@ check_running_on_jenkins:
 		check_venv \
 		check_clean_working_copy \
 		check_running_on_jenkins \
+		docker \
+		push_docker \
+		clean_docker \
+		test_docker \
 		check_build_reqs

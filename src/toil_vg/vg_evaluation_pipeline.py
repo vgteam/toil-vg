@@ -219,10 +219,13 @@ def main():
     
     DNA-seq fastqs are split, aligned to an indexed vg reference graph, and variant-called using
     the vg toolset.
-
+    
     General usage:
-    Type "toil-vg [toil options] [toil-vg flag arguments] [jobStore] [path to vg file] [path to fastq file]
-                  [sample name] [local output directory] [remote input fileStore] [remote output fileStore]'
+    1. Type "toil-vg generate-config": Produce an editable config file in the current working directory.
+    2. Type "toil-vg run": Given input graphs (one per chromosome) and reads (fastq file), produce a graph index (index can also be input), graph alignment (GAM), VCF variant calls, and (optionally) VCF comparison results.
+    3. Type "toil-vg index": Produce an index from input graph(s).
+    4. Type "toil-vg map": Produce graph alignment (gam) for each chromosome from input reads and index
+    5. Type "toil-vg call": Produce VCF from input index and chromosome gam(s)
 
     Please read the README.md located in the source directory for more documentation
 
