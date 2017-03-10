@@ -21,7 +21,6 @@ import logging
 
 from math import ceil
 from subprocess import Popen, PIPE
-from Bio import SeqIO
 
 from toil.common import Toil
 from toil.job import Job
@@ -254,12 +253,6 @@ def main():
     6 = Merge variant call files
     7 = Download output files from remote output fileStore to local output directory
     ================================================================================
-    Dependencies
-    toil:           pip install toil (version >= 3.5.0a1.dev241)
-    toil-lib:       git clone --recursive https://github.com/cmarkello/toil-lib.git ${PWD}/toil-lib/
-                    pip install ${PWD}/toil-lib/
-    biopython:      pip install biopython (version >= 1.67)
-    boto:           pip install boto (OPTIONAL for runs on AWS machines)
     """
 
     args = parse_args()

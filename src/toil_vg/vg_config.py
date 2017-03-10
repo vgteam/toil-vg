@@ -130,6 +130,12 @@ bcftools-docker: ['quay.io/cmarkello/bcftools', False]
 # Docker container to use for tabix
 tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
 
+# Docker container to use for samtools
+samtools-docker: ['quay.io/ucsc_cgl/samtools:latest', True]
+
+# Docker container to use for bwa
+bwa-docker: ['quay.io/ucsc_cgl/bwa:latest', True]
+
 # Docker container to use for jq
 jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
 
@@ -215,7 +221,7 @@ vcfeval-bed-regions:
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: []
+sim-opts: ['-l', '150', '-p', '500', '-v', '50']
 
 # Options to pass to bwa
 bwa-opts: []
@@ -336,6 +342,12 @@ bcftools-docker: ['quay.io/cmarkello/bcftools', False]
 # Docker container to use for tabix
 tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
 
+# Docker container to use for samtools
+samtools-docker: ['quay.io/ucsc_cgl/samtools:latest', True]
+
+# Docker container to use for bwa
+bwa-docker: ['quay.io/ucsc_cgl/bwa:latest', True]
+
 # Docker container to use for jq
 jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
 
@@ -422,7 +434,7 @@ vcfeval-bed-regions:
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: []
+sim-opts: ['-l', '150', '-p', '500', '-v', '50']
 
 # Options to pass to bwa
 bwa-opts: []

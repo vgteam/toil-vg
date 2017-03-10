@@ -174,12 +174,15 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
             os.remove(end_file)
 
         # run bwa-mem on the paired end input
-        cmd = [['bwa', 'mem', '-t', str(options.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(sim_fq_files[1]), os.path.basename(sim_fq_files[2])] + options.bwa_opts]
-        cmd.append(['samtools', 'view', '-1', '-'])
-        
+        cmd = ['bwa', 'mem', '-t', str(options.alignment_cores), os.path.basename(fasta_file),
+                os.path.basename(sim_fq_files[1]), os.path.basename(sim_fq_files[2])] + options.bwa_opts        
+        with open(bam_file + '.sam', 'w') as out_sam:
+            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
+
+        # separate samtools for docker (todo find image with both)
+        cmd = ['samtools', 'view', '-1', os.path.basename(bam_file + '.sam')]
         with open(bam_file, 'w') as out_bam:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
 
     # single end
     else:
@@ -192,15 +195,20 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
             options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
 
         # run bwa-mem on single end input
-        cmd = [['bwa', 'mem', '-t', str(options.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(extracted_reads_file)] + options.bwa_opts]
-        cmd.append(['samtools', 'view', '-1', '-'])        
+        cmd = ['bwa', 'mem', '-t', str(options.alignment_cores), os.path.basename(fasta_file),
+                os.path.basename(extracted_reads_file)] + options.bwa_opts
 
+        with open(bam_file + '.sam', 'w') as out_sam:
+            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
+
+        # separate samtools for docker (todo find image with both)
+        cmd = ['samtools', 'view', '-1', os.path.basename(bam_file + '.sam')]
         with open(bam_file, 'w') as out_bam:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
 
     # return our id for the output positions file
     bam_file_id = write_to_store(job, options, bam_file)
+
     return bam_file_id
 
 def get_bam_positions(job, options, name, bam_file_id, paired):
@@ -267,7 +275,7 @@ def get_gam_positions(job, options, xg_file_id, name, gam_file_id):
     # avoid writing the json to disk)        
     jq_cmd = [['jq', '-c', '-r', '[.name, .refpos[0].name, .refpos[0].offset,'
                'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
-               gam_annot_json]]
+               json_path]]
     jq_cmd.append(['sed', 's/null/0/g'])
 
     with open(out_pos_file + '.unsorted', 'w') as out_pos:
@@ -298,9 +306,6 @@ def compare_positions(job, options, truth_file_id, name, pos_file_id):
 
     out_file = os.path.join(work_dir, name + '.compare')
 
-    join_file = os.path.join(work_dir, 'join_pos')
-    cmd = ['join', os.path.basename(true_pos_file), os.path.basename(test_pos_file)]    
-
     with open(true_pos_file) as truth, open(test_pos_file) as test, \
          open(out_file, 'w') as out:
         for truth_line, test_line in zip(truth, test):
@@ -324,16 +329,19 @@ def compare_positions(job, options, truth_file_id, name, pos_file_id):
             out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
         
         # make sure same length
+        has_next = False
         try:
-            iter(true_pos_file).next()
-            raise RuntimeError('position files have different lengths')
+            iter(truth).next()
+            has_next = True
         except:
             pass
         try:
-            iter(test_pos_file).next()
-            raise RuntimeError('position files have different lengths')
+            iter(test).next()
+            has_next = True
         except:
             pass
+        if has_next:
+            raise RuntimeError('position files have different lengths')
         
     out_file_id = write_to_store(job, options, out_file)
     return out_file_id
@@ -344,6 +352,7 @@ def run_map_eval_align(job, options, xg_file_id, gam_file_ids, bam_file_ids, pe_
     """ run some alignments for the comparison if required"""
     
     # run bwa if requested
+    bwa_bam_file_ids = [None, None]
     if options.bwa or options.bwa_paired:
         bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, options, reads_gam_file_id,
                                              fasta_file_id, bwa_index_ids,
@@ -385,7 +394,7 @@ def run_map_eval(job, options, xg_file_id, gam_file_ids, bam_file_ids, pe_bam_fi
     gam_pos_file_ids = []
     for gam_i, gam_id in enumerate(gam_file_ids):
         name = '{}-{}.gam'.format(options.gam_names[gam_i], gam_i)
-        bam_pos_file_ids.append(job.addChildJobFn(get_gam_positions, options, xg_file_id, name, gam_id,
+        gam_pos_file_ids.append(job.addChildJobFn(get_gam_positions, options, xg_file_id, name, gam_id,
                                                   cores=options.misc_cores, memory=options.misc_mem,
                                                   disk=options.misc_disk).rv())
 

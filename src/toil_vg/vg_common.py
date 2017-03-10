@@ -56,6 +56,8 @@ def get_docker_tool_map(options):
         dmap["jq"] = options.jq_docker
         dmap["rtg"] = options.rtg_docker
         dmap["pigz"] = options.pigz_docker
+        dmap["samtools"] = options.samtools_docker
+        dmap["bwa"] = options.bwa_docker
 
     # to do: could be a good place to do an existence check on these tools
 
@@ -336,36 +338,6 @@ def read_dir_from_store(job, options, name_id_pairs, path = None, use_out_store 
         read_from_store(job, options, key, os.path.join(path, name),
                         use_out_store = use_out_store)
     
-
-def batch_iterator(iterator, batch_size):
-    """Returns lists of length batch_size.
-
-    This can be used on any iterator, for example to batch up
-    SeqRecord objects from Bio.SeqIO.parse(...), or to batch
-    Alignment objects from Bio.AlignIO.parse(...), or simply
-    lines from a file handle.
-
-    This is a generator function, and it returns lists of the
-    entries from the supplied iterator.  Each list will have
-    batch_size entries, although the final list may be shorter.
-    
-    From http://biopython.org/wiki/Split_large_file
-    """
-    entry = True  # Make sure we loop once
-    while entry:
-        batch = []
-        while len(batch) < batch_size:
-            try:
-                entry = iterator.next()
-            except StopIteration:
-                entry = None
-            if entry is None:
-                # End of file
-                break
-            batch.append(entry)
-        if batch:
-            yield batch
-
 def require(expression, message):
     if not expression:
         raise Exception('\n\n' + message + '\n\n')

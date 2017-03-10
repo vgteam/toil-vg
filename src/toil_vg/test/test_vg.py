@@ -119,8 +119,58 @@ class VGCGLTest(TestCase):
                   '--realTimeLogging', '--logInfo')
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
+                
+    def test_3_sim_small_mapeval(self):
+        ''' 
+        Same generate and align some simulated reads
+        '''
+        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vg'
+        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
+        
+        self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                  '--graphs', self.test_vg_graph, '--chroms', 'x',
+                   '--gcsa_index_cores', '7', '--kmers_cores', '7',
+                  '--realTimeLogging', '--logInfo', '--index_name', 'small')
 
-    def test_3_BRCA1_NA12877(self):
+        self._run('toil-vg', 'sim', self.jobStoreLocal,
+                 os.path.join(self.local_outstore, 'small.xg'), '2000',
+                  self.local_outstore, '--gam', '--sim_chunks', '5', '--maxCores', '7',
+                  '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '0')
+
+        self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
+                  os.path.join(self.local_outstore, 'small.xg'),
+                  os.path.join(self.local_outstore, 'small.gcsa'),
+                  self.local_outstore,
+                  '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
+                  '--id_ranges', os.path.join(self.local_outstore, 'small_id_ranges.tsv'),
+                  '--alignment_cores', '3', '--reads_per_chunk', '1000',
+                  '--realTimeLogging', '--logInfo', '--interleaved')
+
+        self._run('toil-vg', 'mapeval', self.jobStoreLocal,
+                  self.local_outstore,
+                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--xg', os.path.join(self.local_outstore, 'small.xg'),
+                  '--reads-gam', os.path.join(self.local_outstore, 'sim.gam'),
+                  '--gams', os.path.join(self.local_outstore, 'sample_x.gam'),
+                  '--gam-names', 'vg-pe', '--realTimeLogging', '--logInfo',
+                  '--maxCores', '7', '--bwa', '--bwa-paired', '--fasta', self.chrom_fa)
+
+        with open(os.path.join(self.local_outstore, 'stats.tsv')) as stats:
+            table = [line for line in stats]
+        headers = set()
+        for row in table[1:]:
+            toks = row.split()
+            self.assertTrue(len(toks) == 6)
+            name, count, acc, auc, qqr = toks[0], int(toks[1]), float(toks[2]), float(toks[3]), float(toks[5])
+            headers.add(name)
+            self.assertTrue(count == 4000)
+            self.assertTrue(acc > 0.9)
+            # todo: look into this more. 
+            #self.assertTrue(auc > 0.9)
+            #self.assertTrue(qqur > -10)
+        self.assertTrue(headers == set(['vg-pe', 'bwa-mem', 'bwa-mem-pe']))
+                  
+    def test_4_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
         self._download_input('NA12877.brca1.bam_1.fq.gz')
