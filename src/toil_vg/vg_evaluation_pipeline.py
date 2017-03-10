@@ -34,7 +34,7 @@ from toil_vg.vg_vcfeval import *
 from toil_vg.vg_config import *
 
 logger = logging.getLogger(__name__)
-
+#dummy
 def parse_args():
     """
     Takes in the command-line arguments list (args), and returns a nice argparse

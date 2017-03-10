@@ -142,7 +142,7 @@ class VGCGLTest(TestCase):
                   '--call_opts', '--offset 43044293',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
-        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)
+        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.53)
     
     def _run(self, *args):
         args = list(concat(*args))
@@ -161,7 +161,6 @@ class VGCGLTest(TestCase):
 
         with open(local_f1) as f1_file:
             f1_score = float(f1_file.readline().strip())
-        print f1_score
         self.assertTrue(f1_score >= f1_threshold)
 
     def tearDown(self):
