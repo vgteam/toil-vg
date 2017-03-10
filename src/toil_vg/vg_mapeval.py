@@ -30,6 +30,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
+from toil_vg.vg_map import *
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,9 @@ def mapeval_subparser(parser):
     parser.add_argument('--bwa-opts', type=str,
                         help='arguments for bwa mem (wrapped in \"\").')
         
+
+    # Add mapping options
+    map_parse_args(parser)
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -180,9 +184,10 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
             options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         # separate samtools for docker (todo find image with both)
-        cmd = ['samtools', 'view', '-1', os.path.basename(bam_file + '.sam')]
+        # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
+        cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
         with open(bam_file, 'w') as out_bam:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
+            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
     # single end
     else:
@@ -202,7 +207,8 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
             options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         # separate samtools for docker (todo find image with both)
-        cmd = ['samtools', 'view', '-1', os.path.basename(bam_file + '.sam')]
+        # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
+        cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
         with open(bam_file, 'w') as out_bam:
             options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
 
@@ -308,7 +314,9 @@ def compare_positions(job, options, truth_file_id, name, pos_file_id):
 
     with open(true_pos_file) as truth, open(test_pos_file) as test, \
          open(out_file, 'w') as out:
+        line_no = 0
         for truth_line, test_line in zip(truth, test):
+            line_no += 1
             true_fields = truth_line.split()
             test_fields = test_line.split()
             # every input has a true position, and if it has less than the expected number of fields we assume alignment failed
@@ -320,7 +328,9 @@ def compare_positions(job, options, truth_file_id, name, pos_file_id):
             true_chr = true_fields[1]
             true_pos = int(true_fields[2])
             aln_read_name = test_fields[0]
-            assert aln_read_name == true_read_name
+            if aln_read_name != true_read_name:
+                raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
+                    line_no, true_pos_file, test_pos_file, true_read_name, aln_read_name))
             aln_chr = test_fields[1]
             aln_pos = int(test_fields[2])
             aln_mapq = int(test_fields[3])
