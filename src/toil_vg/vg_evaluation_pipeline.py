@@ -21,7 +21,6 @@ import logging
 
 from math import ceil
 from subprocess import Popen, PIPE
-from Bio import SeqIO
 
 from toil.common import Toil
 from toil.job import Job
@@ -32,6 +31,8 @@ from toil_vg.vg_index import *
 from toil_vg.vg_map import *
 from toil_vg.vg_vcfeval import *
 from toil_vg.vg_config import *
+from toil_vg.vg_sim import *
+from toil_vg.vg_mapeval import *
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,14 @@ def parse_args():
     # vcfeval subparser
     parser_vcfeval = subparsers.add_parser('vcfeval', help='Compare two VCFs wit rtg vcfeval')
     vcfeval_subparser(parser_vcfeval)
+
+    # sim subparser
+    parser_sim = subparsers.add_parser('sim', help='Simulate reads and alignments')
+    sim_subparser(parser_sim)
+
+    # mapeval subparser
+    parser_mapeval = subparsers.add_parser('mapeval', help='Compare mapping results')
+    mapeval_subparser(parser_mapeval)
 
     return parser.parse_args()
 
@@ -166,11 +175,9 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, input
     else:
         id_ranges_file_id = inputIDRangesFileID
 
-    fastq_chunk_ids = []
-    for fastq_i, reads_file_id in enumerate(inputReadsFileIDs):
-        fastq_chunk_ids.append(job.addChildJobFn(run_split_fastq, options, fastq_i, reads_file_id,
-                                                 cores=options.fq_split_cores,
-                                                 memory=options.fq_split_mem, disk=options.fq_split_disk).rv())
+    fastq_chunk_ids = job.addChildJobFn(run_split_reads, options, inputReadsFileIDs,
+                                        cores=options.misc_cores, memory=options.misc_mem,
+                                        disk=options.misc_disk).rv()
 
     return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
@@ -249,12 +256,6 @@ def main():
     6 = Merge variant call files
     7 = Download output files from remote output fileStore to local output directory
     ================================================================================
-    Dependencies
-    toil:           pip install toil (version >= 3.5.0a1.dev241)
-    toil-lib:       git clone --recursive https://github.com/cmarkello/toil-lib.git ${PWD}/toil-lib/
-                    pip install ${PWD}/toil-lib/
-    biopython:      pip install biopython (version >= 1.67)
-    boto:           pip install boto (OPTIONAL for runs on AWS machines)
     """
 
     args = parse_args()
@@ -288,6 +289,10 @@ def main():
         map_main(options)
     elif args.command == 'call':
         call_main(options)
+    elif args.command == 'sim':
+        sim_main(options)
+    elif args.command == 'mapeval':
+        mapeval_main(options)
         
     
 def pipeline_main(options):
@@ -308,10 +313,12 @@ def pipeline_main(options):
         require(options.graphs and options.chroms, '--chroms and --graphs must be specified'
                 ' unless --xg_index --gcsa_index and --id_ranges used')
 
-    require(len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
+    require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
-    require(options.interleaved == False or len(options.fastq) == 1,
-            '--interleaved cannot be used when > 1 fastq given')    
+    require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
+            '--interleaved cannot be used when > 1 fastq given')
+    require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
+            'reads must be speficied with either --fastq or --gam_reads')    
 
     # Throw error if something wrong with IOStore string
     IOStore.get(options.out_store)
@@ -333,8 +340,11 @@ def pipeline_main(options):
                 for graph in options.graphs:
                     inputGraphFileIDs.append(import_to_store(toil, options, graph))
             inputReadsFileIDs = []
-            for sample_reads in options.fastq:
-                inputReadsFileIDs.append(import_to_store(toil, options, sample_reads))                    
+            if options.fastq:
+                for sample_reads in options.fastq:
+                    inputReadsFileIDs.append(import_to_store(toil, options, sample_reads))
+            else:
+                inputReadsFileIDs.append(import_to_store(toil, options, options.gam_input_reads))
             if options.gcsa_index:
                 inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
                 inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")

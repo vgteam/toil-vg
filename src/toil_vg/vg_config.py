@@ -100,6 +100,11 @@ vcfeval-cores: 1
 vcfeval-mem: '4G'
 vcfeval-disk: '2G'
 
+# Resources for vg sim
+sim-cores: 2
+sim-mem: '4G'
+sim-disk: '2G'
+
 ###########################################
 ### Arguments Shared Between Components ###
 # Use output store instead of toil for all intermediate files (use only for debugging)
@@ -124,6 +129,12 @@ bcftools-docker: ['quay.io/cmarkello/bcftools', False]
 
 # Docker container to use for tabix
 tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
+
+# Docker container to use for samtools
+samtools-docker: ['quay.io/ucsc_cgl/samtools:latest', True]
+
+# Docker container to use for bwa
+bwa-docker: ['quay.io/ucsc_cgl/bwa:latest', True]
 
 # Docker container to use for jq
 jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
@@ -206,6 +217,14 @@ vcfeval-opts: []
 
 # BED region file for vcfeval
 vcfeval-bed-regions:
+
+#########################
+### sim and mapeval Arguments ###
+# Options to pass to vg sim (should not include -x, -n, -s or -a)
+sim-opts: ['-l', '150', '-p', '500', '-v', '50']
+
+# Options to pass to bwa
+bwa-opts: []
 
 """)
 
@@ -293,6 +312,11 @@ vcfeval-cores: 32
 vcfeval-mem: '64G'
 vcfeval-disk: '64G'
 
+# Resources for vg sim
+sim-cores: 2
+sim-mem: '4G'
+sim-disk: '2G'
+
 ###########################################
 ### Arguments Shared Between Components ###
 # Use output store instead of toil for all intermediate files (use only for debugging)
@@ -317,6 +341,12 @@ bcftools-docker: ['quay.io/cmarkello/bcftools', False]
 
 # Docker container to use for tabix
 tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
+
+# Docker container to use for samtools
+samtools-docker: ['quay.io/ucsc_cgl/samtools:latest', True]
+
+# Docker container to use for bwa
+bwa-docker: ['quay.io/ucsc_cgl/bwa:latest', True]
 
 # Docker container to use for jq
 jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
@@ -401,6 +431,15 @@ vcfeval-opts: []
 # BED region file for vcfeval
 vcfeval-bed-regions:
 
+#########################
+### sim and mapeval Arguments ###
+# Options to pass to vg sim (should not include -x, -n, -s or -a)
+sim-opts: ['-l', '150', '-p', '500', '-v', '50']
+
+# Options to pass to bwa
+bwa-opts: []
+
+
 """)
 
 def generate_config(whole_genome = False):
@@ -412,7 +451,8 @@ def apply_config_file_args(args):
     """
 
     # turn --*_opts from strings to lists to be consistent with config file
-    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts']:
+    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
+                   'bwa_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
             # get rid of any -t or --threads while we're at it

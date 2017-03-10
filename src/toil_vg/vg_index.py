@@ -15,7 +15,6 @@ import logging
 
 from math import ceil
 from subprocess import Popen, PIPE
-from Bio import SeqIO
 
 from toil.common import Toil
 from toil.job import Job

@@ -59,8 +59,10 @@ def map_subparser(parser):
 
 def map_parse_args(parser, stand_alone = False):
     """ centralize indexing parameters here """
-    parser.add_argument("--fastq", nargs='+', required=True,
+    parser.add_argument("--fastq", nargs='+', 
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
+    parser.add_argument("--gam_input_reads", default=None,
+                        help="Input reads in GAM format")
     parser.add_argument("--reads_per_chunk", type=int,
                         help="number of reads for each mapping job")
     parser.add_argument("--alignment_cores", type=int,
@@ -74,19 +76,40 @@ def map_parse_args(parser, stand_alone = False):
 
 def run_mapping(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_file_ids):
     """ split the fastq, then align each chunk """
-    fastq_chunk_ids = []
-    for fastq_i, reads_file_id in enumerate(reads_file_ids):
-        fastq_chunk_ids.append(job.addChildJobFn(run_split_fastq, options, fastq_i, reads_file_id,
-                                                 cores=options.fq_split_cores,
-                                                 memory=options.fq_split_mem, disk=options.fq_split_disk).rv())
 
+    reads_chunk_ids = job.addChildJobFn(run_split_reads, options, reads_file_ids,
+                                        cores=options.misc_cores, memory=options.misc_mem,
+                                        disk=options.misc_disk).rv()
+    
     return job.addFollowOnJobFn(run_whole_alignment, options, xg_file_id, gcsa_and_lcp_ids,
-                                id_ranges_file_id, fastq_chunk_ids, cores=options.misc_cores,
+                                id_ranges_file_id, reads_chunk_ids, cores=options.misc_cores,
                                 memory=options.misc_mem, disk=options.misc_disk).rv()    
+
+def run_split_reads(job, options, reads_file_ids):
+    """
+    split either fastq or gam input reads into chunks.  returns list of chunk file id lists
+    (one for each input reads file)
+    """
+
+    # this is a list of lists: one list of chunks for each input reads file
+    reads_chunk_ids = []
+    if options.fastq and len(options.fastq):
+        for fastq_i, reads_file_id in enumerate(reads_file_ids):
+            reads_chunk_ids.append(job.addChildJobFn(run_split_fastq, options, fastq_i, reads_file_id,
+                                                     cores=options.fq_split_cores,
+                                                     memory=options.fq_split_mem, disk=options.fq_split_disk).rv())
+    else:
+        assert len(reads_file_ids) == 1
+        reads_chunk_ids.append(job.addChildJobFn(run_split_gam_reads, options, reads_file_ids[0],
+                                                  cores=options.fq_split_cores,
+                                                  memory=options.fq_split_mem, disk=options.fq_split_disk).rv())
+
+    return reads_chunk_ids
+
 
 def run_split_fastq(job, options, fastq_i, sample_fastq_id):
     
-    RealtimeLogger.info("Starting fastq split and alignment...")
+    RealtimeLogger.info("Starting fastq split")
     start_time = timeit.default_timer()
     
     # Define work directory for docker calls
@@ -108,7 +131,6 @@ def run_split_fastq(job, options, fastq_i, sample_fastq_id):
     chunk_lines = chunk_size * 4
 
     # Note we do this on the command line because Python is too slow
-    # Assume: gzip installed (can't do this command in docker with current interface)
     uc_fastq_name = fastq_path if not fastq_gzipped else 'input_reads.fq'
     if fastq_gzipped:
         cmd = [['gzip', '-d', '-c', os.path.basename(fastq_path)]]
@@ -132,7 +154,47 @@ def run_split_fastq(job, options, fastq_i, sample_fastq_id):
 
     return fastq_chunk_ids
 
-def run_whole_alignment(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids):
+def run_split_gam_reads(job, options, gam_reads_file_id):
+    """ split up an input reads file in GAM format
+    """
+    RealtimeLogger.info("Starting gam split")
+    start_time = timeit.default_timer()
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the sample fastq for alignment
+    gam_path = os.path.join(work_dir, os.path.basename(options.gam_input_reads))
+    read_from_store(job, options, gam_reads_file_id, gam_path)
+
+    # Split up the gam into chunks
+
+    # Make sure chunk size even in case paired interleaved
+    chunk_size = options.reads_per_chunk
+    if chunk_size % 2 != 0:
+        chunk_size += 1
+
+    # 1 line per read
+    chunk_lines = chunk_size * 1
+
+    cmd = [['vg', 'view', '-a', os.path.basename(gam_path)]]
+    cmd.append(['split', '-l', str(chunk_lines),
+                '--filter=vg view -JaG - > $FILE.gam', '-', 'gam_reads_chunk.'])
+
+    options.drunner.call(job, cmd, work_dir = work_dir)
+
+    gam_chunk_ids = []
+    for chunk_name in os.listdir(work_dir):
+        if chunk_name.endswith('.gam') and chunk_name.startswith('gam_reads_chunk'):
+            gam_chunk_ids.append(write_to_store(job, options, os.path.join(work_dir, chunk_name)))
+        
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Split gam into {} chunks. Process took {} seconds.".format(len(gam_chunk_ids), run_time))
+
+    return gam_chunk_ids
+    
+def run_whole_alignment(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_chunk_ids):
     """ align all fastq chunks in parallel
     """
     
@@ -141,7 +203,7 @@ def run_whole_alignment(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_fi
     # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
 
-    for chunk_id, chunk_filename_ids in enumerate(zip(*fastq_chunk_ids)):
+    for chunk_id, chunk_filename_ids in enumerate(zip(*reads_chunk_ids)):
         #Run graph alignment on each fastq chunk
         gam_chunk_ids = job.addChildJobFn(run_chunk_alignment, options, chunk_filename_ids, chunk_id,
                                           xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
@@ -180,12 +242,14 @@ def run_chunk_alignment(job, options, chunk_filename_ids, chunk_id, xg_file_id, 
     lcp_file_id = gcsa_and_lcp_ids[1]
     read_from_store(job, options, lcp_file_id, lcp_file)
     
-    # We need the sample fastq(s) for alignment
-    fastq_files = []
+    # We need the sample reads (fastq(s) or gam) for alignment
+    reads_files = []
+    reads_ext = 'gam' if options.gam_input_reads else 'fq.gz'
     for j, chunk_filename_id in enumerate(chunk_filename_ids):
-        fastq_file = os.path.join(work_dir, 'chunk_{}_{}.fq.gz'.format(chunk_id, j))
-        read_from_store(job, options, chunk_filename_id, fastq_file)
-        fastq_files.append(fastq_file)
+        reads_file = os.path.join(work_dir, 'reads_chunk_{}_{}.{}'.format(chunk_id, j, reads_ext))
+        read_from_store(job, options, chunk_filename_id, reads_file)
+        reads_files.append(reads_file)
+        write_to_store(job, options, reads_file, use_out_store = True)
     
     # And a temp file for our aligner output
     output_file = os.path.join(work_dir, "{}_{}.gam".format(options.sample_name, chunk_id))
@@ -198,8 +262,9 @@ def run_chunk_alignment(job, options, chunk_filename_ids, chunk_id, xg_file_id, 
         # Plan out what to run
         vg_parts = []
         vg_parts += ['vg', 'map',  os.path.basename(graph_file), '-t', str(options.alignment_cores)]
-        for fastq_file in fastq_files:
-            vg_parts += ['-f', os.path.basename(fastq_file)]
+        for reads_file in reads_files:
+            input_flag = '-G' if options.gam_input_reads else '-f'
+            vg_parts += [input_flag, os.path.basename(reads_file)]
         vg_parts += options.map_opts
 
         # Override the -i flag in args with the --interleaved command-line flag
@@ -364,10 +429,12 @@ def map_main(options):
     options.drunner = DockerRunner(
         docker_tool_map = get_docker_tool_map(options))
 
-    require(len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
+    require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
-    require(options.interleaved == False or len(options.fastq) == 1,
+    require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
             '--interleaved cannot be used when > 1 fastq given')
+    require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
+            'reads must be speficied with either --fastq or --gam_reads')
     
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now
@@ -395,17 +462,19 @@ def map_main(options):
                 inputIDRangesFileID = import_to_store(toil, options, options.id_ranges)
             else:
                 inputIDRangesFileID = None
-            sampleFastqFileIDs = []
-            for sample_reads in options.fastq:
-                sampleFastqFileIDs.append(import_to_store(toil, options, sample_reads))
-
+            inputReadsFileIDs = []
+            if options.fastq:
+                for sample_reads in options.fastq:
+                    inputReadsFileIDs.append(import_to_store(toil, options, sample_reads))
+            else:
+                inputReadsFileIDs.append(import_to_store(toil, options, options.gam_input_reads))
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
             root_job = Job.wrapJobFn(run_mapping, options,inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID),
-                                     inputIDRangesFileID, sampleFastqFileIDs,
+                                     inputIDRangesFileID, inputReadsFileIDs,
                                      cores=options.misc_cores,
                                      memory=options.misc_mem,
                                      disk=options.misc_disk)
