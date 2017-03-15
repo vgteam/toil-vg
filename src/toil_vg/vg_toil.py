@@ -1,6 +1,6 @@
 #!/usr/bin/env python2.7
 """
-vg_evaluation_pipeline.py: Run the mapping and variant calling evaluation on all the servers in
+vg_toil.py: Run the mapping and variant calling on all the servers in
 parallel using the vg framework.
 
 old docker vg tool=1.4.0--4cbd3aa6d2c0449730975517fc542775f74910f3
@@ -51,7 +51,7 @@ def parse_args():
     # And a formatter class so our examples in the docstring look good. Isn't it
     # convenient how we already wrapped it to 80 characters?
     # See http://docs.python.org/library/argparse.html#formatter-class
-    parser = argparse.ArgumentParser(prog='vg_evaluation_pipeline', description=main.__doc__,
+    parser = argparse.ArgumentParser(prog='toil-vg', description=main.__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     
     subparsers = parser.add_subparsers(dest='command')
@@ -130,10 +130,10 @@ def pipeline_subparser(parser_run):
     vcfeval_parse_args(parser_run)
 
     # Add common docker options
-    add_docker_tool_parse_args(parser_run)
+    add_container_tool_parse_args(parser_run)
 
 
-# Below are the top level jobs of the vg_evaluation pipeline.  They
+# Below are the top level jobs of the toil_vg pipeline.  They
 # form a chain of "follow-on" jobs as follows:
 #
 # run_pipeline_upload --> run_pipeline_index --> run_pipeline_map --> run_pipeline_call
@@ -298,8 +298,8 @@ def main():
 def pipeline_main(options):
     
     # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
+    options.drunner = ContainerRunner(
+        container_tool_map = get_container_tool_map(options))
 
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now

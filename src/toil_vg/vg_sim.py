@@ -53,7 +53,7 @@ def sim_subparser(parser):
     add_common_vg_parse_args(parser)
 
     # Add common docker options
-    add_docker_tool_parse_args(parser)
+    add_container_tool_parse_args(parser)
 
 def run_sim(job, options, xg_file_id):
     """  
@@ -229,8 +229,8 @@ def sim_main(options):
     """
 
     # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
+    options.drunner = ContainerRunner(
+        container_tool_map = get_container_tool_map(options))
 
     require(all([i not in options.sim_opts for i in ['-x', '-n', '-a', '-s']]),
             ' sim-opts cannot contain -x, -n, -s or -a')

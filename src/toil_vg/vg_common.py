@@ -14,14 +14,13 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil.lib.docker import dockerCall, dockerCheckOutput, _fixPermissions
+from toil_vg.singularity import singularityCall, singularityCheckOutput
 from toil_vg.iostore import IOStore
 
 logger = logging.getLogger(__name__)
 
-def add_docker_tool_parse_args(parser):
-    """ centralize shared docker options and their defaults """
-    parser.add_argument("--no_docker", action="store_true",
-                        help="do not use docker for any commands")
+def add_container_tool_parse_args(parser):
+    """ centralize shared container options and their defaults """
     parser.add_argument("--vg_docker", type=str,
                         help="docker container to use for vg")
     parser.add_argument("--bcftools_docker", type=str,
@@ -33,7 +32,27 @@ def add_docker_tool_parse_args(parser):
     parser.add_argument("--rtg_docker", type=str,
                         help="docker container to use for rtg vcfeval")
     parser.add_argument("--pigz_docker", type=str,
-                        help="docker container to use for pigz")    
+                        help="docker container to use for pigz")
+
+    parser.add_argument("--vg_singularity", type=str,
+                        help="path to singularity container to use for vg")
+    parser.add_argument("--bcftools_singularity", type=str,
+                        help="path to singularity container to use for bcftools")
+    parser.add_argument("--tabix_singularity", type=str,
+                        help="path to singularity container to use for tabix")
+    parser.add_argument("--jq_singularity", type=str,
+                        help="path to singularity container to use for jq")
+    parser.add_argument("--rtg_singularity", type=str,
+                        help="path to singularity container to use for rtg vcfeval")
+    parser.add_argument("--pigz_singularity", type=str,
+                        help="path to singularity container to use for pigz")
+    
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--no_docker", action="store_true",
+                        help="do not use docker for any commands")
+    group.add_argument("--no_singularity", action="store_true",
+                        help="do not use singularity for any commands")
+    
 
 def add_common_vg_parse_args(parser):
     """ centralize some shared io functions and their defaults """
@@ -44,10 +63,13 @@ def add_common_vg_parse_args(parser):
                         help="use output store instead of toil for all intermediate files (use only for debugging)")
                         
     
-def get_docker_tool_map(options):
-    """ convenience function to parse the above _docker options into a dictionary """
+def get_container_tool_map(options):
+    """ convenience function to parse the above _container options into a dictionary """
 
     dmap = dict()
+    smap = dict()
+    # first check for docker use, if docker use is not desired then check
+    # for singularity use
     if not options.no_docker:
         dmap["vg"] = options.vg_docker
         dmap["bcftools"] = options.bcftools_docker
@@ -58,22 +80,38 @@ def get_docker_tool_map(options):
         dmap["pigz"] = options.pigz_docker
         dmap["samtools"] = options.samtools_docker
         dmap["bwa"] = options.bwa_docker
+    elif not options.no_singularity:
+        smap["vg"] = options.vg_singularity
+        smap["bcftools"] = options.bcftools_singularity
+        smap["tabix"] = options.tabix_singularity
+        smap["bgzip"] = options.tabix_singularity
+        smap["jq"] = options.jq_singularity
+        smap["rtg"] = options.rtg_singularity
+        smap["pigz"] = options.pigz_singularity
+        smap["samtools"] = options.samtools_singularity
+        smap["bwa"] = options.bwa_singularity
+        
 
     # to do: could be a good place to do an existence check on these tools
 
-    return dmap
+    return dmap, smap
         
-class DockerRunner(object):
-    """ Helper class to centralize docker calling.  So we can toggle Docker
-on and off in just one place.  to do: Should go somewhere more central """
-    def __init__(self, docker_tool_map = {}):
-        # this maps a command to its full docker name
+class ContainerRunner(object):
+    """ Helper class to centralize container calling.  So we can toggle both
+Docker and Singularity on and off in just one place.
+to do: Should go somewhere more central """
+    def __init__(self, container_tool_map = {}):
+        # this maps a command to its full docker name or singularity name
+        #   the first index is a dictionary containing docker tool names
+        #   the second index is a dictionary containing singularity tool names
         # example:  docker_tool_map['vg'] = 'quay.io/ucsc_cgl/vg:latest'
-        self.docker_tool_map = docker_tool_map
+        # example:  singularity_tool_map['vg'] = 'shub://cmarkello/vg'
+        self.docker_tool_map = container_tool_map[0]
+        self.singularity_tool_map = container_tool_map[1]
 
     def has_tool(self, tool):
         # return true if we have an image for this tool
-        return tool in self.docker_tool_map
+        return tool in self.docker_tool_map or tool in self.singularity_tool_map
 
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
              check_output = False, tool_name=None):
@@ -87,8 +125,11 @@ on and off in just one place.  to do: Should go somewhere more central """
         for i in range(len(args)):
             args[i] = [str(x) for x in args[i]]
         name = tool_name if tool_name is not None else args[0][0]
+        ## TODO: factor in singularity and docker tool use options
         if name in self.docker_tool_map:
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
+        elif name in self.singularity_tool_map:
+            return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name)
         else:
             return self.call_directly(args, work_dir, outfile, errfile, check_output)
         
@@ -151,6 +192,69 @@ on and off in just one place.  to do: Should go somewhere more central """
         end_time = timeit.default_timer()
         run_time = end_time - start_time
         RealtimeLogger.info("Successfully docker ran {} in {} seconds.".format(
+            " | ".join(" ".join(x) for x in args), run_time))
+
+        return ret
+    
+    def call_with_singularity(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
+        """ Thin wrapper for singularity_call that will use internal lookup to
+        figure out the location of the singularity file.  Only exposes singularity_call
+        parameters used so far.  expect args as list of lists.  if (toplevel)
+        list has size > 1, then piping interface used """
+
+        RealtimeLogger.info("Singularity Run: {}".format(" | ".join(" ".join(x) for x in args)))
+        start_time = timeit.default_timer()
+
+        # we use the first argument to look up the tool in the singularity map
+        # but allow overriding of this with the tool_name parameter
+        name = tool_name if tool_name is not None else args[0][0]
+        tool = str(self.singularity_tool_map[name][0])
+        
+        if len(args) == 1:
+            # one command: we check entry point (stripping first arg if necessary)
+            # and pass in single args list
+            if len(self.singularity_tool_map[args[0][0]]) == 2:
+                if self.singularity_tool_map[args[0][0]][1]:
+                    # not all tools have consistant entrypoints. vg and rtg have entrypoints
+                    # but bcftools doesn't. This functionality requires the config file to
+                    # operate
+                    parameters = args[0][1:]
+                else:
+                    parameters = args[0]
+        else:
+            # can leave as is for piped interface which takes list of args lists
+            # and doesn't worry about entrypoints since everything goes through bash -c
+            parameters = args
+
+        singularity_parameters = None
+        # vg uses TMPDIR for temporary files
+        # this is particularly important for gcsa, which makes massive files.
+        # we will default to keeping these in our working directory
+        if work_dir is not None:
+            singularity_parameters = ['--rm', '--log-driver', 'none', '-v',
+                                 os.path.abspath(work_dir) + ':/data',
+                                 '--env', 'TMPDIR=.']
+
+        if check_output is True:
+            ret = singularityCheckOutput(job, tool, parameters=parameters,
+                                    singularityParameters=singularity_parameters, workDir=work_dir)
+        else:
+            ret = singularityCall(job, tool, parameters=parameters, singularityParameters=singularity_parameters,
+                             workDir=work_dir, outfile = outfile)
+        
+        # This isn't running through reliably by itself.  Will assume it's
+        # because I took docker.py out of toil, and leave here until we revert to
+        # toil's docker
+        #
+        # Note: It's the tabix docker call in merge_vcf_chunks that's problematic
+        #       It complains that the container can't be found, so fixPermissions
+        #       doesn't get run afterward.  
+        #
+        _fixPermissions(tool, work_dir)
+
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+        RealtimeLogger.info("Successfully singularity ran {} in {} seconds.".format(
             " | ".join(" ".join(x) for x in args), run_time))
 
         return ret

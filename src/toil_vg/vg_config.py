@@ -145,6 +145,42 @@ rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
 # Docker container to use for pigz
 pigz-docker: ['quay.io/glennhickey/pigz:latest', True]
 
+#############################
+### Singularity Tool Arguments ###
+# Do not use singularity for any commands
+no-singularity: False
+
+## Singularity Tool List ##
+##   Each tool is specified as a list where the first element is the PATH on a shared filesystem
+##   where the singularity image lies.
+##   If left blank or commented, then the tool will be run directly from the command line instead
+##   of through singularity. no-singularity (above) overrides all these options. 
+##   Note: no-singuarity and no-docker options can't both be set to True.
+
+# Singularity container to use for vg
+vg-singularity: ['', True]
+
+# Singularity container to use for bcftools
+bcftools-singularity: ['', False]
+
+# Singularity container to use for tabix
+tabix-singularity: ['', False]
+
+# Singularity container to use for samtools
+samtools-singularity: ['', True]
+
+# Singularity container to use for bwa
+bwa-singularity: ['', True]
+
+# Singularity container to use for jq
+jq-singularity: ['', False]
+
+# Singularity container to use for rtg
+rtg-singularity: ['', True]
+
+# Singularity container to use for pigz
+pigz-singularity: ['', True]
+
 ##########################
 ### vg_index Arguments ###
 
@@ -356,6 +392,42 @@ rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
 
 # Docker container to use for pigz
 pigz-docker: ['quay.io/glennhickey/pigz:latest', True]
+
+#############################
+### Singularity Tool Arguments ###
+# Do not use singularity for any commands
+no-singularity: False
+
+## Singularity Tool List ##
+##   Each tool is specified as a list where the first element is the PATH on a shared filesystem
+##   where the singularity image lies.
+##   If left blank or commented, then the tool will be run directly from the command line instead
+##   of through singularity. no-singularity (above) overrides all these options. 
+##   Note: no-singuarity and no-docker options can't both be set to True.
+
+# Singularity container to use for vg
+vg-singularity: ['', True]
+
+# Singularity container to use for bcftools
+bcftools-singularity: ['', False]
+
+# Singularity container to use for tabix
+tabix-singularity: ['', False]
+
+# Singularity container to use for samtools
+samtools-singularity: ['', True]
+
+# Singularity container to use for bwa
+bwa-singularity: ['', True]
+
+# Singularity container to use for jq
+jq-singularity: ['', False]
+
+# Singularity container to use for rtg
+rtg-singularity: ['', True]
+
+# Singularity container to use for pigz
+pigz-singularity: ['', True]
 
 ##########################
 ### vg_index Arguments ###

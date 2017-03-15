@@ -54,7 +54,7 @@ def map_subparser(parser):
     map_parse_args(parser)
 
     # Add common docker options
-    add_docker_tool_parse_args(parser)
+    add_container_tool_parse_args(parser)
 
 
 def map_parse_args(parser, stand_alone = False):
@@ -426,8 +426,8 @@ def map_main(options):
     """
 
     # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
+    options.drunner = ContainerRunner(
+        container_tool_map = get_container_tool_map(options))
 
     require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')

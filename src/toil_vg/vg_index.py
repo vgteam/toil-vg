@@ -42,7 +42,7 @@ def index_subparser(parser):
     index_parse_args(parser)
 
     # Add common docker options
-    add_docker_tool_parse_args(parser)
+    add_container_tool_parse_args(parser)
 
 
 def index_parse_args(parser):
@@ -346,8 +346,8 @@ def index_main(options):
     """
     
     # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
+    options.drunner = ContainerRunner(
+        container_tool_map = get_container_tool_map(options))
 
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now

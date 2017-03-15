@@ -37,11 +37,11 @@ def vcfeval_subparser(parser):
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
-    # Add common calling options shared with vg_evaluation_pipeline
+    # Add common calling options shared with toil_vg pipeline
     vcfeval_parse_args(parser)
 
-    # Add common docker options shared with vg_evaluation pipeline
-    add_docker_tool_parse_args(parser)
+    # Add common docker options shared with toil_vg pipeline
+    add_container_tool_parse_args(parser)
 
 def vcfeval_parse_args(parser):
     """ centralize calling parameters here """
@@ -156,8 +156,8 @@ def vcfeval_main(options):
     """ command line access to toil vcf eval logic"""
     
     # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
+    options.drunner = ContainerRunner(
+        container_tool_map = get_container_tool_map(options))
     
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
