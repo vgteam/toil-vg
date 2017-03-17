@@ -146,30 +146,49 @@ class VGCGLTest(TestCase):
                   '--alignment_cores', '3', '--reads_per_chunk', '1000',
                   '--realTimeLogging', '--logInfo', '--interleaved')
 
+        # check running mapeval on the gams
+
         self._run('toil-vg', 'mapeval', '--no_singularity', self.jobStoreLocal,
                   self.local_outstore,
                   os.path.join(self.local_outstore, 'true.pos'),
-                  '--xg', os.path.join(self.local_outstore, 'small.xg'),
-                  '--reads-gam', os.path.join(self.local_outstore, 'sim.gam'),
+                  '--index-bases', os.path.join(self.local_outstore, 'small'),
+                  '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gams', os.path.join(self.local_outstore, 'sample_x.gam'),
-                  '--gam-names', 'vg-pe', '--realTimeLogging', '--logInfo',
+                  '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
                   '--maxCores', '7', '--bwa', '--bwa-paired', '--fasta', self.chrom_fa)
 
-        with open(os.path.join(self.local_outstore, 'stats.tsv')) as stats:
-            table = [line for line in stats]
-        headers = set()
-        for row in table[1:]:
-            toks = row.split()
-            self.assertTrue(len(toks) == 6)
-            name, count, acc, auc, qqr = toks[0], int(toks[1]), float(toks[2]), float(toks[3]), float(toks[5])
-            headers.add(name)
-            self.assertTrue(count == 4000)
-            self.assertTrue(acc > 0.9)
-            # todo: look into this more. 
-            #self.assertTrue(auc > 0.9)
-            #self.assertTrue(qqur > -10)
-        self.assertTrue(headers == set(['vg-pe', 'bwa-mem', 'bwa-mem-pe']))
-                  
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'bwa-mem', 'bwa-mem-pe'], 0.9)
+
+        # check running mapeval on the indexes
+
+        os.remove(os.path.join(self.local_outstore, 'stats.tsv'))
+
+        self._run('toil-vg', 'mapeval', '--no_singularity', self.jobStoreLocal,
+                  self.local_outstore,
+                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--index-bases', os.path.join(self.local_outstore, 'small'),
+                  '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
+                  '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
+                  '--alignment_cores', '7', '--vg-paired',
+                  '--maxCores', '7', '--bwa', '--fasta', self.chrom_fa)
+        
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem'], 0.8)
+
+        # check running mapeval on the vg graph
+        
+        os.remove(os.path.join(self.local_outstore, 'stats.tsv'))
+
+        self._run('toil-vg', 'mapeval', '--no_singularity', self.jobStoreLocal,
+                  self.local_outstore,
+                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--vg-graphs', self.test_vg_graph,
+                  '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
+                  '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
+                  '--alignment_cores', '7',                  
+                  '--maxCores', '7', '--fasta', self.chrom_fa)
+        
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg'], 0.9)
+        
     def test_4_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
@@ -214,6 +233,22 @@ class VGCGLTest(TestCase):
         print f1_score
         self.assertTrue(f1_score >= f1_threshold)
 
+    def _assertMapEvalOutput(self, outstore, count, names, acc_threshold):
+        with open(os.path.join(outstore, 'stats.tsv')) as stats:
+            table = [line for line in stats]
+        headers = set()
+        for row in table[1:]:
+            toks = row.split()
+            self.assertTrue(len(toks) == 6)
+            name, count, acc, auc, qqr = toks[0], int(toks[1]), float(toks[2]), float(toks[3]), float(toks[5])
+            headers.add(name)
+            self.assertTrue(count == count)
+            self.assertTrue(acc > acc_threshold)
+            # todo: look into this more. 
+            #self.assertTrue(auc > 0.9)
+            #self.assertTrue(qqur > -10)
+        self.assertTrue(headers == set(names))
+        
     def tearDown(self):
         shutil.rmtree(self.workdir)
         subprocess.check_call(['toil', 'clean', self.jobStoreAWS])

@@ -14,6 +14,7 @@ import getpass
 import pdb
 import gzip
 import logging
+import copy
 from collections import Counter
 
 from math import ceil
@@ -31,6 +32,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_map import *
+from toil_vg.vg_index import *
 
 logger = logging.getLogger(__name__)
 
@@ -45,16 +47,18 @@ def mapeval_subparser(parser):
     # General options
     parser.add_argument('out_store',
                         help='output store.  All output written here. Path specified using same syntax as toil jobStore')
-    parser.add_argument('--xg', default=None,
-                        help='xg corresponding to gam')
-    parser.add_argument('--reads-gam', default=None,
-                        help='reads in GAM format as output by toil-vg sim')
     parser.add_argument('truth', default=None,
-                        help='list of true positions of reads as output by toil-vg sim')    
+                        help='list of true positions of reads as output by toil-vg sim')        
     parser.add_argument('--gams', nargs='+', default=[],
-                        help='aligned reads to compare to truth')
+                        help='aligned reads to compare to truth.  specify xg index locations with --index-bases')
+    parser.add_argument("--index-bases", nargs='+', default=[],
+                        help='use in place of gams to perform alignment.  will expect '
+                        '<index-base>.gcsa, <index-base>.lcb and <index-base>.xg to exist')
+    parser.add_argument('--vg-graphs', nargs='+', default=[],
+                        help='vg graphs to use in place of gams or indexes.  indexes'
+                        ' will be built as required')
     parser.add_argument('--gam-names', nargs='+', default=[],
-                        help='a name for each gam passed in --gams')
+                        help='a name for each gam passed in --gams/graphs/index-bases')
     parser.add_argument('--bams', nargs='+', default=[],
                         help='aligned reads to compare to truth in BAM format')
     parser.add_argument('--bam-names', nargs='+', default=[],
@@ -63,6 +67,8 @@ def mapeval_subparser(parser):
                         help='paired end aligned reads t compare to truth in BAM format')
     parser.add_argument('--pe-bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --pe-bams')
+    parser.add_argument('--vg-paired', action='store_true',
+                        help='if running vg map, do vg map -i as well')
     
     parser.add_argument('--mapeval-threshold', type=int, default=100,
                         help='distance between alignment and true position to be called correct')
@@ -78,8 +84,7 @@ def mapeval_subparser(parser):
 
     parser.add_argument('--bwa-opts', type=str,
                         help='arguments for bwa mem (wrapped in \"\").')
-        
-
+    
     # Add mapping options
     map_parse_args(parser)
 
@@ -120,19 +125,18 @@ def run_bwa_index(job, options, gam_file_id, fasta_file_id, bwa_index_ids):
     
 def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a gam.  optionally run in paired mode
-    return id of positions file
+    return id of bam file
     """
 
     work_dir = job.fileStore.getLocalTempDir()
 
     # read the gam file
-    gam_file = os.path.join(work_dir, os.path.basename(options.reads_gam))
+    gam_file = os.path.join(work_dir, os.path.basename(options.gam_input_reads))
     read_from_store(job, options, gam_file_id, gam_file)
 
     # and the index files
     fasta_file = os.path.join(work_dir, os.path.basename(options.fasta))
     for suf, idx_id in bwa_index_ids.items():
-        RealtimeLogger.info("reading index {}".format('{}{}'.format(fasta_file, suf)))
         read_from_store(job, options, idx_id, '{}{}'.format(fasta_file, suf))
 
     # output positions file
@@ -212,7 +216,7 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
         with open(bam_file, 'w') as out_bam:
             options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
 
-    # return our id for the output positions file
+    # return our id for the output bam file
     bam_file_id = write_to_store(job, options, bam_file)
 
     return bam_file_id
@@ -256,7 +260,7 @@ def get_gam_positions(job, options, xg_file_id, name, gam_file_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     # download input
-    xg_file = os.path.join(work_dir, os.path.basename(options.xg))
+    xg_file = os.path.join(work_dir, '{}.xg'.format(name))
     read_from_store(job, options, xg_file_id, xg_file)
     gam_file = os.path.join(work_dir, name)
     read_from_store(job, options, gam_file_id, gam_file)
@@ -357,10 +361,71 @@ def compare_positions(job, options, truth_file_id, name, pos_file_id):
     return out_file_id
 
 
-def run_map_eval_align(job, options, xg_file_id, gam_file_ids, bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
+
+def run_map_eval_index(job, options, xg_file_ids, gcsa_file_ids, id_range_file_ids,
+                       vg_file_ids, gam_file_ids,
+                       bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
+                       fasta_file_id, bwa_index_ids, true_pos_file_id):
+    """ create indexes for the input vg graphs.  if none specified, then we just pass through 
+    the input indexes """
+
+    # index_ids are of the form (xg, (gcsa, lcp), id_ranges ) as returned by run_indexing
+    index_ids = []
+    if vg_file_ids:
+        for vg_file_id in vg_file_ids:
+            # vg index uses .graphs and .chroms for naming
+            # todo: clean up 
+            options.graphs = ['./default.vg']
+            options.chroms = ['default']
+            index_ids.append(job.addChildJobFn(run_indexing, options, [vg_file_id], cores=options.misc_cores,
+                                               memory=options.misc_mem, disk=options.misc_disk).rv())
+    else:
+        for i, xg_id in enumerate(xg_file_ids):
+            index_ids.append((xg_id, gcsa_file_ids[i] if gcsa_file_ids else None,
+                              id_range_file_ids[i] if id_range_file_ids else None))
+
+    
+    return job.addFollowOnJobFn(run_map_eval_align, options, index_ids, gam_file_ids,
+                                bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
+                                fasta_file_id, bwa_index_ids, true_pos_file_id).rv()
+            
+
+
+def run_map_eval_align(job, options, index_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
                        fasta_file_id, bwa_index_ids, true_pos_file_id):
     """ run some alignments for the comparison if required"""
-    
+
+    do_vg_mapping = not gam_file_ids
+    if do_vg_mapping:
+        gam_file_ids = []
+        # run vg map if requested
+        for i, index_id in enumerate(index_ids):
+            # todo: clean up
+            map_opts = copy.deepcopy(options)
+            map_opts.sample_name = 'sample-{}'.format(i)
+            map_opts.interleaved = False
+            gam_file_ids.append(job.addChildJobFn(run_mapping, map_opts, index_id[0], index_id[1],
+                                                  None, [reads_gam_file_id],
+                                                  cores=options.misc_cores,
+                                                  memory=options.misc_mem, disk=options.misc_disk).rv())
+
+    if do_vg_mapping and options.vg_paired:
+        # run paired end version of all vg inputs if --pe-gams specified
+        for i, index_id in enumerate(index_ids):
+            # todo: clean up
+            map_opts_pe = copy.deepcopy(options)
+            map_opts_pe.sample_name = 'sample-pe-{}'.format(i)
+            map_opts_pe.interleaved = True
+            gam_file_ids.append(job.addChildJobFn(run_mapping, map_opts_pe, index_id[0], index_id[1],
+                                                  None, [reads_gam_file_id],
+                                                  cores=options.misc_cores,
+                                                  memory=options.misc_mem, disk=options.misc_disk).rv())
+            
+        # make sure associated lists are extended to fit new mappings
+        for i in range(len(index_ids)):
+            index_ids.append(index_ids[i])
+            options.gam_names.append(options.gam_names[i] + '-pe')
+        
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
     if options.bwa or options.bwa_paired:
@@ -368,13 +433,16 @@ def run_map_eval_align(job, options, xg_file_id, gam_file_ids, bam_file_ids, pe_
                                              fasta_file_id, bwa_index_ids,
                                              cores=options.alignment_cores, memory=options.alignment_mem,
                                              disk=options.alignment_disk).rv()
+        
+    # scrape out the xg ids, don't need others any more
+    xg_ids = [index_id[0] for index_id in index_ids]
 
-    return job.addFollowOnJobFn(run_map_eval, options, xg_file_id, gam_file_ids, bam_file_ids,
+    return job.addFollowOnJobFn(run_map_eval, options, xg_ids, gam_file_ids, bam_file_ids,
                                 pe_bam_file_ids, bwa_bam_file_ids,
                                 true_pos_file_id, cores=options.misc_cores,
                                 memory=options.misc_mem, disk=options.misc_disk).rv()
 
-def run_map_eval(job, options, xg_file_id, gam_file_ids, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_pos_file_id):
+def run_map_eval(job, options, xg_file_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_pos_file_id):
     """ run the mapping comparison.  Dump some tables into the outstore """
 
     # munge out the returned pair from run_bwa_index()
@@ -404,7 +472,13 @@ def run_map_eval(job, options, xg_file_id, gam_file_ids, bam_file_ids, pe_bam_fi
     gam_pos_file_ids = []
     for gam_i, gam_id in enumerate(gam_file_ids):
         name = '{}-{}.gam'.format(options.gam_names[gam_i], gam_i)
-        gam_pos_file_ids.append(job.addChildJobFn(get_gam_positions, options, xg_file_id, name, gam_id,
+        # run_mapping will return a list of gam_ids.  since we don't
+        # specify id ranges, this will always have one entry
+        gam = gam_id
+        if type(gam_id) is list:
+            assert len(gam_id) == 1
+            gam = gam_id[0]
+        gam_pos_file_ids.append(job.addChildJobFn(get_gam_positions, options, xg_file_ids[gam_i], name, gam,
                                                   cores=options.misc_cores, memory=options.misc_mem,
                                                   disk=options.misc_disk).rv())
 
@@ -581,19 +655,44 @@ def mapeval_main(options):
     options.drunner = ContainerRunner(
         container_tool_map = get_container_tool_map(options))
 
+    # check bwa / bam input parameters.  
     if options.bwa or options.bwa_paired:
-        require(options.reads_gam, '--reads_gam required for bwa')
+        require(options.gam_input_reads, '--gam_input_reads required for bwa')
         require(options.fasta, '--fasta required for bwa')
-    if options.gams:
-        require(options.gam_names and len(options.gams) == len(options.gam_names),
-                 '--gams and --gam_names must have same number of inputs')
-        require(options.xg, '--xg must be specified with --gams')
     if options.bams:
         requrire(options.bam_names and len(options.bams) == len(options.bam_names),
                  '--bams and --bam-names must have same number of inputs')
     if options.pe_bams:
         requrire(options.pe_bam_names and len(options.pe_bams) == len(options.pe_bam_names),
                  '--pe-bams and --pe-bam-names must have same number of inputs')
+
+    # some options from toil-vg map are disabled on the command line
+    # this can be eventually cleaned up a bit better 
+    require(not (options.interleaved or options.fastq),
+            '--interleaved and --fastq disabled in toil-vg mapeval')
+
+    # accept graphs or indexes in place of gams
+    require(options.gams or options.index_bases or options.vg_graphs,
+            'one of --vg-graphs, --index-bases or --gams must be used to specifiy vg input')
+
+    if options.gams:
+        require(len(options.index_bases) == len(options.gams),
+                '--index-bases must be used along with --gams to specify xg locations')
+    if options.vg_graphs:
+        require(not options.gams and not options.index_bases,
+                'if --vg-graphs specified, --gams and --index-bases must not be used')
+
+    # must have a name for each graph/index/gam
+    if options.gams:
+        require(options.gam_names and len(options.gams) == len(options.gam_names),
+                 '--gams and --gam_names must have same number of inputs')
+    if options.vg_graphs:
+        require(options.gam_names and len(options.vg_graphs) == len(options.gam_names),
+                 '--vg-graphs and --gam_names must have same number of inputs')
+    if options.index_bases:
+        require(options.gam_names and len(options.index_bases) == len(options.gam_names),
+                 '--index-bases and --gam_names must have same number of inputs')
+        
     
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now
@@ -614,19 +713,39 @@ def mapeval_main(options):
             start_time = timeit.default_timer()
             
             # Upload local files to the remote IO Store
-            if options.xg:
-                inputXGFileID = import_to_store(toil, options, options.xg)
-            else:
-                inputXGFileID = None
-            if options.reads_gam:
-                inputReadsGAMFileID = import_to_store(toil, options, options.reads_gam)
+            if options.gam_input_reads:
+                inputReadsGAMFileID = import_to_store(toil, options, options.gam_input_reads)
             else:
                 inputReadsGAMFileID = None
 
+            # Input vg data.  can be either .vg or .gam/.xg or .xg/.gcsa/.gcsa.lcp
             inputGAMFileIDs = []
             if options.gams:
                 for gam in options.gams:
                     inputGAMFileIDs.append(import_to_store(toil, options, gam))
+
+            inputVGFileIDs = []
+            if options.vg_graphs:
+                for graph in options.vg_graphs:
+                    inputVGFileIDs.append(import_to_store(toil, options, graph))
+
+            inputXGFileIDs = []
+            inputGCSAFileIDs = [] # list of gcsa/lcp pairs
+            inputIDRangeFileIDs = []
+            if options.index_bases:
+                for ib in options.index_bases:
+                    inputXGFileIDs.append(import_to_store(toil, options, ib + '.xg'))
+                    if not options.gams:
+                        inputGCSAFileIDs.append(
+                            (import_to_store(toil, options, ib + '.gcsa'),
+                            import_to_store(toil, options, ib + '.gcsa.lcp')))
+                        # multiple gam outputs not currently supported by evaluation pipeline
+                        #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
+                        #    inputIDRAngeFileIDs.append(
+                        #        import_to_store(toil, options, ib + '_id_ranges.tsv'))
+                                                                       
+                                        
+            # Input bwa data        
             inputBAMFileIDs = []
             if options.bams:
                 for bam in options.bams:
@@ -656,7 +775,10 @@ def mapeval_main(options):
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_map_eval_align, options, inputXGFileID,
+            root_job = Job.wrapJobFn(run_map_eval_index, options, inputXGFileIDs,
+                                     inputGCSAFileIDs,
+                                     inputIDRangeFileIDs,
+                                     inputVGFileIDs,
                                      inputGAMFileIDs,
                                      inputBAMFileIDs,
                                      inputPEBAMFileIDs,
