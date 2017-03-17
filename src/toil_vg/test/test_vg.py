@@ -76,7 +76,7 @@ class VGCGLTest(TestCase):
         self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vcf.gz'
         self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
 
-        self._run(self.base_command, self.jobStoreLocal, 'sample',
+        self._run(self.base_command, '--no_singularity', self.jobStoreLocal, 'sample',
                   self.local_outstore,  '--fastq', self.sample_reads,
                   '--graphs', self.test_vg_graph,
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
@@ -93,12 +93,12 @@ class VGCGLTest(TestCase):
         self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vcf.gz'
         self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
         
-        self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+        self._run('toil-vg', 'index', '--no_singularity', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '7', '--kmers_cores', '7',
                   '--realTimeLogging', '--logInfo', '--index_name', 'small')
 
-        self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
+        self._run('toil-vg', 'map', '--no_singularity', self.jobStoreLocal, 'sample',
                   os.path.join(self.local_outstore, 'small.xg'),
                   os.path.join(self.local_outstore, 'small.gcsa'),
                   self.local_outstore,  '--fastq', self.sample_reads,
@@ -106,13 +106,13 @@ class VGCGLTest(TestCase):
                   '--alignment_cores', '7', '--reads_per_chunk', '8000',
                   '--realTimeLogging', '--logInfo')
         
-        self._run('toil-vg', 'call', self.jobStoreLocal,
+        self._run('toil-vg', 'call', '--no_singularity', self.jobStoreLocal,
                   os.path.join(self.local_outstore, 'small.xg'), 'sample',
                   self.local_outstore, '--gams', os.path.join(self.local_outstore, 'sample_x.gam'), 
                   '--chroms', 'x', '--call_chunk_size', '20000', '--calling_cores', '4',
                   '--realTimeLogging', '--logInfo')
 
-        self._run('toil-vg', 'vcfeval', self.jobStoreLocal,
+        self._run('toil-vg', 'vcfeval', '--no_singularity', self.jobStoreLocal,
                   os.path.join(self.local_outstore, 'sample.vcf.gz'), self.baseline,
                   self.chrom_fa, self.local_outstore,
                   '--vcfeval_opts', ' --squash-ploidy',
@@ -127,17 +127,17 @@ class VGCGLTest(TestCase):
         self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vg'
         self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
         
-        self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+        self._run('toil-vg', 'index', '--no_singularity', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '7', '--kmers_cores', '7',
                   '--realTimeLogging', '--logInfo', '--index_name', 'small')
 
-        self._run('toil-vg', 'sim', self.jobStoreLocal,
+        self._run('toil-vg', 'sim', '--no_singularity', self.jobStoreLocal,
                  os.path.join(self.local_outstore, 'small.xg'), '2000',
                   self.local_outstore, '--gam', '--sim_chunks', '5', '--maxCores', '7',
                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '0')
 
-        self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
+        self._run('toil-vg', 'map', '--no_singularity', self.jobStoreLocal, 'sample',
                   os.path.join(self.local_outstore, 'small.xg'),
                   os.path.join(self.local_outstore, 'small.gcsa'),
                   self.local_outstore,
@@ -146,7 +146,7 @@ class VGCGLTest(TestCase):
                   '--alignment_cores', '3', '--reads_per_chunk', '1000',
                   '--realTimeLogging', '--logInfo', '--interleaved')
 
-        self._run('toil-vg', 'mapeval', self.jobStoreLocal,
+        self._run('toil-vg', 'mapeval', '--no_singularity', self.jobStoreLocal,
                   self.local_outstore,
                   os.path.join(self.local_outstore, 'true.pos'),
                   '--xg', os.path.join(self.local_outstore, 'small.xg'),
@@ -186,7 +186,7 @@ class VGCGLTest(TestCase):
         self.baseline = os.path.join(self.workdir, 'platinum_NA12877_BRCA1.vcf.gz')
         self.chrom_fa = os.path.join(self.workdir, 'BRCA1.fa.gz')
         
-        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
+        self._run(self.base_command, '--no_singularity', self.jobStoreLocal, 'NA12877',
                   self.local_outstore, '--fastq', self.sample_reads, self.sample_reads2, '--graphs',
                   self.test_vg_graph, '--chroms', '17',
                   '--call_opts', '--offset 43044293',

@@ -42,11 +42,11 @@ def call_subparser(parser):
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
-    # Add common calling options shared with vg_evaluation_pipeline
+    # Add common calling options shared with toil_vg pipeline
     chunked_call_parse_args(parser)
 
-    # Add common docker options shared with vg_evaluation pipeline
-    add_docker_tool_parse_args(parser)
+    # Add common docker options shared with toil_vg pipeline
+    add_container_tool_parse_args(parser)
                         
 
 def chunked_call_parse_args(parser):
@@ -412,8 +412,8 @@ def call_main(options):
     """ no harm in preserving command line access to chunked_call for debugging """
     
     # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
+    options.drunner = ContainerRunner(
+        container_tool_map = get_container_tool_map(options))
 
     require(len(options.chroms) == len(options.gams), 'Same number of chromosomes '
             ' must be specified with --chroms and --gams')

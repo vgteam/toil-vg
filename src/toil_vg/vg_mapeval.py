@@ -87,7 +87,7 @@ def mapeval_subparser(parser):
     add_common_vg_parse_args(parser)
 
     # Add common docker options
-    add_docker_tool_parse_args(parser)
+    add_container_tool_parse_args(parser)
 
 def run_bwa_index(job, options, gam_file_id, fasta_file_id, bwa_index_ids):
     """
@@ -578,8 +578,8 @@ def mapeval_main(options):
     """
 
     # make the docker runner
-    options.drunner = DockerRunner(
-        docker_tool_map = get_docker_tool_map(options))
+    options.drunner = ContainerRunner(
+        container_tool_map = get_container_tool_map(options))
 
     if options.bwa or options.bwa_paired:
         require(options.reads_gam, '--reads_gam required for bwa')

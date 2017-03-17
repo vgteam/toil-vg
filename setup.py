@@ -17,7 +17,7 @@ kwargs = dict(
     package_dir={'': 'src'},
     packages=find_packages('src'),
     entry_points={
-        'console_scripts': ['toil-vg = toil_vg.vg_evaluation_pipeline:main']}
+        'console_scripts': ['toil-vg = toil_vg.vg_toil:main']}
 )
 
 

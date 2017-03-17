@@ -20,7 +20,7 @@ class TestVGPipeline(unittest.TestCase):
         base = ['docker', 'run']
         # Check base call for help menu
         out = check_docker_output(command=base + tool, assert_fail=False)
-        self.assertTrue('usage: vg_evaluation_pipeline generate-config [-h] [--whole_genome]' in out)
+        self.assertTrue('usage: toil-vg generate-config [-h] [--whole_genome]' in out)
         
     def test_docker_index_help(self):
         # print sys.argv
@@ -28,7 +28,7 @@ class TestVGPipeline(unittest.TestCase):
         base = ['docker', 'run']
         # Check base call for help menu
         out = check_docker_output(command=base + tool, assert_fail=False)
-        self.assertTrue('usage: vg_evaluation_pipeline index [-h]' in out)
+        self.assertTrue('usage: toil-vg index [-h]' in out)
     
     def test_docker_map_help(self):
         # print sys.argv
@@ -36,7 +36,7 @@ class TestVGPipeline(unittest.TestCase):
         base = ['docker', 'run']
         # Check base call for help menu
         out = check_docker_output(command=base + tool, assert_fail=False)
-        self.assertTrue('usage: vg_evaluation_pipeline map [-h]' in out)
+        self.assertTrue('usage: toil-vg map [-h]' in out)
 
     def test_docker_call_help(self):
         # print sys.argv
@@ -44,7 +44,7 @@ class TestVGPipeline(unittest.TestCase):
         base = ['docker', 'run']
         # Check base call for help menu
         out = check_docker_output(command=base + tool, assert_fail=False)
-        self.assertTrue('usage: vg_evaluation_pipeline call [-h]' in out)
+        self.assertTrue('usage: toil-vg call [-h]' in out)
     
     def test_docker_vcfeval_help(self):
         # print sys.argv
@@ -52,7 +52,7 @@ class TestVGPipeline(unittest.TestCase):
         base = ['docker', 'run']
         # Check base call for help menu
         out = check_docker_output(command=base + tool, assert_fail=False)
-        self.assertTrue('usage: vg_evaluation_pipeline vcfeval [-h]' in out)
+        self.assertTrue('usage: toil-vg vcfeval [-h]' in out)
 
 def check_docker_output(command, assert_fail=True):
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
