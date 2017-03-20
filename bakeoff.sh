@@ -137,14 +137,8 @@ function run_mapeval {
 	 toil-vg sim ${JOB_STORE}-${REGION,,} ${OUT_STORE}-${REGION,,}/genome.xg ${NUM_SIM_READS} ${OUT_STORE}-me-${REGION,,} ${BS_OPTS} ${DOCKER_OPTS} ${SIM_OPTS}
 	 toil clean ${JOB_STORE}-${REGION,,}
 
-	 # map them
-	 toil-vg map ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}/genome.xg ${OUT_STORE}-${REGION,,}/genome.gcsa  ${OUT_STORE}-me-${REGION,,} --gam_input_reads ${OUT_STORE}-me-${REGION,,}/sim.gam ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS}
-
-	 # map them single ended
-	 toil-vg map ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}/genome.xg ${OUT_STORE}-${REGION,,}/genome.gcsa  ${OUT_STORE}-me1-${REGION,,} --gam_input_reads ${OUT_STORE}-me-${REGION,,}/sim.gam ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE}
-
 	 # generate mapeval results
-	 toil-vg mapeval ${JOB_STORE}-${REGION,,} ${OUT_STORE}-me-${REGION,,}  ${OUT_STORE}-me-${REGION,,}/true.pos ${BS_OPTS} ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE} --bwa --bwa-paired --gams ${OUT_STORE}-me-${REGION,,}/NA12878_default.gam  ${OUT_STORE}-me1-${REGION,,}/NA12878_default.gam --gam-names vg-pe vg-se --reads-gam ${OUT_STORE}-me-${REGION,,}/sim.gam --fasta ${BAKEOFF_STORE}/${REGION}.fa --xg ${OUT_STORE}-${REGION,,}/genome.xg
+	 toil-vg mapeval ${JOB_STORE}-${REGION,,} ${OUT_STORE}-me-${REGION,,}  ${OUT_STORE}-me-${REGION,,}/true.pos ${BS_OPTS} ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE} --bwa --bwa-paired --index-bases ${OUT_STORE}-${REGION,,}/genome --gam-names vg --gam_input_reads ${OUT_STORE}-me-${REGION,,}/sim.gam --fasta ${BAKEOFF_STORE}/${REGION}.fa --vg-paired
 
 	 toil clean ${JOB_STORE}-${REGION,,}
 	 
@@ -178,7 +172,6 @@ echo ${JOB_STORE}-brca1
 echo ${OUT_STORE}-brca1
 if test ${MEFILE+defined}; then
 	 echo ${OUT_STORE}-brca1-me
-	 echo ${OUT_STORE}-brca1-me1
 fi
 if [ "$FAST" != "1" ]; then
 	 echo ${JOB_STORE}-brca2
@@ -191,13 +184,9 @@ if [ "$FAST" != "1" ]; then
 	 echo ${OUT_STORE}-mhc
 	 if test ${MEFILE+defined}; then
 		  echo ${OUT_STORE}-brca2-me
-		  echo ${OUT_STORE}-brca2-me1
 		  echo ${OUT_STORE}-sma-me
-		  echo ${OUT_STORE}-sma-me1
 		  echo ${OUT_STORE}-lrc-kir-me
-		  echo ${OUT_STORE}-lrc-kir-me1
 		  echo ${OUT_STORE}-mhc-me
-		  echo ${OUT_STORE}-mhc-me1
 	 fi
 fi
 

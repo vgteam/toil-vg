@@ -337,7 +337,7 @@ def run_indexing(job, options, inputGraphFileIDs):
     id_ranges_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
                                      cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
 
-    return xg_index_id, gcsa_and_lcp_ids
+    return xg_index_id, gcsa_and_lcp_ids, id_ranges_id
 
 
 def index_main(options):
