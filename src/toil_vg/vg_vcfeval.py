@@ -117,18 +117,6 @@ def run_vcfeval(job, options, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_base
     # indexed sequence
     sdf_name = fasta_name + ".sdf"
     
-    # temporary (i hope) hack:  for some reason rtg wants /data/ on the
-    # file paths, while most other images don't seem to care.  add them
-    # here for now but would really like to understand why
-    if options.drunner.has_tool("rtg"):
-        fasta_name = os.path.join('/data', fasta_name)
-        sdf_name = os.path.join('/data', sdf_name)
-        call_vcf_name = os.path.join('/data', call_vcf_name)
-        vcfeval_baseline_name = os.path.join('/data', vcfeval_baseline_name)
-        out_name = os.path.join('/data', out_name)
-        if bed_name is not None:
-            bed_name = os.path.join('/data', bed_name)
-
     # make an indexed sequence (todo: allow user to pass one in)
     options.drunner.call(job, ['rtg', 'format',  fasta_name, '-o', sdf_name], work_dir=work_dir)    
 

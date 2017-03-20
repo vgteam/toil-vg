@@ -157,16 +157,11 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
         sim_fq_files = [None, os.path.join(work_dir, 'sim_1.fq.gz'),
                         os.path.join(work_dir, 'sim_2.fq.gz')]
 
-        # jq docker image is another that requires the /data/.  really need to figure
-        # out more general approach
-        json_path = os.path.basename(json_file)
-        if options.drunner.has_tool("jq"):
-            json_path = os.path.join('/data', json_path)
-        
         # make a fastq for each end of pair
         for i in [1, 2]:
             # extract paired end with jq
-            cmd = ['jq', '-cr', 'select(.name | test("_{}$"))'.format(i), json_path]
+            cmd = ['jq', '-cr', 'select(.name | test("_{}$"))'.format(i),
+                   os.path.basename(json_file)]
             end_file = json_file + '.{}'.format(i)
             with open(end_file, 'w') as end_out:
                 options.drunner.call(job, cmd, work_dir = work_dir, outfile = end_out)
@@ -274,18 +269,12 @@ def get_gam_positions(job, options, xg_file_id, name, gam_file_id):
     with open(gam_annot_json, 'w') as output_annot_json:
         options.drunner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
 
-    # jq docker image is another that requires the /data/.  really need to figure
-    # out more general approach
-    json_path = os.path.basename(gam_annot_json)
-    if options.drunner.has_tool("jq"):
-        json_path = os.path.join('/data', json_path)
-        
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
     # avoid writing the json to disk)        
     jq_cmd = [['jq', '-c', '-r', '[.name, .refpos[0].name, .refpos[0].offset,'
                'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
-               json_path]]
+               os.path.basename(gam_annot_json)]]
     jq_cmd.append(['sed', 's/null/0/g'])
 
     with open(out_pos_file + '.unsorted', 'w') as out_pos:

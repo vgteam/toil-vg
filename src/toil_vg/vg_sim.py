@@ -122,17 +122,11 @@ def run_sim_chunk(job, options, xg_file_id, chunk_i, num_reads):
         with open(gam_annot_json, 'w') as output_annot_json:
             options.drunner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
 
-        # jq docker image is another that requires the /data/.  really need to figure
-        # out more general approach
-        json_path = os.path.basename(gam_annot_json)
-        if options.drunner.has_tool("jq"):
-            json_path = os.path.join('/data', json_path)
-        
         # turn the annotated gam json into truth positions, as separate command since
         # we're going to use a different docker container.  (Note, would be nice to
         # avoid writing the json to disk)        
         jq_cmd = ['jq', '-c', '-r', '[ .name, .refpos[0].name, .refpos[0].offset ] | @tsv',
-                  json_path]
+                  os.path.basename(gam_annot_json)]
 
         # output truth positions
         true_pos_file = os.path.join(work_dir, 'true_{}.pos'.format(chunk_i))
