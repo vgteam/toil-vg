@@ -21,38 +21,10 @@ logger = logging.getLogger(__name__)
 
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
-    parser.add_argument("--vg_docker", type=str,
-                        help="docker container to use for vg")
-    parser.add_argument("--bcftools_docker", type=str,
-                        help="docker container to use for bcftools")
-    parser.add_argument("--tabix_docker", type=str,
-                        help="docker container to use for tabix")
-    parser.add_argument("--jq_docker", type=str,
-                        help="docker container to use for jq")
-    parser.add_argument("--rtg_docker", type=str,
-                        help="docker container to use for rtg vcfeval")
-    parser.add_argument("--pigz_docker", type=str,
-                        help="docker container to use for pigz")
-
-    parser.add_argument("--vg_singularity", type=str,
-                        help="path to singularity container to use for vg")
-    parser.add_argument("--bcftools_singularity", type=str,
-                        help="path to singularity container to use for bcftools")
-    parser.add_argument("--tabix_singularity", type=str,
-                        help="path to singularity container to use for tabix")
-    parser.add_argument("--jq_singularity", type=str,
-                        help="path to singularity container to use for jq")
-    parser.add_argument("--rtg_singularity", type=str,
-                        help="path to singularity container to use for rtg vcfeval")
-    parser.add_argument("--pigz_singularity", type=str,
-                        help="path to singularity container to use for pigz")
     
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--no_docker", action="store_true",
-                        help="do not use docker for any commands")
-    group.add_argument("--no_singularity", action="store_true",
-                        help="do not use singularity for any commands")
-    
+    parser.add_argument("--container", default='docker', choices=['docker', 'singularity', 'none'],
+                       help="Container type used for running commands. Use none to "
+                       " run locally on command line")    
 
 def add_common_vg_parse_args(parser):
     """ centralize some shared io functions and their defaults """
@@ -70,7 +42,7 @@ def get_container_tool_map(options):
     smap = dict()
     # first check for docker use, if docker use is not desired then check
     # for singularity use
-    if not options.no_docker:
+    if options.container == 'docker':
         dmap["vg"] = options.vg_docker
         dmap["bcftools"] = options.bcftools_docker
         dmap["tabix"] = options.tabix_docker
@@ -80,7 +52,7 @@ def get_container_tool_map(options):
         dmap["pigz"] = options.pigz_docker
         dmap["samtools"] = options.samtools_docker
         dmap["bwa"] = options.bwa_docker
-    elif not options.no_singularity:
+    elif options.container == 'singularity':
         smap["vg"] = options.vg_singularity
         smap["bcftools"] = options.bcftools_singularity
         smap["tabix"] = options.tabix_singularity
@@ -91,7 +63,6 @@ def get_container_tool_map(options):
         smap["samtools"] = options.samtools_singularity
         smap["bwa"] = options.bwa_singularity
         
-
     # to do: could be a good place to do an existence check on these tools
 
     return dmap, smap
@@ -145,32 +116,34 @@ to do: Should go somewhere more central """
         # we use the first argument to look up the tool in the docker map
         # but allow overriding of this with the tool_name parameter
         name = tool_name if tool_name is not None else args[0][0]
-        tool = str(self.docker_tool_map[name][0])
+        dmap_val = self.docker_tool_map[name]
+        tool, entrypoint = dmap_val[0], dmap_val[1]
         
         if len(args) == 1:
             # one command: we check entry point (stripping first arg if necessary)
             # and pass in single args list
-            if len(self.docker_tool_map[args[0][0]]) == 2:
-                if self.docker_tool_map[args[0][0]][1]:
-                    # not all tools have consistant entrypoints. vg and rtg have entrypoints
-                    # but bcftools doesn't. This functionality requires the config file to
-                    # operate
-                    parameters = args[0][1:]
-                else:
-                    parameters = args[0]
+            if entrypoint:
+                parameters = args[0][1:]
+            else:
+                parameters = args[0]
         else:
             # can leave as is for piped interface which takes list of args lists
             # and doesn't worry about entrypoints since everything goes through bash -c
+            # todo: check we have a bash entrypoint! 
             parameters = args
 
-        docker_parameters = None
+        # default parameters from toil's docker.py
+        docker_parameters = ['--rm', '--log-driver', 'none']
+        
         # vg uses TMPDIR for temporary files
         # this is particularly important for gcsa, which makes massive files.
         # we will default to keeping these in our working directory
+        docker_parameters += ['--env', 'TMPDIR=.']
+
+        # set our working directory map
         if work_dir is not None:
-            docker_parameters = ['--rm', '--log-driver', 'none', '-v',
-                                 os.path.abspath(work_dir) + ':/data',
-                                 '--env', 'TMPDIR=.']
+            docker_parameters += ['-v', '{}:/data'.format(os.path.abspath(work_dir)),
+                                  '-w', '/data']
 
         if check_output is True:
             ret = dockerCheckOutput(job, tool, parameters=parameters,
