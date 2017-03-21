@@ -87,7 +87,7 @@ fi
 
 # Hack in support for turning Docker on and off
 if [ "$DOCKER" == "0" ]; then
-    DOCKER_OPTS="--no_docker"
+    DOCKER_OPTS="--container None"
 else
     DOCKER_OPTS=""
 fi
