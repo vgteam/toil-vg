@@ -39,7 +39,7 @@ Install Docker via instructions found [here](https://docs.docker.com/docker-for-
     eval "$(docker-machine env default)"
     
 #### Running without Docker
-It can be useful, especially for developers to run commands directly without docker.  This can be done by using the `--no_docker` flag when running toil-vg, but all command-line tools (vg, bcftools, samtools, etc) must all be runnable from the command line.  
+It can be useful, especially for developers to run commands directly without docker.  This can be done by using the `--container None` option when running toil-vg, but all command-line tools (vg, bcftools, samtools, etc) must be available on the command line.  
 
 
 ## Configuration
