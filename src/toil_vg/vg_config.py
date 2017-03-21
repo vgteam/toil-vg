@@ -110,16 +110,18 @@ sim-disk: '2G'
 # Use output store instead of toil for all intermediate files (use only for debugging)
 force-outstore: False
 
+# Toggle container support.  Valid values are Docker / Singularity / None
+# (commenting out or Null values equivalent to None)
+container: Docker
+
 #############################
 ### Docker Tool Arguments ###
-# Do not use docker for any commands
-no-docker: False
 
 ## Docker Tool List ##
 ##   Each tool is specified as a list where the first element is the docker image URL,
 ##   and the second element indicates if the docker image has an entrypoint or not
 ##   If left blank or commented, then the tool will be run directly from the command line instead
-##   of through docker. no-docker (above) overrides all these options. 
+##   of through docker. 
 
 # Docker container to use for vg
 vg-docker: ['quay.io/vgteam/vg:v1.5.0-0-g6ef422a9-t41-run', False]
@@ -147,15 +149,12 @@ pigz-docker: ['quay.io/glennhickey/pigz:latest', True]
 
 #############################
 ### Singularity Tool Arguments ###
-# Do not use singularity for any commands
-no-singularity: False
 
 ## Singularity Tool List ##
 ##   Each tool is specified as a list where the first element is the PATH on a shared filesystem
 ##   where the singularity image lies.
 ##   If left blank or commented, then the tool will be run directly from the command line instead
-##   of through singularity. no-singularity (above) overrides all these options. 
-##   Note: no-singuarity and no-docker options can't both be set to True.
+##   of through singularity.
 
 # Singularity container to use for vg
 vg-singularity: ['', True]
@@ -358,16 +357,18 @@ sim-disk: '2G'
 # Use output store instead of toil for all intermediate files (use only for debugging)
 force-outstore: False
 
+# Toggle container support.  Valid values are Docker / Singularity / None
+# (commenting out or Null values equivalent to None)
+container: Docker
+
 #############################
 ### Docker Tool Arguments ###
-# Do not use docker for any commands
-no-docker: False
 
 ## Docker Tool List ##
 ##   Each tool is specified as a list where the first element is the docker image URL,
 ##   and the second element indicates if the docker image has an entrypoint or not
 ##   If left blank or commented, then the tool will be run directly from the command line instead
-##   of through docker. no-docker (above) overrides all these options. 
+##   of through docker. 
 
 # Docker container to use for vg
 vg-docker: ['quay.io/vgteam/vg:v1.5.0-0-g6ef422a9-t41-run', False]
@@ -395,15 +396,12 @@ pigz-docker: ['quay.io/glennhickey/pigz:latest', True]
 
 #############################
 ### Singularity Tool Arguments ###
-# Do not use singularity for any commands
-no-singularity: False
 
 ## Singularity Tool List ##
 ##   Each tool is specified as a list where the first element is the PATH on a shared filesystem
 ##   where the singularity image lies.
 ##   If left blank or commented, then the tool will be run directly from the command line instead
-##   of through singularity. no-singularity (above) overrides all these options. 
-##   Note: no-singuarity and no-docker options can't both be set to True.
+##   of through singularity.
 
 # Singularity container to use for vg
 vg-singularity: ['', True]

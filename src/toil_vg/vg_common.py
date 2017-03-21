@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
     
-    parser.add_argument("--container", default='docker', choices=['docker', 'singularity', 'none'],
-                       help="Container type used for running commands. Use none to "
+    parser.add_argument("--container", default=None, choices=['Docker', 'Singularity', 'None'],
+                       help="Container type used for running commands. Use None to "
                        " run locally on command line")    
 
 def add_common_vg_parse_args(parser):
@@ -42,7 +42,7 @@ def get_container_tool_map(options):
     smap = dict()
     # first check for docker use, if docker use is not desired then check
     # for singularity use
-    if options.container == 'docker':
+    if options.container == 'Docker':
         dmap["vg"] = options.vg_docker
         dmap["bcftools"] = options.bcftools_docker
         dmap["tabix"] = options.tabix_docker
@@ -52,7 +52,7 @@ def get_container_tool_map(options):
         dmap["pigz"] = options.pigz_docker
         dmap["samtools"] = options.samtools_docker
         dmap["bwa"] = options.bwa_docker
-    elif options.container == 'singularity':
+    elif options.container == 'Singularity':
         smap["vg"] = options.vg_singularity
         smap["bcftools"] = options.bcftools_singularity
         smap["tabix"] = options.tabix_singularity
