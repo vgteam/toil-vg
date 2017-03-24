@@ -7,14 +7,14 @@
 ## For now, all we have is the basic logic to do one run of bakeoff, expecting
 ## virtualenv etc has already been set up. 
 
-usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\t-D\tno Docker\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e <EVAL-TSV>\t run mapeval\n\n" 1>&2; exit 1; }
+usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\t-D\tno Docker\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e <EVAL-TSV>\t run mapeval\n\t-s <STATS-FILE>\t write toil stats\n" 1>&2; exit 1; }
 
 FAST=0
 MESOS=0
 DOCKER=1
 CORES=7
 CONFIG=0
-while getopts "fmDt:c:e:" o; do
+while getopts "fmDt:c:e:s:" o; do
     case "${o}" in
         f)
             FAST=1
@@ -33,7 +33,10 @@ while getopts "fmDt:c:e:" o; do
             ;;
         e)
             MEFILE=${OPTARG}
-            ;;		  
+            ;;
+		  s)
+				STATSFILE=${OPTARG}
+				;;
         *)
             usage
             ;;
@@ -58,6 +61,11 @@ GEN_OPTS="--realTimeLogging --logInfo"
 if [ "$CONFIG" != "0" ]; then
 	 GEN_OPTS="${GEN_OPTS} --config ${CONFIG}"
 fi
+if test ${STATSFILE+defined}; then
+	 GEN_OPTS="${GEN_OPTS} --stats"
+	 rm -f ${STATSFILE}
+fi
+
 INDEX_OPTS="--gcsa_index_cores ${CORES} --kmers_cores ${CORES}"
 MAP_OPTS="--alignment_cores ${CORES} --interleaved"
 MAP_OPTS_SE="--alignment_cores ${CORES}"
@@ -106,7 +114,14 @@ function run_bakeoff_region {
 	 # run the whole pipeline
 	 toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS}
 
-	 toil clean ${JOB_STORE}-${REGION,,}
+	 # harvest stats
+	 if test ${STATSFILE+defined}; then
+		  echo "STATS FOR ${JOB_STORE}-${REGION,,}" >> ${STATSFILE}
+		  toil stats ${JOB_STORE}-${REGION,,} >> ${STATSFILE}
+		  printf "\n\n" >> ${STATSFILE}
+	 fi
+
+	 #toil clean ${JOB_STORE}-${REGION,,}
 
 	 # harvest the f1 output and append it to our table
 	 rm -f temp_f1.txt
@@ -139,6 +154,13 @@ function run_mapeval {
 
 	 # generate mapeval results
 	 toil-vg mapeval ${JOB_STORE}-${REGION,,} ${OUT_STORE}-me-${REGION,,}  ${OUT_STORE}-me-${REGION,,}/true.pos ${BS_OPTS} ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE} --bwa --bwa-paired --index-bases ${OUT_STORE}-${REGION,,}/genome --gam-names vg --gam_input_reads ${OUT_STORE}-me-${REGION,,}/sim.gam --fasta ${BAKEOFF_STORE}/${REGION}.fa --vg-paired
+	 
+	 # harvest toil stats
+	 if test ${STATSFILE+defined}; then
+		  echo "STATS FOR MAPEVAL ${JOB_STORE}-${REGION,,}" >> ${STATSFILE}
+		  toil stats ${JOB_STORE}-${REGION,,} >> ${STATSFILE}
+		  printf "\n\n" >> ${STATSFILE}
+	 fi
 
 	 toil clean ${JOB_STORE}-${REGION,,}
 	 
