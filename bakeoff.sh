@@ -97,7 +97,9 @@ if [ "$MESOS" == "1" ]; then
 	 JOB_STORE="aws:us-west-2:${PREFIX}-bakeoff-job-store"
 	 OUT_STORE="aws:us-west-2:${PREFIX}-bakeoff-out-store"
 	 CP_OUT_STORE="s3://${PREFIX}-bakeoff-out-store"
-	 BS_OPTS="--batchSystem=mesos --mesosMaster=mesos-master:5050"
+	 PRIVATE_IP=`ifconfig eth0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}'`
+	 # To use spot notes, add: --defaultPreemptable --preemptableNodeType c3.8xlarge:0.85
+	 BS_OPTS="--batchSystem=mesos --mesosMaster=${PRIVATE_IP}:5050 --nodeType c3.8xlarge --retry 4 --provisioner aws --minNodes 0 --maxNodes 2"
 	 CP_CMD="aws s3 cp"
 	 RM_CMD="aws s3 rm"
 else
