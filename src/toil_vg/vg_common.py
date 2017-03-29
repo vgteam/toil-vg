@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
-    
+
+    parser.add_argument("--vg_docker", default=None,
+                        help="Docker image to use for vg")
     parser.add_argument("--container", default=None, choices=['Docker', 'Singularity', 'None'],
                        help="Container type used for running commands. Use None to "
                        " run locally on command line")    

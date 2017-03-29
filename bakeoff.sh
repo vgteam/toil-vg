@@ -7,14 +7,16 @@
 ## For now, all we have is the basic logic to do one run of bakeoff, expecting
 ## virtualenv etc has already been set up. 
 
-usage() { printf "Usage: $0 [Options] <Output-prefix> <Ouptut F1 File.tsv> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\t-D\tno Docker\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e <EVAL-TSV>\t run mapeval\n\t-s <STATS-FILE>\t write toil stats\n" 1>&2; exit 1; }
+usage() { printf "Usage: $0 [Options] <Output-prefix> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\t-D\tno Docker\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e\trun mapeval\n\t-s\twrite toil stats\n" 1>&2; exit 1; }
 
 FAST=0
 MESOS=0
 DOCKER=1
 CORES=7
 CONFIG=0
-while getopts "fmDt:c:e:s:" o; do
+ME=0
+STATS=0
+while getopts "fmDt:c:es" o; do
     case "${o}" in
         f)
             FAST=1
@@ -32,10 +34,10 @@ while getopts "fmDt:c:e:s:" o; do
             CONFIG=$OPTARG
             ;;
         e)
-            MEFILE=${OPTARG}
+            ME=1
             ;;
 		  s)
-				STATSFILE=${OPTARG}
+				STATS=1
 				;;
         *)
             usage
@@ -45,7 +47,7 @@ done
 
 shift $((OPTIND-1))
 
-if [ "$#" -ne 2 ]; then
+if [ "$#" -ne 1 ]; then
 	 usage
 	 exit 1
 fi
@@ -53,8 +55,17 @@ fi
 # all input data expected to be here:
 BAKEOFF_STORE="s3://glennhickey-bakeoff-store"
 
+# output summary will be here
 PREFIX=$1
-F1FILE=$2
+F1FILE="${PREFIX}-f1.tsv"
+if [ "$ME" != 0 ]; then
+	 MEFILE="{PREFIX}-mapeval.tsv"
+fi
+if [ "$STATS" != 0 ]; then
+	 STATSFILE="${PREFIX}-stats.tsv"
+fi
+MAPTIMESFILE="${PREFIX}-maptimes.tsv"
+rm -f $MAPTIMESFILE
 
 # General Options
 GEN_OPTS="--realTimeLogging --logInfo"
@@ -110,9 +121,14 @@ function run_bakeoff_region {
 	 toil clean ${JOB_STORE}-${REGION,,}
 	 F1_SCORE="${CP_OUT_STORE}-${REGION,,}/NA12878_vcfeval_output_f1.txt"
 	 $RM_CMD $F1_SCORE
+	 LOGFILE="${PREFIX}-${REGION,,}.log"
 
 	 # run the whole pipeline
-	 toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS}
+	 toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/snp1kg-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS} --logFile ${LOGFILE}
+
+	 # extract vg map total time
+	 MAPTIME=`extract_map_time ${LOGFILE}`
+	 printf "${REGION,,}\t${MAPTIME}\n" >> $MAPTIMESFILE
 
 	 # harvest stats
 	 if test ${STATSFILE+defined}; then
@@ -147,14 +163,19 @@ function run_mapeval {
 	 toil clean ${JOB_STORE}-${REGION,,}
 	 STATS_TSV="${CP_OUT_STORE}-me-${REGION,,}/stats.tsv"
 	 $RM_CMD $STATS_TSV
+	 LOGFILE="${PREFIX}-${REGION,,}-mapeval.log"
 
 	 # simulate some reads
 	 toil-vg sim ${JOB_STORE}-${REGION,,} ${OUT_STORE}-${REGION,,}/genome.xg ${NUM_SIM_READS} ${OUT_STORE}-me-${REGION,,} ${BS_OPTS} ${DOCKER_OPTS} ${SIM_OPTS}
 	 toil clean ${JOB_STORE}-${REGION,,}
 
 	 # generate mapeval results
-	 toil-vg mapeval ${JOB_STORE}-${REGION,,} ${OUT_STORE}-me-${REGION,,}  ${OUT_STORE}-me-${REGION,,}/true.pos ${BS_OPTS} ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE} --bwa --bwa-paired --index-bases ${OUT_STORE}-${REGION,,}/genome --gam-names vg --gam_input_reads ${OUT_STORE}-me-${REGION,,}/sim.gam --fasta ${BAKEOFF_STORE}/${REGION}.fa --vg-paired
-	 
+	 toil-vg mapeval ${JOB_STORE}-${REGION,,} ${OUT_STORE}-me-${REGION,,}  ${OUT_STORE}-me-${REGION,,}/true.pos ${BS_OPTS} ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE} --bwa --bwa-paired --index-bases ${OUT_STORE}-${REGION,,}/genome --gam-names vg --gam_input_reads ${OUT_STORE}-me-${REGION,,}/sim.gam --fasta ${BAKEOFF_STORE}/${REGION}.fa --vg-paired --logFile ${LOGFILE}
+
+	 # extract vg map total time
+	 MAPTIME=`extract_map_time ${LOGFILE}`
+	 printf "sim-${REGION,,}\t${MAPTIME}\n" >> $MAPTIMESFILE
+	 	 
 	 # harvest toil stats
 	 if test ${STATSFILE+defined}; then
 		  echo "STATS FOR MAPEVAL ${JOB_STORE}-${REGION,,}" >> ${STATSFILE}
@@ -174,6 +195,15 @@ function run_mapeval {
 	 fi	 
 }	 
 
+# grab the total time spent on vg map from the log
+function extract_map_time {
+	 local LOGFILE=$1
+
+	 # we expect something along the lines of Successfully docker ran vg map graph.vg .... in XXX seconds
+	 # so we extract and total all the XXXs.
+	 grep "Successfully " $LOGFILE  | grep "ran vg map" | awk '{sum+= $(NF-1)}; END {print sum}'
+}
+	 
 # Run the regions in series
 
 rm -f $F1FILE
