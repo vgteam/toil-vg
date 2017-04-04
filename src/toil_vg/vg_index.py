@@ -64,6 +64,13 @@ def index_parse_args(parser):
     parser.add_argument("--index_name", type=str,
                         help="name of index files. <name>.xg, <name>.gcsa etc.")
 
+    parser.add_argument("--prune_opts", type=str,
+                        help="Options to pass to vg mod for pruning phase.")
+    parser.add_argument("--kmers_opts", type=str,
+                        help="Options to pass to vg kmers.")
+    parser.add_argument("--gcsa_opts", type=str,
+                        help="Options to pass to gcsa indexing.")
+
 def run_gcsa_prune(job, options, graph_i, input_graph_id):
     """
     Make the pruned graph, do kmers as a follow up and return kmers id
