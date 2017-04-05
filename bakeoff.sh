@@ -7,10 +7,9 @@
 ## For now, all we have is the basic logic to do one run of bakeoff, expecting
 ## virtualenv etc has already been set up. 
 
-usage() { printf "Usage: $0 [Options] <Output-prefix> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\\t-j\tJenkins CI test\n\t-D\tno Docker\n\t-v <I>\tvg docker image\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e\trun mapeval\n\t-s\twrite toil stats\n" 1>&2; exit 1; }
+usage() { printf "Usage: $0 [Options] <Output-prefix> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\\t-D\tno Docker\n\t-v <I>\tvg docker image\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e\trun mapeval\n\t-s\twrite toil stats\n" 1>&2; exit 1; }
 
 FAST=0
-JENKINS=0
 MESOS=0
 DOCKER=1
 CORES=8
@@ -22,8 +21,6 @@ while getopts "fjmDv:t:c:es" o; do
     case "${o}" in
         f)
             FAST=1
-            ;;
-        j) JENKINS=1
             ;;
         m)
             MESOS=1
@@ -224,23 +221,6 @@ if test ${MEFILE+defined}; then
 	 rm -rf $MEFILE
 fi
 
-# hack in jenkins pipeline here
-# todo: move to own script, or probably JUnit framework. 
-if [ "$JENKINS" == "1" ]; then
-	 run_bakeoff_region BRCA2 13 32314860 snp1kg
-	 run_bakeoff_region BRCA2 13 32314860 refonly
-	 run_bakeoff_region BRCA2 13 32314860 cactus
-	 
-	 run_bakeoff_region LRC-KIR 19 54025633 snp1kg
-	 run_bakeoff_region LRC-KIR 19 54025633 refonly
-	 #indexing takes forever 
-	 #run_bakeoff_region LRC-KIR 19 54025633 cactus
-
-	 # todo summarize results in single page
-	 cat ${PREFIX}*.tsv
-	 exit 0
-fi
-
 run_bakeoff_region BRCA1 17 43044293 snp1kg
 if [ "$FAST" != "1" ]; then
 	 run_bakeoff_region BRCA2 13 32314860 snp1kg
@@ -250,25 +230,25 @@ if [ "$FAST" != "1" ]; then
 fi
 
 echo "Created the following:"
-echo ${JOB_STORE}-brca1
-echo ${OUT_STORE}-brca1
+echo ${JOB_STORE}-brca1-snp1kg
+echo ${OUT_STORE}-brca1-snp1kg
 if test ${MEFILE+defined}; then
-	 echo ${OUT_STORE}-brca1-me
+	 echo ${OUT_STORE}-brca1-me-snp1kg
 fi
 if [ "$FAST" != "1" ]; then
-	 echo ${JOB_STORE}-brca2
-	 echo ${OUT_STORE}-brca2
-	 echo ${JOB_STORE}-sma
-	 echo ${OUT_STORE}-sma
-	 echo ${JOB_STORE}-lrc-kir
-	 echo ${OUT_STORE}-lrc-kir
-	 echo ${JOB_STORE}-mhc
-	 echo ${OUT_STORE}-mhc
+	 echo ${JOB_STORE}-brca2-snp1kg
+	 echo ${OUT_STORE}-brca2-snp1kg
+	 echo ${JOB_STORE}-sma-snp1kg
+	 echo ${OUT_STORE}-sma-snp1kg
+	 echo ${JOB_STORE}-lrc-kir-snp1kg
+	 echo ${OUT_STORE}-lrc-kir-snp1kg
+	 echo ${JOB_STORE}-mhc-snp1kg
+	 echo ${OUT_STORE}-mhc-snp1kg
 	 if test ${MEFILE+defined}; then
-		  echo ${OUT_STORE}-brca2-me
-		  echo ${OUT_STORE}-sma-me
-		  echo ${OUT_STORE}-lrc-kir-me
-		  echo ${OUT_STORE}-mhc-me
+		  echo ${OUT_STORE}-brca2-me-snp1kg
+		  echo ${OUT_STORE}-sma-me-snp1kg
+		  echo ${OUT_STORE}-lrc-kir-me-snp1kg
+		  echo ${OUT_STORE}-mhc-me-snp1kg
 	 fi
 fi
 
