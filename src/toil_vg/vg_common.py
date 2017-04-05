@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
 
-    parser.add_argument("--vg_docker", default=None,
-                        help="Docker image to use for vg")
+    parser.add_argument("--vg_docker", nargs=2,
+                        help="Docker image to use for vg, followed by entrypoint flag")
     parser.add_argument("--container", default=None, choices=['Docker', 'Singularity', 'None'],
                        help="Container type used for running commands. Use None to "
                        " run locally on command line")    
@@ -120,7 +120,12 @@ to do: Should go somewhere more central """
         name = tool_name if tool_name is not None else args[0][0]
         dmap_val = self.docker_tool_map[name]
         tool, entrypoint = dmap_val[0], dmap_val[1]
-        
+        # when passing docker options on the command line (ie --vg_docker)
+        # we end up with a string here, so hack it back to a bool
+        if type(entrypoint) == str:
+            assert entrypoint.lower() in ['true', 'false']
+            entrypoint = True if entrypoint == 'true' else False
+
         if len(args) == 1:
             # one command: we check entry point (stripping first arg if necessary)
             # and pass in single args list
