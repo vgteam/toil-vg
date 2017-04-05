@@ -23,17 +23,17 @@ while getopts "fjmDv:t:c:es" o; do
         f)
             FAST=1
             ;;
-		  j) JENKINS=1
-			   ;;
+        j) JENKINS=1
+            ;;
         m)
             MESOS=1
             ;;
         D)
             DOCKER=0
             ;;
-		  v)
-				VG_DOCKER=$OPTARG
-				;;
+        v)
+            VG_DOCKER=$OPTARG
+            ;;
         t)
             CORES=$OPTARG
             ;;
@@ -43,9 +43,9 @@ while getopts "fjmDv:t:c:es" o; do
         e)
             ME=1
             ;;
-		  s)
-				STATS=1
-				;;
+        s)
+            STATS=1
+            ;;
         *)
             usage
             ;;
@@ -115,8 +115,8 @@ fi
 # Hack in support for turning Docker on and off
 if [ "$DOCKER" == "0" ]; then
     DOCKER_OPTS="--container None"
-elif ["$VG_DOCKER" != "0" ]; then
-	 DOCKER_OPTS="--vg_docker ${VG_DOCKER}"
+elif [ "$VG_DOCKER" != "0" ]; then
+	 DOCKER_OPTS="--vg_docker ${VG_DOCKER} False"
 else
     DOCKER_OPTS=""
 fi
@@ -135,7 +135,7 @@ function run_bakeoff_region {
 	 LOGFILE="${PREFIX}-${REGION,,}-${GRAPH}.log"
 
 	 # run the whole pipeline
-	 eval toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}-${GRAPH} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "\"--offset ${OFFSET}\"" --graphs ${BAKEOFF_STORE}/${GRAPH}-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS} --logFile ${LOGFILE}
+	 eval toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}-${GRAPH} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "\"--offset ${OFFSET}\"" --graphs ${BAKEOFF_STORE}/${GRAPH}-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chr${CHROM}.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS} --logFile ${LOGFILE}
 	 
 	 # extract vg map total time
 	 MAPTIME=`extract_map_time ${LOGFILE}`
@@ -161,15 +161,16 @@ function run_bakeoff_region {
 
 	 # optionally run the simulation benchmark
 	 if test ${MEFILE+defined}; then
-		  run_mapeval $REGION $CHROM $GRAPH
+		  run_mapeval $REGION $GRAPH ${OUT_STORE}-${REGION,,}-${GRAPH} genome
 	 fi
 }
 
 # Run simulation mapping evaluation
 function run_mapeval {
 	 local REGION=$1
-	 local CHROM=$2
-	 local GRAPH=$3
+	 local GRAPH=$2
+	 local IN_STORE=$3
+	 local IN_IDX=$4
 
 	 # erase the job store and f1 output
 	 toil clean ${JOB_STORE}-${REGION,,}
@@ -178,11 +179,11 @@ function run_mapeval {
 	 LOGFILE="${PREFIX}-${REGION,,}-${GRAPH}mapeval.log"
 
 	 # simulate some reads
-	 toil-vg sim ${JOB_STORE}-${REGION,,} ${OUT_STORE}-${REGION,,}-${GRAPH}/genome.xg ${NUM_SIM_READS} ${OUT_STORE}-me-${REGION,,}-${GRAPH} ${BS_OPTS} ${DOCKER_OPTS} ${SIM_OPTS}
+	 toil-vg sim ${JOB_STORE}-${REGION,,} ${IN_STORE}/${IN_IDX}.xg ${NUM_SIM_READS} ${OUT_STORE}-me-${REGION,,}-${GRAPH} ${BS_OPTS} ${DOCKER_OPTS} ${SIM_OPTS}
 	 toil clean ${JOB_STORE}-${REGION,,}
 
 	 # generate mapeval results
-	 toil-vg mapeval ${JOB_STORE}-${REGION,,} ${OUT_STORE}-me-${REGION,,}-${GRAPH}  ${OUT_STORE}-me-${REGION,,}-${GRAPH}/true.pos ${BS_OPTS} ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE} --bwa --bwa-paired --index-bases ${OUT_STORE}-${REGION,,}-${GRAPH}/genome --gam-names vg --gam_input_reads ${OUT_STORE}-me-${REGION,,}-${GRAPH}/sim.gam --fasta ${BAKEOFF_STORE}/${REGION}.fa --vg-paired --logFile ${LOGFILE}
+	 toil-vg mapeval ${JOB_STORE}-${REGION,,} ${OUT_STORE}-me-${REGION,,}-${GRAPH}  ${OUT_STORE}-me-${REGION,,}-${GRAPH}/true.pos ${BS_OPTS} ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${MAP_OPTS_SE} --bwa --bwa-paired --index-bases ${IN_STORE}/${IN_IDX} --gam-names vg --gam_input_reads ${OUT_STORE}-me-${REGION,,}-${GRAPH}/sim.gam --fasta ${BAKEOFF_STORE}/${REGION}.fa --vg-paired --logFile ${LOGFILE}
 
 	 # extract vg map total time
 	 MAPTIME=`extract_map_time ${LOGFILE}`
@@ -234,8 +235,6 @@ if [ "$JENKINS" == "1" ]; then
 	 run_bakeoff_region LRC-KIR 19 54025633 refonly
 	 #indexing takes forever 
 	 #run_bakeoff_region LRC-KIR 19 54025633 cactus
-
-	 #todo run mapeval on whole human genome (using index on s3)
 
 	 # todo summarize results in single page
 	 cat ${PREFIX}*.tsv
