@@ -7,7 +7,7 @@
 ## For now, all we have is the basic logic to do one run of bakeoff, expecting
 ## virtualenv etc has already been set up. 
 
-usage() { printf "Usage: $0 [Options] <Output-prefix> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\\t-j\tJenkins CI test\nt-D\tno Docker\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e\trun mapeval\n\t-s\twrite toil stats\n" 1>&2; exit 1; }
+usage() { printf "Usage: $0 [Options] <Output-prefix> \nOptions:\n\t-m\tmesos\n\t-f\tfast (just BRCA1)\n\\t-j\tJenkins CI test\n\t-D\tno Docker\n\t-v <I>\tvg docker image\n\t-t <N>\tthreads [DEFAULT=7]\n\t-c <F>\tconfig file\n\t-e\trun mapeval\n\t-s\twrite toil stats\n" 1>&2; exit 1; }
 
 FAST=0
 JENKINS=0
@@ -84,7 +84,7 @@ if test ${STATSFILE+defined}; then
 	 rm -f ${STATSFILE}
 fi
 
-INDEX_OPTS="--gcsa_index_cores ${CORES} --kmers_cores ${CORES} --prune_opts \"-p -l 16 -S -e 3\""
+INDEX_OPTS="--gcsa_index_cores ${CORES} --kmers_cores ${CORES} --prune_opts '-p -l 16 -S -e 3'"
 MAP_OPTS="--alignment_cores ${CORES} --interleaved"
 MAP_OPTS_SE="--alignment_cores ${CORES}"
 CALL_OPTS="--calling_cores ${CORES}"
@@ -135,8 +135,8 @@ function run_bakeoff_region {
 	 LOGFILE="${PREFIX}-${REGION,,}-${GRAPH}.log"
 
 	 # run the whole pipeline
-	 toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}-${GRAPH} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "--offset ${OFFSET}" --graphs ${BAKEOFF_STORE}/${GRAPH}-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS} --logFile ${LOGFILE}
-
+	 eval toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}-${GRAPH} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "\"--offset ${OFFSET}\"" --graphs ${BAKEOFF_STORE}/${GRAPH}-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chrom.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS} --logFile ${LOGFILE}
+	 
 	 # extract vg map total time
 	 MAPTIME=`extract_map_time ${LOGFILE}`
 	 printf "${REGION}\t${GRAPH}\t${MAPTIME}\n" >> $MAPTIMESFILE
@@ -224,6 +224,7 @@ if test ${MEFILE+defined}; then
 fi
 
 # hack in jenkins pipeline here
+# todo: move to own script, or probably JUnit framework. 
 if [ "$JENKINS" == "1" ]; then
 	 run_bakeoff_region BRCA2 13 32314860 snp1kg
 	 run_bakeoff_region BRCA2 13 32314860 refonly
@@ -231,9 +232,13 @@ if [ "$JENKINS" == "1" ]; then
 	 
 	 run_bakeoff_region LRC-KIR 19 54025633 snp1kg
 	 run_bakeoff_region LRC-KIR 19 54025633 refonly
-	 run_bakeoff_region LRC-KIR 19 54025633 cactus
+	 #indexing takes forever 
+	 #run_bakeoff_region LRC-KIR 19 54025633 cactus
+
+	 #todo run mapeval on whole human genome (using index on s3)
 
 	 # todo summarize results in single page
+	 cat ${PREFIX}*.tsv
 	 exit 0
 fi
 
