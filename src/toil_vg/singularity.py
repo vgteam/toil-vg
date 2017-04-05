@@ -6,7 +6,7 @@
             work_dir = job.fileStore.getLocalTempDir()
             path = job.fileStore.readGlobalFile(ref_id, os.path.join(work_dir, 'ref.fasta')
             parameters = ['faidx', path]
-            dockerCall(job, tool='quay.io/ucgc_cgl/samtools:latest', work_dir=work_dir, parameters=parameters)
+            singularityCall(job, tool='quay.io/ucgc_cgl/samtools:latest', work_dir=work_dir, parameters=parameters)
 """
 import base64
 import logging
@@ -25,20 +25,20 @@ def singularityCall(job,
                singularityParameters=None,
                outfile=None):
     """
-    Throws CalledProcessorError if the Docker invocation returns a non-zero exit code
-    This function blocks until the subprocess call to Docker returns
+    Throws CalledProcessorError if the Singularity invocation returns a non-zero exit code
+    This function blocks until the subprocess call to Singularity returns
     :param toil.Job.job job: The Job instance for the calling function.
     :param str tool: Name of the Singularity image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
     :param str workDir: Directory to mount into the container via `-v`. Destination convention is /data
-    :param list[str] dockerParameters: Parameters to pass to Docker. Default parameters are `--rm`,
+    :param list[str] singularityParameters: Parameters to pass to Singularity. Default parameters are `--rm`,
             `--log-driver none`, and the mountpoint `-v work_dir:/data` where /data is the destination convention.
-             These defaults are removed if docker_parmaters is passed, so be sure to pass them if they are desired.
-    :param file outfile: Pipe output of Docker call to file handle
+             These defaults are removed if singularity_parmaters is passed, so be sure to pass them if they are desired.
+    :param file outfile: Pipe output of Singularity call to file handle
     """
     _singularity(job, tool=tool, parameters=parameters, workDir=workDir, singularityParameters=singularityParameters,
-            outfile=outfile, checkOutput=False, defer=defer)
+            outfile=outfile, checkOutput=False)
 
 
 def singularityCheckOutput(job,
@@ -47,22 +47,22 @@ def singularityCheckOutput(job,
                       workDir=None,
                       singularityParameters=None):
     """
-    Returns the stdout from the Docker invocation (via subprocess.check_output)
-    Throws CalledProcessorError if the Docker invocation returns a non-zero exit code
-    This function blocks until the subprocess call to Docker returns
+    Returns the stdout from the Singularity invocation (via subprocess.check_output)
+    Throws CalledProcessorError if the Singularity invocation returns a non-zero exit code
+    This function blocks until the subprocess call to Singularity returns
     :param toil.Job.job job: The Job instance for the calling function.
-    :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
+    :param str tool: Name of the Singularity image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
     :param str workDir: Directory to mount into the container via `-v`. Destination convention is /data
-    :param list[str] dockerParameters: Parameters to pass to Docker. Default parameters are `--rm`,
+    :param list[str] singularityParameters: Parameters to pass to Singularity. Default parameters are `--rm`,
             `--log-driver none`, and the mountpoint `-v work_dir:/data` where /data is the destination convention.
-             These defaults are removed if docker_parmaters is passed, so be sure to pass them if they are desired.
-    :returns: Stdout from the docker call
+             These defaults are removed if singularity_parmaters is passed, so be sure to pass them if they are desired.
+    :returns: Stdout from the singularity call
     :rtype: str
     """
     return _singularity(job, tool=tool, parameters=parameters, workDir=workDir,
-                   singularityParameters=singularityParameters, checkOutput=True, defer=defer)
+                   singularityParameters=singularityParameters, checkOutput=True)
 
 
 def _singularity(job,
@@ -71,15 +71,14 @@ def _singularity(job,
             workDir=None,
             singularityParameters=None,
             outfile=None,
-            checkOutput=False,
-            defer=None):
+            checkOutput=False):
     """
     :param toil.Job.job job: The Job instance for the calling function.
     :param str tool: Name of the Singularity image to be used (e.g. quay.io/ucsc_cgl/samtools).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
     :param str workDir: Directory to mount into the container via `--bind`. Destination convention is /data
-    :param list[str] dockerParameters: Parameters to pass to Singularity. Default parameters are the mountpoint
+    :param list[str] singularityrParameters: Parameters to pass to Singularity. Default parameters are the mountpoint
              `--bind work_dir:/data` where /data is the destination convention.
              These defaults are removed if singularity_parmaters is passed, so be sure to pass them if they are desired.
     :param file outfile: Pipe output of Singularity call to file handle
@@ -90,13 +89,12 @@ def _singularity(job,
     if workDir is None:
         workDir = os.getcwd()
 
-    # Setup the outgoing subprocess call for docker
+    # Setup the outgoing subprocess call for singularity
     baseSingularityCall = ['singularity', 'exec']
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
-        baseSingularityCall += ['--bind',
-                           os.path.abspath(workDir) + ':/data']
+        baseSingularityCall += ['-H', '{}:/data'.format(os.path.abspath(workDir)), '--bind', '{}:/data'.format(os.path.abspath(workDir))]
 
     # Make subprocess call
 
@@ -104,8 +102,8 @@ def _singularity(job,
     if len(parameters) > 0 and type(parameters[0]) is list:
         # When piping, all arguments now get merged into a single string to bash.
         # We try to support spaces in paths by wrapping them all in quotes first.
-        chain_params = [' '.join(p) for p in parameters]
-        call = baseSingularityCall + [tool, ' | '.join(chain_params)]
+        chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
+        call = baseSingularityCall + [tool, ' | {} '.format(' '.join(baseSingularityCall + [tool])).join(chain_params)]
     else:
         call = baseSingularityCall + [tool] + parameters
     

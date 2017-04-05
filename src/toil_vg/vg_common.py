@@ -183,22 +183,19 @@ to do: Should go somewhere more central """
         # we use the first argument to look up the tool in the singularity map
         # but allow overriding of this with the tool_name parameter
         name = tool_name if tool_name is not None else args[0][0]
-        tool = str(self.singularity_tool_map[name][0])
+        smap_val = self.singularity_tool_map[name]
+        tool, entrypoint = smap_val[0], smap_val[1]
         
         if len(args) == 1:
             # one command: we check entry point (stripping first arg if necessary)
             # and pass in single args list
-            if len(self.singularity_tool_map[args[0][0]]) == 2:
-                if self.singularity_tool_map[args[0][0]][1]:
-                    # not all tools have consistant entrypoints. vg and rtg have entrypoints
-                    # but bcftools doesn't. This functionality requires the config file to
-                    # operate
-                    parameters = args[0][1:]
-                else:
-                    parameters = args[0]
+            if entrypoint:
+                parameters = args[0][1:]
+            else:
+                parameters = args[0]
         else:
             # can leave as is for piped interface which takes list of args lists
-            # and doesn't worry about entrypoints since everything goes through bash -c
+            # and doesn't worry about entrypoints since everything goes through bash
             parameters = args
 
         singularity_parameters = None
@@ -206,9 +203,7 @@ to do: Should go somewhere more central """
         # this is particularly important for gcsa, which makes massive files.
         # we will default to keeping these in our working directory
         if work_dir is not None:
-            singularity_parameters = ['--rm', '--log-driver', 'none', '-v',
-                                 os.path.abspath(work_dir) + ':/data',
-                                 '--env', 'TMPDIR=.']
+            singularity_parameters = ['-H', '{}:/data'.format(os.path.abspath(work_dir)), '--bind', '{}:/data'.format(os.path.abspath(work_dir))]
 
         if check_output is True:
             ret = singularityCheckOutput(job, tool, parameters=parameters,
@@ -225,8 +220,6 @@ to do: Should go somewhere more central """
         #       It complains that the container can't be found, so fixPermissions
         #       doesn't get run afterward.  
         #
-        _fixPermissions(tool, work_dir)
-
         end_time = timeit.default_timer()
         run_time = end_time - start_time
         RealtimeLogger.info("Successfully singularity ran {} in {} seconds.".format(
