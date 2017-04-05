@@ -54,7 +54,7 @@ class VGCGLTest(TestCase):
         self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                                    '--call_chunk_size', '20000',
-                                   '--index_mode', 'gcsa-mem', '--gcsa_index_cores', '7', '--kmers_cores', '7',
+                                   '--index_mode', 'gcsa-mem', '--gcsa_index_cores', '8', '--kmers_cores', '8',
                                    '--alignment_cores', '4',
                                    '--calling_cores', '4', '--vcfeval_cores', '4')
         
@@ -95,7 +95,7 @@ class VGCGLTest(TestCase):
         
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '7', '--kmers_cores', '7',
+                   '--gcsa_index_cores', '8', '--kmers_cores', '8',
                   '--realTimeLogging', '--logInfo', '--index_name', 'small')
 
         self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
@@ -103,7 +103,7 @@ class VGCGLTest(TestCase):
                   os.path.join(self.local_outstore, 'small.gcsa'),
                   self.local_outstore,  '--fastq', self.sample_reads,
                   '--id_ranges', os.path.join(self.local_outstore, 'small_id_ranges.tsv'),
-                  '--alignment_cores', '7', '--reads_per_chunk', '8000',
+                  '--alignment_cores', '8', '--reads_per_chunk', '8000',
                   '--realTimeLogging', '--logInfo')
         
         self._run('toil-vg', 'call', self.jobStoreLocal,
@@ -129,12 +129,12 @@ class VGCGLTest(TestCase):
         
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '7', '--kmers_cores', '7',
+                   '--gcsa_index_cores', '8', '--kmers_cores', '8',
                   '--realTimeLogging', '--logInfo', '--index_name', 'small')
 
         self._run('toil-vg', 'sim', self.jobStoreLocal,
                  os.path.join(self.local_outstore, 'small.xg'), '2000',
-                  self.local_outstore, '--gam', '--sim_chunks', '5', '--maxCores', '7',
+                  self.local_outstore, '--gam', '--sim_chunks', '5', '--maxCores', '8',
                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '0')
 
         self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
@@ -155,7 +155,7 @@ class VGCGLTest(TestCase):
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gams', os.path.join(self.local_outstore, 'sample_x.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                  '--maxCores', '7', '--bwa', '--bwa-paired', '--fasta', self.chrom_fa)
+                  '--maxCores', '8', '--bwa', '--bwa-paired', '--fasta', self.chrom_fa)
 
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'bwa-mem', 'bwa-mem-pe'], 0.9)
 
@@ -169,8 +169,8 @@ class VGCGLTest(TestCase):
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                  '--alignment_cores', '7', '--vg-paired',
-                  '--maxCores', '7', '--bwa', '--fasta', self.chrom_fa)
+                  '--alignment_cores', '8', '--vg-paired',
+                  '--maxCores', '8', '--bwa', '--fasta', self.chrom_fa)
         
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem'], 0.8)
 
@@ -184,8 +184,8 @@ class VGCGLTest(TestCase):
                   '--vg-graphs', self.test_vg_graph,
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                  '--alignment_cores', '7',                  
-                  '--maxCores', '7', '--fasta', self.chrom_fa)
+                  '--alignment_cores', '8',                  
+                  '--maxCores', '8', '--fasta', self.chrom_fa)
         
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg'], 0.9)
         
