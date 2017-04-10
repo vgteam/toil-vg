@@ -99,7 +99,8 @@ to do: Should go somewhere more central """
             args[i] = [str(x) for x in args[i]]
         name = tool_name if tool_name is not None else args[0][0]
         ## TODO: factor in singularity and docker tool use options
-        if name in self.docker_tool_map:
+        if name in self.docker_tool_map and self.docker_tool_map[name] != None and\
+           (len(self.docker_tool_map[name]) == 2 and self.docker_tool_map[name][0].lower() != 'none'):
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
         elif name in self.singularity_tool_map:
             return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name)
