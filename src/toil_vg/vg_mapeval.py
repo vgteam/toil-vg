@@ -546,7 +546,7 @@ def run_write_stats(job, options, names, map_stats):
     work_dir = job.fileStore.getLocalTempDir()
     stats_file = os.path.join(work_dir, 'stats.tsv')
     with open(stats_file, 'w') as stats_out:
-        stats_out.write('aligner\tcount\tacc\tauc\qq-r\n')
+        stats_out.write('aligner\tcount\tacc\tauc\tqq-r\n')
         for name, stats in zip(names, map_stats):
             stats_out.write('{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
                                                           stats[1][0], stats[2]))
