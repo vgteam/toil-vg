@@ -125,11 +125,23 @@ def run_vg_call(job, options, xg_path, vg_path, gam_path, path_name, chunk_offse
     # do the calling.
     merged_call_opts = merge_call_opts(path_name, chunk_offset, path_size,
                                        options.call_opts, options.sample_name)
-    with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
-        command = [['vg', 'call', os.path.basename(vg_path), os.path.basename(pu_path), '-t',
-                 str(options.calling_cores)] + str(merged_call_opts).split()]
-        options.drunner.call(job, command, work_dir=work_dir,
-                             outfile=vgcall_stdout, errfile=vgcall_stderr)
+    
+    try:                                   
+        with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
+            command = [['vg', 'call', os.path.basename(vg_path), os.path.basename(pu_path), '-t',
+                     str(options.calling_cores)] + str(merged_call_opts).split()]
+        
+            options.drunner.call(job, command, work_dir=work_dir,
+                                 outfile=vgcall_stdout, errfile=vgcall_stderr)
+        
+    except Exception as e:
+        logging.error("Failed. Dumping files.")
+        write_to_store(job, options, vg_path, True)
+        write_to_store(job, options, pu_path, True)
+        write_to_store(job, options, vcf_path + ".call_log", True)
+        raise e
+                                 
+        
  
                 
 def run_vg_genotype(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset, path_size, work_dir, vcf_path):

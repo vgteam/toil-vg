@@ -137,6 +137,8 @@ def run_vcfeval(job, options, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_base
     options.drunner.call(job, ['tar', 'czf', out_tag + '.tar.gz', out_tag], work_dir = work_dir)
     # 3) vcfeval_output.tar.gz -- whole shebang
     write_to_store(job, options, os.path.join(work_dir, out_tag + '.tar.gz'), use_out_store = True)
+    # 4) truth VCF
+    write_to_store(job, options, os.path.join(work_dir, vcfeval_baseline_name), use_out_store = True)
 
     return f1
 
