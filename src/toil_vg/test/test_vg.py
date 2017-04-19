@@ -40,17 +40,25 @@ class VGCGLTest(TestCase):
         # FIXME: pull up into common base class
         logging.basicConfig(level=logging.INFO)
 
+    def _ci_input_path(self, filename):
+        return os.path.join('s3://', self.bucket_name, self.folder_name, filename)
+    
     def _download_input(self, filename, local_path = None):
         tgt = os.path.join(self.workdir, filename) if local_path is None else local_path
         with open(tgt, 'w') as f:
-            self.bucket.get_key('/vg_cgl/ci/{}'.format(filename)).get_contents_to_file(f)
+            self.bucket.get_key('/{}/{}'.format(self.folder_name, filename)).get_contents_to_file(f)
         
     def setUp(self):
         self.workdir = tempfile.mkdtemp()
         self.jobStoreAWS = 'aws:us-west-2:testvg-{}'.format(uuid4())
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
+
+        # input files all in same bucket folder, which is specified (only) here:
+        self.bucket_name = 'cgl-pipeline-inputs'
+        self.folder_name = 'vg_cgl/ci'
+        
         self.connection = S3Connection()
-        self.bucket = self.connection.get_bucket('cgl-pipeline-inputs')
+        self.bucket = self.connection.get_bucket(self.bucket_name)
         self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                                    '--call_chunk_size', '20000',
@@ -71,10 +79,10 @@ class VGCGLTest(TestCase):
         # Reads converted to small_sim_reads.fq with script setting qualities to B
         (small.vcf.gz and small.fa.gz below are just x.vcf.gz and x.fa from input)
         '''
-        self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/small_sim_reads.fq.gz'
-        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vg'
-        self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vcf.gz'
-        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
+        self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.baseline = self._ci_input_path('small.vcf.gz')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
 
         self._run(self.base_command, self.jobStoreLocal, 'sample',
                   self.local_outstore,  '--fastq', self.sample_reads,
@@ -88,10 +96,10 @@ class VGCGLTest(TestCase):
         ''' 
         Same as above, but chain standalone tools instead of toil-vg run
         '''
-        self.sample_reads = 's3://cgl-pipeline-inputs/vg_cgl/ci/small_sim_reads.fq.gz'
-        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vg'
-        self.baseline = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vcf.gz'
-        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
+        self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.baseline = self._ci_input_path('small.vcf.gz')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
         
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
@@ -124,8 +132,8 @@ class VGCGLTest(TestCase):
         ''' 
         Same generate and align some simulated reads
         '''
-        self.test_vg_graph = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.vg'
-        self.chrom_fa = 's3://cgl-pipeline-inputs/vg_cgl/ci/small.fa.gz'
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
         
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
