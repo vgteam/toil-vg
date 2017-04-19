@@ -1,6 +1,11 @@
 import sys
+import os
 
-from version import version, required_versions, dependency_links
+# We can't import version.py because only one "version" module can ever be
+# loaded in a Python process, and multiple setup.py scripts may have to run in
+# the same process.
+execfile(os.path.join(os.path.dirname(os.path.realpath(__file__)), "version.py"))
+
 from setuptools import find_packages, setup
 from setuptools.command.test import test as TestCommand
 
