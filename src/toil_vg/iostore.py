@@ -241,6 +241,42 @@ class IOStore(object):
         
         raise NotImplementedError()
         
+    def get_size(self, path):
+        """
+        Returns the size in bytes of the given file if it exists, or None
+        otherwise.
+        
+        """
+        
+        raise NotImplementedError()
+        
+    @staticmethod
+    def absolute(store_string):
+        """
+        Convert a relative path IOStore string to an absolute path one. Leaves
+        strings that aren't FileIOStore specifications alone.
+        
+        Since new Toil versions change the working directory of SingleMachine
+        batch system jobs, we need to have absolute paths passed into jobs.
+        
+        Recommended to be used as an argparse type, so that strings can be
+        directly be passed to IOStore.get on the nodes.
+        
+        """
+        
+        if store_string == "":
+            return ""
+        if store_string[0] == ".":
+            # It's a relative ./ path
+            return os.path.abspath(store_string)
+        if store_string.startswith("file:"):
+            # It's a file:-prefixed thing that may be a relative path
+            # Normalize the part after "file:" (which is 5 characters)
+            return "file:" + os.path.abspath(store_string[5:])
+            
+        return store_string
+        
+        
     @staticmethod
     def get(store_string):
         """
@@ -478,7 +514,31 @@ class FileIOStore(IOStore):
         
         """
         
-        raise NotImplementedError()
+        if not self.exists(path):
+            return None
+            
+        # What is the mtime in seconds since epoch?
+        mtime_epoch_seconds = os.path.getmtime(os.path.join(self.path_prefix,
+            path))
+        # Convert it to datetime
+        mtime_datetime = datetime.datetime.utcfromtimestamp(
+            mtime_epoch_seconds).replace(tzinfo=dateutil.tz.tzutc())
+            
+        # Return the modification time, timezoned, in UTC
+        return mtime_datetime
+        
+    def get_size(self, path):
+        """
+        Returns the size in bytes of the given file if it exists, or None
+        otherwise.
+        
+        """
+        
+        if not self.exists(path):
+            return None
+            
+        # Return the size in bytes of the backing file
+        return os.stat(os.path.join(self.path_prefix, path)).st_size
 
 class BackoffError(RuntimeError):
     """
@@ -646,12 +706,22 @@ class S3IOStore(IOStore):
         
     def get_mtime(self, path):
         """
-        Returns the modification time of the given gile if it exists, or None
+        Returns the modification time of the given file if it exists, or None
         otherwise.
         
         """
         
         raise NotImplementedError()
+        
+    def get_size(self, path):
+        """
+        Returns the size in bytes of the given file if it exists, or None
+        otherwise.
+        
+        """
+        
+        raise NotImplementedError()
+
     
 class AzureIOStore(IOStore):
     """
@@ -887,9 +957,78 @@ class AzureIOStore(IOStore):
         otherwise.
         
         """
-       
-        raise NotImplementedError()
-
+        
+        self.__connect()
+        
+        marker = None
+        
+        while True:
+        
+            # Get the results from Azure.
+            result = self.connection.list_blobs(self.container_name, 
+                prefix=self.name_prefix + path, marker=marker)
+                
+            for blob in result:
+                # Look at each blob
+                
+                if blob.name == self.name_prefix + path:
+                    # Found it
+                    mtime = blob.properties.last_modified
+                        
+                    if isinstance(mtime, datetime.datetime):
+                        # Make sure we're getting proper localized datetimes
+                        # from the new Azure Storage API.
+                        assert(mtime.tzinfo is not None and
+                            mtime.tzinfo.utcoffset(mtime) is not None)
+                    else:
+                        # Convert mtime from a string as in the old API.
+                        mtime = dateutil.parser.parse(mtime).replace(
+                            tzinfo=dateutil.tz.tzutc())
+                            
+                    return mtime
+                
+            # Save the marker
+            marker = result.next_marker
+                
+            if not marker:
+                break 
+        
+        return None
+        
+    @backoff        
+    def get_size(self, path):
+        """
+        Returns the size in bytes of the given blob if it exists, or None
+        otherwise.
+        
+        """
+        
+        self.__connect()
+        
+        marker = None
+        
+        while True:
+        
+            # Get the results from Azure.
+            result = self.connection.list_blobs(self.container_name, 
+                prefix=self.name_prefix + path, marker=marker)
+                
+            for blob in result:
+                # Look at each blob
+                
+                if blob.name == self.name_prefix + path:
+                    # Found it
+                    size = blob.properties.content_length
+                    
+                    return size
+                
+            # Save the marker
+            marker = result.next_marker
+                
+            if not marker:
+                break 
+        
+        return None
 
 
 
