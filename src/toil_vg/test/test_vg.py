@@ -5,7 +5,6 @@ import subprocess
 import tempfile
 import textwrap
 import filecmp
-import vcf
 from contextlib import closing
 from unittest import TestCase, skip
 from urlparse import urlparse

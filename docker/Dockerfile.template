@@ -18,7 +18,7 @@ RUN curl https://get.docker.com/builds/Linux/x86_64/docker-DOCKERVER.tgz \
     && chmod u+x /usr/local/bin/docker
 
 # Install Toil
-RUN pip install toil==3.6.0
+RUN pip install -I 'toil[aws,mesos]>=3.6.0'
 
 # Install toil-vg
 RUN pip install toil-vg==1.1.0a1.dev312

@@ -96,7 +96,7 @@ check_build_reqs:
 
 prepare: check_venv
 	$(pip) install numpy scipy sklearn
-	$(pip) install pytest==2.8.3 toil[aws,mesos]==3.5.0a1.dev241 biopython==1.67
+	$(pip) install pytest==2.8.3 'toil[aws,mesos]>=3.6.0' biopython==1.67
 	pip list
 clean_prepare: check_venv
 	$(pip) uninstall -y pytest biopython numpy scipy sklearn
