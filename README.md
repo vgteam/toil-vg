@@ -16,11 +16,11 @@
 
 ### Pip Installation
 
-Installation requires Python.  We recommend installing within virtualenv as follows
+Installation requires Python and Toil (version >= 3.6.0).  We recommend installing within virtualenv as follows
 
-    virtualenv toilvenv
+    virtualenv --system-site-packages toilvenv
     source toilvenv/bin/activate
-    pip install toil-vg
+    pip install -I 'toil[aws,mesos]>=3.6.0' toil-vg
 
 ### Docker
 
@@ -107,11 +107,11 @@ Create a cluster image:
 
 ### Test cgcloud
 
-Create a test cluster with 2 m4.2xlarge nodes, and install toil-vg. You can modify the 2nd and 3rd lines below to install additional software on the leader node and whole cluster, respectively.  You will have to type `yes` when prompted for connecting to each node (the first time) to add it to known_hosts. 
+Create a test cluster with 2 m4.2xlarge nodes, and install toil-vg. You can modify the 2nd and 3rd lines below to install additional software on the leader node and whole cluster, respectively.  You will have to type `yes` when prompted for connecting to each node (the first time) to add it to known_hosts. We reinstall toil on the cluster to make sure all versions are up to date and consistent (cgcloud images currently contain outdated version of Toil)
 
     cgcloud create-cluster toil -s 1 -t m4.2xlarge --cluster-name toil-setup-test
     cgcloud ssh --admin -c toil-setup-test toil-leader 'sudo apt-get install -y git'
-    cgcloud ssh-cluster --admin --cluster-name toil-setup-test toil 'sudo pip install toil-vg'
+    cgcloud ssh-cluster --admin --cluster-name toil-setup-test toil 'sudo pip install -I 'toil[aws,mesos]>=3.6.0' toil-vg'
 
 Login to the leader node and run a test:
 
@@ -134,7 +134,7 @@ Note that bakeoff.sh script will create some S3 buckets of the form `myname-bake
 Indexing requires lots of storage and RAM, and much of it cannot be distributed (single call to `vg index`).  We therefore use a single node.
 
     cgcloud create-cluster toil -s 1 --instance-type i2.8xlarge  --leader-instance-type r3.xlarge --cluster-name toil-index-cluster
-    cgcloud ssh-cluster --admin --cluster-name toil-index-cluster toil 'sudo pip install toil-vg'
+    cgcloud ssh-cluster --admin --cluster-name toil-index-cluster toil 'sudo pip install -I 'toil[aws,mesos]>=3.6.0' toil-vg'
 
 Log on and switch to large disk volume.  It is best to run jobs within screen. 
 
@@ -167,7 +167,7 @@ This part of the pipeline is more distributed, so we make a larger cluster with 
 
     cgcloud create-cluster toil -s 8 --instance-type r3.8xlarge  --leader-instance-type r3.2xlarge --cluster-name toil-map-cluster
     cgcloud ssh --admin -c toil-map-cluster toil-leader 'sudo apt-get install -y aria2'    
-    cgcloud ssh-cluster --admin --cluster-name toil-map-cluster toil 'sudo pip install toil-vg'
+    cgcloud ssh-cluster --admin --cluster-name toil-map-cluster toil 'sudo pip install -I 'toil[aws,mesos]>=3.6.0' toil-vg'
 
 Log on and switch to large disk volume
 
