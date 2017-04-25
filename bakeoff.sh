@@ -251,5 +251,5 @@ if [ "$FAST" != "1" ]; then
 		  echo ${OUT_STORE}-mhc-me-snp1kg
 	 fi
 fi
-
+echo "${F1FILE}"
         
