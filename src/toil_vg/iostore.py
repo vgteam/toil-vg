@@ -29,6 +29,7 @@ import tempfile
 import functools
 import random
 import time
+import dateutil
 import traceback
 import stat
 from toil.realtimeLogger import RealtimeLogger
@@ -852,9 +853,8 @@ class AzureIOStore(IOStore):
         
             # Get the results from Azure. We don't use delimiter since Azure
             # doesn't seem to provide the placeholder entries it's supposed to.
-            
             result = self.connection.list_blobs(self.container_name, 
-                marker=marker)
+                prefix=fake_directory, marker=marker)
                 
             RealtimeLogger.info("Found {} files".format(len(result)))
                 
@@ -862,7 +862,7 @@ class AzureIOStore(IOStore):
                 # Yield each result's blob name, but directory names only once
                 
                 # Drop the common prefix
-                relative_path = blob.name
+                relative_path = blob.name[len(fake_directory):]
                 
                 if (not recursive) and "/" in relative_path:
                     # We found a file in a subdirectory, and we aren't supposed
@@ -879,7 +879,23 @@ class AzureIOStore(IOStore):
                             yield subdirectory
                 else:
                     # We found an actual file 
-                    yield relative_path
+                    if with_times:
+                        mtime = blob.properties.last_modified
+                        
+                        if isinstance(mtime, datetime.datetime):
+                            # Make sure we're getting proper localized datetimes
+                            # from the new Azure Storage API.
+                            assert(mtime.tzinfo is not None and
+                                mtime.tzinfo.utcoffset(mtime) is not None)
+                        else:
+                            # Convert mtime from a string as in the old API.
+                            mtime = dateutil.parser.parse(mtime).replace(
+                                tzinfo=dateutil.tz.tzutc())
+                            
+                        yield relative_path, mtime
+                            
+                    else:
+                        yield relative_path
                 
             # Save the marker
             marker = result.next_marker
