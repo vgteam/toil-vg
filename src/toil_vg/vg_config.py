@@ -256,7 +256,7 @@ vcfeval-bed-regions:
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '101', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.001']
+sim-opts: ['-l', '100', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []
@@ -349,8 +349,8 @@ vcfeval-disk: '64G'
 
 # Resources for vg sim
 sim-cores: 2
-sim-mem: '4G'
-sim-disk: '2G'
+sim-mem: '60G'
+sim-disk: '200G'
 
 ###########################################
 ### Arguments Shared Between Components ###
@@ -504,7 +504,7 @@ vcfeval-bed-regions:
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '101', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.001']
+sim-opts: ['-l', '100', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []
