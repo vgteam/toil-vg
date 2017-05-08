@@ -124,7 +124,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: ['quay.io/vgteam/vg:v1.5.0-0-g6ef422a9-t41-run', False]
+vg-docker: ['quay.io/vgteam/vg:v1.5.0-318-gfc8059a9-t57-run', False]
 
 # Docker container to use for bcftools
 bcftools-docker: ['quay.io/cmarkello/bcftools', False]
@@ -371,7 +371,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: ['quay.io/vgteam/vg:v1.5.0-0-g6ef422a9-t41-run', False]
+vg-docker: ['quay.io/vgteam/vg:v1.5.0-318-gfc8059a9-t57-run', False]
 
 # Docker container to use for bcftools
 bcftools-docker: ['quay.io/cmarkello/bcftools', False]
