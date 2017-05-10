@@ -37,7 +37,6 @@ def call_subparser(parser):
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', required=True,
                         help="GAMs to call.  One per chromosome. Must be same length/order as --chroms")
-    
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -65,37 +64,8 @@ def chunked_call_parse_args(parser):
                         help="argument to pass to vg filter (wrapped in \"\")")
     parser.add_argument("--calling_cores", type=int,
                         help="number of threads during the variant calling step")
-        
-def merge_call_opts(contig, offset, length, call_opts, sample_name, sample_flag = '-S'):
-    """ combine input vg call  options with generated options, by adding user offset
-    and overriding contigs, sample and sequence length"""
-    user_opts = copy.deepcopy(call_opts)
-    user_offset, user_contig, user_ref, user_sample, user_length  = None, None, None, None, None
-    for i, uo in enumerate(user_opts):
-        if uo in ["-o", "--offset"]:
-            user_offset = int(user_opts[i + 1])
-            user_opts[i + 1] = str(user_offset + offset)
-        elif uo in ["-c", "--contig"]:
-            user_contig = user_opts[i + 1]
-        elif uo in ["-r", "--ref"]:
-            user_ref = user_opts[i + 1]
-        elif uo in [sample_flag, "--sample"]:
-            user_sample = user_opts[i + 1]
-            user_opts[i + 1] = sample_name
-        elif uo in ["-l", "--length"]:
-            user_length = user_opts[i + 1]
-    opts = " ".join(user_opts)
-    if user_offset is None:
-        opts += " -o {}".format(offset)
-    if user_contig is None:
-        opts += " -c {}".format(contig)
-    if user_ref is None:
-        opts += " -r {}".format(contig)  
-    if user_sample is None:
-        opts += " {} {}".format(sample_flag, sample_name)
-    if user_length is None:
-        opts += " -l {}".format(length)
-    return opts
+    parser.add_argument("--vcf_offset", type=int, default=0,
+                         help="offset to apply to output vcfs")
 
 def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
@@ -108,68 +78,200 @@ def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
                       ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
                      work_dir=vcf_dir)
 
-def run_vg_call(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset, path_size, work_dir, vcf_path):
-    """ Create a VCF with vg call """
-                        
-    # do the pileup.  this is the most resource intensive step,
-    # especially in terms of mermory used.
-    # can stream pileup directly to caller. would save disk but worry about memory. 
-    pu_path = os.path.join(work_dir, 'chunk_{}_{}.pu'.format(path_name, chunk_offset))
-    with open(pu_path, "w") as pu_path_stream:
-        command = [['vg', 'filter', os.path.basename(gam_path),
-                    '-x', os.path.basename(xg_path), '-t', '1'] + options.filter_opts]
-        command.append(['vg', 'pileup', os.path.basename(vg_path), '-',
-                        '-t', str(options.calling_cores)] + options.pileup_opts)
-        options.drunner.call(job, command, work_dir=work_dir, outfile=pu_path_stream)
+def run_vg_call(job, options, vg_id, gam_id, pileup_id = None, xg_id = None,
+                path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
+                filter_opts = [], pu_opts = [], call_opts = [],
+                keep_pileup = False, keep_xg = False, keep_gam = False,
+                keep_augmented = False, name = 'call'):
+    """ Run vg call on a single graph.
 
-    # do the calling.
-    merged_call_opts = merge_call_opts(path_name, chunk_offset, path_size,
-                                       options.call_opts, options.sample_name)
-    
-    try:                                   
-        with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
-            command = [['vg', 'call', os.path.basename(vg_path), os.path.basename(pu_path), '-t',
-                     str(options.calling_cores)] + str(merged_call_opts).split()]
+    Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id).  pileup_id and xg_id
+    can be same as input if they are not computed.  If pileup/xg/augmented are 
+    computed, the returned ids will be None unless appropriate keep_flag set
+    (to prevent sending them to the file store if they aren't wanted)
+
+    User is responsible to make sure that options passed in options.*_opts don't conflict
+    with seq_names, seq_offsets, seq_lengths etc. If not provided, the pileup is computed.
+
+    gam filtering is only done if filter_opts are passed in. 
+
+    name option is only for working filenames (to make more readable)
+
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Read our input files from the store
+    vg_path = os.path.join(work_dir, '{}.vg'.format(name))
+    read_from_store(job, options, vg_id, vg_path)
+    gam_path = os.path.join(work_dir, '{}.gam'.format(name))
+    read_from_store(job, options, gam_id, gam_path)
+    xg_path = os.path.join(work_dir, '{}.xg'.format(name))
+    if xg_id and filter_opts:
+        read_from_store(job, options, xg_id, xg_path)
+    pu_path = os.path.join(work_dir, '{}.pu'.format(name))
+    if pileup_id:
+        read_from_store(job, options, pileup_id, pu_path)
         
+    # we only need an xg if using vg filter -D
+    if not xg_id and filter_opts and '-D' in filter_opts:
+        options.drunner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
+                                   os.path.basename(xg_path), '-t', str(options.calling_cores)],
+                             work_dir = work_dir)
+        filter_opts += ['-x', os.path.basename(xg_path)]
+        if keep_xg:
+            xg_id = write_to_store(job, options, xg_path)
+
+    # pileup and filter together
+    if filter_opts or not pileup_id:
+        gam_filter_path = gam_path + '.filter'            
+        if filter_opts:
+            command = [['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts]
+            if keep_gam:
+                command.append(['tee', os.path.basename(gam_filter_path)])
+        else:
+            command = [['cat', os.path.basename(gam_path)]]
+        command.append(['vg', 'pileup', os.path.basename(vg_path), '-',
+                        '-t', str(options.calling_cores)] + pu_opts)
+        with open(pu_path, 'w') as pu_stream:
+            options.drunner.call(job, command, work_dir=work_dir, outfile=pu_stream)
+        if keep_gam and filter_opts:
+            gam_id = write_to_store(job, options, gam_filter_path)
+        if keep_pileup:
+            pileup_id = write_to_store(job, options, pu_path)
+        
+    # call
+    try:
+        vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(name))
+        vcf_log_path = os.path.join(work_dir, '{}_call_log.txt'.format(name))
+        aug_graph_id = None
+        
+        with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
+            command = ['vg', 'call', os.path.basename(vg_path), os.path.basename(pu_path), '-t',
+                     str(options.calling_cores)] + ['-S', options.sample_name]
+            if call_opts:
+                command += call_opts
+            for path_name in path_names:
+                command += ['-r', path_name]
+            for seq_name in seq_names:
+                command += ['-c', seq_name]
+            for seq_length in seq_lengths:
+                command += ['-l', seq_length]
+            for seq_offset in seq_offsets:
+                command += ['-o', seq_offset]
+            aug_path = os.path.join(work_dir, '{}_aug.vg'.format(name))
+            if keep_augmented:
+                command.append(['-A', os.path.basename(aug_path)])
             options.drunner.call(job, command, work_dir=work_dir,
                                  outfile=vgcall_stdout, errfile=vgcall_stderr)
-        
+            if keep_augmented:
+                aug_graph_id = write_to_store(job, options, aug_path)
+
+        vcf_id = write_to_store(job, options, vcf_path)
+
     except Exception as e:
         logging.error("Failed. Dumping files.")
         write_to_store(job, options, vg_path, True)
         write_to_store(job, options, pu_path, True)
-        write_to_store(job, options, vcf_path + ".call_log", True)
+        write_to_store(job, options, vcf_path + ".call_log.txt", True)
         raise e
-                                 
         
- 
-                
-def run_vg_genotype(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset, path_size, work_dir, vcf_path):
-                    
-    """ Create a VCF with vg genotype """
+    return vcf_id, pileup_id, xg_id, gam_id, aug_graph_id
 
-    # Filter the gam
-    # Todo: can we stream directly to indexer?
-    filter_gam_path = os.path.join(work_dir, os.path.basename(gam_path) + ".filter")
-    with open(filter_gam_path, 'w') as filter_stdout:
-        command = ['vg', 'filter', os.path.basename(gam_path), '-t', str(options.calling_cores),
-                   '-x', os.path.basename(xg_path)] + options.filter_opts
-        options.drunner.call(job, command, work_dir=work_dir, outfile=filter_stdout)
-               
-    # Make a gam index
-    gam_index_path = os.path.join(work_dir, os.path.basename(filter_gam_path) + ".index")
-    command = ['vg', 'index', '-N', os.path.basename(filter_gam_path), '-d', os.path.basename(gam_index_path)]
+
+def run_vg_genotype(job, options, vg_id, gam_id, xg_id = None,
+                    path_names = [], seq_names = [], seq_offsets = [],
+                    seq_lengths = [], genotype_opts = [], filter_opts = [],
+                    keep_xg = False, keep_gam = False, keep_augmented = False,
+                    name = 'genotype'):
+    """ Run vg genotype on a single graph.
+
+    Returns (vcf_id, xg_id, gam_id, augmented_graph_id).  xg_id
+    can be same as input if not computed.  If xg/augmented are 
+    computed, the returned ids will be None unless appropriate keep_flag set
+    (to prevent sending them to the file store if they aren't wanted)
+
+    User is responsible to make sure that options passed in options.*_opts don't conflict
+    with seq_names, seq_offsets, seq_lengths etc. If not provided, the pileup is computed.
+
+    gam filtering is only done if filter_opts are passed in. 
+
+    name option is only for working filenames (to make more readable)
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Read our input files from the store
+    vg_path = os.path.join(work_dir, '{}.vg'.format(name))
+    read_from_store(job, options, vg_id, vg_path)
+    gam_path = os.path.join(work_dir, '{}.gam'.format(name))
+    read_from_store(job, options, gam_id, gam_path)
+    xg_path = os.path.join(work_dir, '{}.xg'.format(name))
+    if xg_id and filter_opts:
+        read_from_store(job, options, xg_id, xg_path)
+        
+    # we only need an xg if using vg filter -D
+    if not xg_id and filter_opts and '-D' in filter_opts:
+        options.drunner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
+                                   os.path.basename(xg_path), '-t', str(options.calling_cores)],
+                             work_dir = work_dir)
+        filter_opts += ['-x', os.path.basename(xg_path)]
+        if keep_xg:
+            xg_id = write_to_store(job, options, xg_path)
+
+    # filter
+    if filter_opts:
+        gam_filter_path = gam_path + '.filter'
+        with open(gam_filter_path, 'w') as gam_filter_stream:
+            command = [['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts]
+            options.drunner.call(job, command, work_dir=work_dir, outfile=gam_filter_stream)
+        if keep_gam:
+            gam_id = write_to_store(job, options, gam_filter_path)
+    else:
+        gam_filter_path = gam_path    
+
+    # index the gam
+    gam_index_path = os.path.join(work_dir, gam_filter_path + '.index')
+    command = ['vg', 'index', '-N', os.path.basename(gam_filter_path),
+               '-d', os.path.basename(gam_index_path)]
     options.drunner.call(job, command, work_dir=work_dir)
 
-    # Do the genotyping
-    merged_genotype_opts = merge_call_opts(path_name, chunk_offset, path_size,
-                                           options.genotype_options, sample_name, sample_flag = '-s')
-    with open(vcf_path + ".us", "w") as vgcall_stdout, open(vcf_path + ".call_log", "w") as vgcall_stderr:
+    # genotype
+    try:
+        vcf_path = os.path.join(work_dir, '{}_genotype.vcf'.format(name))
+        vcf_log_path = os.path.join(work_dir, '{}_genotype_log.txt'.format(name))
+        aug_graph_id = None
+        
+        with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
+            command = ['vg', 'genotype', os.path.basename(vg_path),
+                       os.path.basename(gam_index_path), '-t',
+                       str(options.calling_cores)] + genotype_opts + ['-s', options.sample_name, '-v']
+            for path_name in path_names:
+                command += ['-r', path_name]
+            for seq_name in seq_names:
+                command += ['-c', seq_name]
+            for seq_length in seq_lengths:
+                command += ['-l', seq_length]
+            for seq_offset in seq_offsets:
+                command += ['-o', seq_offset]
+            aug_path = os.path.join(work_dir, '{}_aug.vg'.format(name))
+            if keep_augmented:
+                command.append(['-a', os.path.basename(aug_path)])
+            options.drunner.call(job, command, work_dir=work_dir,
+                                 outfile=vgcall_stdout, errfile=vgcall_stderr)
+            if keep_augmented:
+                aug_graph_id = write_to_store(job, options, aug_path)
 
-        command=[['vg', 'genotype', os.path.basename(vg_path), os.path.basename(gam_index_path),
-                  '-t', str(options.calling_cores), '-v'] + str(merged_genotype_opts).split()]
-        options.drunner.call(job, command, work_dir=work_dir,
-                             outfile=vgcall_stdout, errfile=vgcall_stderr)
+        vcf_id = write_to_store(job, options, vcf_path)
+
+    except Exception as e:
+        logging.error("Failed. Dumping files.")
+        write_to_store(job, options, vg_path, True)
+        write_to_store(job, options, vcf_path + ".genotype_log.txt", True)
+        raise e
+        
+    return vcf_id, xg_id, gam_id, aug_graph_id
+        
 
 def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
                vg_chunk_file_id, gam_chunk_file_id, path_size):
@@ -180,32 +282,36 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
-    # Read our gam files from the store
-    vg_path = os.path.join(work_dir, 'chunk_{}_{}.vg'.format(path_name, chunk_offset))
-    gam_path = os.path.join(work_dir, 'chunk_{}_{}.gam'.format(path_name, chunk_offset))
-    read_from_store(job, options, vg_chunk_file_id, vg_path)
-    read_from_store(job, options, gam_chunk_file_id, gam_path)
-
     # output vcf path
     vcf_path = os.path.join(work_dir, 'chunk_{}_{}.vcf'.format(path_name, chunk_offset))
 
-    # get the xg index, required for vg filter -D.
-    # todo? can we avoid this somehow?  is it better to copy in a big xg than regenerate?
-    xg_path = os.path.join(work_dir, 'chunk_{}_{}.xg'.format(path_name, chunk_offset))
-    options.drunner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
-                          os.path.basename(xg_path), '-t', str(options.calling_cores)],
-                         work_dir = work_dir)
     # Run vg call
     if options.genotype:
-        run_vg_genotype(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset,
-                        path_size, work_dir, vcf_path)
+        vcf_id, xg_id, gam_id, aug_graph_id = run_vg_genotype(
+            job, options, vg_chunk_file_id, gam_chunk_file_id,
+            path_names = [path_name],
+            seq_names = [path_name],
+            seq_offsets = [chunk_offset + options.vcf_offset],
+            seq_lengths = [path_size],
+            filter_opts = options.filter_opts,
+            genotype_opts = options.genotype_opts,
+            name = 'chunk_{}_{}'.format(path_name, chunk_offset))
     else:
-        run_vg_call(job, options, xg_path, vg_path, gam_path, path_name, chunk_offset,
-                    path_size, work_dir, vcf_path)
+        vcf_id, pu_id, xg_id, gam_id, aug_graph_id = run_vg_call(
+            job, options, vg_chunk_file_id, gam_chunk_file_id, pileup_id = None, xg_id = None,
+            path_names = [path_name], 
+            seq_names = [path_name],
+            seq_offsets = [chunk_offset + options.vcf_offset],
+            seq_lengths = [path_size],
+            filter_opts = options.filter_opts, pu_opts = options.pileup_opts,
+            call_opts = options.call_opts,
+            name = 'chunk_{}_{}'.format(path_name, chunk_offset))
+        
+    # is this an unecessary copy or does toil cache handle it?
+    read_from_store(job, options, vcf_id, vcf_path + '.us')
 
     # Sort the output
-    sort_vcf(job, options.drunner, vcf_path + ".us", vcf_path)
-    options.drunner.call(job, ['rm', vcf_path + '.us'])
+    sort_vcf(job, options.drunner, vcf_path + '.us', vcf_path)
     command=['bgzip', '{}'.format(os.path.basename(vcf_path))]
     options.drunner.call(job, command, work_dir=work_dir)
     command=['tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
@@ -216,13 +322,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     right_clip = 0 if chunk_i == num_chunks - 1 else options.overlap / 2
     clip_path = os.path.join(work_dir, 'chunk_{}_{}_clip.vcf'.format(path_name, chunk_offset))
     with open(clip_path, "w") as clip_path_stream:
-        # passing in offset this way pretty hacky, should have its own option
-        call_toks = options.call_opts
-        offset = 0
-        if "-o" in call_toks:
-            offset = int(call_toks[call_toks.index("-o") + 1])
-        elif "--offset" in call_toks:
-            offset = int(call_toks[call_toks.index("--offset") + 1])
+        offset = options.vcf_offset + 1
         command=['bcftools', 'view', '-r', '{}:{}-{}'.format(
             path_name, offset + clipped_chunk_offset + left_clip + 1,
             offset + clipped_chunk_offset + options.call_chunk_size - right_clip),

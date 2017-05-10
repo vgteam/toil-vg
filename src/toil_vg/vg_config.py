@@ -236,11 +236,11 @@ filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15']
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
 
-# Options to pass to vg call. (do not include file names or -t/--threads)
-call-opts: ['']
+# Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
+call-opts: []
 
-# Options to pass to vg genotype. (do not include file names or -t/--threads)
-genotype-opts: ['']
+# Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
+genotype-opts: []
 
 # Use vg genotype instead of vg call
 genotype: False
@@ -482,13 +482,13 @@ chunk_context: 50
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '20', '-C', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
-pileup-opts: ['-q', '10', '-a']
+pileup-opts: ['-q', '10']
 
-# Options to pass to vg call. (do not include file names or -t/--threads)
-call-opts: ['']
+# Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
+call-opts: []
 
-# Options to pass to vg genotype. (do not include file names or -t/--threads)
-genotype-opts: ['']
+# Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
+genotype-opts: []
 
 # Use vg genotype instead of vg call
 genotype: False

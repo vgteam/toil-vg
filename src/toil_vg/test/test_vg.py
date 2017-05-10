@@ -69,6 +69,7 @@ class VGCGLTest(TestCase):
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
 
+
     def test_1_sim_small(self):
         ''' 
         This test uses simulated reads from the small dataset from vg, created as follows:
@@ -126,7 +127,7 @@ class VGCGLTest(TestCase):
                   '--realTimeLogging', '--logInfo')
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
-                
+
     def test_3_sim_small_mapeval(self):
         ''' 
         Same generate and align some simulated reads
@@ -215,7 +216,7 @@ class VGCGLTest(TestCase):
         self._run(self.base_command, self.jobStoreLocal, 'NA12877',
                   self.local_outstore, '--fastq', self.sample_reads, self.sample_reads2, '--graphs',
                   self.test_vg_graph, '--chroms', '17',
-                  '--call_opts', '--offset 43044293',
+                  '--vcf_offset', '43044293',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)
