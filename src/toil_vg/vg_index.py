@@ -71,9 +71,10 @@ def index_parse_args(parser):
     parser.add_argument("--gcsa_opts", type=str,
                         help="Options to pass to gcsa indexing.")
 
-def run_gcsa_prune(job, options, graph_i, input_graph_id):
+def run_gcsa_prune(job, options, graph_i, input_graph_id, primary_paths=[]):
     """
-    Make the pruned graph, do kmers as a follow up and return kmers id
+    Make the pruned graph, do kmers as a follow up and return kmers id.
+    Retains the specified primary paths.
     """
     RealtimeLogger.info("Starting graph-pruning for gcsa kmers...")
     start_time = timeit.default_timer()
@@ -104,7 +105,11 @@ def run_gcsa_prune(job, options, graph_i, input_graph_id):
             options.drunner.call(job, command, work_dir=work_dir, outfile=to_index_file)
             
             # Then append in the primary path.
-            command = ['vg', 'mod', '-N', '-r', options.chroms[graph_i]]
+            command = ['vg', 'mod', '-N']
+            for primary_path in primary_paths:
+                # Send along all the primary paths
+                command.append('-r')
+                command.append(primary_path)
             command += ['-t', str(job.cores), os.path.basename(graph_filename)]
             options.drunner.call(job, command, work_dir=work_dir, outfile=to_index_file)
 
@@ -158,7 +163,7 @@ def run_gcsa_kmers(job, options, graph_i, input_graph_id):
 
     return output_kmers_id
 
-def run_gcsa_prep(job, options, input_graph_ids):
+def run_gcsa_prep(job, options, input_graph_ids, primary_path_override=None):
     """
     Do all the preprocessing for gcsa indexing (pruning and kmers)
     Then launch the indexing as follow-on
@@ -171,7 +176,15 @@ def run_gcsa_prep(job, options, input_graph_ids):
     # Compute our kmers for each input graph (in series)
     # is it worth it to distrbute?  files are so big to move around...
     for graph_i, input_graph_id in enumerate(input_graph_ids):
+        # For each input graph
+        
+        # Determine the primary path list to use
+        primary_paths = ([options.chroms[graph_i]] if primary_path_override
+            is None else primary_path_override)
+        
+        # Make the kmers, passing along the primary path names
         kmers_id = job.addChildJobFn(run_gcsa_prune, options, graph_i, input_graph_id,
+                                     primary_paths=primary_paths,
                                      cores=options.prune_cores, memory=options.prune_mem,
                                      disk=options.prune_disk).rv()
         kmers_ids.append(kmers_id)
