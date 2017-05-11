@@ -249,7 +249,6 @@ def run_chunk_alignment(job, options, chunk_filename_ids, chunk_id, xg_file_id, 
         reads_file = os.path.join(work_dir, 'reads_chunk_{}_{}.{}'.format(chunk_id, j, reads_ext))
         read_from_store(job, options, chunk_filename_id, reads_file)
         reads_files.append(reads_file)
-        write_to_store(job, options, reads_file, use_out_store = True)
     
     # And a temp file for our aligner output
     output_file = os.path.join(work_dir, "{}_{}.gam".format(options.sample_name, chunk_id))

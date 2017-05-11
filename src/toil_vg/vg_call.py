@@ -7,6 +7,7 @@ import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno, copy, time
 from uuid import uuid4
 import logging
+from collections import defaultdict
 
 from toil.common import Toil
 from toil.job import Job
@@ -324,8 +325,8 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     with open(clip_path, "w") as clip_path_stream:
         offset = vcf_offset + 1
         command=['bcftools', 'view', '-r', '{}:{}-{}'.format(
-            path_name, offset + clipped_chunk_offset + left_clip + 1,
-            offset + clipped_chunk_offset + options.call_chunk_size - right_clip),
+            path_name, offset + clipped_chunk_offset + left_clip,
+            offset + clipped_chunk_offset + options.call_chunk_size - right_clip - 1),
                  os.path.basename(vcf_path) + ".gz"]
         options.drunner.call(job, command, work_dir=work_dir, outfile=clip_path_stream)
 
@@ -472,11 +473,14 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
     path_size = dict()
     for name, bounds in path_bounds.items():
         path_size[name] = path_bounds[name][1] - path_bounds[name][0]
+
+    # Keep track of offset in each path
+    cur_path_offset = defaultdict(int)
         
     # Go through the BED output of vg chunk, adding a child calling job for
     # each chunk                
     clip_file_ids = []
-    for chunk_i, toks in enumerate(bed_lines):
+    for toks in bed_lines:
         chunk_bed_chrom = toks[0]
         chunk_bed_start = int(toks[1])
         chunk_bed_end = int(toks[2])
@@ -486,7 +490,9 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
         vg_chunk_path = os.path.splitext(gam_chunk_path)[0] + '.vg'
         gam_chunk_file_id = write_to_store(job, options, gam_chunk_path)
         vg_chunk_file_id = write_to_store(job, options, vg_chunk_path)
+        chunk_i = cur_path_offset[chunk_bed_chrom]        
         clipped_chunk_offset = chunk_i * options.call_chunk_size - chunk_i * options.overlap
+        cur_path_offset[chunk_bed_chrom] += 1
         
         clip_file_id = job.addChildJobFn(call_chunk, options, chunk_bed_chrom, chunk_i,
                                          len(bed_lines),

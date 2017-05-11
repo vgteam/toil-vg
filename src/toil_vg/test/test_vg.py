@@ -244,7 +244,35 @@ class VGCGLTest(TestCase):
                   '--vcf_offsets', '43044293', '32314860', '--interleaved',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
-        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.65)
+        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.70)
+
+    def test_6_BRCA1_BRCA2_NA12877_one_gam(self):
+        ''' Test running vg call on one gam that contains multiple paths
+        '''
+        self._download_input('snp1kg-brca1-brca2-NA12877.gam')
+        self._download_input('snp1kg-brca1-brca2.xg')
+        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz.tbi')
+        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz')
+        self._download_input('BRCA1_BRCA2.fa.gz')
+
+        self.sample_gam = os.path.join(self.workdir, 'snp1kg-brca1-brca2-NA12877.gam')
+        self.xg_index = os.path.join(self.workdir, 'snp1kg-brca1-brca2.xg')
+        self.baseline = os.path.join(self.workdir, 'platinum_NA12877_BRCA1_BRCA2.vcf.gz')
+        self.chrom_fa = os.path.join(self.workdir, 'BRCA1_BRCA2.fa.gz')
+
+        self._run('toil-vg', 'call', self.jobStoreLocal,
+                  self.xg_index, 'NA12877', self.local_outstore, '--gams', self.sample_gam,
+                  '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
+                  '--call_chunk_size', '23000', '--calling_cores', '4',
+                  '--realTimeLogging', '--logInfo')
+
+        self._run('toil-vg', 'vcfeval', self.jobStoreLocal,
+                  os.path.join(self.local_outstore, 'NA12877.vcf.gz'), self.baseline,
+                  self.chrom_fa, self.local_outstore,
+                  '--realTimeLogging', '--logInfo')
+
+        self._assertOutput(None, self.local_outstore, f1_threshold=0.70)
+                
         
     def _run(self, *args):
         args = list(concat(*args))
