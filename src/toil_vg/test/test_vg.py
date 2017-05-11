@@ -45,6 +45,7 @@ class VGCGLTest(TestCase):
     def _download_input(self, filename, local_path = None):
         tgt = os.path.join(self.workdir, filename) if local_path is None else local_path
         with open(tgt, 'w') as f:
+            print('s3://{}/{}/{}'.format(self.bucket_name, self.folder_name, filename))
             self.bucket.get_key('/{}/{}'.format(self.folder_name, filename)).get_contents_to_file(f)
         
     def setUp(self):
@@ -54,7 +55,7 @@ class VGCGLTest(TestCase):
 
         # input files all in same bucket folder, which is specified (only) here:
         self.bucket_name = 'cgl-pipeline-inputs'
-        self.folder_name = 'vg_cgl/ci'
+        self.folder_name = 'vg_cgl/toil_vg_ci'
         
         self.connection = S3Connection()
         self.bucket = self.connection.get_bucket(self.bucket_name)
@@ -216,11 +217,35 @@ class VGCGLTest(TestCase):
         self._run(self.base_command, self.jobStoreLocal, 'NA12877',
                   self.local_outstore, '--fastq', self.sample_reads, self.sample_reads2, '--graphs',
                   self.test_vg_graph, '--chroms', '17',
-                  '--vcf_offset', '43044293',
+                  '--vcf_offsets', '43044293',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)
-    
+
+    def test_5_BRCA1_BRCA2_NA12877(self):
+        '''  Test pipeline on chase with two chromosomes, in this case both BRCA regions
+        '''
+        self._download_input('NA12877.brca1.brca2.bam.fq.gz')
+        self._download_input('snp1kg-brca1.vg')
+        self._download_input('snp1kg-brca2.vg')        
+        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz.tbi')
+        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz')
+        self._download_input('BRCA1_BRCA2.fa.gz')
+        
+        self.sample_reads = os.path.join(self.workdir, 'NA12877.brca1.brca2.bam.fq.gz')
+        self.test_vg_graph = os.path.join(self.workdir, 'snp1kg-brca1.vg')
+        self.test_vg_graph2 = os.path.join(self.workdir, 'snp1kg-brca2.vg')        
+        self.baseline = os.path.join(self.workdir, 'platinum_NA12877_BRCA1_BRCA2.vcf.gz')
+        self.chrom_fa = os.path.join(self.workdir, 'BRCA1_BRCA2.fa.gz')
+        
+        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
+                  self.local_outstore, '--fastq', self.sample_reads, '--graphs',
+                  self.test_vg_graph, self.test_vg_graph2, '--chroms', '17', '13',
+                  '--vcf_offsets', '43044293', '32314860', '--interleaved',
+                  '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
+
+        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.65)
+        
     def _run(self, *args):
         args = list(concat(*args))
         log.info('Running %r', args)

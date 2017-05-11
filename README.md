@@ -85,6 +85,7 @@ Please see [here for more information on the cgcloud core tools](https://github.
 
     sudo apt-get install python-virtualenv
     virtualenv ~/cgcloud
+	 pip install cgcloud-toil
 
 Edit your ~/.profile or ~/.bash_profile and add the following lines:
 

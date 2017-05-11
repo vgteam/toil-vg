@@ -64,8 +64,8 @@ def chunked_call_parse_args(parser):
                         help="argument to pass to vg filter (wrapped in \"\")")
     parser.add_argument("--calling_cores", type=int,
                         help="number of threads during the variant calling step")
-    parser.add_argument("--vcf_offset", type=int, default=0,
-                         help="offset to apply to output vcfs")
+    parser.add_argument("--vcf_offsets", nargs='+', default=[],
+                         help="offset(s) to apply to output vcfs(s). (order of --chroms)")
 
 def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
@@ -274,7 +274,7 @@ def run_vg_genotype(job, options, vg_id, gam_id, xg_id = None,
         
 
 def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
-               vg_chunk_file_id, gam_chunk_file_id, path_size):
+               vg_chunk_file_id, gam_chunk_file_id, path_size, vcf_offset):
     """ create VCF from a given chunk """
    
     RealtimeLogger.info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
@@ -291,7 +291,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
             job, options, vg_chunk_file_id, gam_chunk_file_id,
             path_names = [path_name],
             seq_names = [path_name],
-            seq_offsets = [chunk_offset + options.vcf_offset],
+            seq_offsets = [chunk_offset + vcf_offset],
             seq_lengths = [path_size],
             filter_opts = options.filter_opts,
             genotype_opts = options.genotype_opts,
@@ -301,7 +301,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
             job, options, vg_chunk_file_id, gam_chunk_file_id, pileup_id = None, xg_id = None,
             path_names = [path_name], 
             seq_names = [path_name],
-            seq_offsets = [chunk_offset + options.vcf_offset],
+            seq_offsets = [chunk_offset + vcf_offset],
             seq_lengths = [path_size],
             filter_opts = options.filter_opts, pu_opts = options.pileup_opts,
             call_opts = options.call_opts,
@@ -322,7 +322,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     right_clip = 0 if chunk_i == num_chunks - 1 else options.overlap / 2
     clip_path = os.path.join(work_dir, 'chunk_{}_{}_clip.vcf'.format(path_name, chunk_offset))
     with open(clip_path, "w") as clip_path_stream:
-        offset = options.vcf_offset + 1
+        offset = vcf_offset + 1
         command=['bcftools', 'view', '-r', '{}:{}-{}'.format(
             path_name, offset + clipped_chunk_offset + left_clip + 1,
             offset + clipped_chunk_offset + options.call_chunk_size - right_clip),
@@ -342,10 +342,16 @@ def run_all_calling(job, options, xg_file_id, chr_gam_ids, chroms):
     assert len(chr_gam_ids) > 0
     for i in range(len(chr_gam_ids)):
         alignment_file_id = chr_gam_ids[i]
-        # toggle between 1/gam per choromosome or 1/gam for all chromosomes:
-        chr_label = [chroms[i]] if len(chroms) > 1 else chroms
+        if len(chr_gam_ids) > 1:
+            # 1 gam per chromosome
+            chr_label = [chroms[i]]
+            chr_offset = [options.vcf_offsets[i]] if options.vcf_offsets else [0]
+        else:
+            # single gam with one or more chromosomes
+            chr_label = chroms
+            chr_offset = options.vcf_offsets if options.vcf_offsets else [0] * len(chroms)
         vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
-                                                 alignment_file_id, chr_label,
+                                                 alignment_file_id, chr_label, chr_offset,
                                                  cores=options.call_chunk_cores,
                                                  memory=options.call_chunk_mem,
                                                  disk=options.call_chunk_disk).rv()
@@ -404,7 +410,7 @@ def run_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     return vcf_file_id, vcf_idx_file_id
 
 
-def run_calling(job, options, xg_file_id, alignment_file_id, path_names):
+def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_offsets):
     
     RealtimeLogger.info("Running variant calling on path(s) {} from alignment file {}".format(','.join(path_names), str(alignment_file_id)))
         
@@ -428,9 +434,11 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names):
 
     # Write a list of paths
     path_list = os.path.join(work_dir, 'path_list.txt')
+    offset_map = dict()
     with open(path_list, 'w') as path_list_file:
-        for path_name in path_names:
+        for i, path_name in enumerate(path_names):
             path_list_file.write(path_name + '\n')
+            offset_map[path_name] = int(vcf_offsets[i]) if vcf_offsets else 0
 
     # Chunk the graph and gam, using the xg and rocksdb indexes
     output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
@@ -484,7 +492,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names):
                                          len(bed_lines),
                                          chunk_bed_start, clipped_chunk_offset,
                                          vg_chunk_file_id, gam_chunk_file_id,
-                                         path_size[chunk_bed_chrom],
+                                         path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
                                          cores=options.calling_cores,
                                          memory=options.calling_mem, disk=options.calling_disk).rv()
         clip_file_ids.append(clip_file_id)
@@ -550,6 +558,8 @@ def call_main(options):
 
     require(len(options.chroms) == len(options.gams) or len(options.gams) == 1,
             'Number of --chroms must be 1 or same as number of --gams')
+    require(not options.vcf_offsets or len(options.vcf_offsets) == len(options.chroms),
+            'Number of --vcf_offsets if specified must be same as number of --chroms')
     
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now
