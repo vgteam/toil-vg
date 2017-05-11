@@ -342,7 +342,8 @@ def run_all_calling(job, options, xg_file_id, chr_gam_ids, chroms):
     assert len(chr_gam_ids) > 0
     for i in range(len(chr_gam_ids)):
         alignment_file_id = chr_gam_ids[i]
-        chr_label = chroms[i]
+        # toggle between 1/gam per choromosome or 1/gam for all chromosomes:
+        chr_label = [chroms[i]] if len(chroms) > 1 else chroms
         vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, options, xg_file_id,
                                                  alignment_file_id, chr_label,
                                                  cores=options.call_chunk_cores,
@@ -403,12 +404,15 @@ def run_merge_vcf(job, options, vcf_tbi_file_id_pair_list):
     return vcf_file_id, vcf_idx_file_id
 
 
-def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
+def run_calling(job, options, xg_file_id, alignment_file_id, path_names):
     
-    RealtimeLogger.info("Running variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
+    RealtimeLogger.info("Running variant calling on path(s) {} from alignment file {}".format(','.join(path_names), str(alignment_file_id)))
         
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
+
+    # Tame for work files
+    tag = path_names[0] if len(path_names) == 1 else 'chroms'
 
     # Download the input from the store
     xg_path = os.path.join(work_dir, 'graph.vg.xg')
@@ -422,35 +426,50 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
                  os.path.basename(gam_index_path), '-t', str(options.gam_index_cores)]
     options.drunner.call(job, index_cmd, work_dir=work_dir)
 
+    # Write a list of paths
+    path_list = os.path.join(work_dir, 'path_list.txt')
+    with open(path_list, 'w') as path_list_file:
+        for path_name in path_names:
+            path_list_file.write(path_name + '\n')
+
     # Chunk the graph and gam, using the xg and rocksdb indexes
-    output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(path_name))
+    output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_path),
                  '-a', os.path.basename(gam_index_path), '-c', str(options.chunk_context),
-                 '-p', path_name,
+                 '-P', os.path.basename(path_list),
                  '-g',
                  '-s', str(options.call_chunk_size),
                  '-o', str(options.overlap),
-                 '-b', 'call_chunk_{}'.format(path_name),
+                 '-b', 'call_chunk_{}'.format(tag),
                  '-t', str(options.call_chunk_cores),
                  '-R', os.path.basename(output_bed_chunks_path)]
     options.drunner.call(job, chunk_cmd, work_dir=work_dir)
 
     # Scrape the BED into memory
     bed_lines = []
+    path_bounds = dict()    
     with open(output_bed_chunks_path) as output_bed:
         for line in output_bed:
             toks = line.split('\t')
             if len(toks) > 3:
                 bed_lines.append(toks)
+                chrom, start, end = toks[0], int(toks[1]), int(toks[2])
+                if chrom not in path_bounds:
+                    path_bounds[chrom] = (start, end)
+                else:
+                    path_bounds[chrom] = (min(start, path_bounds[chrom][0]),
+                                              max(end, path_bounds[chrom][1]))
 
-    # Infer the size of the path from our BED
-    path_size = int(bed_lines[-1][2]) - int(bed_lines[0][1])
-
+    # Infer the size of the path from our BED (a bit hacky)
+    path_size = dict()
+    for name, bounds in path_bounds.items():
+        path_size[name] = path_bounds[name][1] - path_bounds[name][0]
+        
     # Go through the BED output of vg chunk, adding a child calling job for
     # each chunk                
     clip_file_ids = []
     for chunk_i, toks in enumerate(bed_lines):
-        assert toks[0] == path_name
+        chunk_bed_chrom = toks[0]
         chunk_bed_start = int(toks[1])
         chunk_bed_end = int(toks[2])
         chunk_bed_size = chunk_bed_end - chunk_bed_start
@@ -461,15 +480,17 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_name):
         vg_chunk_file_id = write_to_store(job, options, vg_chunk_path)
         clipped_chunk_offset = chunk_i * options.call_chunk_size - chunk_i * options.overlap
         
-        clip_file_id = job.addChildJobFn(call_chunk, options, path_name, chunk_i, len(bed_lines),
+        clip_file_id = job.addChildJobFn(call_chunk, options, chunk_bed_chrom, chunk_i,
+                                         len(bed_lines),
                                          chunk_bed_start, clipped_chunk_offset,
-                                         vg_chunk_file_id, gam_chunk_file_id, path_size,
+                                         vg_chunk_file_id, gam_chunk_file_id,
+                                         path_size[chunk_bed_chrom],
                                          cores=options.calling_cores,
                                          memory=options.calling_mem, disk=options.calling_disk).rv()
         clip_file_ids.append(clip_file_id)
 
 
-    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, path_name,
+    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, options, tag,
                                                    clip_file_ids,
                                                    cores=options.call_chunk_cores,
                                                    memory=options.call_chunk_mem,
@@ -527,8 +548,8 @@ def call_main(options):
     options.drunner = ContainerRunner(
         container_tool_map = get_container_tool_map(options))
 
-    require(len(options.chroms) == len(options.gams), 'Same number of chromosomes '
-            ' must be specified with --chroms and --gams')
+    require(len(options.chroms) == len(options.gams) or len(options.gams) == 1,
+            'Number of --chroms must be 1 or same as number of --gams')
     
     # Some file io is dependent on knowing if we're in the pipeline
     # or standalone. Hack this in here for now
