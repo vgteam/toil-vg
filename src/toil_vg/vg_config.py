@@ -334,8 +334,8 @@ alignment-disk: '100G'
 # typically take xg for whoe grpah, and gam for a chromosome,
 # and split up into chunks of call-chunk-size (below)
 call-chunk-cores: 8
-call-chunk-mem: '64G'
-call-chunk-disk: '100G'
+call-chunk-mem: '200G'
+call-chunk-disk: '200G'
 
 # Resources for calling each chunk (currently includes pileup/call/genotype)
 calling-cores: 4
