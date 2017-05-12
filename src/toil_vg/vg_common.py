@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
 
-    parser.add_argument("--vg_docker", nargs=2,
-                        help="Docker image to use for vg, followed by entrypoint flag")
+    parser.add_argument("--vg_docker", type=str,
+                        help="Docker image to use for vg")
     parser.add_argument("--container", default=None, choices=['Docker', 'Singularity', 'None'],
                        help="Container type used for running commands. Use None to "
                        " run locally on command line")    
@@ -98,9 +98,9 @@ to do: Should go somewhere more central """
         for i in range(len(args)):
             args[i] = [str(x) for x in args[i]]
         name = tool_name if tool_name is not None else args[0][0]
-        ## TODO: factor in singularity and docker tool use options
-        if name in self.docker_tool_map and self.docker_tool_map[name] != None and\
-           (len(self.docker_tool_map[name]) == 2 and self.docker_tool_map[name][0].lower() != 'none'):
+
+        if name in self.docker_tool_map and self.docker_tool_map[name] and\
+           self.docker_tool_map[name].lower() != 'none':
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
         elif name in self.singularity_tool_map:
             return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name)
@@ -119,29 +119,21 @@ to do: Should go somewhere more central """
         # we use the first argument to look up the tool in the docker map
         # but allow overriding of this with the tool_name parameter
         name = tool_name if tool_name is not None else args[0][0]
-        dmap_val = self.docker_tool_map[name]
-        tool, entrypoint = dmap_val[0], dmap_val[1]
-        # when passing docker options on the command line (ie --vg_docker)
-        # we end up with a string here, so hack it back to a bool
-        if type(entrypoint) == str:
-            assert entrypoint.lower() in ['true', 'false']
-            entrypoint = True if entrypoint == 'true' else False
-
-        if len(args) == 1:
-            # one command: we check entry point (stripping first arg if necessary)
-            # and pass in single args list
-            if entrypoint:
-                parameters = args[0][1:]
-            else:
-                parameters = args[0]
-        else:
-            # can leave as is for piped interface which takes list of args lists
-            # and doesn't worry about entrypoints since everything goes through bash -c
-            # todo: check we have a bash entrypoint! 
-            parameters = args
+        tool = self.docker_tool_map[name]
 
         # default parameters from toil's docker.py
         docker_parameters = ['--rm', '--log-driver', 'none']
+
+        if len(args) == 1:
+            # split off first argument as entrypoint (so we can be oblivious as to whether
+            # that happens by default)
+            parameters = [] if len(args[0]) == 1 else args[0][1:]
+            docker_parameters += ['--entrypoint', args[0][0]]
+        else:
+            # can leave as is for piped interface which takes list of args lists
+            # and doesn't worry about entrypoints since everything goes through bash -c
+            # todo: check we have a bash entrypoint!
+            parameters = args
         
         # vg uses TMPDIR for temporary files
         # this is particularly important for gcsa, which makes massive files.
