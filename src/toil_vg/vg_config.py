@@ -118,34 +118,33 @@ container: Docker
 ### Docker Tool Arguments ###
 
 ## Docker Tool List ##
-##   Each tool is specified as a list where the first element is the docker image URL,
-##   and the second element indicates if the docker image has an entrypoint or not
-##   If left blank or commented, then the tool will be run directly from the command line instead
+##   Locations of docker images. 
+##   If empty or commented, then the tool will be run directly from the command line instead
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: ['quay.io/vgteam/vg:v1.5.0-318-gfc8059a9-t57-run', False]
+vg-docker: 'quay.io/vgteam/vg:v1.5.0-318-gfc8059a9-t57-run'
 
 # Docker container to use for bcftools
-bcftools-docker: ['quay.io/cmarkello/bcftools', False]
+bcftools-docker: 'quay.io/cmarkello/bcftools'
 
 # Docker container to use for tabix
-tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
+tabix-docker: 'quay.io/cmarkello/htslib:latest'
 
 # Docker container to use for samtools
-samtools-docker: ['quay.io/ucsc_cgl/samtools:latest', True]
+samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 
 # Docker container to use for bwa
-bwa-docker: ['quay.io/ucsc_cgl/bwa:latest', True]
+bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 
 # Docker container to use for jq
-jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
+jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
 
 # Docker container to use for rtg
-rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
+rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
 
 # Docker container to use for pigz
-pigz-docker: ['quay.io/glennhickey/pigz:latest', True]
+pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
 #############################
 ### Singularity Tool Arguments ###
@@ -365,34 +364,33 @@ container: Docker
 ### Docker Tool Arguments ###
 
 ## Docker Tool List ##
-##   Each tool is specified as a list where the first element is the docker image URL,
-##   and the second element indicates if the docker image has an entrypoint or not
-##   If left blank or commented, then the tool will be run directly from the command line instead
+##   Locations of docker images. 
+##   If empty or commented, then the tool will be run directly from the command line instead
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: ['quay.io/vgteam/vg:v1.5.0-318-gfc8059a9-t57-run', False]
+vg-docker: 'quay.io/vgteam/vg:v1.5.0-318-gfc8059a9-t57-run'
 
 # Docker container to use for bcftools
-bcftools-docker: ['quay.io/cmarkello/bcftools', False]
+bcftools-docker: 'quay.io/cmarkello/bcftools'
 
 # Docker container to use for tabix
-tabix-docker: ['quay.io/cmarkello/htslib:latest', False]
+tabix-docker: 'quay.io/cmarkello/htslib:latest'
 
 # Docker container to use for samtools
-samtools-docker: ['quay.io/ucsc_cgl/samtools:latest', True]
+samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 
 # Docker container to use for bwa
-bwa-docker: ['quay.io/ucsc_cgl/bwa:latest', True]
+bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 
 # Docker container to use for jq
-jq-docker: ['devorbitus/ubuntu-bash-jq-curl', False]
+jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
 
 # Docker container to use for rtg
-rtg-docker: ['realtimegenomics/rtg-tools:3.7.1', True]
+rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
 
 # Docker container to use for pigz
-pigz-docker: ['quay.io/glennhickey/pigz:latest', True]
+pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
 #############################
 ### Singularity Tool Arguments ###

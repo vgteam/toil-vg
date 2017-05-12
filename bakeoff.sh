@@ -113,7 +113,7 @@ fi
 if [ "$DOCKER" == "0" ]; then
     DOCKER_OPTS="--container None"
 elif [ "$VG_DOCKER" != "0" ]; then
-	 DOCKER_OPTS="--vg_docker ${VG_DOCKER} False"
+	 DOCKER_OPTS="--vg_docker ${VG_DOCKER}"
 else
     DOCKER_OPTS=""
 fi
