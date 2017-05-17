@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-version = '1.1.0a1'
+version = '1.2.0'
 
 required_versions = {'pyyaml': '>=3.11',
                      'boto3': '>=1.4.4',
