@@ -477,7 +477,7 @@ chunk_context: 50
 
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '20', '-C', '999']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
