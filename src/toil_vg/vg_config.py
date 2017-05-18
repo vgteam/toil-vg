@@ -230,7 +230,7 @@ call-chunk-size: 10000000
 chunk_context: 50
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
@@ -338,8 +338,8 @@ call-chunk-disk: '200G'
 
 # Resources for calling each chunk (currently includes pileup/call/genotype)
 calling-cores: 4
-calling-mem: '30G'
-calling-disk: '32G'
+calling-mem: '64G'
+calling-disk: '64G'
 
 # Resources for vcfeval
 vcfeval-cores: 32
@@ -467,17 +467,17 @@ index-mode: gcsa-mem
 #########################
 ### vg_call Arguments ###
 # Overlap option that is passed into make_chunks and call_chunk
-overlap: 2000
+overlap: 5000
 
 # Chunk size
-call-chunk-size: 8000000
+call-chunk-size: 10000000
 
 # Context expansion used for graph chunking
 chunk_context: 50
 
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
