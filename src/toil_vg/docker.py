@@ -160,7 +160,8 @@ def _docker(job,
         for params in parameters:
             quoted_params.append(['\'{}\''.format(p) for p in params])
         chain_params = [' '.join(p) for p in quoted_params]
-        call = baseDockerCall + ['--entrypoint', '/bin/bash',  tool, '-c', ' | '.join(chain_params)]
+        call = baseDockerCall + ['--entrypoint', '/bin/bash',  tool, '-c',
+                                 'set -eo pipefail && {}'.format(' | '.join(chain_params))]
     else:
         call = baseDockerCall + [tool] + parameters
     _logger.info("Calling docker with " + repr(call))
