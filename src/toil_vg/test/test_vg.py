@@ -242,6 +242,7 @@ class VGCGLTest(TestCase):
                   self.local_outstore, '--fastq', self.sample_reads, '--graphs',
                   self.test_vg_graph, self.test_vg_graph2, '--chroms', '17', '13',
                   '--vcf_offsets', '43044293', '32314860', '--interleaved',
+                  '--single_reads_chunk',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.70)

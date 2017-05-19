@@ -203,7 +203,11 @@ gcsa-opts: ['-X', '3', '-Z', '3000']
 ########################
 ### vg_map Arguments ###
 
-# Number of reads per chunk to use when splitting up fastq.  
+# Toggle whether reads are split into chunks
+single-reads-chunk: False
+
+# Number of reads per chunk to use when splitting up fastq.
+# (only applies if single-reads-chunk is False)
 # Each chunk will correspond to a vg map job
 reads-per-chunk: 10000000
 
@@ -449,7 +453,11 @@ gcsa-opts: ['-X', '3', '-Z', '3000']
 ########################
 ### vg_map Arguments ###
 
-# Number of reads per chunk to use when splitting up fastq.  
+# Toggle whether reads are split into chunks
+single-reads-chunk: False
+
+# Number of reads per chunk to use when splitting up fastq.
+# (only applies if single-reads-chunk is False)
 # Each chunk will correspond to a vg map job
 reads-per-chunk: 50000000
 
