@@ -108,18 +108,18 @@ def run_vg_call(job, options, vg_id, gam_id, pileup_id = None, xg_id = None,
     gam_path = os.path.join(work_dir, '{}.gam'.format(name))
     read_from_store(job, options, gam_id, gam_path)
     xg_path = os.path.join(work_dir, '{}.xg'.format(name))
-    if xg_id and filter_opts:
+    defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
+    if xg_id and defray:
         read_from_store(job, options, xg_id, xg_path)
     pu_path = os.path.join(work_dir, '{}.pu'.format(name))
     if pileup_id:
         read_from_store(job, options, pileup_id, pu_path)
         
     # we only need an xg if using vg filter -D
-    if not xg_id and filter_opts and '-D' in filter_opts:
+    if not xg_id and defray:
         options.drunner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
                                    os.path.basename(xg_path), '-t', str(options.calling_cores)],
                              work_dir = work_dir)
-        filter_opts += ['-x', os.path.basename(xg_path)]
         if keep_xg:
             xg_id = write_to_store(job, options, xg_path)
 
@@ -128,6 +128,8 @@ def run_vg_call(job, options, vg_id, gam_id, pileup_id = None, xg_id = None,
         gam_filter_path = gam_path + '.filter'            
         if filter_opts:
             command = [['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts]
+            if defray:
+                command[0] += ['-x', os.path.basename(xg_path)]
             if keep_gam:
                 command.append(['tee', os.path.basename(gam_filter_path)])
         else:
@@ -208,15 +210,15 @@ def run_vg_genotype(job, options, vg_id, gam_id, xg_id = None,
     gam_path = os.path.join(work_dir, '{}.gam'.format(name))
     read_from_store(job, options, gam_id, gam_path)
     xg_path = os.path.join(work_dir, '{}.xg'.format(name))
-    if xg_id and filter_opts:
+    defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
+    if xg_id and defray:
         read_from_store(job, options, xg_id, xg_path)
         
     # we only need an xg if using vg filter -D
-    if not xg_id and filter_opts and '-D' in filter_opts:
+    if not xg_id and defray:
         options.drunner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
                                    os.path.basename(xg_path), '-t', str(options.calling_cores)],
                              work_dir = work_dir)
-        filter_opts += ['-x', os.path.basename(xg_path)]
         if keep_xg:
             xg_id = write_to_store(job, options, xg_path)
 
@@ -225,6 +227,8 @@ def run_vg_genotype(job, options, vg_id, gam_id, xg_id = None,
         gam_filter_path = gam_path + '.filter'
         with open(gam_filter_path, 'w') as gam_filter_stream:
             command = [['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts]
+            if defray:
+                command[0] += ['-x', os.path.basename(xg_path)]
             options.drunner.call(job, command, work_dir=work_dir, outfile=gam_filter_stream)
         if keep_gam:
             gam_id = write_to_store(job, options, gam_filter_path)
@@ -275,7 +279,7 @@ def run_vg_genotype(job, options, vg_id, gam_id, xg_id = None,
         
 
 def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
-               vg_chunk_file_id, gam_chunk_file_id, path_size, vcf_offset):
+               xg_file_id, vg_chunk_file_id, gam_chunk_file_id, path_size, vcf_offset):
     """ create VCF from a given chunk """
    
     RealtimeLogger.info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
@@ -289,7 +293,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
     # Run vg call
     if options.genotype:
         vcf_id, xg_id, gam_id, aug_graph_id = run_vg_genotype(
-            job, options, vg_chunk_file_id, gam_chunk_file_id,
+            job, options, vg_chunk_file_id, gam_chunk_file_id, xg_id=xg_file_id,
             path_names = [path_name],
             seq_names = [path_name],
             seq_offsets = [chunk_offset + vcf_offset],
@@ -299,7 +303,7 @@ def call_chunk(job, options, path_name, chunk_i, num_chunks, chunk_offset, clipp
             name = 'chunk_{}_{}'.format(path_name, chunk_offset))
     else:
         vcf_id, pu_id, xg_id, gam_id, aug_graph_id = run_vg_call(
-            job, options, vg_chunk_file_id, gam_chunk_file_id, pileup_id = None, xg_id = None,
+            job, options, vg_chunk_file_id, gam_chunk_file_id, pileup_id = None, xg_id = xg_file_id,
             path_names = [path_name], 
             seq_names = [path_name],
             seq_offsets = [chunk_offset + vcf_offset],
@@ -497,7 +501,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
         clip_file_id = job.addChildJobFn(call_chunk, options, chunk_bed_chrom, chunk_i,
                                          len(bed_lines),
                                          chunk_bed_start, clipped_chunk_offset,
-                                         vg_chunk_file_id, gam_chunk_file_id,
+                                         xg_file_id, vg_chunk_file_id, gam_chunk_file_id,
                                          path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
                                          cores=options.calling_cores,
                                          memory=options.calling_mem, disk=options.calling_disk).rv()
