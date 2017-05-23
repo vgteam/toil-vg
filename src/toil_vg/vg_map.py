@@ -63,6 +63,8 @@ def map_parse_args(parser, stand_alone = False):
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--gam_input_reads", default=None,
                         help="Input reads in GAM format")
+    parser.add_argument("--single_reads_chunk", action="store_true", default=False,
+                        help="do not split reads into chunks")
     parser.add_argument("--reads_per_chunk", type=int,
                         help="number of reads for each mapping job")
     parser.add_argument("--alignment_cores", type=int,
@@ -77,9 +79,13 @@ def map_parse_args(parser, stand_alone = False):
 def run_mapping(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_file_ids):
     """ split the fastq, then align each chunk """
 
-    reads_chunk_ids = job.addChildJobFn(run_split_reads, options, reads_file_ids,
-                                        cores=options.misc_cores, memory=options.misc_mem,
-                                        disk=options.misc_disk).rv()
+    if not options.single_reads_chunk:
+        reads_chunk_ids = job.addChildJobFn(run_split_reads, options, reads_file_ids,
+                                            cores=options.misc_cores, memory=options.misc_mem,
+                                            disk=options.misc_disk).rv()
+    else:
+        RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
+        reads_chunk_ids = [reads_file_ids]
     
     return job.addFollowOnJobFn(run_whole_alignment, options, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, reads_chunk_ids, cores=options.misc_cores,
@@ -403,18 +409,23 @@ def run_merge_chrom_gam(job, options, chr_name, chunk_file_ids):
     
     output_file = os.path.join(work_dir, '{}_{}.gam'.format(options.sample_name, chr_name))
 
-    # Would be nice to be able to do this merge with fewer copies.. 
-    with open(output_file, 'a') as merge_file:
-        for chunk_gam_id in chunk_file_ids:
-            tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
-            read_from_store(job, options, chunk_gam_id, tmp_gam_file)
-            with open(tmp_gam_file) as tmp_f:
-                shutil.copyfileobj(tmp_f, merge_file)
+    if len(chunk_file_ids) > 1:
+        # Would be nice to be able to do this merge with fewer copies.. 
+        with open(output_file, 'a') as merge_file:
+            for chunk_gam_id in chunk_file_ids:
+                tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
+                read_from_store(job, options, chunk_gam_id, tmp_gam_file)
+                with open(tmp_gam_file) as tmp_f:
+                    shutil.copyfileobj(tmp_f, merge_file)
                 
-    chr_gam_id = write_to_store(job, options, output_file)
-
+        chr_gam_id = write_to_store(job, options, output_file)
+    else:
+        chr_gam_id = chunk_file_ids[0]
+                
     # checkpoint to out store
     if not options.force_outstore or options.tool == 'map':
+        if len(chunk_file_ids) == 1:
+            read_from_store(job, options, chunk_file_ids[0], output_file)
         write_to_store(job, options, output_file, use_out_store = True)
             
     return chr_gam_id

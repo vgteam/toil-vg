@@ -168,12 +168,15 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, input
         assert inputLCPFileID is not None
         gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
 
-    if inputIDRangesFileID is None: 
-        id_ranges_file_id  = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
+    if inputIDRangesFileID is not None:
+        id_ranges_file_id = inputIDRangesFileID
+    elif len(inputGraphFileIDs) > 1:
+        id_ranges_file_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
                                                cores=options.misc_cores,
                                                memory=options.misc_mem, disk=options.misc_disk).rv()
     else:
-        id_ranges_file_id = inputIDRangesFileID
+        # don't bother making id ranges if only one input graph
+        id_ranges_file_id = None        
 
     fastq_chunk_ids = job.addChildJobFn(run_split_reads, options, inputReadsFileIDs,
                                         cores=options.misc_cores, memory=options.misc_mem,
@@ -202,7 +205,10 @@ def run_pipeline_call(job, options, xg_file_id, id_ranges_file_id, chr_gam_ids, 
                       baseline_tbi_id, fasta_id, bed_id):
     """ Run variant calling on the chromosomes in parallel """
 
-    chroms = [x[0] for x in parse_id_ranges(job, options, id_ranges_file_id)]
+    if id_ranges_file_id:
+        chroms = [x[0] for x in parse_id_ranges(job, options, id_ranges_file_id)]
+    else:
+        chroms = options.chroms
     assert len(chr_gam_ids) == len(chroms)
 
     vcf_tbi_wg_id_pair = job.addChildJobFn(run_all_calling, options, xg_file_id, chr_gam_ids, chroms,
