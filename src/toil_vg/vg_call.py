@@ -514,8 +514,6 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
                                                    memory=options.call_chunk_mem,
                                                    disk=options.call_chunk_disk).rv()
  
-    RealtimeLogger.info("Completed variant calling on path {} from alignment file {}".format(path_name, str(alignment_file_id)))
-
     return vcf_gz_tbi_file_id_pair
 
 
@@ -556,7 +554,9 @@ def merge_vcf_chunks(job, options, path_name, clip_file_ids):
     # Save merged vcf files to the job store
     vcf_gz_file_id = write_to_store(job, options, vcf_path+".gz")
     vcf_tbi_file_id = write_to_store(job, options, vcf_path+".gz.tbi")
-        
+
+    RealtimeLogger.info("Completed variant calling on path {}".format(path_name))
+
     return vcf_gz_file_id, vcf_tbi_file_id
     
 def call_main(options):

@@ -409,18 +409,23 @@ def run_merge_chrom_gam(job, options, chr_name, chunk_file_ids):
     
     output_file = os.path.join(work_dir, '{}_{}.gam'.format(options.sample_name, chr_name))
 
-    # Would be nice to be able to do this merge with fewer copies.. 
-    with open(output_file, 'a') as merge_file:
-        for chunk_gam_id in chunk_file_ids:
-            tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
-            read_from_store(job, options, chunk_gam_id, tmp_gam_file)
-            with open(tmp_gam_file) as tmp_f:
-                shutil.copyfileobj(tmp_f, merge_file)
+    if len(chunk_file_ids) > 1:
+        # Would be nice to be able to do this merge with fewer copies.. 
+        with open(output_file, 'a') as merge_file:
+            for chunk_gam_id in chunk_file_ids:
+                tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
+                read_from_store(job, options, chunk_gam_id, tmp_gam_file)
+                with open(tmp_gam_file) as tmp_f:
+                    shutil.copyfileobj(tmp_f, merge_file)
                 
-    chr_gam_id = write_to_store(job, options, output_file)
-
+        chr_gam_id = write_to_store(job, options, output_file)
+    else:
+        chr_gam_id = chunk_file_ids[0]
+                
     # checkpoint to out store
     if not options.force_outstore or options.tool == 'map':
+        if len(chunk_file_ids) == 1:
+            read_from_store(job, options, chunk_file_ids[0], output_file)
         write_to_store(job, options, output_file, use_out_store = True)
             
     return chr_gam_id
