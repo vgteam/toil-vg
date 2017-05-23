@@ -111,13 +111,12 @@ class VGCGLTest(TestCase):
                   os.path.join(self.local_outstore, 'small.xg'),
                   os.path.join(self.local_outstore, 'small.gcsa'),
                   self.local_outstore,  '--fastq', self.sample_reads,
-                  '--id_ranges', os.path.join(self.local_outstore, 'small_id_ranges.tsv'),
                   '--alignment_cores', '8', '--reads_per_chunk', '8000',
                   '--realTimeLogging', '--logInfo')
         
         self._run('toil-vg', 'call', self.jobStoreLocal,
                   os.path.join(self.local_outstore, 'small.xg'), 'sample',
-                  self.local_outstore, '--gams', os.path.join(self.local_outstore, 'sample_x.gam'), 
+                  self.local_outstore, '--gams', os.path.join(self.local_outstore, 'sample_default.gam'), 
                   '--chroms', 'x', '--call_chunk_size', '20000', '--calling_cores', '4',
                   '--realTimeLogging', '--logInfo')
 
@@ -151,7 +150,6 @@ class VGCGLTest(TestCase):
                   os.path.join(self.local_outstore, 'small.gcsa'),
                   self.local_outstore,
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
-                  '--id_ranges', os.path.join(self.local_outstore, 'small_id_ranges.tsv'),
                   '--alignment_cores', '3', '--reads_per_chunk', '1000',
                   '--realTimeLogging', '--logInfo', '--interleaved')
 
@@ -162,7 +160,7 @@ class VGCGLTest(TestCase):
                   os.path.join(self.local_outstore, 'true.pos'),
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
-                  '--gams', os.path.join(self.local_outstore, 'sample_x.gam'),
+                  '--gams', os.path.join(self.local_outstore, 'sample_default.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
                   '--maxCores', '8', '--bwa', '--bwa-paired', '--fasta', self.chrom_fa)
 

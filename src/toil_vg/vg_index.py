@@ -35,6 +35,13 @@ def index_subparser(parser):
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
+    parser.add_argument("--skip_xg", action="store_true",
+                        help="Do not generate xg index")
+    parser.add_argument("--skip_gcsa", action="store_true",
+                        help="Do not generate gcsa index")
+    parser.add_argument("--skip_id_ranges", action="store_true",
+                        help="Do not generate id_ranges.tsv")
+    
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -346,16 +353,26 @@ def run_merge_id_ranges(job, options, id_ranges):
         id_range_file_id = write_to_store(job, options, id_range_filename)
         return id_range_file_id
 
-def run_indexing(job, options, inputGraphFileIDs):
+def run_indexing(job, options, inputGraphFileIDs, skip_xg=False, skip_gcsa=False, skip_id_ranges=False):
     """ run indexing logic by itself.  Return pair of idx for xg and gcsa output index files  
     """
 
-    gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, options, inputGraphFileIDs,
-                                      cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
-    xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
-                                      cores=options.xg_index_cores, memory=options.xg_index_mem, disk=options.xg_index_disk).rv()
-    id_ranges_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
-                                     cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
+    if not skip_gcsa:
+        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, options, inputGraphFileIDs,
+                                             cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
+    else:
+        gcsa_and_lcp_ids = None
+    if not skip_xg:
+        xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
+                                        cores=options.xg_index_cores, memory=options.xg_index_mem, disk=options.xg_index_disk).rv()
+    else:
+        xg_index_id = None
+        
+    if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
+        id_ranges_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
+                                         cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
+    else:
+        id_ranges_id = None
 
     return xg_index_id, gcsa_and_lcp_ids, id_ranges_id
 
@@ -401,6 +418,7 @@ def index_main(options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_indexing, options, inputGraphFileIDs,
+                                     options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
                                      cores=options.misc_cores,
                                      memory=options.misc_mem,
                                      disk=options.misc_disk)
