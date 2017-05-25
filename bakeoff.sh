@@ -132,7 +132,7 @@ function run_bakeoff_region {
 	 LOGFILE="${PREFIX}-${REGION,,}-${GRAPH}.log"
 
 	 # run the whole pipeline
-	 eval toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}-${GRAPH} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --call_opts "\"--offset ${OFFSET}\"" --graphs ${BAKEOFF_STORE}/${GRAPH}-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chr${CHROM}.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS} --logFile ${LOGFILE}
+	 eval toil-vg run ${JOB_STORE}-${REGION,,} NA12878 ${OUT_STORE}-${REGION,,}-${GRAPH} --fastq ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.fq.gz --chroms ${CHROM} --vcf_offsets ${OFFSET} --graphs ${BAKEOFF_STORE}/${GRAPH}-${REGION}.vg --vcfeval_baseline ${BAKEOFF_STORE}/platinum_NA12878_${REGION}.vcf.gz --vcfeval_fasta ${BAKEOFF_STORE}/chr${CHROM}.fa.gz ${BS_OPTS} ${DOCKER_OPTS} ${GEN_OPTS} ${RUN_OPTS} --logFile ${LOGFILE}
 	 
 	 # extract vg map total time
 	 MAPTIME=`extract_map_time ${LOGFILE}`
