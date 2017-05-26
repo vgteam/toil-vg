@@ -103,7 +103,7 @@ def _singularity(job,
         # When piping, all arguments now get merged into a single string to bash.
         # We try to support spaces in paths by wrapping them all in quotes first.
         chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
-        call = baseSingularityCall + [tool, ' | {} '.format(' '.join(baseSingularityCall + [tool])).join(chain_params)]
+        call = baseSingularityCall + [tool, 'set -eo pipefail && {}'.format(' | {} '.format(' '.join(baseSingularityCall + [tool])).join(chain_params))]
     else:
         call = baseSingularityCall + [tool] + parameters
     
