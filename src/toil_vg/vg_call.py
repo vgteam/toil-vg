@@ -431,11 +431,21 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
     gam_path = os.path.join(work_dir, '{}.gam'.format(options.sample_name))
     read_from_store(job, options, alignment_file_id, gam_path)
 
-    # Index the gam
-    gam_index_path = gam_path + '.index'
-    index_cmd = ['vg', 'index', '-N', os.path.basename(gam_path), '-d',
-                 os.path.basename(gam_index_path), '-t', str(options.gam_index_cores)]
-    options.drunner.call(job, index_cmd, work_dir=work_dir)
+    # index on coordinates (sort)
+    gam_index_path = gam_path + '.index'    
+    index_cmd = ['vg', 'index', '-a', os.path.basename(gam_path),
+                 '-d', os.path.basename(gam_index_path), '-t', str(options.gam_index_cores)]
+    options.drunner.call(job, index_cmd, work_dir = work_dir)
+
+    # index on nodes in the alignments
+    aln_index_path = gam_path + '.node.index'
+    index_cmd = [['vg', 'index', '-A', '-d',  os.path.basename(gam_index_path)]]
+    index_cmd.append(['vg', 'index', '-N', '-', '-d', os.path.basename(aln_index_path),
+                      '-t', str(options.gam_index_cores)])
+    options.drunner.call(job, index_cmd, work_dir = work_dir)
+
+    # get rid of sort index
+    shutil.rmtree(gam_index_path)
 
     # Write a list of paths
     path_list = os.path.join(work_dir, 'path_list.txt')
@@ -448,14 +458,14 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
     # Chunk the graph and gam, using the xg and rocksdb indexes
     output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_path),
-                 '-a', os.path.basename(gam_index_path), '-c', str(options.chunk_context),
+                 '-a', os.path.basename(aln_index_path), '-c', str(options.chunk_context),
                  '-P', os.path.basename(path_list),
                  '-g',
                  '-s', str(options.call_chunk_size),
                  '-o', str(options.overlap),
                  '-b', 'call_chunk_{}'.format(tag),
                  '-t', str(options.call_chunk_cores),
-                 '-R', os.path.basename(output_bed_chunks_path)]
+                 '-E', os.path.basename(output_bed_chunks_path)]
     options.drunner.call(job, chunk_cmd, work_dir=work_dir)
 
     # Scrape the BED into memory

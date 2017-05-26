@@ -123,7 +123,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-404-gf02928ff-t61-run'
+vg-docker: 'quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb'
 
 # Docker container to use for bcftools
 bcftools-docker: 'quay.io/cmarkello/bcftools'
@@ -156,28 +156,28 @@ pigz-docker: 'quay.io/glennhickey/pigz:latest'
 ##   of through singularity.
 
 # Singularity container to use for vg
-vg-singularity: ['', True]
+vg-singularity: ['quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb', False]
 
 # Singularity container to use for bcftools
-bcftools-singularity: ['', False]
+bcftools-singularity: ['quay.io/cmarkello/bcftools', False]
 
 # Singularity container to use for tabix
-tabix-singularity: ['', False]
+tabix-singularity: ['quay.io/cmarkello/htslib:latest', False]
 
 # Singularity container to use for samtools
-samtools-singularity: ['', True]
+samtools-singularity: ['quay.io/ucsc_cgl/samtools:latest', True]
 
 # Singularity container to use for bwa
-bwa-singularity: ['', True]
+bwa-singularity: ['quay.io/ucsc_cgl/bwa:latest', True]
 
 # Singularity container to use for jq
-jq-singularity: ['', False]
+jq-singularity: ['devorbitus/ubuntu-bash-jq-curl', False]
 
 # Singularity container to use for rtg
-rtg-singularity: ['', True]
+rtg-singularity: ['realtimegenomics/rtg-tools:3.7.1', True]
 
 # Singularity container to use for pigz
-pigz-singularity: ['', True]
+pigz-singularity: ['quay.io/glennhickey/pigz:latest', True]
 
 ##########################
 ### vg_index Arguments ###
@@ -228,19 +228,19 @@ index-mode: gcsa-mem
 overlap: 2000
 
 # Chunk size
-call-chunk-size: 10000000
+call-chunk-size: 2000000
 
 # Context expansion used for graph chunking
 chunk_context: 50
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
-call-opts: []
+call-opts: ['-Q']
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
 genotype-opts: []
@@ -337,13 +337,13 @@ alignment-disk: '100G'
 # typically take xg for whoe grpah, and gam for a chromosome,
 # and split up into chunks of call-chunk-size (below)
 call-chunk-cores: 8
-call-chunk-mem: '200G'
-call-chunk-disk: '200G'
+call-chunk-mem: '100G'
+call-chunk-disk: '100G'
 
 # Resources for calling each chunk (currently includes pileup/call/genotype)
-calling-cores: 4
-calling-mem: '64G'
-calling-disk: '64G'
+calling-cores: 1
+calling-mem: '8G'
+calling-disk: '8G'
 
 # Resources for vcfeval
 vcfeval-cores: 32
@@ -373,7 +373,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-404-gf02928ff-t61-run'
+vg-docker: 'quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb'
 
 # Docker container to use for bcftools
 bcftools-docker: 'quay.io/cmarkello/bcftools'
@@ -406,28 +406,28 @@ pigz-docker: 'quay.io/glennhickey/pigz:latest'
 ##   of through singularity.
 
 # Singularity container to use for vg
-vg-singularity: ['', True]
+vg-singularity: ['quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb', False]
 
 # Singularity container to use for bcftools
-bcftools-singularity: ['', False]
+bcftools-singularity: ['quay.io/cmarkello/bcftools', False]
 
 # Singularity container to use for tabix
-tabix-singularity: ['', False]
+tabix-singularity: ['quay.io/cmarkello/htslib:latest', False]
 
 # Singularity container to use for samtools
-samtools-singularity: ['', True]
+samtools-singularity: ['quay.io/ucsc_cgl/samtools:latest', True]
 
 # Singularity container to use for bwa
-bwa-singularity: ['', True]
+bwa-singularity: ['quay.io/ucsc_cgl/bwa:latest', True]
 
 # Singularity container to use for jq
-jq-singularity: ['', False]
+jq-singularity: ['devorbitus/ubuntu-bash-jq-curl', False]
 
 # Singularity container to use for rtg
-rtg-singularity: ['', True]
+rtg-singularity: ['realtimegenomics/rtg-tools:3.7.1', True]
 
 # Singularity container to use for pigz
-pigz-singularity: ['', True]
+pigz-singularity: ['quay.io/glennhickey/pigz:latest', True]
 
 ##########################
 ### vg_index Arguments ###
@@ -478,14 +478,14 @@ index-mode: gcsa-mem
 overlap: 5000
 
 # Chunk size
-call-chunk-size: 10000000
+call-chunk-size: 2000000
 
 # Context expansion used for graph chunking
 chunk_context: 50
 
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
