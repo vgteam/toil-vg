@@ -178,9 +178,13 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, input
         # don't bother making id ranges if only one input graph
         id_ranges_file_id = None        
 
-    fastq_chunk_ids = job.addChildJobFn(run_split_reads, options, inputReadsFileIDs,
-                                        cores=options.misc_cores, memory=options.misc_mem,
-                                        disk=options.misc_disk).rv()
+    if not options.single_reads_chunk:
+        fastq_chunk_ids = job.addChildJobFn(run_split_reads, options, inputReadsFileIDs,
+                                            cores=options.misc_cores, memory=options.misc_mem,
+                                            disk=options.misc_disk).rv()
+    else:
+        RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
+        fastq_chunk_ids = [inputReadsFileIDs]
 
     return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
