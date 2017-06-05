@@ -57,7 +57,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 # all input data expected to be here:
-BAKEOFF_STORE="s3://glennhickey-bakeoff-store"
+BAKEOFF_STORE="s3://glennhickey2-bakeoff-store"
 
 # output summary will be here
 PREFIX=$1
@@ -84,8 +84,8 @@ fi
 INDEX_OPTS="--gcsa_index_cores ${CORES} --kmers_cores ${CORES} --prune_opts '-p -l 16 -S -e 3'"
 MAP_OPTS="--alignment_cores ${CORES} --interleaved"
 MAP_OPTS_SE="--alignment_cores ${CORES}"
-CALL_OPTS="--calling_cores ${CORES}"
-VCFEVAL_OPTS="--vcfeval_cores ${CORES}"
+CALL_OPTS="--calling_cores ${CORES} --call_opts \"--min-mad 0\""
+VCFEVAL_OPTS="--vcfeval_cores ${CORES} --vcfeval_opts \" --ref-overlap\""
 RUN_OPTS="${INDEX_OPTS} ${MAP_OPTS} ${CALL_OPTS} ${VCFEVAL_OPTS}"
 SIM_OPTS="--sim_chunks ${CORES} --seed 0 --gam"
 PRUNE_OPTS=

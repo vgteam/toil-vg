@@ -64,12 +64,13 @@ class VGCGLTest(TestCase):
                                    '--call_chunk_size', '20000',
                                    '--index_mode', 'gcsa-mem', '--gcsa_index_cores', '8', '--kmers_cores', '8',
                                    '--alignment_cores', '4',
-                                   '--calling_cores', '4', '--vcfeval_cores', '4')
+                                   '--calling_cores', '4', '--vcfeval_cores', '4',
+                                   '--vcfeval_opts', ' --ref-overlap',
+                                   '--call_opts', '-E 0')
         
         # default output store
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
-
 
     def test_1_sim_small(self):
         ''' 
@@ -263,12 +264,13 @@ class VGCGLTest(TestCase):
                   self.xg_index, 'NA12877', self.local_outstore, '--gams', self.sample_gam,
                   '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
                   '--call_chunk_size', '23000', '--calling_cores', '4',
-                  '--realTimeLogging', '--logInfo')
+                  '--realTimeLogging', '--logInfo', '--call_opts', '-E 0')
 
         self._run('toil-vg', 'vcfeval', self.jobStoreLocal,
                   os.path.join(self.local_outstore, 'NA12877.vcf.gz'), self.baseline,
                   self.chrom_fa, self.local_outstore,
-                  '--realTimeLogging', '--logInfo')
+                  '--realTimeLogging', '--logInfo',
+                  '--vcfeval_opts', ' --ref-overlap')
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.70)
                 
