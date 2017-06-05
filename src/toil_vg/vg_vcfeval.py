@@ -63,7 +63,8 @@ def vcfeval(job, work_dir, call_vcf_name, vcfeval_baseline_name,
     cmd = ['rtg', 'vcfeval', '--calls', call_vcf_name,
            '--baseline', vcfeval_baseline_name,
            '--template', sdf_name, '--output', outdir_name,
-           '--threads', str(options.vcfeval_cores)]
+           '--threads', str(options.vcfeval_cores),
+           '--vcf-score-field', 'QUAL']
 
     if bed_name is not None:
         cmd += ['--evaluation-regions', bed_name]
@@ -74,15 +75,22 @@ def vcfeval(job, work_dir, call_vcf_name, vcfeval_baseline_name,
     options.drunner.call(job, cmd, work_dir=work_dir)
 
     # get the F1 out of summary.txt
-    # expect header on 1st line and data on 3rd
+    # expect header on 1st line and data on 3rd and below
+    # we take the best F1 found over these lines (which should correspond to best
+    # point on quality ROC curve)
     # todo: be more robust
+    f1 = None
     with open(os.path.join(work_dir, os.path.basename(outdir_name), "summary.txt")) as sum_file:
         header = sum_file.readline().split()
+        assert header[-1] == 'F-measure'        
         line = sum_file.readline()
-        data = sum_file.readline().split()
-        assert header[-1] == 'F-measure'
-        assert len(data) == len(header)
-        return float(data[-1])    
+        for line in sum_file:
+            data = line.strip().split()
+            assert len(data) == len(header)
+            line_f1 = float(data[-1])
+            if f1 is None or line_f1 > f1:
+                f1 = line_f1
+    return f1
     
 def run_vcfeval(job, options, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
                 fasta_id, bed_id):                
