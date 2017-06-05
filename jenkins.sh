@@ -31,7 +31,7 @@ export PATH=$PATH:${PWD}/bin
 make prepare
 make develop
 make test
-make docker
+#make docker
 #make test_docker
 make clean
 
