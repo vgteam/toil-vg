@@ -266,7 +266,7 @@ def run_chunk_alignment(job, options, chunk_filename_ids, chunk_id, xg_file_id, 
 
         # Plan out what to run
         vg_parts = []
-        vg_parts += ['vg', 'map',  os.path.basename(graph_file), '-t', str(options.alignment_cores)]
+        vg_parts += ['vg', 'map', '-t', str(options.alignment_cores)]
         for reads_file in reads_files:
             input_flag = '-G' if options.gam_input_reads else '-f'
             vg_parts += [input_flag, os.path.basename(reads_file)]

@@ -234,7 +234,7 @@ call-chunk-size: 10000000
 chunk_context: 50
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
@@ -485,7 +485,7 @@ chunk_context: 50
 
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
