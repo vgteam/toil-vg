@@ -123,7 +123,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-448-gcf6e6a74-t63-run'
+vg-docker: 'quay.io/vgteam/vg:v1.5.0-499-ge8a9bcbc-t64-run'
 
 # Docker container to use for bcftools
 bcftools-docker: 'quay.io/cmarkello/bcftools'
@@ -234,7 +234,7 @@ call-chunk-size: 10000000
 chunk_context: 50
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
@@ -373,7 +373,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-448-gcf6e6a74-t63-run'
+vg-docker: 'quay.io/vgteam/vg:v1.5.0-499-ge8a9bcbc-t64-run'
 
 # Docker container to use for bcftools
 bcftools-docker: 'quay.io/cmarkello/bcftools'
@@ -485,7 +485,7 @@ chunk_context: 50
 
 
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-o', '0', '-q', '15', '-D', '999']
+filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg pileup. (do not include file names or -t/--threads)
 pileup-opts: ['-q', '10']
