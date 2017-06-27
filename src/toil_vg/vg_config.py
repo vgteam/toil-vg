@@ -123,7 +123,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-499-ge8a9bcbc-t64-run'
+vg-docker: 'quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb'
 
 # Docker container to use for bcftools
 bcftools-docker: 'quay.io/cmarkello/bcftools'
@@ -373,7 +373,7 @@ container: Docker
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-499-ge8a9bcbc-t64-run'
+vg-docker: 'quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb'
 
 # Docker container to use for bcftools
 bcftools-docker: 'quay.io/cmarkello/bcftools'
