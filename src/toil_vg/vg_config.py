@@ -228,7 +228,7 @@ index-mode: gcsa-mem
 overlap: 2000
 
 # Chunk size
-call-chunk-size: 10000000
+call-chunk-size: 2000000
 
 # Context expansion used for graph chunking
 chunk_context: 50
@@ -240,7 +240,7 @@ filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '99
 pileup-opts: ['-q', '10']
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
-call-opts: []
+call-opts: ['-Q']
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
 genotype-opts: []
@@ -337,13 +337,13 @@ alignment-disk: '100G'
 # typically take xg for whoe grpah, and gam for a chromosome,
 # and split up into chunks of call-chunk-size (below)
 call-chunk-cores: 8
-call-chunk-mem: '200G'
-call-chunk-disk: '200G'
+call-chunk-mem: '100G'
+call-chunk-disk: '100G'
 
 # Resources for calling each chunk (currently includes pileup/call/genotype)
-calling-cores: 4
-calling-mem: '64G'
-calling-disk: '64G'
+calling-cores: 1
+calling-mem: '8G'
+calling-disk: '8G'
 
 # Resources for vcfeval
 vcfeval-cores: 32
@@ -478,7 +478,7 @@ index-mode: gcsa-mem
 overlap: 5000
 
 # Chunk size
-call-chunk-size: 10000000
+call-chunk-size: 2000000
 
 # Context expansion used for graph chunking
 chunk_context: 50
