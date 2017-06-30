@@ -145,38 +145,6 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
 
 # Docker container to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
-#############################
-### Singularity Tool Arguments ###
-
-## Singularity Tool List ##
-##   Each tool is specified as a list where the first element is the PATH on a shared filesystem
-##   where the singularity image lies.
-##   If left blank or commented, then the tool will be run directly from the command line instead
-##   of through singularity.
-
-# Singularity container to use for vg
-vg-singularity: ['quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb', False]
-
-# Singularity container to use for bcftools
-bcftools-singularity: ['quay.io/cmarkello/bcftools', False]
-
-# Singularity container to use for tabix
-tabix-singularity: ['quay.io/cmarkello/htslib:latest', False]
-
-# Singularity container to use for samtools
-samtools-singularity: ['quay.io/ucsc_cgl/samtools:latest', True]
-
-# Singularity container to use for bwa
-bwa-singularity: ['quay.io/ucsc_cgl/bwa:latest', True]
-
-# Singularity container to use for jq
-jq-singularity: ['devorbitus/ubuntu-bash-jq-curl', False]
-
-# Singularity container to use for rtg
-rtg-singularity: ['realtimegenomics/rtg-tools:3.7.1', True]
-
-# Singularity container to use for pigz
-pigz-singularity: ['quay.io/glennhickey/pigz:latest', True]
 
 ##########################
 ### vg_index Arguments ###
@@ -394,39 +362,6 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
 
 # Docker container to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
-
-#############################
-### Singularity Tool Arguments ###
-
-## Singularity Tool List ##
-##   Each tool is specified as a list where the first element is the PATH on a shared filesystem
-##   where the singularity image lies.
-##   If left blank or commented, then the tool will be run directly from the command line instead
-##   of through singularity.
-
-# Singularity container to use for vg
-vg-singularity: ['quay.io/glennhickey/vg:v1.5.0-499-ge8a9bcb', False]
-
-# Singularity container to use for bcftools
-bcftools-singularity: ['quay.io/cmarkello/bcftools', False]
-
-# Singularity container to use for tabix
-tabix-singularity: ['quay.io/cmarkello/htslib:latest', False]
-
-# Singularity container to use for samtools
-samtools-singularity: ['quay.io/ucsc_cgl/samtools:latest', True]
-
-# Singularity container to use for bwa
-bwa-singularity: ['quay.io/ucsc_cgl/bwa:latest', True]
-
-# Singularity container to use for jq
-jq-singularity: ['devorbitus/ubuntu-bash-jq-curl', False]
-
-# Singularity container to use for rtg
-rtg-singularity: ['realtimegenomics/rtg-tools:3.7.1', True]
-
-# Singularity container to use for pigz
-pigz-singularity: ['quay.io/glennhickey/pigz:latest', True]
 
 ##########################
 ### vg_index Arguments ###
