@@ -201,7 +201,7 @@ to do: Should go somewhere more central """
         # this is particularly important for gcsa, which makes massive files.
         # we will default to keeping these in our working directory
         if work_dir is not None:
-            singularity_parameters = ['-H', '{}:/data'.format(os.path.abspath(work_dir)), '--bind', '{}:/data'.format(os.path.abspath(work_dir))]
+            singularity_parameters = ['-H', '{}:{}'.format(os.path.abspath(work_dir), os.environ.get('HOME'))]
 
         if check_output is True:
             ret = singularityCheckOutput(job, tool, parameters=parameters,
