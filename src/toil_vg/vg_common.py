@@ -41,15 +41,15 @@ def get_container_tool_map(options):
     """ convenience function to parse the above _container options into a dictionary """
 
     cmap = [dict(), options.container]
-    cmap["vg"] = options.vg_docker
-    cmap["bcftools"] = options.bcftools_docker
-    cmap["tabix"] = options.tabix_docker
-    cmap["bgzip"] = options.tabix_docker
-    cmap["jq"] = options.jq_docker
-    cmap["rtg"] = options.rtg_docker
-    cmap["pigz"] = options.pigz_docker
-    cmap["samtools"] = options.samtools_docker
-    cmap["bwa"] = options.bwa_docker
+    cmap[0]["vg"] = options.vg_docker
+    cmap[0]["bcftools"] = options.bcftools_docker
+    cmap[0]["tabix"] = options.tabix_docker
+    cmap[0]["bgzip"] = options.tabix_docker
+    cmap[0]["jq"] = options.jq_docker
+    cmap[0]["rtg"] = options.rtg_docker
+    cmap[0]["pigz"] = options.pigz_docker
+    cmap[0]["samtools"] = options.samtools_docker
+    cmap[0]["bwa"] = options.bwa_docker
      
     # to do: could be a good place to do an existence check on these tools
 
