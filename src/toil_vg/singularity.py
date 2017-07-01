@@ -89,12 +89,15 @@ def _singularity(job,
     if workDir is None:
         workDir = os.getcwd()
 
+    # Make docker image url compatible with singularity 
+    tool = 'docker://'+tool
+
     # Setup the outgoing subprocess call for singularity
     baseSingularityCall = ['singularity', 'exec']
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
-        baseSingularityCall += ['-H', '{}:/data'.format(os.path.abspath(workDir)), '--bind', '{}:/data'.format(os.path.abspath(workDir))]
+        baseSingularityCall += ['-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME'))]
 
     # Make subprocess call
 

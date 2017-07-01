@@ -40,51 +40,38 @@ def add_common_vg_parse_args(parser):
 def get_container_tool_map(options):
     """ convenience function to parse the above _container options into a dictionary """
 
-    dmap = dict()
-    smap = dict()
-    # first check for docker use, if docker use is not desired then check
-    # for singularity use
-    if options.container == 'Docker':
-        dmap["vg"] = options.vg_docker
-        dmap["bcftools"] = options.bcftools_docker
-        dmap["tabix"] = options.tabix_docker
-        dmap["bgzip"] = options.tabix_docker
-        dmap["jq"] = options.jq_docker
-        dmap["rtg"] = options.rtg_docker
-        dmap["pigz"] = options.pigz_docker
-        dmap["samtools"] = options.samtools_docker
-        dmap["bwa"] = options.bwa_docker
-    elif options.container == 'Singularity':
-        smap["vg"] = options.vg_singularity
-        smap["bcftools"] = options.bcftools_singularity
-        smap["tabix"] = options.tabix_singularity
-        smap["bgzip"] = options.tabix_singularity
-        smap["jq"] = options.jq_singularity
-        smap["rtg"] = options.rtg_singularity
-        smap["pigz"] = options.pigz_singularity
-        smap["samtools"] = options.samtools_singularity
-        smap["bwa"] = options.bwa_singularity
-        
+    cmap = [dict(), options.container]
+    cmap[0]["vg"] = options.vg_docker
+    cmap[0]["bcftools"] = options.bcftools_docker
+    cmap[0]["tabix"] = options.tabix_docker
+    cmap[0]["bgzip"] = options.tabix_docker
+    cmap[0]["jq"] = options.jq_docker
+    cmap[0]["rtg"] = options.rtg_docker
+    cmap[0]["pigz"] = options.pigz_docker
+    cmap[0]["samtools"] = options.samtools_docker
+    cmap[0]["bwa"] = options.bwa_docker
+     
     # to do: could be a good place to do an existence check on these tools
 
-    return dmap, smap
+    return cmap
         
 class ContainerRunner(object):
     """ Helper class to centralize container calling.  So we can toggle both
 Docker and Singularity on and off in just one place.
 to do: Should go somewhere more central """
-    def __init__(self, container_tool_map = {}):
-        # this maps a command to its full docker name or singularity name
+    def __init__(self, container_tool_map = [{}, None]):
+        # this maps a command to its full docker name
         #   the first index is a dictionary containing docker tool names
-        #   the second index is a dictionary containing singularity tool names
+        #   the second index is a string that represents which container
+        #   support to use.
         # example:  docker_tool_map['vg'] = 'quay.io/ucsc_cgl/vg:latest'
-        # example:  singularity_tool_map['vg'] = 'shub://cmarkello/vg'
+        #           container_support = 'Docker'
         self.docker_tool_map = container_tool_map[0]
-        self.singularity_tool_map = container_tool_map[1]
+        self.container_support = container_tool_map[1]
 
     def has_tool(self, tool):
         # return true if we have an image for this tool
-        return tool in self.docker_tool_map or tool in self.singularity_tool_map
+        return tool in self.docker_tool_map[0] or tool in self.singularity_tool_map
 
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
              check_output = False, tool_name=None):
@@ -99,10 +86,11 @@ to do: Should go somewhere more central """
             args[i] = [str(x) for x in args[i]]
         name = tool_name if tool_name is not None else args[0][0]
 
-        if name in self.docker_tool_map and self.docker_tool_map[name] and\
-           self.docker_tool_map[name].lower() != 'none':
+        if self.container_support == 'Docker' and name in self.docker_tool_map and\
+           self.docker_tool_map[name] and self.docker_tool_map[name].lower() != 'none':
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
-        elif name in self.singularity_tool_map:
+        elif self.container_support == 'Singularity' and name in self.docker_tool_map and\
+           self.docker_tool_map[name] and self.docker_tool_map[name].lower() != 'none':
             return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name)
         else:
             return self.call_directly(args, work_dir, outfile, errfile, check_output)
@@ -181,27 +169,21 @@ to do: Should go somewhere more central """
         # we use the first argument to look up the tool in the singularity map
         # but allow overriding of this with the tool_name parameter
         name = tool_name if tool_name is not None else args[0][0]
-        smap_val = self.singularity_tool_map[name]
-        tool, entrypoint = smap_val[0], smap_val[1]
+        tool = self.docker_tool_map[name]
         
         if len(args) == 1:
-            # one command: we check entry point (stripping first arg if necessary)
-            # and pass in single args list
-            if entrypoint:
-                parameters = args[0][1:]
-            else:
-                parameters = args[0]
+            # split off first argument as entrypoint (so we can be oblivious as to whether
+            # that happens by default)
+            parameters = [] if len(args[0]) == 1 else args[0]
         else:
             # can leave as is for piped interface which takes list of args lists
             # and doesn't worry about entrypoints since everything goes through bash
             parameters = args
 
         singularity_parameters = None
-        # vg uses TMPDIR for temporary files
-        # this is particularly important for gcsa, which makes massive files.
-        # we will default to keeping these in our working directory
+        # set our working directory map        
         if work_dir is not None:
-            singularity_parameters = ['-H', '{}:/data'.format(os.path.abspath(work_dir)), '--bind', '{}:/data'.format(os.path.abspath(work_dir))]
+            singularity_parameters = ['-H', '{}:{}'.format(os.path.abspath(work_dir), os.environ.get('HOME'))]
 
         if check_output is True:
             ret = singularityCheckOutput(job, tool, parameters=parameters,
