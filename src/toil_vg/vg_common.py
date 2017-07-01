@@ -174,16 +174,14 @@ to do: Should go somewhere more central """
         if len(args) == 1:
             # split off first argument as entrypoint (so we can be oblivious as to whether
             # that happens by default)
-            parameters = [] if len(args[0]) == 1 else args[0][1:]
+            parameters = [] if len(args[0]) == 1 else args[0]
         else:
             # can leave as is for piped interface which takes list of args lists
             # and doesn't worry about entrypoints since everything goes through bash
             parameters = args
 
         singularity_parameters = None
-        # vg uses TMPDIR for temporary files
-        # this is particularly important for gcsa, which makes massive files.
-        # we will default to keeping these in our working directory
+        # set our working directory map        
         if work_dir is not None:
             singularity_parameters = ['-H', '{}:{}'.format(os.path.abspath(work_dir), os.environ.get('HOME'))]
 

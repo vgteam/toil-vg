@@ -89,6 +89,9 @@ def _singularity(job,
     if workDir is None:
         workDir = os.getcwd()
 
+    # Make docker image url compatible with singularity 
+    tool = 'docker://'+tool
+
     # Setup the outgoing subprocess call for singularity
     baseSingularityCall = ['singularity', 'exec']
     if singularityParameters:
