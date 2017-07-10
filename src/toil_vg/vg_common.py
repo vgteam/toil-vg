@@ -262,27 +262,6 @@ def clean_toil_path(path):
     else:
         return path
 
-def init_out_store(options, command):
-    """
-    Write a little bit of logging to the output store.
-    
-    Rely on IOStore to create the store if it doesn't exist
-    as well as to check its a valid location. 
-
-    Do this at very beginning to avoid finding an outstore issue
-    after hours spent computing
-     
-    """
-    f = tempfile.NamedTemporaryFile(delete=True)
-    now = datetime.datetime.now()
-    f.write('{}\ntoil-vg {} version {}\nOptions:'.format(now, command,
-                    pkg_resources.get_distribution('toil-vg').version))
-    for key,val in options.__dict__.items():
-        f.write('{}: {}\n'.format(key, val))
-    f.flush()
-    IOStore.get(options.out_store).write_output_file(f.name, 'toil-vg-{}.txt'.format(command))
-    f.close()
-
 def import_to_store(toil, options, path, use_out_store = None,
                     out_store_key = None):
     """

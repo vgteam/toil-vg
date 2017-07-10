@@ -33,6 +33,7 @@ from toil_vg.vg_vcfeval import *
 from toil_vg.vg_config import *
 from toil_vg.vg_sim import *
 from toil_vg.vg_mapeval import *
+from toil_vg.context import Context
 
 logger = logging.getLogger(__name__)
 
@@ -275,34 +276,24 @@ def main():
         config_main(args)
         return
 
-    # Else we merge in our config file args with the command line args for
-    # whatever subparser we're in
-    options = apply_config_file_args(args)
-
-    # Relative outstore paths can end up who-knows-where.  Make absolute.
-    if options.out_store[0] == '.':
-        options.out_store = os.path.abspath(options.out_store)
-
+    # Otherwise, we are going to run an actual Toil pipeline
+    # Get a context so we can use the toil-vg library
+    context = Context(args.out_store, args)
+    
     if args.command == 'vcfeval':
-        vcfeval_main(options)
-        return
-
-    # Make sure the output store exists and is valid, and through
-    # a little record of the command line options and version inside it. 
-    init_out_store(options, args.command)
-
-    if args.command == 'run':
-        pipeline_main(options)
+        vcfeval_main(context.to_options(args))
+    elif args.command == 'run':
+        pipeline_main(context.to_options(args))
     elif args.command == 'index':
-        index_main(options)
+        index_main(context.to_options(args))
     elif args.command == 'map':
-        map_main(options)
+        map_main(context.to_options(args))
     elif args.command == 'call':
-        call_main(options)
+        call_main(context.to_options(args))
     elif args.command == 'sim':
-        sim_main(options)
+        sim_main(context.to_options(args))
     elif args.command == 'mapeval':
-        mapeval_main(options)
+        mapeval_main(context.to_options(args))
         
     
 def pipeline_main(options):
