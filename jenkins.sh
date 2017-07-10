@@ -7,6 +7,9 @@ rm -rf .env
 virtualenv --never-download .env
 . .env/bin/activate
 
+# Upgrade pip
+pip install --upgrade pip
+
 # Prepare directory for temp files
 TMPDIR=/mnt/ephemeral/tmp
 rm -rf $TMPDIR
