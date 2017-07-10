@@ -27,6 +27,8 @@ try:
 except:
     have_sklearn = False
 
+import tsv
+
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
@@ -85,6 +87,10 @@ def mapeval_subparser(parser):
     parser.add_argument('--bwa-opts', type=str,
                         help='arguments for bwa mem (wrapped in \"\").')
     
+    # We can compare all the scores against those from a particular GAM, if asked.
+    parser.add_argument('--compare-gam-scores', default=None,
+                        help='compare scores against those in the given named GAM')
+    
     # Add mapping options
     map_parse_args(parser)
 
@@ -93,6 +99,13 @@ def mapeval_subparser(parser):
 
     # Add common docker options
     add_container_tool_parse_args(parser)
+    
+def parse_int(value):
+    """
+    Parse an int, interpreting an empty string as 0.
+    """
+    
+    return int(value) if value.strip() != '' else 0
 
 def run_bwa_index(job, options, gam_file_id, fasta_file_id, bwa_index_ids):
     """
@@ -108,19 +121,19 @@ def run_bwa_index(job, options, gam_file_id, fasta_file_id, bwa_index_ids):
         for idx_file in glob.glob('{}.*'.format(fasta_file)):
             bwa_index_ids[idx_file[len(fasta_file):]] = write_to_store(job, options, idx_file)
 
-    bwa_pos_file_id = None
-    bwa_pair_pos_file_id = None
+    bwa_stats_file_id = None
+    bwa_pair_stats_file_id = None
                     
     if options.bwa:
-        bwa_pos_file_id = job.addChildJobFn(run_bwa_mem, options, gam_file_id, bwa_index_ids, False,
+        bwa_stats_file_id = job.addChildJobFn(run_bwa_mem, options, gam_file_id, bwa_index_ids, False,
                                             cores=options.alignment_cores, memory=options.alignment_mem,
                                             disk=options.alignment_disk).rv()
     if options.bwa_paired:
-        bwa_pair_pos_file_id = job.addChildJobFn(run_bwa_mem, options, gam_file_id, bwa_index_ids, True,
+        bwa_pair_stats_file_id = job.addChildJobFn(run_bwa_mem, options, gam_file_id, bwa_index_ids, True,
                                                  cores=options.alignment_cores, memory=options.alignment_mem,
                                                  disk=options.alignment_disk).rv()
 
-    return bwa_pos_file_id, bwa_pair_pos_file_id
+    return bwa_stats_file_id, bwa_pair_stats_file_id
 
     
 def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
@@ -216,10 +229,16 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
 
     return bam_file_id
 
-def get_bam_positions(job, options, name, bam_file_id, paired):
+def extract_bam_read_stats(job, options, name, bam_file_id, paired):
     """
-    extract positions from bam, return id of positions file
+    extract positions, scores, and MAPQs from bam, return id of read stats file
     (lots of duplicated code with vg_sim, should merge?)
+    
+    Produces a read stats TSV of the format:
+    read name, contig aligned to, alignment position, score, MAPQ
+    
+    TODO: Currently scores are not extracted and a score of 0 is always
+    returned.
 
     """
 
@@ -229,26 +248,35 @@ def get_bam_positions(job, options, name, bam_file_id, paired):
     bam_file = os.path.join(work_dir, name)
     read_from_store(job, options, bam_file_id, bam_file)
 
-    out_pos_file = bam_file + '.pos'
+    out_pos_file = bam_file + '.tsv'
 
     cmd = [['samtools', 'view', os.path.basename(bam_file)]]
     cmd.append(['grep', '-v', '^@'])
     if paired:
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "_" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t" . @val[2] . "\t" . @val[3] . "\t" . @val[4] . "\n";'])
+        # Now we use inline perl to parse the SAM flags and synthesize TSV
+        # TODO: will need to switch to something more powerful to parse the score out of the AS tag. For now score everything as 0.
+        # TODO: why _ and not / as the read name vs end number delimiter?
+        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "_" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t" . @val[2] . "\t" . @val[3] . "\t0\t" . @val[4] . "\n";'])
     else:
-        cmd.append(['cut', '-f', '1,3,4,5'])
+        # No flags to parse since there's no end pairing and read names are correct.
+        # Use inline perl again and insert a fake 0 score column
+        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t" . @val[2] . "\t" . @val[3] . "\t0\t" . @val[4] . "\n";'])
     cmd.append(['sort'])
     
     with open(out_pos_file, 'w') as out_pos:
         options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_pos)
 
-    pos_file_id = write_to_store(job, options, out_pos_file)
-    return pos_file_id
+    stats_file_id = write_to_store(job, options, out_pos_file)
+    return stats_file_id
 
     
-def get_gam_positions(job, options, xg_file_id, name, gam_file_id):
+def extract_gam_read_stats(job, options, xg_file_id, name, gam_file_id):
     """
-    extract positions from gam, return id of positions file
+    extract positions, scores, and MAPQs for reads from gam, return id of
+    read stats file
+    
+    Produces a read stats TSV of the format:
+    read name, contig aligned to, alignment position, score, MAPQ
 
     """
 
@@ -260,7 +288,190 @@ def get_gam_positions(job, options, xg_file_id, name, gam_file_id):
     gam_file = os.path.join(work_dir, name)
     read_from_store(job, options, gam_file_id, gam_file)
 
-    out_pos_file = gam_file + '.pos'
+    out_pos_file = gam_file + '.tsv'
+                           
+    # go through intermediate json file until docker worked out
+    gam_annot_json = gam_file + '.json'
+    cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
+    cmd.append(['vg', 'view', '-aj', '-'])
+    with open(gam_annot_json, 'w') as output_annot_json:
+        options.drunner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+
+    # turn the annotated gam json into truth positions, as separate command since
+    # we're going to use a different docker container.  (Note, would be nice to
+    # avoid writing the json to disk)        
+    jq_cmd = [['jq', '-c', '-r', '[.name, .refpos[0].name, .refpos[0].offset, .score,'
+               'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
+               os.path.basename(gam_annot_json)]]
+    jq_cmd.append(['sed', 's/null/0/g'])
+
+    with open(out_pos_file + '.unsorted', 'w') as out_pos:
+        options.drunner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
+
+    # get rid of that big json asap
+    os.remove(gam_annot_json)
+
+    # sort the read stats file (not piping due to memory fears)
+    sort_cmd = ['sort', os.path.basename(out_pos_file) + '.unsorted']
+    with open(out_pos_file, 'w') as out_pos:
+        options.drunner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
+
+    # Make sure each line has all columns
+    RealtimeLogger.info("Make sure all lines are full length")
+    options.drunner.call(job, ['awk', '!length($5)',  os.path.basename(out_pos_file)], work_dir = work_dir)
+
+    out_stats_file_id = write_to_store(job, options, out_pos_file)
+    return out_stats_file_id
+    
+def compare_positions(job, options, truth_file_id, name, stats_file_id):
+    """
+    this is essentially pos_compare.py from vg/scripts
+    return output file id.
+    
+    Compares positions from two TSV files. The truth has the format:
+    read name, contig simulated from, true position
+    
+    And the file under test is a read stats TSV with the format:
+    read name, contig aligned to, alignment position, alignment score, MAPQ
+    
+    Produces a CSV (NOT TSV) of the form:
+    read name, correctness flag (0/1), MAPQ
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    true_read_stats_file = os.path.join(work_dir, 'true.tsv')
+    read_from_store(job, options, truth_file_id, true_read_stats_file)
+    test_read_stats_file = os.path.join(work_dir, name + '.tsv')
+    read_from_store(job, options, stats_file_id, test_read_stats_file)
+
+    out_file = os.path.join(work_dir, name + '.compare.positions')
+
+    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, \
+         open(out_file, 'w') as out:
+        line_no = 0
+        for true_fields, test_fields in itertools.izip(tsv.TsvReader(truth), tsv.TsvReader(test)):
+            # Zip everything up and assume that the reads correspond
+            line_no += 1
+            # every input has a true position
+            true_read_name = true_fields[0]
+            if len(true_fields) != 3 or len(test_fields) != 5:
+                # With the new TSV reader, the files should always have the
+                # correct field counts. Some fields just might be empty.
+                raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
+                    line_no, name, true_fields, test_fields))
+            
+            true_chr = true_fields[1]
+            true_pos = parse_int(true_fields[2])
+            aln_read_name = test_fields[0]
+            if aln_read_name != true_read_name:
+                raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
+                    line_no, true_read_stats_file, test_read_stats_file, true_read_name, aln_read_name))
+            aln_chr = test_fields[1]
+            aln_pos = parse_int(test_fields[2])
+            # Skip over score field
+            aln_mapq = parse_int(test_fields[4])
+            aln_correct = 1 if aln_chr == true_chr and abs(true_pos - aln_pos) < options.mapeval_threshold else 0
+
+            out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
+        
+        # make sure same length
+        has_next = False
+        try:
+            iter(truth).next()
+            has_next = True
+        except:
+            pass
+        try:
+            iter(test).next()
+            has_next = True
+        except:
+            pass
+        if has_next:
+            raise RuntimeError('read stats files have different lengths')
+        
+    out_file_id = write_to_store(job, options, out_file)
+    return out_file_id
+    
+def compare_scores(job, options, baseline_file_id, name, score_file_id):
+    """
+    Compares scores from TSV files. The baseline and file under test both have
+    the format:
+    read name, contig aligned to, alignment position, alignment score, MAPQ
+    
+    Produces a CSV (NOT TSV) of the form:
+    read name, score difference
+    
+    Uses the given name as a file base name for the file under test.
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    baseline_read_stats_file = os.path.join(work_dir, 'baseline.tsv')
+    read_from_store(job, options, baseline_file_id, baseline_read_stats_file)
+    test_read_stats_file = os.path.join(work_dir, name + '.tsv')
+    read_from_store(job, options, score_file_id, test_read_stats_file)
+
+    out_file = os.path.join(work_dir, name + '.compare.scores')
+
+    with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test, \
+         open(out_file, 'w') as out:
+        line_no = 0
+        for baseline_fields, test_fields in itertools.izip(tsv.TsvReader(baseline), tsv.TsvReader(test)):
+            # Zip everything up and assume that the reads correspond
+            line_no += 1
+            
+            if len(baseline_fields) != 5 or len(test_fields) != 5:
+                raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
+                    line_no, name, baseline_fields, test_fields))
+            
+            if baseline_fields[0] != test_fields[0]:
+                # Read names must correspond or something has gone wrong
+                raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
+                    line_no, baseline_read_stats_file, test_read_stats_file, baseline_fields[0], test_fields[0]))
+            
+            # Order is: name, conting, pos, score, mapq
+            aligned_score = test_fields[3]
+            baseline_score = baseline_fields[3]
+            # Compute the score difference. Scores are integers.
+            score_diff = parse_int(aligned_score) - parse_int(baseline_score)
+            
+            # Report the score difference            
+            out.write('{}, {}, {}, {}\n'.format(baseline_fields[0], score_diff, aligned_score, baseline_score))
+        
+        # make sure same length
+        has_next = False
+        try:
+            iter(baseline).next()
+            has_next = True
+        except:
+            pass
+        try:
+            iter(test).next()
+            has_next = True
+        except:
+            pass
+        if has_next:
+            raise RuntimeError('read stats files have different lengths')
+        
+    out_file_id = write_to_store(job, options, out_file)
+    return out_file_id
+
+def get_gam_scores(job, options, xg_file_id, name, gam_file_id):
+    """
+    extract read stats from gam, return id of scores file
+    
+    Read stats file is a TSV of read name, contig name, contig offset, score, mapping quality
+
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # download input
+    xg_file = os.path.join(work_dir, '{}.xg'.format(name))
+    read_from_store(job, options, xg_file_id, xg_file)
+    gam_file = os.path.join(work_dir, name)
+    read_from_store(job, options, gam_file_id, gam_file)
+
+    out_pos_file = gam_file + '.tsv'
                            
     # go through intermediate json file until docker worked out
     gam_annot_json = gam_file + '.json'
@@ -288,73 +499,14 @@ def get_gam_positions(job, options, xg_file_id, name, gam_file_id):
     with open(out_pos_file, 'w') as out_pos:
         options.drunner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
 
-    out_pos_file_id = write_to_store(job, options, out_pos_file)
-    return out_pos_file_id
-    
-def compare_positions(job, options, truth_file_id, name, pos_file_id):
-    """
-    this is essentially pos_compare.py from vg/scripts
-    return output file id.
-    """
-    work_dir = job.fileStore.getLocalTempDir()
-
-    true_pos_file = os.path.join(work_dir, 'true.pos')
-    read_from_store(job, options, truth_file_id, true_pos_file)
-    test_pos_file = os.path.join(work_dir, name + '.pos')
-    read_from_store(job, options, pos_file_id, test_pos_file)
-
-    out_file = os.path.join(work_dir, name + '.compare')
-
-    with open(true_pos_file) as truth, open(test_pos_file) as test, \
-         open(out_file, 'w') as out:
-        line_no = 0
-        for truth_line, test_line in zip(truth, test):
-            line_no += 1
-            true_fields = truth_line.split()
-            test_fields = test_line.split()
-            # every input has a true position, and if it has less than the expected number of fields we assume alignment failed
-            true_read_name = true_fields[0]
-            if len(true_fields) + len(test_fields) != 7:
-                out.write('{}, 0, 0\n'.format(true_read_name))
-                continue
-            
-            true_chr = true_fields[1]
-            true_pos = int(true_fields[2])
-            aln_read_name = test_fields[0]
-            if aln_read_name != true_read_name:
-                raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
-                    line_no, true_pos_file, test_pos_file, true_read_name, aln_read_name))
-            aln_chr = test_fields[1]
-            aln_pos = int(test_fields[2])
-            aln_mapq = int(test_fields[3])
-            aln_correct = 1 if aln_chr == true_chr and abs(true_pos - aln_pos) < options.mapeval_threshold else 0
-
-            out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
-        
-        # make sure same length
-        has_next = False
-        try:
-            iter(truth).next()
-            has_next = True
-        except:
-            pass
-        try:
-            iter(test).next()
-            has_next = True
-        except:
-            pass
-        if has_next:
-            raise RuntimeError('position files have different lengths')
-        
-    out_file_id = write_to_store(job, options, out_file)
-    return out_file_id
-
+    out_stats_file_id = write_to_store(job, options, out_pos_file)
+    return out_stats_file_id
 
 
 def run_map_eval_index(job, options, xg_file_ids, gcsa_file_ids, id_range_file_ids,
                        vg_file_ids, gam_file_ids,
                        bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
-                       fasta_file_id, bwa_index_ids, true_pos_file_id):
+                       fasta_file_id, bwa_index_ids, true_read_stats_file_id):
     """ create indexes for the input vg graphs.  if none specified, then we just pass through 
     the input indexes """
 
@@ -376,12 +528,12 @@ def run_map_eval_index(job, options, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return job.addFollowOnJobFn(run_map_eval_align, options, index_ids, gam_file_ids,
                                 bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
-                                fasta_file_id, bwa_index_ids, true_pos_file_id).rv()
+                                fasta_file_id, bwa_index_ids, true_read_stats_file_id).rv()
             
 
 
 def run_map_eval_align(job, options, index_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
-                       fasta_file_id, bwa_index_ids, true_pos_file_id):
+                       fasta_file_id, bwa_index_ids, true_read_stats_file_id):
     """ run some alignments for the comparison if required"""
 
     do_vg_mapping = not gam_file_ids
@@ -428,10 +580,10 @@ def run_map_eval_align(job, options, index_ids, gam_file_ids, bam_file_ids, pe_b
 
     return job.addFollowOnJobFn(run_map_eval, options, xg_ids, gam_file_ids, bam_file_ids,
                                 pe_bam_file_ids, bwa_bam_file_ids,
-                                true_pos_file_id, cores=options.misc_cores,
+                                true_read_stats_file_id, cores=options.misc_cores,
                                 memory=options.misc_mem, disk=options.misc_disk).rv()
 
-def run_map_eval(job, options, xg_file_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_pos_file_id):
+def run_map_eval(job, options, xg_file_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_read_stats_file_id):
     """ run the mapping comparison.  Dump some tables into the outstore """
 
     # munge out the returned pair from run_bwa_index()
@@ -442,23 +594,23 @@ def run_map_eval(job, options, xg_file_ids, gam_file_ids, bam_file_ids, pe_bam_f
         pe_bam_file_ids.append(bwa_bam_file_ids[1])
         options.pe_bam_names.append('bwa-mem-pe')
 
-    # get the bwa positions, one id for each bam_name
-    bam_pos_file_ids = []
+    # get the bwa read alignment statistics, one id for each bam_name
+    bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(bam_file_ids):
         name = '{}-{}.bam'.format(options.bam_names[bam_i], bam_i)
-        bam_pos_file_ids.append(job.addChildJobFn(get_bam_positions, options, name, bam_id, False,
-                                                  cores=options.misc_cores, memory=options.misc_mem,
-                                                  disk=options.misc_disk).rv())
+        bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, options, name, bam_id, False,
+                                                    cores=options.misc_cores, memory=options.misc_mem,
+                                                    disk=options.misc_disk).rv())
     # separate flow for paired end bams because different logic used
-    pe_bam_pos_file_ids = []
+    pe_bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(pe_bam_file_ids):
         name = '{}-{}.bam'.format(options.pe_bam_names[bam_i], bam_i)
-        pe_bam_pos_file_ids.append(job.addChildJobFn(get_bam_positions, options, name, bam_id, True,
-                                                     cores=options.misc_cores, memory=options.misc_mem,
-                                                     disk=options.misc_disk).rv())
+        pe_bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, options, name, bam_id, True,
+                                                       cores=options.misc_cores, memory=options.misc_mem,
+                                                       disk=options.misc_disk).rv())
 
-    # get the gam positions, one for each gam_name (todo: run vg map like we do bwa?)
-    gam_pos_file_ids = []
+    # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
+    gam_stats_file_ids = []
     for gam_i, gam_id in enumerate(gam_file_ids):
         name = '{}-{}.gam'.format(options.gam_names[gam_i], gam_i)
         # run_mapping will return a list of gam_ids.  since we don't
@@ -467,62 +619,82 @@ def run_map_eval(job, options, xg_file_ids, gam_file_ids, bam_file_ids, pe_bam_f
         if type(gam_id) is list:
             assert len(gam_id) == 1
             gam = gam_id[0]
-        gam_pos_file_ids.append(job.addChildJobFn(get_gam_positions, options, xg_file_ids[gam_i], name, gam,
-                                                  cores=options.misc_cores, memory=options.misc_mem,
-                                                  disk=options.misc_disk).rv())
+        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, options, xg_file_ids[gam_i], name, gam,
+                                                    cores=options.misc_cores, memory=options.misc_mem,
+                                                    disk=options.misc_disk).rv())
 
     # compare all our positions
-    comparison_results = job.addFollowOnJobFn(run_map_eval_compare, options, true_pos_file_id,
-                                              gam_pos_file_ids, bam_pos_file_ids, pe_bam_pos_file_ids,
-                                              cores=options.misc_cores, memory=options.misc_mem,
-                                              disk=options.misc_disk).rv()
+    position_comparison_results = job.addFollowOnJobFn(run_map_eval_compare_positions, options, true_read_stats_file_id,
+                                                       gam_stats_file_ids, bam_stats_file_ids, pe_bam_stats_file_ids,
+                                                       cores=options.misc_cores, memory=options.misc_mem,
+                                                       disk=options.misc_disk).rv()
+    
+    if options.compare_gam_scores is not None:
+        # We want to compare the scores from all the GAMs against a baseline
         
+        # Make a dict mapping from assigned GAM name in options.gam_names to the stats file for that GAM's alignment
+        name_to_stats_id = dict(itertools.izip(options.gam_names, gam_stats_file_ids))
+        
+        # Find the baseline scores
+        baseline_stats_id = name_to_stats_id[options.compare_gam_scores]
+        
+        # compare all our scores against the baseline
+        # Nothing is returned, all results are dumped to the out store
+        job.addFollowOnJobFn(run_map_eval_compare_scores, options, baseline_stats_id,
+                             gam_stats_file_ids, bam_stats_file_ids, pe_bam_stats_file_ids,
+                             cores=options.misc_cores, memory=options.misc_mem,
+                             disk=options.misc_disk).rv()
+        
+    return position_comparison_results
 
-    return comparison_results
-
-def run_map_eval_compare(job, options, true_pos_file_id, gam_pos_file_ids,
-                         bam_pos_file_ids, pe_bam_pos_file_ids):
+def run_map_eval_compare_positions(job, options, true_read_stats_file_id, gam_stats_file_ids,
+                         bam_stats_file_ids, pe_bam_stats_file_ids):
     """
     run compare on the positions
     """
 
     # merge up all the output data into one list
     names = options.gam_names + options.bam_names + options.pe_bam_names
-    pos_file_ids = gam_pos_file_ids + bam_pos_file_ids + pe_bam_pos_file_ids
+    stats_file_ids = gam_stats_file_ids + bam_stats_file_ids + pe_bam_stats_file_ids
 
     compare_ids = []
-    for name, pos_file_id in zip(names, pos_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_positions, options, true_pos_file_id, name, pos_file_id,
+    for name, stats_file_id in zip(names, stats_file_ids):
+        compare_ids.append(job.addChildJobFn(compare_positions, options, true_read_stats_file_id, name, stats_file_id,
                                              cores=options.misc_cores, memory=options.misc_mem,
                                              disk=options.misc_disk).rv())
 
-    return job.addFollowOnJobFn(run_process_comparisons, options, names, compare_ids,
+    return job.addFollowOnJobFn(run_process_position_comparisons, options, names, compare_ids,
                                 cores=options.misc_cores, memory=options.misc_mem,
                                 disk=options.misc_disk).rv()
 
-def run_process_comparisons(job, options, names, compare_ids):
+def run_process_position_comparisons(job, options, names, compare_ids):
     """
-    Write some raw tables to the output.  Compute some stats for each graph
+    Write some raw tables of position comparisons to the output.  Compute some stats for each graph
     """
 
     work_dir = job.fileStore.getLocalTempDir()
 
     map_stats = []
 
-    # make the results.tsv and stats.tsv
-    results_file = os.path.join(work_dir, 'results.tsv')
+    # make the position.results.tsv and position.stats.tsv
+    results_file = os.path.join(work_dir, 'position.results.tsv')
     with open(results_file, 'w') as out_results:
         out_results.write('correct\tmq\taligner\n')
 
         def write_tsv(comp_file, a):
+            """
+            Read the given comparison CSV for the given condition name, and dump
+            it to the combined results file.
+            """
             with open(comp_file) as comp_in:
                 for line in comp_in:
                     toks = line.rstrip().split(', ')
+                    # TODO: why are we quoting the aligner name here? What parses TSV and respects quotes?
                     out_results.write('{}\t{}\t"{}"\n'.format(toks[1], toks[2], a))
 
         for i, nci in enumerate(zip(names, compare_ids)):
             name, compare_id = nci[0], nci[1]
-            compare_file = os.path.join(work_dir, '{}-{}.compare'.format(name, i))
+            compare_file = os.path.join(work_dir, '{}-{}.compare.positions'.format(name, i))
             read_from_store(job, options, compare_id, compare_file)
             write_to_store(job, options, compare_file, use_out_store = True)
             write_tsv(compare_file, name)
@@ -536,11 +708,13 @@ def run_process_comparisons(job, options, names, compare_ids):
             
     write_to_store(job, options, results_file, use_out_store = True)
 
-    return job.addFollowOnJobFn(run_write_stats, options, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_position_stats, options, names, map_stats).rv()
 
-def run_write_stats(job, options, names, map_stats):
+def run_write_position_stats(job, options, names, map_stats):
     """
-    write the stats as tsv
+    write the position comparison statistics as tsv
+    
+    This is different than the stats TSV format used internally, for read stats.
     """
 
     work_dir = job.fileStore.getLocalTempDir()
@@ -552,7 +726,7 @@ def run_write_stats(job, options, names, map_stats):
                                                           stats[1][0], stats[2]))
 
     write_to_store(job, options, stats_file, use_out_store = True)
-
+    
 def run_acc(job, options, name, compare_id):
     """
     Percentage of correctly aligned reads (ignore quality)
@@ -560,7 +734,7 @@ def run_acc(job, options, name, compare_id):
     
     work_dir = job.fileStore.getLocalTempDir()
 
-    compare_file = os.path.join(work_dir, '{}.compare'.format(name))
+    compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
     read_from_store(job, options, compare_id, compare_file)
     
     total = 0
@@ -584,7 +758,7 @@ def run_auc(job, options, name, compare_id):
     
     work_dir = job.fileStore.getLocalTempDir()
 
-    compare_file = os.path.join(work_dir, '{}.compare'.format(name))
+    compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
     read_from_store(job, options, compare_id, compare_file)
 
     try:
@@ -606,7 +780,7 @@ def run_qq(job, options, name, compare_id):
 
     work_dir = job.fileStore.getLocalTempDir()
 
-    compare_file = os.path.join(work_dir, '{}.compare'.format(name))
+    compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
     read_from_store(job, options, compare_id, compare_file)
 
     try:
@@ -635,6 +809,128 @@ def run_qq(job, options, name, compare_id):
 
     return r2
     
+def run_map_eval_compare_scores(job, options, baseline_stats_file_id, gam_stats_file_ids,
+                                bam_stats_file_ids, pe_bam_stats_file_ids):
+    """
+    Compare scores in the given stats files in the lists to those in the given
+    baseline stats file.
+    
+    Stats file format is a TSV of:
+    read name, contig name, contig offset, score, mapping quality
+    
+    Will save the output to the outstore, as a CSV of read name and score
+    difference, named <GAM/BAM name>.compare.scores.
+    
+    Will also save a concatenated TSV file, with score difference and quoted
+    aligner/condition name, as score.results.tsv
+    
+    For now, just ignores BAMs because we don't pull in pysam to parse out their
+    scores.
+    
+    """
+    
+    # merge up all the condition names and file IDs into synchronized lists
+    # TODO: until we can extract the scores from BAMs, just process the GAMs
+    names = options.gam_names
+    stats_file_ids = gam_stats_file_ids
+    
+    RealtimeLogger.info(names)
+    RealtimeLogger.info(stats_file_ids)
+
+    compare_ids = []
+    for name, stats_file_id in zip(names, stats_file_ids):
+        compare_ids.append(job.addChildJobFn(compare_scores, options, baseline_stats_file_id, name, stats_file_id,
+                                             cores=options.misc_cores, memory=options.misc_mem,
+                                             disk=options.misc_disk).rv())
+
+    job.addFollowOnJobFn(run_process_score_comparisons, options, names, compare_ids,
+                         cores=options.misc_cores, memory=options.misc_mem,
+                         disk=options.misc_disk)
+
+def run_process_score_comparisons(job, options, names, compare_ids):
+    """
+    Write some raw tables of score comparisons to the output.  Compute some stats for each graph
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Holds a list (by aligner) of lists (by type of statistic) of stats info
+    # (that might be tuples, depending on the stat)
+    # TODO: Change this to dicts by stat type.
+    map_stats = []
+
+    # make the score.results.tsv, which holds score differences and aligner/condition names.
+    results_file = os.path.join(work_dir, 'score.results.tsv')
+    with open(results_file, 'w') as out_results_file:
+        out_results = tsv.TsvWriter(out_results_file)
+        out_results.comment('diff\taligner')
+
+        def write_tsv(comp_file, a):
+            """
+            Read the given comparison CSV for the given condition name, and dump
+            it to the combined results file.
+            """
+            with open(comp_file) as comp_in:
+                for line in comp_in:
+                    toks = line.rstrip().split(', ')
+                    out_results.line(toks[1], a)
+
+        for i, nci in enumerate(zip(names, compare_ids)):
+            name, compare_id = nci[0], nci[1]
+            compare_file = os.path.join(work_dir, '{}-{}.compare.scores'.format(name, i))
+            read_from_store(job, options, compare_id, compare_file)
+            write_to_store(job, options, compare_file, use_out_store = True)
+            write_tsv(compare_file, name)
+
+            # Tabulate overall statistics
+            map_stats.append([job.addChildJobFn(run_portion_worse, options, name, compare_id, cores=options.misc_cores,
+                                                memory=options.misc_mem, disk=options.misc_disk).rv()])
+            
+    write_to_store(job, options, results_file, use_out_store = True)
+    
+    return job.addFollowOnJobFn(run_write_score_stats, options, names, map_stats).rv()
+    
+def run_write_score_stats(job, options, names, map_stats):
+    """
+    write the score comparison statistics as tsv
+    
+    This is different than the stats TSV format used internally, for read stats.
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+    stats_file = os.path.join(work_dir, 'score.stats.tsv')
+    with open(stats_file, 'w') as stats_out_file:
+        # Put each stat as a different column.
+        stats_out = tsv.TsvWriter(stats_out_file)
+        stats_out.comment('aligner\tcount\tworse')
+        for name, stats in zip(names, map_stats):
+            stats_out.line(name, stats[0][0], stats[0][1])
+
+    write_to_store(job, options, stats_file, use_out_store = True)
+    
+def run_portion_worse(job, options, name, compare_id):
+    """
+    Compute percentage of reads that get worse from the baseline graph.
+    Return total reads and portion that got worse.
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    compare_file = os.path.join(work_dir, '{}.compare.scores'.format(name))
+    read_from_store(job, options, compare_id, compare_file)
+    
+    total = 0
+    worse = 0
+    with open(compare_file) as compare_f:
+        for line in compare_f:
+            toks = line.split(', ')
+            total += 1
+            if int(toks[1]) < 0:
+                worse += 1
+                
+    portion = float(worse) / float(total) if total > 0 else 0
+    return total, portion
+
 def mapeval_main(options):
     """
     Wrapper for vg map. 
