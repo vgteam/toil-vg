@@ -10,12 +10,11 @@ from contextlib import closing
 from unittest import TestCase, skip
 from urlparse import urlparse
 from uuid import uuid4
+import urllib2
 
 import os
 import posixpath
 from bd2k.util.iterables import concat
-from boto.s3.connection import S3Connection, Bucket
-from boto.s3.key import Key
 from toil_vg.iostore import IOStore
 
 log = logging.getLogger(__name__)
@@ -23,15 +22,7 @@ log = logging.getLogger(__name__)
 
 class VGCGLTest(TestCase):
     """
-    These tests *can* be parameterized with the following optional environment variables:
-
-    TOIL_SCRIPTS_TEST_TOIL_OPTIONS - a space-separated list of additional command line arguments to pass to Toil via
-    the script entry point. Default is the empty string.
-
-    TOIL_SCRIPTS_TEST_JOBSTORE - the job store locator to use for the tests. The default is a file: locator pointing
-    at a local temporary directory.
-
-    TOIL_SCRIPTS_TEST_NUM_SAMPLES - the number of sample lines to generate in the input manifest
+    Test toil-vg to make sure it is working correctly on some fixed input data.
     """
 
     @classmethod
@@ -41,25 +32,30 @@ class VGCGLTest(TestCase):
         logging.basicConfig(level=logging.INFO)
 
     def _ci_input_path(self, filename):
-        return os.path.join('s3://', self.bucket_name, self.folder_name, filename)
+        """
+        Get the URL from which an input file can be obtained.
+        """
+        return 'https://{}.s3.amazonaws.com/{}/{}'.format(self.bucket_name, self.folder_name, filename)
     
     def _download_input(self, filename, local_path = None):
+        # Where should we put this input file?
         tgt = os.path.join(self.workdir, filename) if local_path is None else local_path
+        # And where does it come from?
+        url = self._ci_input_path(filename)
+        print(url)
         with open(tgt, 'w') as f:
-            print('s3://{}/{}/{}'.format(self.bucket_name, self.folder_name, filename))
-            self.bucket.get_key('/{}/{}'.format(self.folder_name, filename)).get_contents_to_file(f)
-        
+            # Download the file from the URL
+            connection = urllib2.urlopen(url)
+            shutil.copyfileobj(connection, f)
+
     def setUp(self):
         self.workdir = tempfile.mkdtemp()
-        self.jobStoreAWS = 'aws:us-west-2:testvg-{}'.format(uuid4())
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
 
         # input files all in same bucket folder, which is specified (only) here:
         self.bucket_name = 'cgl-pipeline-inputs'
         self.folder_name = 'vg_cgl/toil_vg_ci'
         
-        self.connection = S3Connection()
-        self.bucket = self.connection.get_bucket(self.bucket_name)
         self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                                    '--call_chunk_size', '20000',
@@ -313,6 +309,5 @@ class VGCGLTest(TestCase):
         
     def tearDown(self):
         shutil.rmtree(self.workdir)
-        subprocess.check_call(['toil', 'clean', self.jobStoreAWS])
         subprocess.check_call(['toil', 'clean', self.jobStoreLocal])
         
