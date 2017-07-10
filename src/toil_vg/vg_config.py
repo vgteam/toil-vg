@@ -14,7 +14,7 @@ import getpass
 import pdb
 import textwrap
 import yaml
-from toil_vg.vg_common import require
+from toil_vg.vg_common import require, test_docker
 
 default_config = textwrap.dedent("""
 # Toil VG Pipeline configuration file (created by toil-vg generate-config)
@@ -112,7 +112,7 @@ force-outstore: False
 
 # Toggle container support.  Valid values are Docker / Singularity / None
 # (commenting out or Null values equivalent to None)
-container: Docker
+container: """ + ("Docker" if test_docker() else "None") + """
 
 #############################
 ### Docker Tool Arguments ###
@@ -329,7 +329,7 @@ force-outstore: False
 
 # Toggle container support.  Valid values are Docker / Singularity / None
 # (commenting out or Null values equivalent to None)
-container: Docker
+container: """ + ("Docker" if test_docker() else "None") + """
 
 #############################
 ### Docker Tool Arguments ###

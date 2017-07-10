@@ -19,6 +19,21 @@ from toil_vg.iostore import IOStore
 
 logger = logging.getLogger(__name__)
 
+def test_docker():
+    """
+    Return true if Docker is available on this machine, and False otherwise.
+    """
+    
+    try:
+        # Run Docker
+        # TODO: implement around dockerCall somehow?
+        subprocess.check_call(['docker', 'version'])
+        # And report that it worked
+        return True
+    except:
+        # It didn't work, so we can't use Docker
+        return False
+
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
 
