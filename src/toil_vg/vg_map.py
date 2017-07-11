@@ -59,9 +59,9 @@ def map_subparser(parser):
 
 def map_parse_args(parser, stand_alone = False):
     """ centralize indexing parameters here """
-    parser.add_argument("--fastq", nargs='+', 
+    parser.add_argument("--fastq", nargs='+', type=make_url,
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
-    parser.add_argument("--gam_input_reads", default=None,
+    parser.add_argument("--gam_input_reads", type=make_url, default=None,
                         help="Input reads in GAM format")
     parser.add_argument("--single_reads_chunk", action="store_true", default=False,
                         help="do not split reads into chunks")

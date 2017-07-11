@@ -92,6 +92,7 @@ class Context(object):
         # names.
         options.out_store = self.out_store_string
         options.drunner = self.runner
+        options.tool = 'library'
         
         return options
         

@@ -269,8 +269,8 @@ def get_files_by_file_size(dirname, reverse=False):
 
     return filepaths
 
-def clean_toil_path(path):
-    """ Try to make input path into something toil friendly """
+def make_url(path):
+    """ Turn filenames into URLs, whileleaving existing URLs alone """
     # local path
     if ':' not in path:
         return 'file://' + os.path.abspath(path)
@@ -299,7 +299,7 @@ def import_to_store(toil, options, path, use_out_store = None,
     if use_out_store is True or (use_out_store is None and options.force_outstore is True):
         return  write_to_store(None, options, path, use_out_store, out_store_key)
     else:
-        return toil.importFile(clean_toil_path(path))
+        return toil.importFile(make_url(path))
     
 def write_to_store(job, options, path, use_out_store = None,
                    out_store_key = None):

@@ -32,9 +32,11 @@ import tsv
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
-from toil_vg.vg_common import *
-from toil_vg.vg_map import *
-from toil_vg.vg_index import *
+from toil_vg.vg_common import require, make_url, read_from_store, \
+    write_to_store, add_common_vg_parse_args, add_container_tool_parse_args
+from toil_vg.vg_map import map_parse_args, run_mapping
+from toil_vg.vg_index import run_indexing
+from toil_vg.context import Context
 
 logger = logging.getLogger(__name__)
 
@@ -49,23 +51,23 @@ def mapeval_subparser(parser):
     # General options
     parser.add_argument('out_store',
                         help='output store.  All output written here. Path specified using same syntax as toil jobStore')
-    parser.add_argument('truth', default=None,
+    parser.add_argument('truth', type=make_url, default=None,
                         help='list of true positions of reads as output by toil-vg sim')        
-    parser.add_argument('--gams', nargs='+', default=[],
+    parser.add_argument('--gams', nargs='+', type=make_url, default=[],
                         help='aligned reads to compare to truth.  specify xg index locations with --index-bases')
-    parser.add_argument("--index-bases", nargs='+', default=[],
+    parser.add_argument("--index-bases", nargs='+', type=make_url, default=[],
                         help='use in place of gams to perform alignment.  will expect '
                         '<index-base>.gcsa, <index-base>.lcb and <index-base>.xg to exist')
-    parser.add_argument('--vg-graphs', nargs='+', default=[],
+    parser.add_argument('--vg-graphs', nargs='+', type=make_url, default=[],
                         help='vg graphs to use in place of gams or indexes.  indexes'
                         ' will be built as required')
     parser.add_argument('--gam-names', nargs='+', default=[],
                         help='a name for each gam passed in --gams/graphs/index-bases')
-    parser.add_argument('--bams', nargs='+', default=[],
+    parser.add_argument('--bams', nargs='+', type=make_url, default=[],
                         help='aligned reads to compare to truth in BAM format')
     parser.add_argument('--bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --bams')
-    parser.add_argument('--pe-bams', nargs='+', default=[],
+    parser.add_argument('--pe-bams', nargs='+', type=make_url, default=[],
                         help='paired end aligned reads t compare to truth in BAM format')
     parser.add_argument('--pe-bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --pe-bams')
@@ -79,9 +81,9 @@ def mapeval_subparser(parser):
                         help='run bwa mem on the reads, and add to comparison')
     parser.add_argument('--bwa-paired', action='store_true',
                         help='run bwa mem paired end as well')
-    parser.add_argument('--fasta', default=None,
+    parser.add_argument('--fasta', type=make_url, default=None,
                         help='fasta sequence file (required for bwa)')
-    parser.add_argument('--gam-reads', default=None,
+    parser.add_argument('--gam-reads', type=make_url, default=None,
                         help='reads in GAM format (required for bwa)')
 
     parser.add_argument('--bwa-opts', type=str,
@@ -931,14 +933,10 @@ def run_portion_worse(job, options, name, compare_id):
     portion = float(worse) / float(total) if total > 0 else 0
     return total, portion
 
-def mapeval_main(options):
+def mapeval_main(context, options):
     """
     Wrapper for vg map. 
     """
-
-    # make the docker runner
-    options.drunner = ContainerRunner(
-        container_tool_map = get_container_tool_map(options))
 
     # check bwa / bam input parameters.  
     if options.bwa or options.bwa_paired:
@@ -979,13 +977,6 @@ def mapeval_main(options):
                  '--index-bases and --gam_names must have same number of inputs')
         
     
-    # Some file io is dependent on knowing if we're in the pipeline
-    # or standalone. Hack this in here for now
-    options.tool = 'mapeval'
-
-    # Throw error if something wrong with IOStore string
-    IOStore.get(options.out_store)
-    
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
         
@@ -999,7 +990,7 @@ def mapeval_main(options):
             
             # Upload local files to the remote IO Store
             if options.gam_input_reads:
-                inputReadsGAMFileID = import_to_store(toil, options, options.gam_input_reads)
+                inputReadsGAMFileID = toil.importFile(options.gam_input_reads)
             else:
                 inputReadsGAMFileID = None
 
@@ -1007,60 +998,60 @@ def mapeval_main(options):
             inputGAMFileIDs = []
             if options.gams:
                 for gam in options.gams:
-                    inputGAMFileIDs.append(import_to_store(toil, options, gam))
+                    inputGAMFileIDs.append(toil.importFile(gam))
 
             inputVGFileIDs = []
             if options.vg_graphs:
                 for graph in options.vg_graphs:
-                    inputVGFileIDs.append(import_to_store(toil, options, graph))
+                    inputVGFileIDs.append(toil.importFile(graph))
 
             inputXGFileIDs = []
             inputGCSAFileIDs = [] # list of gcsa/lcp pairs
             inputIDRangeFileIDs = []
             if options.index_bases:
                 for ib in options.index_bases:
-                    inputXGFileIDs.append(import_to_store(toil, options, ib + '.xg'))
+                    inputXGFileIDs.append(toil.importFile(ib + '.xg'))
                     if not options.gams:
                         inputGCSAFileIDs.append(
-                            (import_to_store(toil, options, ib + '.gcsa'),
-                            import_to_store(toil, options, ib + '.gcsa.lcp')))
+                            (toil.importFile(ib + '.gcsa'),
+                            toil.importFile(ib + '.gcsa.lcp')))
                         # multiple gam outputs not currently supported by evaluation pipeline
                         #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
                         #    inputIDRAngeFileIDs.append(
-                        #        import_to_store(toil, options, ib + '_id_ranges.tsv'))
+                        #        toil.importFile(ib + '_id_ranges.tsv'))
                                                                        
                                         
             # Input bwa data        
             inputBAMFileIDs = []
             if options.bams:
                 for bam in options.bams:
-                    inputBAMFileIDs.append(import_to_store(toil, options. bam))
+                    inputBAMFileIDs.append(toil.importFile(bam))
             inputPEBAMFileIDs = []
             if options.pe_bams:
                 for bam in options.pe_bams:
-                    inputPEBAMFileIDs.append(import_to_store(toil, options. bam))
+                    inputPEBAMFileIDs.append(toil.importFile(bam))
 
             if options.fasta:
                 inputBwaIndexIDs = dict()
                 for suf in ['.amb', '.ann', '.bwt', '.pac', '.sa']:
                     fidx = '{}{}'.format(options.fasta, suf)
                     if os.path.exists(fidx):
-                        inputBwaIndexIDs[suf] = import_to_store(toil, options, fidx)
+                        inputBwaIndexIDs[suf] = toil.importFile(fidx)
                     else:
                         inputBwaIndexIDs = None
                         break
                 if not inputBwaIndexIDs:
-                    inputFastaID = import_to_store(toil, options, options.fasta)
+                    inputFastaID = toil.importFile(options.fasta)
             else:
                 inputFastaID = None
                 inputBwaIndexIDs = None
-            inputTruePosFileID = import_to_store(toil, options, options.truth)
+            inputTruePosFileID = toil.importFile(options.truth)
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_map_eval_index, options, inputXGFileIDs,
+            root_job = Job.wrapJobFn(run_map_eval_index, context.to_options(options), inputXGFileIDs,
                                      inputGCSAFileIDs,
                                      inputIDRangeFileIDs,
                                      inputVGFileIDs,

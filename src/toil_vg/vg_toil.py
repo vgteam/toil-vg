@@ -293,7 +293,7 @@ def main():
     elif args.command == 'sim':
         sim_main(context.to_options(args))
     elif args.command == 'mapeval':
-        mapeval_main(context.to_options(args))
+        mapeval_main(context, args)
         
     
 def pipeline_main(options):
