@@ -13,7 +13,7 @@ import logging
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
-from toil_vg.docker import dockerCall, dockerCheckOutput, _fixPermissions
+from toil.lib.docker import dockerCall, dockerCheckOutput
 from toil_vg.singularity import singularityCall, singularityCheckOutput
 from toil_vg.iostore import IOStore
 
@@ -140,16 +140,6 @@ to do: Should go somewhere more central """
             ret = dockerCall(job, tool, parameters=parameters, dockerParameters=docker_parameters,
                              workDir=work_dir, outfile = outfile)
         
-        # This isn't running through reliably by itself.  Will assume it's
-        # because I took docker.py out of toil, and leave here until we revert to
-        # toil's docker
-        #
-        # Note: It's the tabix docker call in merge_vcf_chunks that's problematic
-        #       It complains that the container can't be found, so fixPermissions
-        #       doesn't get run afterward.  
-        #
-        _fixPermissions(tool, work_dir)
-
         end_time = timeit.default_timer()
         run_time = end_time - start_time
         RealtimeLogger.info("Successfully docker ran {} in {} seconds.".format(
