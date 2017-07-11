@@ -32,7 +32,7 @@ import tsv
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
-from toil_vg.vg_common import require, make_url, read_from_store, \
+from toil_vg.vg_common import require, make_url, \
     write_to_store, add_common_vg_parse_args, add_container_tool_parse_args
 from toil_vg.vg_map import map_parse_args, run_mapping
 from toil_vg.vg_index import run_indexing
@@ -117,7 +117,7 @@ def run_bwa_index(job, options, gam_file_id, fasta_file_id, bwa_index_ids):
         bwa_index_ids = dict()
         work_dir = job.fileStore.getLocalTempDir()
         fasta_file = os.path.join(work_dir, os.path.basename(options.fasta))
-        read_from_store(job, options, fasta_file_id, fasta_file)
+        job.fileStore.readGlobalFile(fasta_file_id, fasta_file)
         cmd = ['bwa', 'index', os.path.basename(fasta_file)]
         options.drunner.call(job, cmd, work_dir = work_dir)
         for idx_file in glob.glob('{}.*'.format(fasta_file)):
@@ -147,12 +147,12 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
 
     # read the gam file
     gam_file = os.path.join(work_dir, os.path.basename(options.gam_input_reads))
-    read_from_store(job, options, gam_file_id, gam_file)
+    job.fileStore.readGlobalFile(gam_file_id, gam_file)
 
     # and the index files
     fasta_file = os.path.join(work_dir, os.path.basename(options.fasta))
     for suf, idx_id in bwa_index_ids.items():
-        read_from_store(job, options, idx_id, '{}{}'.format(fasta_file, suf))
+        job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
 
     # output positions file
     bam_file = os.path.join(work_dir, 'bwa-mem')
@@ -248,7 +248,7 @@ def extract_bam_read_stats(job, options, name, bam_file_id, paired):
 
     # download input
     bam_file = os.path.join(work_dir, name)
-    read_from_store(job, options, bam_file_id, bam_file)
+    job.fileStore.readGlobalFile(bam_file_id, bam_file)
 
     out_pos_file = bam_file + '.tsv'
 
@@ -286,9 +286,9 @@ def extract_gam_read_stats(job, options, xg_file_id, name, gam_file_id):
 
     # download input
     xg_file = os.path.join(work_dir, '{}.xg'.format(name))
-    read_from_store(job, options, xg_file_id, xg_file)
+    job.fileStore.readGlobalFile(xg_file_id, xg_file)
     gam_file = os.path.join(work_dir, name)
-    read_from_store(job, options, gam_file_id, gam_file)
+    job.fileStore.readGlobalFile(gam_file_id, gam_file)
 
     out_pos_file = gam_file + '.tsv'
                            
@@ -342,9 +342,9 @@ def compare_positions(job, options, truth_file_id, name, stats_file_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     true_read_stats_file = os.path.join(work_dir, 'true.tsv')
-    read_from_store(job, options, truth_file_id, true_read_stats_file)
+    job.fileStore.readGlobalFile(truth_file_id, true_read_stats_file)
     test_read_stats_file = os.path.join(work_dir, name + '.tsv')
-    read_from_store(job, options, stats_file_id, test_read_stats_file)
+    job.fileStore.readGlobalFile(stats_file_id, test_read_stats_file)
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
@@ -408,9 +408,9 @@ def compare_scores(job, options, baseline_file_id, name, score_file_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     baseline_read_stats_file = os.path.join(work_dir, 'baseline.tsv')
-    read_from_store(job, options, baseline_file_id, baseline_read_stats_file)
+    job.fileStore.readGlobalFile(baseline_file_id, baseline_read_stats_file)
     test_read_stats_file = os.path.join(work_dir, name + '.tsv')
-    read_from_store(job, options, score_file_id, test_read_stats_file)
+    job.fileStore.readGlobalFile(score_file_id, test_read_stats_file)
 
     out_file = os.path.join(work_dir, name + '.compare.scores')
 
@@ -469,9 +469,9 @@ def get_gam_scores(job, options, xg_file_id, name, gam_file_id):
 
     # download input
     xg_file = os.path.join(work_dir, '{}.xg'.format(name))
-    read_from_store(job, options, xg_file_id, xg_file)
+    job.fileStore.readGlobalFile(xg_file_id, xg_file)
     gam_file = os.path.join(work_dir, name)
-    read_from_store(job, options, gam_file_id, gam_file)
+    job.fileStore.readGlobalFile(gam_file_id, gam_file)
 
     out_pos_file = gam_file + '.tsv'
                            
@@ -505,12 +505,17 @@ def get_gam_scores(job, options, xg_file_id, name, gam_file_id):
     return out_stats_file_id
 
 
-def run_map_eval_index(job, options, xg_file_ids, gcsa_file_ids, id_range_file_ids,
-                       vg_file_ids, gam_file_ids,
-                       bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
-                       fasta_file_id, bwa_index_ids, true_read_stats_file_id):
-    """ create indexes for the input vg graphs.  if none specified, then we just pass through 
-    the input indexes """
+def run_map_eval_index(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file_ids, vg_file_ids):
+    """ 
+    Index the given vg files.
+    
+    If no vg files are provided, pass through the given indexes, which must be
+    provided.
+    
+    Returns a list of tuples of the form (xg, (gcsa, lcp), id_ranges), holding
+    file IDs for different index components.
+    
+    """
 
     # index_ids are of the form (xg, (gcsa, lcp), id_ranges ) as returned by run_indexing
     index_ids = []
@@ -520,21 +525,20 @@ def run_map_eval_index(job, options, xg_file_ids, gcsa_file_ids, id_range_file_i
             # todo: clean up 
             options.graphs = ['./default.vg']
             options.chroms = ['default']
-            index_ids.append(job.addChildJobFn(run_indexing, options, [vg_file_id], cores=options.misc_cores,
-                                               memory=options.misc_mem, disk=options.misc_disk).rv())
+            index_ids.append(job.addChildJobFn(run_indexing, context.to_options(options), [vg_file_id],
+                             cores=context.config.misc_cores, memory=context.config.misc_mem,
+                             disk=context.config.misc_disk).rv())
     else:
         for i, xg_id in enumerate(xg_file_ids):
             index_ids.append((xg_id, gcsa_file_ids[i] if gcsa_file_ids else None,
                               id_range_file_ids[i] if id_range_file_ids else None))
 
     
-    return job.addFollowOnJobFn(run_map_eval_align, options, index_ids, gam_file_ids,
-                                bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
-                                fasta_file_id, bwa_index_ids, true_read_stats_file_id).rv()
+    return index_ids
             
 
 
-def run_map_eval_align(job, options, index_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
+def run_map_eval_align(job, context, options, index_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
                        fasta_file_id, bwa_index_ids, true_read_stats_file_id):
     """ run some alignments for the comparison if required"""
 
@@ -547,10 +551,10 @@ def run_map_eval_align(job, options, index_ids, gam_file_ids, bam_file_ids, pe_b
             map_opts = copy.deepcopy(options)
             map_opts.sample_name = 'sample-{}'.format(i)
             map_opts.interleaved = False
-            gam_file_ids.append(job.addChildJobFn(run_mapping, map_opts, index_id[0], index_id[1],
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context.to_options(map_opts), index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
-                                                  cores=options.misc_cores,
-                                                  memory=options.misc_mem, disk=options.misc_disk).rv())
+                                                  cores=context.config.misc_cores,
+                                                  memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
     if do_vg_mapping and options.vg_paired:
         # run paired end version of all vg inputs if --pe-gams specified
@@ -559,10 +563,10 @@ def run_map_eval_align(job, options, index_ids, gam_file_ids, bam_file_ids, pe_b
             map_opts_pe = copy.deepcopy(options)
             map_opts_pe.sample_name = 'sample-pe-{}'.format(i)
             map_opts_pe.interleaved = True
-            gam_file_ids.append(job.addChildJobFn(run_mapping, map_opts_pe, index_id[0], index_id[1],
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context.to_options(map_opts_pe), index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
-                                                  cores=options.misc_cores,
-                                                  memory=options.misc_mem, disk=options.misc_disk).rv())
+                                                  cores=context.config.misc_cores,
+                                                  memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
             
         # make sure associated lists are extended to fit new mappings
         for i in range(len(index_ids)):
@@ -572,18 +576,18 @@ def run_map_eval_align(job, options, index_ids, gam_file_ids, bam_file_ids, pe_b
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
     if options.bwa or options.bwa_paired:
-        bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, options, reads_gam_file_id,
+        bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, context.to_options(options), reads_gam_file_id,
                                              fasta_file_id, bwa_index_ids,
-                                             cores=options.alignment_cores, memory=options.alignment_mem,
-                                             disk=options.alignment_disk).rv()
+                                             cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                             disk=context.config.alignment_disk).rv()
         
     # scrape out the xg ids, don't need others any more
     xg_ids = [index_id[0] for index_id in index_ids]
 
-    return job.addFollowOnJobFn(run_map_eval, options, xg_ids, gam_file_ids, bam_file_ids,
+    return job.addFollowOnJobFn(run_map_eval, context.to_options(options), xg_ids, gam_file_ids, bam_file_ids,
                                 pe_bam_file_ids, bwa_bam_file_ids,
-                                true_read_stats_file_id, cores=options.misc_cores,
-                                memory=options.misc_mem, disk=options.misc_disk).rv()
+                                true_read_stats_file_id, cores=context.config.misc_cores,
+                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
 def run_map_eval(job, options, xg_file_ids, gam_file_ids, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_read_stats_file_id):
     """ run the mapping comparison.  Dump some tables into the outstore """
@@ -697,7 +701,7 @@ def run_process_position_comparisons(job, options, names, compare_ids):
         for i, nci in enumerate(zip(names, compare_ids)):
             name, compare_id = nci[0], nci[1]
             compare_file = os.path.join(work_dir, '{}-{}.compare.positions'.format(name, i))
-            read_from_store(job, options, compare_id, compare_file)
+            job.fileStore.readGlobalFile(compare_id, compare_file)
             write_to_store(job, options, compare_file, use_out_store = True)
             write_tsv(compare_file, name)
 
@@ -737,7 +741,7 @@ def run_acc(job, options, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-    read_from_store(job, options, compare_id, compare_file)
+    job.fileStore.readGlobalFile(compare_id, compare_file)
     
     total = 0
     correct = 0
@@ -761,7 +765,7 @@ def run_auc(job, options, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-    read_from_store(job, options, compare_id, compare_file)
+    job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
         data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2)).T
@@ -783,7 +787,7 @@ def run_qq(job, options, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-    read_from_store(job, options, compare_id, compare_file)
+    job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
         data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
@@ -880,7 +884,7 @@ def run_process_score_comparisons(job, options, names, compare_ids):
         for i, nci in enumerate(zip(names, compare_ids)):
             name, compare_id = nci[0], nci[1]
             compare_file = os.path.join(work_dir, '{}-{}.compare.scores'.format(name, i))
-            read_from_store(job, options, compare_id, compare_file)
+            job.fileStore.readGlobalFile(compare_id, compare_file)
             write_to_store(job, options, compare_file, use_out_store = True)
             write_tsv(compare_file, name)
 
@@ -919,7 +923,7 @@ def run_portion_worse(job, options, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.scores'.format(name))
-    read_from_store(job, options, compare_id, compare_file)
+    job.fileStore.readGlobalFile(compare_id, compare_file)
     
     total = 0
     worse = 0
@@ -943,10 +947,10 @@ def mapeval_main(context, options):
         require(options.gam_input_reads, '--gam_input_reads required for bwa')
         require(options.fasta, '--fasta required for bwa')
     if options.bams:
-        requrire(options.bam_names and len(options.bams) == len(options.bam_names),
+        require(options.bam_names and len(options.bams) == len(options.bam_names),
                  '--bams and --bam-names must have same number of inputs')
     if options.pe_bams:
-        requrire(options.pe_bam_names and len(options.pe_bams) == len(options.pe_bam_names),
+        require(options.pe_bam_names and len(options.pe_bams) == len(options.pe_bam_names),
                  '--pe-bams and --pe-bam-names must have same number of inputs')
 
     # some options from toil-vg map are disabled on the command line
@@ -990,84 +994,82 @@ def mapeval_main(context, options):
             
             # Upload local files to the remote IO Store
             if options.gam_input_reads:
-                inputReadsGAMFileID = toil.importFile(options.gam_input_reads)
+                reads_gam_file_id = toil.importFile(options.gam_input_reads)
             else:
-                inputReadsGAMFileID = None
+                reads_gam_file_id = None
 
             # Input vg data.  can be either .vg or .gam/.xg or .xg/.gcsa/.gcsa.lcp
-            inputGAMFileIDs = []
+            gam_file_ids = []
             if options.gams:
                 for gam in options.gams:
-                    inputGAMFileIDs.append(toil.importFile(gam))
+                    gam_file_ids.append(toil.importFile(gam))
 
-            inputVGFileIDs = []
+            vg_file_ids = []
             if options.vg_graphs:
                 for graph in options.vg_graphs:
-                    inputVGFileIDs.append(toil.importFile(graph))
+                    vg_file_ids.append(toil.importFile(graph))
 
-            inputXGFileIDs = []
-            inputGCSAFileIDs = [] # list of gcsa/lcp pairs
-            inputIDRangeFileIDs = []
+            xg_file_ids = []
+            gcsa_file_ids = [] # list of gcsa/lcp pairs
+            id_range_file_ids = []
             if options.index_bases:
                 for ib in options.index_bases:
-                    inputXGFileIDs.append(toil.importFile(ib + '.xg'))
+                    xg_file_ids.append(toil.importFile(ib + '.xg'))
                     if not options.gams:
-                        inputGCSAFileIDs.append(
+                        gcsa_file_ids.append(
                             (toil.importFile(ib + '.gcsa'),
                             toil.importFile(ib + '.gcsa.lcp')))
                         # multiple gam outputs not currently supported by evaluation pipeline
                         #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
-                        #    inputIDRAngeFileIDs.append(
+                        #    id_range_file_ids.append(
                         #        toil.importFile(ib + '_id_ranges.tsv'))
                                                                        
                                         
             # Input bwa data        
-            inputBAMFileIDs = []
+            bam_file_ids = []
             if options.bams:
                 for bam in options.bams:
-                    inputBAMFileIDs.append(toil.importFile(bam))
-            inputPEBAMFileIDs = []
+                    bam_file_ids.append(toil.importFile(bam))
+            pe_bam_file_ids = []
             if options.pe_bams:
                 for bam in options.pe_bams:
-                    inputPEBAMFileIDs.append(toil.importFile(bam))
+                    pe_bam_file_ids.append(toil.importFile(bam))
 
             if options.fasta:
-                inputBwaIndexIDs = dict()
+                bwa_index_ids = dict()
                 for suf in ['.amb', '.ann', '.bwt', '.pac', '.sa']:
                     fidx = '{}{}'.format(options.fasta, suf)
                     if os.path.exists(fidx):
-                        inputBwaIndexIDs[suf] = toil.importFile(fidx)
+                        bwa_index_ids[suf] = toil.importFile(fidx)
                     else:
-                        inputBwaIndexIDs = None
+                        bwa_index_ids = None
                         break
-                if not inputBwaIndexIDs:
-                    inputFastaID = toil.importFile(options.fasta)
+                if not bwa_index_ids:
+                    fasta_file_id = toil.importFile(options.fasta)
             else:
-                inputFastaID = None
-                inputBwaIndexIDs = None
-            inputTruePosFileID = toil.importFile(options.truth)
+                fasta_file_id = None
+                bwa_index_ids = None
+            true_read_stats_file_id = toil.importFile(options.truth)
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
-            # Make a root job
-            root_job = Job.wrapJobFn(run_map_eval_index, context.to_options(options), inputXGFileIDs,
-                                     inputGCSAFileIDs,
-                                     inputIDRangeFileIDs,
-                                     inputVGFileIDs,
-                                     inputGAMFileIDs,
-                                     inputBAMFileIDs,
-                                     inputPEBAMFileIDs,
-                                     inputReadsGAMFileID,
-                                     inputFastaID,
-                                     inputBwaIndexIDs,
-                                     inputTruePosFileID,
-                                     cores=options.misc_cores,
-                                     memory=options.misc_mem,
-                                     disk=options.misc_disk)
+            # Make an indexing job
+            index_job = Job.wrapJobFn(run_map_eval_index, context, options, xg_file_ids,
+                                      gcsa_file_ids,
+                                      id_range_file_ids,
+                                      vg_file_ids,
+                                      cores=context.config.misc_cores,
+                                      memory=context.config.misc_mem,
+                                      disk=context.config.misc_disk)
+            # Then after indexing, do alignment and the rest of the workflow
+            alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, options, index_job.rv(), gam_file_ids,
+                                                       bam_file_ids, pe_bam_file_ids, reads_gam_file_id,
+                                                       fasta_file_id, bwa_index_ids, true_read_stats_file_id)
             
-            # Run the job and store the returned list of output files to download
-            toil.start(root_job)
+            # Run the root job
+            # TODO: if we want a final return value we'll have to wrap the above logic in a main job.
+            toil.start(index_job)
         else:
             toil.restart()
             

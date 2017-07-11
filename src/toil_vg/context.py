@@ -12,6 +12,7 @@ namespace, we keep them both in here.
 import tempfile
 import datetime
 import pkg_resources
+import copy
 
 from argparse import Namespace
 from toil_vg.vg_config import apply_config_file_args
@@ -76,11 +77,34 @@ class Context(object):
         else:
             return None
             
+    def write_file(self, job, path):
+        """
+        
+        Write the file at the given path to the given job's Toil FileStore, and
+        to the out_store if one is in use.
+        
+        In the out_store, the file is saved under its basename, in the root
+        directory.
+        
+        Returns the Toil file ID for the written file.
+        """
+        
+        out_store = self.get_out_store()
+        if out_store is not None:
+            # Save to the out_store if it exists
+            out_store.write_output_file(path, os.path.basename(path))
+        
+        # Save to Toil
+        return job.fileStore.writeGlobalFile(path)
+            
     def to_options(self, options):
         """
         Turn back into an options-format namespace like toil-vg used to use
         everywhere. Merges with the given real command-line options.
         """
+        
+        # Copy the options
+        options = copy.deepcopy(options)
         
         for key, val in self.config.__dict__.items():
             # Copy over everything from the config to the options namespace.
