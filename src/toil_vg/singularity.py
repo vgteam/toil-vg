@@ -1,5 +1,7 @@
 """
-    Module for calling Singularity. Assumes `singularity` is on the PATH.
+    Module for running Docker images with Singularity.   
+    Derived from https://github.com/BD2KGenomics/toil/blob/master/src/toil/lib/docker.py
+
     Contains two user-facing functions: singularityCall and singularityCheckOutput
     Example of using singularityCall in a Toil pipeline to index a FASTA file with SAMtools:
         def toil_job(job):
@@ -28,7 +30,7 @@ def singularityCall(job,
     Throws CalledProcessorError if the Singularity invocation returns a non-zero exit code
     This function blocks until the subprocess call to Singularity returns
     :param toil.Job.job job: The Job instance for the calling function.
-    :param str tool: Name of the Singularity image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
+    :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
     :param str workDir: Directory to mount into the container via `-v`. Destination convention is /data
@@ -51,7 +53,7 @@ def singularityCheckOutput(job,
     Throws CalledProcessorError if the Singularity invocation returns a non-zero exit code
     This function blocks until the subprocess call to Singularity returns
     :param toil.Job.job job: The Job instance for the calling function.
-    :param str tool: Name of the Singularity image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
+    :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
     :param str workDir: Directory to mount into the container via `-v`. Destination convention is /data
@@ -74,7 +76,7 @@ def _singularity(job,
             checkOutput=False):
     """
     :param toil.Job.job job: The Job instance for the calling function.
-    :param str tool: Name of the Singularity image to be used (e.g. quay.io/ucsc_cgl/samtools).
+    :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
     :param str workDir: Directory to mount into the container via `--bind`. Destination convention is /data
@@ -89,35 +91,35 @@ def _singularity(job,
     if workDir is None:
         workDir = os.getcwd()
 
-    # Make docker image url compatible with singularity 
-    tool = 'docker://'+tool
-
     # Setup the outgoing subprocess call for singularity
-    baseSingularityCall = ['singularity', 'exec']
+    baseSingularityCall = ['singularity', '-q', 'exec']
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
-        baseSingularityCall += ['-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME'))]
+        baseSingularityCall += ['-H', '{}:/data'.format(os.path.abspath(workDir)), '--pwd', '/data']
 
     # Make subprocess call
 
     # If parameters is list of lists, treat each list as separate command and chain with pipes
     if len(parameters) > 0 and type(parameters[0]) is list:
-        # When piping, all arguments now get merged into a single string to bash.
+        # When piping, all arguments now get merged into a single string to bash -c.
         # We try to support spaces in paths by wrapping them all in quotes first.
         chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
-        call = baseSingularityCall + [tool, ' | {} '.format(' '.join(baseSingularityCall + [tool])).join(chain_params)]
+        # Use bash's set -eo pipefail to detect and abort on a failure in any command in the chain
+        call = baseSingularityCall + ['docker://{}'.format(tool), '/bin/bash', '-c',
+                                 'set -eo pipefail && {}'.format(' | '.join(chain_params))]
     else:
-        call = baseSingularityCall + [tool] + parameters
-    
-    call = "set -eo pipefail && "+" ".join(call)
+        call = baseSingularityCall + ['docker://{}'.format(tool)] + parameters
     _logger.info("Calling singularity with " + repr(call))
-    
-    if outfile:
-        subprocess.check_call(call, stdout=outfile, shell=True)
-    else:
-        if checkOutput:
-            return subprocess.check_output(call, shell=True)
-        else:
-            subprocess.check_call(call, shell=True)
 
+    params = {}
+    if outfile:
+        params['stdout'] = outfile
+    if checkOutput:
+        callMethod = subprocess.check_output
+    else:
+        callMethod = subprocess.check_call
+
+    out = callMethod(call, **params)
+
+    return out
