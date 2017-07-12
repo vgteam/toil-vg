@@ -176,7 +176,7 @@ def run_vg_call(job, options, vg_id, gam_id, pileup_id = None, xg_id = None,
         logging.error("Failed. Dumping files.")
         write_to_store(job, options, vg_path, True)
         write_to_store(job, options, pu_path, True)
-        write_to_store(job, options, vcf_path + ".call_log.txt", True)
+        write_to_store(job, options, vcf_log_path, True)
         raise e
         
     return vcf_id, pileup_id, xg_id, gam_id, aug_graph_id
