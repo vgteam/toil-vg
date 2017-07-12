@@ -177,6 +177,16 @@ def run_vg_call(job, options, vg_id, gam_id, pileup_id = None, xg_id = None,
         write_to_store(job, options, vg_path, True)
         write_to_store(job, options, pu_path, True)
         write_to_store(job, options, vcf_log_path, True)
+        
+        # Dump a bit of the log
+        logging.error("Call log begins with:")
+        log_lines = 0
+        for line in open(vcf_log_path):
+            log_lines += 1
+            logging.error(line.rstrip())
+            if log_lines >= 20:
+                break
+        
         raise e
         
     return vcf_id, pileup_id, xg_id, gam_id, aug_graph_id
