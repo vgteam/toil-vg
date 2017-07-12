@@ -269,8 +269,8 @@ def get_files_by_file_size(dirname, reverse=False):
 
     return filepaths
 
-def clean_toil_path(path):
-    """ Try to make input path into something toil friendly """
+def make_url(path):
+    """ Turn filenames into URLs, whileleaving existing URLs alone """
     # local path
     if ':' not in path:
         return 'file://' + os.path.abspath(path)
@@ -299,53 +299,41 @@ def import_to_store(toil, options, path, use_out_store = None,
     if use_out_store is True or (use_out_store is None and options.force_outstore is True):
         return  write_to_store(None, options, path, use_out_store, out_store_key)
     else:
-        return toil.importFile(clean_toil_path(path))
+        return toil.importFile(make_url(path))
     
 def write_to_store(job, options, path, use_out_store = None,
                    out_store_key = None):
     """
-    Writes path into the File or IO store (from options.out_store)
-
-    Abstract all store writing here so we can switch to the out_store
-    when we want to checkpoint an intermeidate file for output
-    or just have all intermediate files in the outstore for debugging.
+    Write a file to the Toil filestore.
     
-    Returns the id in job's file store if use_out_store is True
-    otherwise a key (up to caller to make sure its unique)
-    in the out_store
+    If use_out_store is True, or options.force_outstore is True, the file will
+    also be written to the IOStore specified by options.out_store.
+    
+    Returns the id that the file was written to in the Toil FileStore.
 
-    By default options.force_outstore is used to toggle between file and 
-    i/o store.  This will be over-ridden by the use_out_store parameter 
-    if the latter is not None
     """
     if use_out_store is True or (use_out_store is None and options.force_outstore is True):
+        # Sometimes write to the outstore
         out_store = IOStore.get(options.out_store)
         key = os.path.basename(path) if out_store_key is None else out_store_key
         out_store.write_output_file(path, key)
-        return key
-    else:
-        return job.fileStore.writeGlobalFile(path)
+        
+    # Always write to the FileStore
+    return job.fileStore.writeGlobalFile(path)
 
-def read_from_store(job, options, id_or_key, path = None, use_out_store = None):
+def read_from_store(job, options, file_id, path = None, use_out_store = None):
     """
-    Reads id (or key) from the File store (or IO store from options.out_store) into path
-
-    Abstract all store reading here so we can switch to the out_store
-    when we want to checkpoint an intermeidate file for output
-    or just have all intermediate files in the outstore for debugging.
-
-    By default options.force_outstore is used to toggle between file and 
-    i/o store.  This will be over-ridden by the use_out_store parameter 
-    if the latter is not None
+    
+    Read the file with the given Toil file ID from the Toil file store and save
+    it as the given path. If no path is specified, one will be provided.
+    
+    use_out_store is ignored.
+    
+    All usages of this function should be replaced with
+    job.fileStore.readGlobalFile.
+    
     """
-    if use_out_store is True or (use_out_store is None and options.force_outstore is True):
-        # we can add this interface if we really want by coming up
-        # with unique name here, i guess
-        assert path is not None
-        out_store = IOStore.get(options.out_store)
-        return out_store.read_input_file(id_or_key, path)
-    else:
-        return job.fileStore.readGlobalFile(id_or_key, path)
+    return job.fileStore.readGlobalFile(file_id, path)
 
 def write_dir_to_store(job, options, path, use_out_store = None):
     """
