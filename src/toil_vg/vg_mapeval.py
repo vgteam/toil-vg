@@ -947,7 +947,7 @@ def run_portion_worse(job, options, name, compare_id):
 
 def mapeval_main(context, options):
     """
-    Wrapper for vg map. 
+    Run the mapeval workflow.
     """
 
     # check bwa / bam input parameters.  

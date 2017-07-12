@@ -37,7 +37,7 @@ from toil_vg.context import Context
 
 logger = logging.getLogger(__name__)
 
-def parse_args():
+def parse_args(args=None):
     """
     Takes in the command-line arguments list (args), and returns a nice argparse
     result with fields for all the options.
@@ -90,7 +90,7 @@ def parse_args():
     parser_mapeval = subparsers.add_parser('mapeval', help='Compare mapping results')
     mapeval_subparser(parser_mapeval)
 
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
 def pipeline_subparser(parser_run):
@@ -269,7 +269,7 @@ def main():
     ================================================================================
     """
 
-    args = parse_args()
+    args = parse_args(sys.argv[1:])
     
     # Write out our config file that's necessary for all other subcommands
     if args.command == 'generate-config':
