@@ -4,43 +4,31 @@
 
 [vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [toil](https://github.com/BD2KGenomics/toil)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
 
-`toil-vg run`: Given input graphs (one per chromosome) and reads (fastq file), produce a graph index (index can also be input), graph alignment (GAM), VCF variant calls, and (optionally) VCF comparison results. 
+`toil-vg run`: Given input vg graph(s), create indexes, map reads, then produce VCF variant calls.
 
-`toil-vg index`: Produce an index from input graph(s).
+`toil-vg index`: Produce a GCSA and/or XG index from input graph(s).
 
-`toil-vg map`: Produce graph alignment (gam) for each chromosome from input reads and index
+`toil-vg map`: Produce a graph alignment (GAM) for each chromosome from input reads and index
 
-`toil-vg call`: Produce VCF from input index and chromosome gam(s)
+`toil-vg call`: Produce VCF from input XG index and GAM(s).
 
 ## Installation
 
-### Pip Installation
+### TOIL-VG Pip Installation
 
-Installation requires Python and Toil (version >= 3.6.0).  We recommend installing within virtualenv as follows
+Installation requires Python and Toil.  We recommend installing within virtualenv as follows
 
     virtualenv --system-site-packages toilvenv
     source toilvenv/bin/activate
-    pip install -I 'toil[aws,mesos]>=3.6.0' toil-vg
+    pip install -I -U 'toil[aws,mesos]' toil-vg
 
 ### Docker
 
-toil-vg runs vg, along with some other tools, via [Docker](http://www.docker.com).  Docker can be installed locally (not required when running via cgcloud), as follows. 
-
-#### On linux
-Install Docker via instructions for the relevant linux distribution [here](https://docs.docker.com/engine/installation/linux/). Test to see if the docker daemon is running by running `docker version`.  If running `docker version` doesn't work, try adding `user` to docker group, then log out and back in.
-
-    sudo usermod -aG docker $USER`
-   
-#### On Mac
-Install Docker via instructions found [here](https://docs.docker.com/docker-for-mac/). Test to see if the docker daemon is running by running `docker version`.  If running `docker version` doesn't work, try adding docker environment variables
-
-    docker-machine start
-    docker-machine env
-    eval "$(docker-machine env default)"
+toil-vg can run vg, along with some other tools, via [Docker](http://www.docker.com).  Docker can be installed locally (not required when running via cgcloud), as follows. 
+* [**Linux Docker Installation**](https://docs.docker.com/engine/installation/linux/): If running `docker version` doesn't work, try adding user to docker group with `sudo usermod -aG docker $USER`, then log out and back in.
+* [**Mac Docker Installation**](https://docs.docker.com/docker-for-mac/): If running `docker version` doesn't work, try adding docker environment variables: `docker-machine start; docker-machine env; eval "$(docker-machine env default)"`
+* **Running Without Docker**: If Docker is not installed or is disabled with `--container None`, toil-vg requires the following command line tools to be installed on the system: `vg, pigz, bcftools, tabix`.  `jq, samtools and rtg vcfeval` are also necessary for certain tests. 
     
-#### Running without Docker
-It can be useful, especially for developers to run commands directly without docker.  This can be done by using the `--container None` option when running toil-vg, but all command-line tools (vg, bcftools, samtools, etc) must be available on the command line.  
-
 
 ## Configuration
 
@@ -52,7 +40,7 @@ Pass this file to `toil-vg` commands using the `--config` option.
 
 For non-trivial inputs, care must be taken to specify the resource requirements for the different pipeline phases (via the command line or by editing the config file), as they all default to single-core and 4G of ram.
 
-To generate a default configuration for running at genome scale on a cluster with 32 cores, use
+To generate a default configuration for running at genome scale on a cluster with 32-core worker nodes, use
 
     toil-vg generate-config --whole_genome > config_wg.yaml
 
@@ -60,11 +48,11 @@ To generate a default configuration for running at genome scale on a cluster wit
 
     make test
 
-A faster test (but still several minutes) to see if toil-vg runs on the current machine.  Replace myname with a unique prefix: 
+A faster test to see if toil-vg runs on the current machine (Replace myname with a unique prefix): 
 
     ./bakeoff.sh -f myname f1.tsv
 
-Or on a Mesos cluster
+Or on a Toil cluster
 
     ./bakeoff.sh -fm myname f1.tsv
 
@@ -76,8 +64,88 @@ The jobStore and outStore arguments to toil-vg are directories that will be crea
 
 All other input files can either either be local (best to specify absolute path) or URLs specified in the normal manner, ex : http://address/input_file or s3://bucket/input_file.  The config file must always be local.  When using an S3 jobstore, it is preferable to pass input files from S3 as well, as they load much faster and less cluster time will be wasted importing data. 
 
+## Running on Amazon EC2 with Toil
+
+### Install Toil
+
+Please read Toil's [installation documentation](http://toil.readthedocs.io/en/latest/install/basic.html)
+
+Install toil locally.  This can be done with virtualenv as follows:
+
+    virtualenv ~/toilvenv
+	 . ~/toilvenv/bin/activate
+	 pip install toil[aws,mesos]
+
+### Create a leader node
+
+Please read Toil's cloud documentation [here](http://toil.readthedocs.io/en/latest/install/cloud.html) and [here](http://toil.readthedocs.io/en/latest/running/cloud.html)
+
+Set your region:
+
+	 export TOIL_AWS_ZONE="us-west-2a"	
+
+Create an instance for the toil leader node.  For UCSC CGL members, the keypair name is typically the email address you use to log into AWS:
+
+    toil launch-cluster myleader --nodeType=t2.micro --keyPairName <your AWS keypair name>
+
+Log into the leader:
+
+    toil ssh-cluster myleader
+
+In order to use `screen` (recommended for long jobs), you need to run `script` first.
+
+In order to log onto a worker node instead of the leader, find its public IP from the EC2 Management Console or command line, and log in using the core username: `ssh core@public-ip`
+
+Install toil-vg on the leader following [Toil's Hot-deployment instructions](http://toil.readthedocs.io/en/latest/deploying.html#hot-deploying-toil)
+
+    mkdir work
+    cd work
+    virtualenv --system-site-packages venv
+    . venv/bin/activate
+    pip install toil-vg
+
+Destroy the leader when finished with it.  After logging out with `exit`:
+
+    toil destroy-cluster myleader
+
+### Small AWS Test
+
+Run a small test from the leader node as follows.  
+
+    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/bakeoff.sh
+    chmod u+x ./bakeoff.sh
+    ./bakeoff.sh -fm <NAME>
+
+### Processing a Whole Genome 
+
+From the leader node, begin by making a toil-vg configuration file suitable for processing whole-genomes, then customizing it as necessary.
+
+    toil-vg generate-config --whole_genome > wg.yaml
+
+Assuming a series of input vg graphs, one per chromosome, as [created here for example](https://github.com/vgteam/vg/wiki/working-with-a-whole-genome-variation-graph) exists on GRAPH_LOCATION (can be any valid Toil path), files will be written to the S3 bucket, OUT_STORE and the S3 bucket, JOB_STORE, will be used by Toil (both buckets created automatically if necessary; do not prefix OUT_STORE or JOB_STORE with s3://):
+
+    MASTER_IP=`ifconfig eth0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}'`
+    toil-vg index aws:us-west-2:JOB_STORE aws:us-west-2:OUT_STORE --workDir /var/lib/toil/  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo GRAPH_LOCATION/${i}; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index --defaultPreemptable --preemptableNodeType i3.8xlarge:1.00 --maxPreemptableNodes 5 2> index.log
+
+Note that the spot request node type (i3.8xlarge) and amount ($1.00) can be adjusted in the above command.  Keep in mind that indexing is very memory and disk intensive.
+
+If successful, this will produce for files in s3://OUT_STORE/
+
+    my_index.xg
+    my_index.gcsa
+    my_index.gcsa.lcp
+    my_index_id_ranges.tsv
+
+We can now align reads and produce a VCF in a single call to `toil-vg run`. (see `toil-vg map` and `toil-vg call` to do separately).  The invocation is similar to the above, except we use r3.8xlarge instances as we do not need as much disk and memory.
+
+    toil-vg run aws:us-west-2:JOB_STORE READ_LOCATION/reads.fastq.gz SAMPLE_NAME aws:us-west-2:OUT_STORE --workDir /var/lib/toil/  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --gcsa_index s3://OUT_STORE/my_index.gcsa --xg_index s3://OUT_STORE/my_index.xg --id_ranges s3://${OUT_STORE}/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved --defaultPreemptable --preemptableNodeType r3.8xlarge:0.85 --maxPreemptableNodes 25 2> map_call.log
+
+If successful, this command will create a VCF file as well as a GAM for each input chromosome in s3://OUT_STORE/
+
 
 ## Running on Amazon EC2 with cgcloud
+
+**Note: Unfortunately, cgcloud is no longer being maintained.  Many of its images are becoming obselete or vanishing entirely.  This section is deprecated until further notice.  toil-vg can now be run on AWS directly from Toil using hte latter's built-in AWS provisioner (see above).**
 
 ### Install and setup cgcloud
 
