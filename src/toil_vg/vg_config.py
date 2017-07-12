@@ -207,7 +207,7 @@ filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '99
 pileup-opts: ['-q', '10']
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
-call-opts: ['-Q']
+call-opts: []
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
 genotype-opts: []
