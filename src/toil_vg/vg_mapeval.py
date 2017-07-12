@@ -597,31 +597,35 @@ def run_map_eval_align(job, context, options, index_ids, gam_file_ids, reads_gam
     
     return gam_file_ids, gam_names, xg_ids, bwa_bam_file_ids    
     
-def run_map_eval(job, options, xg_file_ids, gam_file_ids, gam_names, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_read_stats_file_id):
+def run_map_eval(job, context, options, xg_file_ids, gam_file_ids, gam_names, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_read_stats_file_id):
     """ run the mapping comparison.  Dump some tables into the outstore """
+
+    # Pull out the bam and paired-end bam names so we can add in another one if needed
+    bam_names = options.bam_names
+    pe_bam_names = options.pe_bam_names
 
     # munge out the returned pair from run_bwa_index()
     if bwa_bam_file_ids[0] is not None:
         bam_file_ids.append(bwa_bam_file_ids[0])
-        options.bam_names.append('bwa-mem')
+        bam_names.append('bwa-mem')
     if bwa_bam_file_ids[1] is not None:
         pe_bam_file_ids.append(bwa_bam_file_ids[1])
-        options.pe_bam_names.append('bwa-mem-pe')
+        pe_bam_names.append('bwa-mem-pe')
 
     # get the bwa read alignment statistics, one id for each bam_name
     bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(bam_file_ids):
-        name = '{}-{}.bam'.format(options.bam_names[bam_i], bam_i)
-        bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, options, name, bam_id, False,
-                                                    cores=options.misc_cores, memory=options.misc_mem,
-                                                    disk=options.misc_disk).rv())
+        name = '{}-{}.bam'.format(bam_names[bam_i], bam_i)
+        bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context.to_options(options), name, bam_id, False,
+                                                    cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                    disk=context.config.misc_disk).rv())
     # separate flow for paired end bams because different logic used
     pe_bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(pe_bam_file_ids):
-        name = '{}-{}.bam'.format(options.pe_bam_names[bam_i], bam_i)
-        pe_bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, options, name, bam_id, True,
-                                                       cores=options.misc_cores, memory=options.misc_mem,
-                                                       disk=options.misc_disk).rv())
+        name = '{}-{}.bam'.format(pe_bam_names[bam_i], bam_i)
+        pe_bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context.to_options(options), name, bam_id, True,
+                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                       disk=context.config.misc_disk).rv())
 
     # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
     gam_stats_file_ids = []
@@ -633,15 +637,16 @@ def run_map_eval(job, options, xg_file_ids, gam_file_ids, gam_names, bam_file_id
         if type(gam_id) is list:
             assert len(gam_id) == 1
             gam = gam_id[0]
-        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, options, xg_file_ids[gam_i], name, gam,
-                                                    cores=options.misc_cores, memory=options.misc_mem,
-                                                    disk=options.misc_disk).rv())
+        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, context.to_options(options), xg_file_ids[gam_i],
+                                                    name, gam, cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                    disk=context.config.misc_disk).rv())
 
     # compare all our positions
-    position_comparison_results = job.addFollowOnJobFn(run_map_eval_compare_positions, options, true_read_stats_file_id,
-                                                       gam_names, gam_stats_file_ids, bam_stats_file_ids, pe_bam_stats_file_ids,
-                                                       cores=options.misc_cores, memory=options.misc_mem,
-                                                       disk=options.misc_disk).rv()
+    position_comparison_results = job.addFollowOnJobFn(run_map_eval_compare_positions, context.to_options(options),
+                                                       true_read_stats_file_id, gam_names, gam_stats_file_ids,
+                                                       bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids,
+                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                       disk=context.config.misc_disk).rv()
     
     if options.compare_gam_scores is not None:
         # We want to compare the scores from all the GAMs against a baseline
@@ -654,21 +659,21 @@ def run_map_eval(job, options, xg_file_ids, gam_file_ids, gam_names, bam_file_id
         
         # compare all our scores against the baseline
         # Nothing is returned, all results are dumped to the out store
-        job.addFollowOnJobFn(run_map_eval_compare_scores, options, baseline_stats_id,
+        job.addFollowOnJobFn(run_map_eval_compare_scores, context.to_options(options), baseline_stats_id,
                              gam_stats_file_ids, bam_stats_file_ids, pe_bam_stats_file_ids,
-                             cores=options.misc_cores, memory=options.misc_mem,
-                             disk=options.misc_disk).rv()
+                             cores=context.config.misc_cores, memory=context.config.misc_mem,
+                             disk=context.config.misc_disk).rv()
         
     return position_comparison_results
 
 def run_map_eval_compare_positions(job, options, true_read_stats_file_id, gam_names, gam_stats_file_ids,
-                         bam_stats_file_ids, pe_bam_stats_file_ids):
+                         bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids):
     """
     run compare on the positions
     """
 
     # merge up all the output data into one list
-    names = gam_names + options.bam_names + options.pe_bam_names
+    names = gam_names + bam_names + pe_bam_names
     stats_file_ids = gam_stats_file_ids + bam_stats_file_ids + pe_bam_stats_file_ids
 
     compare_ids = []
@@ -1079,8 +1084,8 @@ def mapeval_main(context, options):
             (gam_file_ids, gam_names, xg_ids, bwa_bam_file_ids) = (alignment_job.rv(0), 
                 alignment_job.rv(1), alignment_job.rv(2), alignment_job.rv(3))
 
-            # Then do mapping evaluation (the rest of the workflow
-            map_eval_job = alignment_job.addFollowOnJobFn(run_map_eval, context.to_options(options), xg_ids,
+            # Then do mapping evaluation (the rest of the workflow)
+            map_eval_job = alignment_job.addFollowOnJobFn(run_map_eval, context, options, xg_ids,
                                 gam_file_ids, gam_names, bam_file_ids,
                                 pe_bam_file_ids, bwa_bam_file_ids,
                                 true_read_stats_file_id, cores=context.config.misc_cores,
