@@ -175,36 +175,14 @@ to do: Should go somewhere more central """
         # but allow overriding of this with the tool_name parameter
         name = tool_name if tool_name is not None else args[0][0]
         tool = self.docker_tool_map[name]
+
+        parameters = args[0] if len(args) == 1 else args
         
-        if len(args) == 1:
-            # split off first argument as entrypoint (so we can be oblivious as to whether
-            # that happens by default)
-            parameters = [] if len(args[0]) == 1 else args[0]
-        else:
-            # can leave as is for piped interface which takes list of args lists
-            # and doesn't worry about entrypoints since everything goes through bash
-            parameters = args
-
-        singularity_parameters = None
-        # set our working directory map        
-        if work_dir is not None:
-            singularity_parameters = ['-H', '{}:{}'.format(os.path.abspath(work_dir), os.environ.get('HOME'))]
-
         if check_output is True:
-            ret = singularityCheckOutput(job, tool, parameters=parameters,
-                                    singularityParameters=singularity_parameters, workDir=work_dir)
+            ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
         else:
-            ret = singularityCall(job, tool, parameters=parameters, singularityParameters=singularity_parameters,
-                             workDir=work_dir, outfile = outfile)
+            ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
         
-        # This isn't running through reliably by itself.  Will assume it's
-        # because I took docker.py out of toil, and leave here until we revert to
-        # toil's docker
-        #
-        # Note: It's the tabix docker call in merge_vcf_chunks that's problematic
-        #       It complains that the container can't be found, so fixPermissions
-        #       doesn't get run afterward.  
-        #
         end_time = timeit.default_timer()
         run_time = end_time - start_time
         RealtimeLogger.info("Successfully singularity ran {} in {} seconds.".format(
