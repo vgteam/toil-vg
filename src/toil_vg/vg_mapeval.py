@@ -114,10 +114,12 @@ def add_mapeval_options(parser):
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
     
-def get_default_mapeval_options():
+def get_default_mapeval_options(truth):
     """
     Return an argparse Namespace populated with the default mapeval option
     values.
+    
+    Requires the required positional truth file argument.
     
     Can be modified and then passed to make_mapeval_plan(), so you can use
     mapeval as part of a larger program.
@@ -129,7 +131,7 @@ def get_default_mapeval_options():
     # Stick our arguments on it
     add_mapeval_options(parser)
     # And parse nothing but mandatory arguments
-    return parser.parse_args([])
+    return parser.parse_args([truth])
     
 def validate_options(options):
     """
