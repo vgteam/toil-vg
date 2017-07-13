@@ -48,9 +48,30 @@ def mapeval_subparser(parser):
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
     
-    # General options
+    # Add the out_store
+    # TODO: do this at a higher level?
+    # Or roll into Context?
     parser.add_argument('out_store',
                         help='output store.  All output written here. Path specified using same syntax as toil jobStore')
+    
+    # Add mapeval-spacific stuff
+    add_mapeval_options(parser)
+    
+    # Add mapping options
+    map_parse_args(parser)
+
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
+
+    # Add common docker options
+    add_container_tool_parse_args(parser)
+    
+def add_mapeval_options(parser):
+    """
+    Add the mapeval-specific options to the given argparse parser.
+    """
+    
+    # General options
     parser.add_argument('truth', type=make_url, default=None,
                         help='list of true positions of reads as output by toil-vg sim')        
     parser.add_argument('--gams', nargs='+', type=make_url, default=[],
@@ -93,14 +114,22 @@ def mapeval_subparser(parser):
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
     
-    # Add mapping options
-    map_parse_args(parser)
-
-    # Add common options shared with everybody
-    add_common_vg_parse_args(parser)
-
-    # Add common docker options
-    add_container_tool_parse_args(parser)
+def get_default_mapeval_options():
+    """
+    Return an argparse Namespace populated with the default mapeval option
+    values.
+    
+    Can be modified and then passed to make_mapeval_plan(), so you can use
+    mapeval as part of a larger program.
+    
+    """
+    
+    # Make a parser
+    parser = argparse.ArgumentParser()
+    # Stick our arguments on it
+    add_mapeval_options(parser)
+    # And parse nothing but mandatory arguments
+    return parser.parse_args([])
     
 def validate_options(options):
     """
