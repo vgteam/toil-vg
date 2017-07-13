@@ -102,6 +102,49 @@ def mapeval_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
     
+def validate_options(options):
+    """
+    Throw an error if an invalid combination of options has been selected.
+    """
+    
+    # check bwa / bam input parameters.  
+    if options.bwa or options.bwa_paired:
+        require(options.gam_input_reads, '--gam_input_reads required for bwa')
+        require(options.fasta, '--fasta required for bwa')
+    if options.bams:
+        require(options.bam_names and len(options.bams) == len(options.bam_names),
+                 '--bams and --bam-names must have same number of inputs')
+    if options.pe_bams:
+        require(options.pe_bam_names and len(options.pe_bams) == len(options.pe_bam_names),
+                 '--pe-bams and --pe-bam-names must have same number of inputs')
+
+    # some options from toil-vg map are disabled on the command line
+    # this can be eventually cleaned up a bit better 
+    require(not (options.interleaved or options.fastq),
+            '--interleaved and --fastq disabled in toil-vg mapeval')
+
+    # accept graphs or indexes in place of gams
+    require(options.gams or options.index_bases or options.vg_graphs,
+            'one of --vg-graphs, --index-bases or --gams must be used to specifiy vg input')
+
+    if options.gams:
+        require(len(options.index_bases) == len(options.gams),
+                '--index-bases must be used along with --gams to specify xg locations')
+    if options.vg_graphs:
+        require(not options.gams and not options.index_bases,
+                'if --vg-graphs specified, --gams and --index-bases must not be used')
+
+    # must have a name for each graph/index/gam
+    if options.gams:
+        require(options.gam_names and len(options.gams) == len(options.gam_names),
+                 '--gams and --gam_names must have same number of inputs')
+    if options.vg_graphs:
+        require(options.gam_names and len(options.vg_graphs) == len(options.gam_names),
+                 '--vg-graphs and --gam_names must have same number of inputs')
+    if options.index_bases:
+        require(options.gam_names and len(options.index_bases) == len(options.gam_names),
+                 '--index-bases and --gam_names must have same number of inputs')
+    
 def parse_int(value):
     """
     Parse an int, interpreting an empty string as 0.
@@ -1033,50 +1076,92 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
                      memory=context.config.misc_mem, disk=context.config.misc_disk)
                      
     return comparison_job.rv()
+    
+def make_mapeval_plan(toil, options):
+    """
+    Import all the necessary files form options into Toil.
+    
+    Keep the IDs under names in an argparse namespace that functions as a "plan"
+    for the workflow.
+    
+    """
+    
+    # Make a plan
+    plan = argparse.Namespace()
+    
+    start_time = timeit.default_timer()
+            
+    # Upload local files to the remote IO Store
+    if options.gam_input_reads:
+        plan.reads_gam_file_id = toil.importFile(options.gam_input_reads)
+    else:
+        plan.reads_gam_file_id = None
+
+    # Input vg data.  can be either .vg or .gam/.xg or .xg/.gcsa/.gcsa.lcp
+    plan.gam_file_ids = []
+    if options.gams:
+        for gam in options.gams:
+            plan.gam_file_ids.append(toil.importFile(gam))
+
+    plan.vg_file_ids = []
+    if options.vg_graphs:
+        for graph in options.vg_graphs:
+            plan.vg_file_ids.append(toil.importFile(graph))
+
+    plan.xg_file_ids = []
+    plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
+    plan.id_range_file_ids = []
+    if options.index_bases:
+        for ib in options.index_bases:
+            plan.xg_file_ids.append(toil.importFile(ib + '.xg'))
+            if not options.gams:
+                plan.gcsa_file_ids.append(
+                    (toil.importFile(ib + '.gcsa'),
+                    toil.importFile(ib + '.gcsa.lcp')))
+                # multiple gam outputs not currently supported by evaluation pipeline
+                #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
+                #    id_range_file_ids.append(
+                #        toil.importFile(ib + '_id_ranges.tsv'))
+                                                               
+                                
+    # Input bwa data        
+    plan.bam_file_ids = []
+    if options.bams:
+        for bam in options.bams:
+            plan.bam_file_ids.append(toil.importFile(bam))
+    plan.pe_bam_file_ids = []
+    if options.pe_bams:
+        for bam in options.pe_bams:
+            plan.pe_bam_file_ids.append(toil.importFile(bam))
+
+    if options.fasta:
+        plan.bwa_index_ids = dict()
+        for suf in ['.amb', '.ann', '.bwt', '.pac', '.sa']:
+            fidx = '{}{}'.format(options.fasta, suf)
+            if os.path.exists(fidx):
+                plan.bwa_index_ids[suf] = toil.importFile(fidx)
+            else:
+                plan.bwa_index_ids = None
+                break
+        if not plan.bwa_index_ids:
+            plan.fasta_file_id = toil.importFile(options.fasta)
+    else:
+        plan.fasta_file_id = None
+        plan.bwa_index_ids = None
+    plan.true_read_stats_file_id = toil.importFile(options.truth)
+
+    end_time = timeit.default_timer()
+    logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+    
+    return plan
 
 def mapeval_main(context, options):
     """
     Run the mapeval workflow.
     """
 
-    # check bwa / bam input parameters.  
-    if options.bwa or options.bwa_paired:
-        require(options.gam_input_reads, '--gam_input_reads required for bwa')
-        require(options.fasta, '--fasta required for bwa')
-    if options.bams:
-        require(options.bam_names and len(options.bams) == len(options.bam_names),
-                 '--bams and --bam-names must have same number of inputs')
-    if options.pe_bams:
-        require(options.pe_bam_names and len(options.pe_bams) == len(options.pe_bam_names),
-                 '--pe-bams and --pe-bam-names must have same number of inputs')
-
-    # some options from toil-vg map are disabled on the command line
-    # this can be eventually cleaned up a bit better 
-    require(not (options.interleaved or options.fastq),
-            '--interleaved and --fastq disabled in toil-vg mapeval')
-
-    # accept graphs or indexes in place of gams
-    require(options.gams or options.index_bases or options.vg_graphs,
-            'one of --vg-graphs, --index-bases or --gams must be used to specifiy vg input')
-
-    if options.gams:
-        require(len(options.index_bases) == len(options.gams),
-                '--index-bases must be used along with --gams to specify xg locations')
-    if options.vg_graphs:
-        require(not options.gams and not options.index_bases,
-                'if --vg-graphs specified, --gams and --index-bases must not be used')
-
-    # must have a name for each graph/index/gam
-    if options.gams:
-        require(options.gam_names and len(options.gams) == len(options.gam_names),
-                 '--gams and --gam_names must have same number of inputs')
-    if options.vg_graphs:
-        require(options.gam_names and len(options.vg_graphs) == len(options.gam_names),
-                 '--vg-graphs and --gam_names must have same number of inputs')
-    if options.index_bases:
-        require(options.gam_names and len(options.index_bases) == len(options.gam_names),
-                 '--index-bases and --gam_names must have same number of inputs')
-        
+    # Make sure the options are good
+    validate_options(options)
     
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
@@ -1084,82 +1169,31 @@ def mapeval_main(context, options):
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
     
-    with Toil(options) as toil:
+    with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
-            
-            # Upload local files to the remote IO Store
-            if options.gam_input_reads:
-                reads_gam_file_id = toil.importFile(options.gam_input_reads)
-            else:
-                reads_gam_file_id = None
-
-            # Input vg data.  can be either .vg or .gam/.xg or .xg/.gcsa/.gcsa.lcp
-            gam_file_ids = []
-            if options.gams:
-                for gam in options.gams:
-                    gam_file_ids.append(toil.importFile(gam))
-
-            vg_file_ids = []
-            if options.vg_graphs:
-                for graph in options.vg_graphs:
-                    vg_file_ids.append(toil.importFile(graph))
-
-            xg_file_ids = []
-            gcsa_file_ids = [] # list of gcsa/lcp pairs
-            id_range_file_ids = []
-            if options.index_bases:
-                for ib in options.index_bases:
-                    xg_file_ids.append(toil.importFile(ib + '.xg'))
-                    if not options.gams:
-                        gcsa_file_ids.append(
-                            (toil.importFile(ib + '.gcsa'),
-                            toil.importFile(ib + '.gcsa.lcp')))
-                        # multiple gam outputs not currently supported by evaluation pipeline
-                        #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
-                        #    id_range_file_ids.append(
-                        #        toil.importFile(ib + '_id_ranges.tsv'))
-                                                                       
-                                        
-            # Input bwa data        
-            bam_file_ids = []
-            if options.bams:
-                for bam in options.bams:
-                    bam_file_ids.append(toil.importFile(bam))
-            pe_bam_file_ids = []
-            if options.pe_bams:
-                for bam in options.pe_bams:
-                    pe_bam_file_ids.append(toil.importFile(bam))
-
-            if options.fasta:
-                bwa_index_ids = dict()
-                for suf in ['.amb', '.ann', '.bwt', '.pac', '.sa']:
-                    fidx = '{}{}'.format(options.fasta, suf)
-                    if os.path.exists(fidx):
-                        bwa_index_ids[suf] = toil.importFile(fidx)
-                    else:
-                        bwa_index_ids = None
-                        break
-                if not bwa_index_ids:
-                    fasta_file_id = toil.importFile(options.fasta)
-            else:
-                fasta_file_id = None
-                bwa_index_ids = None
-            true_read_stats_file_id = toil.importFile(options.truth)
-
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+            # Import everything
+            plan = make_mapeval_plan(toil, options)
 
             # Make a job to run the mapeval workflow, using all these various imported files.
-            main_job = Job.wrapJobFn(run_mapeval, context, options, xg_file_ids, gcsa_file_ids, id_range_file_ids,
-                vg_file_ids, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, bam_file_ids,
-                pe_bam_file_ids, true_read_stats_file_id)
+            main_job = Job.wrapJobFn(run_mapeval,
+                                     context, 
+                                     options, 
+                                     plan.xg_file_ids,
+                                     plan.gcsa_file_ids, 
+                                     plan.id_range_file_ids,
+                                     plan.vg_file_ids, 
+                                     plan.gam_file_ids, 
+                                     plan.reads_gam_file_id, 
+                                     plan.fasta_file_id, 
+                                     plan.bwa_index_ids, 
+                                     plan.bam_file_ids,
+                                     plan.pe_bam_file_ids, 
+                                     plan.true_read_stats_file_id)
                 
             # Output files all live in the out_store, but if we wanted to we could export them also/instead.
             
             # Run the root job
-            # TODO: if we want a final return value we'll have to wrap the above logic in a main job.
             toil.start(main_job)
         else:
             toil.restart()
