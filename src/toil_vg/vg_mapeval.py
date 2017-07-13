@@ -54,15 +54,9 @@ def mapeval_subparser(parser):
     parser.add_argument('out_store',
                         help='output store.  All output written here. Path specified using same syntax as toil jobStore')
     
-    # Add mapeval-spacific stuff
+    # Add mapeval stuff
     add_mapeval_options(parser)
     
-    # Add mapping options
-    map_parse_args(parser)
-
-    # Add common options shared with everybody
-    add_common_vg_parse_args(parser)
-
     # Add common docker options
     add_container_tool_parse_args(parser)
     
@@ -113,6 +107,15 @@ def add_mapeval_options(parser):
     # We can compare all the scores against those from a particular GAM, if asked.
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
+                        
+    # We also need to have these options to make lower-level toil-vg code happy
+    # with the options namespace we hand it.
+    
+    # Add mapping options
+    map_parse_args(parser)
+
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
     
 def get_default_mapeval_options(truth):
     """
