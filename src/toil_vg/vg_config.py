@@ -472,7 +472,7 @@ def apply_config_file_args(args):
                     del args.__dict__[x_opts][pos:pos+2]
 
     # If no config file given, we generate a default one
-    if args.config is None:
+    if not args.__dict__.has_key('config') or args.config is None:
         config = generate_config()
     else:
         require(os.path.exists(args.config), 'Config, {}, not found. Please run '

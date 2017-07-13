@@ -13,6 +13,8 @@ import tempfile
 import datetime
 import pkg_resources
 import copy
+import os
+import os.path
 
 from argparse import Namespace
 
@@ -101,7 +103,27 @@ class Context(object):
         else:
             return None
             
-    def write_file(self, job, path):
+    def write_intermediate_file(self, job, path):
+        """
+        Write the file at the given path to the given job's Toil FileStore, and
+        to the out_store if one is in use and we are trying to dump intermediate
+        files.
+        
+        In the out_store, the file is saved under its basename, in the root
+        directory.
+        
+        Returns the Toil file ID for the written file.
+        """
+        
+        out_store = self.get_out_store()
+        if out_store is not None and self.config.force_outstore:
+            # Save to the out_store if it exists
+            out_store.write_output_file(path, os.path.basename(path))
+        
+        # Save to Toil
+        return job.fileStore.writeGlobalFile(path)
+            
+    def write_output_file(self, job, path):
         """
         
         Write the file at the given path to the given job's Toil FileStore, and

@@ -152,36 +152,41 @@ def parse_int(value):
     
     return int(value) if value.strip() != '' else 0
 
-def run_bwa_index(job, options, gam_file_id, fasta_file_id, bwa_index_ids):
+def run_bwa_index(job, context, options, do_bwa, do_bwa_paired, gam_file_id, fasta_file_id, bwa_index_ids):
     """
     Make a bwa index for a fast sequence if not given in input. then run bwa mem
+    
+    Retuns a pair of BAM IDs, one for unpaired and one for paired. Either will be None if the corresponding flag is false.
     """
     if not bwa_index_ids:
         bwa_index_ids = dict()
         work_dir = job.fileStore.getLocalTempDir()
-        fasta_file = os.path.join(work_dir, os.path.basename(options.fasta))
+        # Download the FASTA file to be indexed
+        # It would be nice to name it the same as the actual input FASTA but we'd have to peek at the options
+        fasta_file = os.path.join(work_dir, 'toindex.fa')
         job.fileStore.readGlobalFile(fasta_file_id, fasta_file)
         cmd = ['bwa', 'index', os.path.basename(fasta_file)]
-        options.drunner.call(job, cmd, work_dir = work_dir)
+        context.runner.call(job, cmd, work_dir = work_dir)
         for idx_file in glob.glob('{}.*'.format(fasta_file)):
-            bwa_index_ids[idx_file[len(fasta_file):]] = write_to_store(job, options, idx_file)
+            # Upload all the index files created, and store their IDs under their extensions
+            bwa_index_ids[idx_file[len(fasta_file):]] = context.write_intermediate_file(job, idx_file)
 
     bwa_stats_file_id = None
     bwa_pair_stats_file_id = None
                     
-    if options.bwa:
-        bwa_stats_file_id = job.addChildJobFn(run_bwa_mem, options, gam_file_id, bwa_index_ids, False,
-                                            cores=options.alignment_cores, memory=options.alignment_mem,
-                                            disk=options.alignment_disk).rv()
-    if options.bwa_paired:
-        bwa_pair_stats_file_id = job.addChildJobFn(run_bwa_mem, options, gam_file_id, bwa_index_ids, True,
-                                                 cores=options.alignment_cores, memory=options.alignment_mem,
-                                                 disk=options.alignment_disk).rv()
+    if do_bwa:
+        bwa_stats_file_id = job.addChildJobFn(run_bwa_mem, context, options, gam_file_id, bwa_index_ids, False,
+                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                            disk=context.config.alignment_disk).rv()
+    if do_bwa_paired:
+        bwa_pair_stats_file_id = job.addChildJobFn(run_bwa_mem, context, options, gam_file_id, bwa_index_ids, True,
+                                                 cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                 disk=context.config.alignment_disk).rv()
 
     return bwa_stats_file_id, bwa_pair_stats_file_id
 
     
-def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
+def run_bwa_mem(job, context, options, gam_file_id, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a gam.  optionally run in paired mode
     return id of bam file
     """
@@ -189,11 +194,11 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
     work_dir = job.fileStore.getLocalTempDir()
 
     # read the gam file
-    gam_file = os.path.join(work_dir, os.path.basename(options.gam_input_reads))
+    gam_file = os.path.join(work_dir, 'input.gam')
     job.fileStore.readGlobalFile(gam_file_id, gam_file)
 
     # and the index files
-    fasta_file = os.path.join(work_dir, os.path.basename(options.fasta))
+    fasta_file = os.path.join(work_dir, 'reference.fa')
     for suf, idx_id in bwa_index_ids.items():
         job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
 
@@ -210,7 +215,7 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
         json_file = gam_file + '.json'
         cmd = ['vg', 'view', '-a', os.path.basename(gam_file)]
         with open(json_file, 'w') as out_json:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_json)
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_json)
 
         sim_fq_files = [None, os.path.join(work_dir, 'sim_1.fq.gz'),
                         os.path.join(work_dir, 'sim_2.fq.gz')]
@@ -222,7 +227,7 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
                    os.path.basename(json_file)]
             end_file = json_file + '.{}'.format(i)
             with open(end_file, 'w') as end_out:
-                options.drunner.call(job, cmd, work_dir = work_dir, outfile = end_out)
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = end_out)
 
             cmd = [['vg', 'view', '-JaG', os.path.basename(end_file)]]
             cmd.append(['vg', 'view', '-X', '-'])
@@ -230,21 +235,21 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
             cmd.append(['gzip'])
 
             with open(sim_fq_files[i], 'w') as sim_out:
-                options.drunner.call(job, cmd, work_dir = work_dir, outfile = sim_out)
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_out)
 
             os.remove(end_file)
 
         # run bwa-mem on the paired end input
-        cmd = ['bwa', 'mem', '-t', str(options.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(sim_fq_files[1]), os.path.basename(sim_fq_files[2])] + options.bwa_opts        
+        cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
+                os.path.basename(sim_fq_files[1]), os.path.basename(sim_fq_files[2])] + context.config.bwa_opts        
         with open(bam_file + '.sam', 'w') as out_sam:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
         with open(bam_file, 'w') as out_bam:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
     # single end
     else:
@@ -254,27 +259,27 @@ def run_bwa_mem(job, options, gam_file_id, bwa_index_ids, paired_mode):
         extracted_reads_file = os.path.join(work_dir, 'extracted_reads')
         cmd = ['vg', 'view', '-X', os.path.basename(gam_file)]
         with open(extracted_reads_file, 'w') as out_ext:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
 
         # run bwa-mem on single end input
-        cmd = ['bwa', 'mem', '-t', str(options.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(extracted_reads_file)] + options.bwa_opts
+        cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
+                os.path.basename(extracted_reads_file)] + context.config.bwa_opts
 
         with open(bam_file + '.sam', 'w') as out_sam:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
         with open(bam_file, 'w') as out_bam:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
 
     # return our id for the output bam file
-    bam_file_id = write_to_store(job, options, bam_file)
+    bam_file_id = context.write_intermediate_file(job, bam_file)
 
     return bam_file_id
 
-def extract_bam_read_stats(job, options, name, bam_file_id, paired):
+def extract_bam_read_stats(job, context, options, name, bam_file_id, paired):
     """
     extract positions, scores, and MAPQs from bam, return id of read stats file
     (lots of duplicated code with vg_sim, should merge?)
@@ -309,13 +314,13 @@ def extract_bam_read_stats(job, options, name, bam_file_id, paired):
     cmd.append(['sort'])
     
     with open(out_pos_file, 'w') as out_pos:
-        options.drunner.call(job, cmd, work_dir = work_dir, outfile = out_pos)
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_pos)
 
-    stats_file_id = write_to_store(job, options, out_pos_file)
+    stats_file_id = context.write_intermediate_file(job, out_pos_file)
     return stats_file_id
 
     
-def extract_gam_read_stats(job, options, xg_file_id, name, gam_file_id):
+def extract_gam_read_stats(job, context, options, xg_file_id, name, gam_file_id):
     """
     extract positions, scores, and MAPQs for reads from gam, return id of
     read stats file
@@ -328,6 +333,7 @@ def extract_gam_read_stats(job, options, xg_file_id, name, gam_file_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     # download input
+    RealtimeLogger.info('Download XG from file {}'.format(xg_file_id))
     xg_file = os.path.join(work_dir, '{}.xg'.format(name))
     job.fileStore.readGlobalFile(xg_file_id, xg_file)
     gam_file = os.path.join(work_dir, name)
@@ -340,7 +346,7 @@ def extract_gam_read_stats(job, options, xg_file_id, name, gam_file_id):
     cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
     cmd.append(['vg', 'view', '-aj', '-'])
     with open(gam_annot_json, 'w') as output_annot_json:
-        options.drunner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+        context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
 
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
@@ -351,7 +357,7 @@ def extract_gam_read_stats(job, options, xg_file_id, name, gam_file_id):
     jq_cmd.append(['sed', 's/null/0/g'])
 
     with open(out_pos_file + '.unsorted', 'w') as out_pos:
-        options.drunner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
+        context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
 
     # get rid of that big json asap
     os.remove(gam_annot_json)
@@ -359,16 +365,16 @@ def extract_gam_read_stats(job, options, xg_file_id, name, gam_file_id):
     # sort the read stats file (not piping due to memory fears)
     sort_cmd = ['sort', os.path.basename(out_pos_file) + '.unsorted']
     with open(out_pos_file, 'w') as out_pos:
-        options.drunner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
+        context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
 
     # Make sure each line has all columns
     RealtimeLogger.info("Make sure all lines are full length")
-    options.drunner.call(job, ['awk', '!length($5)',  os.path.basename(out_pos_file)], work_dir = work_dir)
+    context.runner.call(job, ['awk', '!length($5)',  os.path.basename(out_pos_file)], work_dir = work_dir)
 
-    out_stats_file_id = write_to_store(job, options, out_pos_file)
+    out_stats_file_id = context.write_intermediate_file(job, out_pos_file)
     return out_stats_file_id
     
-def compare_positions(job, options, truth_file_id, name, stats_file_id):
+def compare_positions(job, context, options, truth_file_id, name, stats_file_id, mapeval_threshold):
     """
     this is essentially pos_compare.py from vg/scripts
     return output file id.
@@ -381,6 +387,10 @@ def compare_positions(job, options, truth_file_id, name, stats_file_id):
     
     Produces a CSV (NOT TSV) of the form:
     read name, correctness flag (0/1), MAPQ
+    
+    mapeval_threshold is the distance within which a mapping is held to have hit
+    the correct position.
+    
     """
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -415,7 +425,7 @@ def compare_positions(job, options, truth_file_id, name, stats_file_id):
             aln_pos = parse_int(test_fields[2])
             # Skip over score field
             aln_mapq = parse_int(test_fields[4])
-            aln_correct = 1 if aln_chr == true_chr and abs(true_pos - aln_pos) < options.mapeval_threshold else 0
+            aln_correct = 1 if aln_chr == true_chr and abs(true_pos - aln_pos) < mapeval_threshold else 0
 
             out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
         
@@ -434,10 +444,10 @@ def compare_positions(job, options, truth_file_id, name, stats_file_id):
         if has_next:
             raise RuntimeError('read stats files have different lengths')
         
-    out_file_id = write_to_store(job, options, out_file)
+    out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
     
-def compare_scores(job, options, baseline_file_id, name, score_file_id):
+def compare_scores(job, context, options, baseline_file_id, name, score_file_id):
     """
     Compares scores from TSV files. The baseline and file under test both have
     the format:
@@ -497,10 +507,10 @@ def compare_scores(job, options, baseline_file_id, name, score_file_id):
         if has_next:
             raise RuntimeError('read stats files have different lengths')
         
-    out_file_id = write_to_store(job, options, out_file)
+    out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
 
-def get_gam_scores(job, options, xg_file_id, name, gam_file_id):
+def get_gam_scores(job, context, options, xg_file_id, name, gam_file_id):
     """
     extract read stats from gam, return id of scores file
     
@@ -523,7 +533,7 @@ def get_gam_scores(job, options, xg_file_id, name, gam_file_id):
     cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
     cmd.append(['vg', 'view', '-aj', '-'])
     with open(gam_annot_json, 'w') as output_annot_json:
-        options.drunner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+        context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
 
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
@@ -534,7 +544,7 @@ def get_gam_scores(job, options, xg_file_id, name, gam_file_id):
     jq_cmd.append(['sed', 's/null/0/g'])
 
     with open(out_pos_file + '.unsorted', 'w') as out_pos:
-        options.drunner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
+        context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
 
     # get rid of that big json asap
     os.remove(gam_annot_json)
@@ -542,9 +552,9 @@ def get_gam_scores(job, options, xg_file_id, name, gam_file_id):
     # sort the positions file (not piping due to memory fears)
     sort_cmd = ['sort', os.path.basename(out_pos_file) + '.unsorted']
     with open(out_pos_file, 'w') as out_pos:
-        options.drunner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
+        context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
 
-    out_stats_file_id = write_to_store(job, options, out_pos_file)
+    out_stats_file_id = context.write_intermediate_file(job, out_pos_file)
     return out_stats_file_id
 
 
@@ -565,7 +575,7 @@ def run_map_eval_index(job, context, options, xg_file_ids, gcsa_file_ids, id_ran
     if vg_file_ids:
         for vg_file_id in vg_file_ids:
             # vg index uses .graphs and .chroms for naming
-            # todo: clean up 
+            # TODO: clean up 
             options.graphs = ['./default.vg']
             options.chroms = ['default']
             index_ids.append(job.addChildJobFn(run_indexing, context.to_options(options), [vg_file_id],
@@ -581,12 +591,12 @@ def run_map_eval_index(job, context, options, xg_file_ids, gcsa_file_ids, id_ran
             
 
 
-def run_map_eval_align(job, context, options, index_ids, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids):
+def run_map_eval_align(job, context, options, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_bwa_paired):
     """
     Run alignments, if alignment files have not already been provided.
     
-    Returns a list of gam file IDs, a list of associated GAM file names, a list
-    of associated xg index IDs, and a list of BAM file IDs (or Nones) for
+    Returns a list of graph/gam names, a list of associated gam file IDs, a
+    list of associated xg index IDs, and a list of BAM file IDs (or Nones) for
     realigned read BAMs.
     
     We need to modify the name and index lists because we synthesize paired-end
@@ -596,8 +606,6 @@ def run_map_eval_align(job, context, options, index_ids, gam_file_ids, reads_gam
 
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id[0] for index_id in index_ids]
-    # Pull out the GAM names because we may need to add more.
-    gam_names = options.gam_names
 
     do_vg_mapping = not gam_file_ids
     if do_vg_mapping:
@@ -632,15 +640,18 @@ def run_map_eval_align(job, context, options, index_ids, gam_file_ids, reads_gam
         
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
-    if options.bwa or options.bwa_paired:
-        bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, context.to_options(options), reads_gam_file_id,
+    if do_bwa or do_bwa_paired:
+        bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, context, options,
+                                             do_bwa, do_bwa_paired, reads_gam_file_id,
                                              fasta_file_id, bwa_index_ids,
                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                              disk=context.config.alignment_disk).rv()
     
-    return gam_file_ids, gam_names, xg_ids, bwa_bam_file_ids    
+    return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids    
     
-def run_map_eval_comparison(job, context, options, xg_file_ids, gam_file_ids, gam_names, bam_file_ids, pe_bam_file_ids, bwa_bam_file_ids, true_read_stats_file_id):
+def run_map_eval_comparison(job, context, options, xg_file_ids, gam_names, gam_file_ids,
+                            bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
+                            bwa_bam_file_ids, true_read_stats_file_id, mapeval_threshold, score_baseline_name=None):
     """
     run the mapping comparison.  Dump some tables into the outstore.
     
@@ -649,10 +660,6 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_file_ids, ga
     Each result set is itself a pair, consisting of a list of per-graph file IDs, and an overall statistics file ID.
     
     """
-
-    # Pull out the bam and paired-end bam names so we can add in another one if needed
-    bam_names = options.bam_names
-    pe_bam_names = options.pe_bam_names
 
     # munge out the returned pair from run_bwa_index()
     if bwa_bam_file_ids[0] is not None:
@@ -666,14 +673,14 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_file_ids, ga
     bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(bam_file_ids):
         name = '{}-{}.bam'.format(bam_names[bam_i], bam_i)
-        bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context.to_options(options), name, bam_id, False,
+        bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context, options, name, bam_id, False,
                                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                     disk=context.config.misc_disk).rv())
     # separate flow for paired end bams because different logic used
     pe_bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(pe_bam_file_ids):
         name = '{}-{}.bam'.format(pe_bam_names[bam_i], bam_i)
-        pe_bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context.to_options(options), name, bam_id, True,
+        pe_bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context, options, name, bam_id, True,
                                                        cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk).rv())
 
@@ -687,32 +694,34 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_file_ids, ga
         if type(gam_id) is list:
             assert len(gam_id) == 1
             gam = gam_id[0]
-        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, context.to_options(options), xg_file_ids[gam_i],
+        RealtimeLogger.info('Work on GAM {} = {} named {} with XG id {}'.format(gam_i, gam, gam_names[gam_i], xg_file_ids[gam_i]))
+        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, context, options, xg_file_ids[gam_i],
                                                     name, gam, cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                     disk=context.config.misc_disk).rv())
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
-    position_comparison_results = job.addFollowOnJobFn(run_map_eval_compare_positions, context.to_options(options),
+    position_comparison_results = job.addFollowOnJobFn(run_map_eval_compare_positions, context, options,
                                                        true_read_stats_file_id, gam_names, gam_stats_file_ids,
                                                        bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids,
+                                                       mapeval_threshold,
                                                        cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk).rv()
     
-    if options.compare_gam_scores is not None:
+    if score_baseline_name is not None:
         # We want to compare the scores from all the GAMs against a baseline
         
         # Make a dict mapping from assigned GAM name in gam_names to the stats file for that GAM's alignment
         name_to_stats_id = dict(itertools.izip(gam_names, gam_stats_file_ids))
         
         # Find the baseline scores
-        baseline_stats_id = name_to_stats_id[options.compare_gam_scores]
+        baseline_stats_id = name_to_stats_id[score_baseline_name]
         
         # compare all our scores against the baseline, and dump results to the
         # out store. 
-        score_comp_job = job.addFollowOnJobFn(run_map_eval_compare_scores, context.to_options(options), 
-                                              baseline_stats_id, gam_stats_file_ids, bam_stats_file_ids,
-                                              pe_bam_stats_file_ids, cores=context.config.misc_cores,
+        score_comp_job = job.addFollowOnJobFn(run_map_eval_compare_scores, context, options, 
+                                              baseline_stats_id, gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
+                                              pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
                                               memory=context.config.misc_mem, disk=context.config.misc_disk)
                              
         # Get a tuple of individual comparison files and overall stats file.
@@ -723,8 +732,8 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_file_ids, ga
         
     return position_comparison_results, score_comparison_results
 
-def run_map_eval_compare_positions(job, options, true_read_stats_file_id, gam_names, gam_stats_file_ids,
-                         bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids):
+def run_map_eval_compare_positions(job, context, options, true_read_stats_file_id, gam_names, gam_stats_file_ids,
+                         bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids, mapeval_threshold):
     """
     Compare the read positions for each read across the different aligmment
     methods.
@@ -742,17 +751,18 @@ def run_map_eval_compare_positions(job, options, true_read_stats_file_id, gam_na
 
     compare_ids = []
     for name, stats_file_id in zip(names, stats_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_positions, options, true_read_stats_file_id, name, stats_file_id,
-                                             cores=options.misc_cores, memory=options.misc_mem,
-                                             disk=options.misc_disk).rv())
+        compare_ids.append(job.addChildJobFn(compare_positions, context, options, true_read_stats_file_id, name,
+                                             stats_file_id, mapeval_threshold,
+                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                             disk=context.config.misc_disk).rv())
 
-    stats_file_id = job.addFollowOnJobFn(run_process_position_comparisons, options, names, compare_ids,
-                                         cores=options.misc_cores, memory=options.misc_mem,
-                                         disk=options.misc_disk).rv()
+    stats_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, options, names, compare_ids,
+                                         cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                         disk=context.config.misc_disk).rv()
                                          
     return compare_ids, stats_file_id
 
-def run_process_position_comparisons(job, options, names, compare_ids):
+def run_process_position_comparisons(job, context, options, names, compare_ids):
     """
     Write some raw tables of position comparisons to the output.  Compute some
     stats for each graph.
@@ -784,21 +794,21 @@ def run_process_position_comparisons(job, options, names, compare_ids):
             name, compare_id = nci[0], nci[1]
             compare_file = os.path.join(work_dir, '{}-{}.compare.positions'.format(name, i))
             job.fileStore.readGlobalFile(compare_id, compare_file)
-            write_to_store(job, options, compare_file, use_out_store = True)
+            context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
 
-            map_stats.append([job.addChildJobFn(run_acc, options, name, compare_id, cores=options.misc_cores,
-                                                memory=options.misc_mem, disk=options.misc_disk).rv(),
-                              job.addChildJobFn(run_auc, options, name, compare_id, cores=options.misc_cores,
-                                                memory=options.misc_mem, disk=options.misc_disk).rv(),
-                              job.addChildJobFn(run_qq, options, name, compare_id, cores=options.misc_cores,
-                                                memory=options.misc_mem, disk=options.misc_disk).rv()])
+            map_stats.append([job.addChildJobFn(run_acc, context, options, name, compare_id, cores=context.config.misc_cores,
+                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                              job.addChildJobFn(run_auc, context, options, name, compare_id, cores=context.config.misc_cores,
+                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                              job.addChildJobFn(run_qq, context, options, name, compare_id, cores=context.config.misc_cores,
+                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()])
             
-    write_to_store(job, options, results_file, use_out_store = True)
+    context.write_output_file(job, results_file)
 
-    return job.addFollowOnJobFn(run_write_position_stats, options, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_position_stats, context, options, names, map_stats).rv()
 
-def run_write_position_stats(job, options, names, map_stats):
+def run_write_position_stats(job, context, options, names, map_stats):
     """
     write the position comparison statistics as tsv, both to the Toil fileStore
     and to the out_store as "stats.tsv".
@@ -816,11 +826,11 @@ def run_write_position_stats(job, options, names, map_stats):
             stats_out.write('{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
                                                           stats[1][0], stats[2]))
 
-    stats_file_id = write_to_store(job, options, stats_file, use_out_store = True)
+    stats_file_id = context.write_output_file(job, stats_file)
     
     return stats_file_id
     
-def run_acc(job, options, name, compare_id):
+def run_acc(job, context, options, name, compare_id):
     """
     Percentage of correctly aligned reads (ignore quality)
     """
@@ -842,7 +852,7 @@ def run_acc(job, options, name, compare_id):
     acc = float(correct) / float(total) if total > 0 else 0
     return total, acc
     
-def run_auc(job, options, name, compare_id):
+def run_auc(job, context, options, name, compare_id):
     """
     AUC of roc plot
     """
@@ -864,7 +874,7 @@ def run_auc(job, options, name, compare_id):
 
     return auc, aupr    
 
-def run_qq(job, options, name, compare_id):
+def run_qq(job, context, options, name, compare_id):
     """
     some measure of qq consistency 
     """
@@ -902,8 +912,8 @@ def run_qq(job, options, name, compare_id):
 
     return r2
     
-def run_map_eval_compare_scores(job, options, baseline_stats_file_id, gam_stats_file_ids,
-                                bam_stats_file_ids, pe_bam_stats_file_ids):
+def run_map_eval_compare_scores(job, context, options, baseline_stats_file_id, gam_names, gam_stats_file_ids,
+                                bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids):
     """
     Compare scores in the given stats files in the lists to those in the given
     baseline stats file.
@@ -926,7 +936,7 @@ def run_map_eval_compare_scores(job, options, baseline_stats_file_id, gam_stats_
     
     # merge up all the condition names and file IDs into synchronized lists
     # TODO: until we can extract the scores from BAMs, just process the GAMs
-    names = options.gam_names
+    names = gam_names
     stats_file_ids = gam_stats_file_ids
     
     RealtimeLogger.info(names)
@@ -934,17 +944,17 @@ def run_map_eval_compare_scores(job, options, baseline_stats_file_id, gam_stats_
 
     compare_ids = []
     for name, stats_file_id in zip(names, stats_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_scores, options, baseline_stats_file_id, name, stats_file_id,
-                                             cores=options.misc_cores, memory=options.misc_mem,
-                                             disk=options.misc_disk).rv())
+        compare_ids.append(job.addChildJobFn(compare_scores, context, options, baseline_stats_file_id, name, stats_file_id,
+                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                             disk=context.config.misc_disk).rv())
 
-    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, options, names, compare_ids,
-                                     cores=options.misc_cores, memory=options.misc_mem,
-                                     disk=options.misc_disk)
+    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, context, options, names, compare_ids,
+                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
                                      
     return compare_ids, stats_job.rv()
 
-def run_process_score_comparisons(job, options, names, compare_ids):
+def run_process_score_comparisons(job, context, options, names, compare_ids):
     """
     Write some raw tables of score comparisons to the output.  Compute some stats for each graph.
     
@@ -978,18 +988,19 @@ def run_process_score_comparisons(job, options, names, compare_ids):
             name, compare_id = nci[0], nci[1]
             compare_file = os.path.join(work_dir, '{}-{}.compare.scores'.format(name, i))
             job.fileStore.readGlobalFile(compare_id, compare_file)
-            write_to_store(job, options, compare_file, use_out_store = True)
+            context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
 
             # Tabulate overall statistics
-            map_stats.append([job.addChildJobFn(run_portion_worse, options, name, compare_id, cores=options.misc_cores,
-                                                memory=options.misc_mem, disk=options.misc_disk).rv()])
+            map_stats.append([job.addChildJobFn(run_portion_worse, context, options, name, compare_id,
+                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                disk=context.config.misc_disk).rv()])
             
-    write_to_store(job, options, results_file, use_out_store = True)
+    context.write_output_file(job, results_file)
     
-    return job.addFollowOnJobFn(run_write_score_stats, options, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_score_stats, context, options, names, map_stats).rv()
     
-def run_write_score_stats(job, options, names, map_stats):
+def run_write_score_stats(job, context, options, names, map_stats):
     """
     write the score comparison statistics as tsv named "score.stats.tsv".
     
@@ -1007,9 +1018,9 @@ def run_write_score_stats(job, options, names, map_stats):
         for name, stats in zip(names, map_stats):
             stats_out.line(name, stats[0][0], stats[0][1])
 
-    return write_to_store(job, options, stats_file, use_out_store = True)
+    return context.write_output_file(job, stats_file)
     
-def run_portion_worse(job, options, name, compare_id):
+def run_portion_worse(job, context, options, name, compare_id):
     """
     Compute percentage of reads that get worse from the baseline graph.
     Return total reads and portion that got worse.
@@ -1050,6 +1061,10 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
     
     """
     
+    # This should be the only Toil job that actually uses options (in order to
+    # orchestrate the right shape of workflow depending on whether we want
+    # particular analyses done).
+    
     # Make an indexing job
     index_job = job.addChildJobFn(run_map_eval_index, context, options, xg_file_ids,
                                   gcsa_file_ids,
@@ -1061,19 +1076,21 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
                               
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, options, index_job.rv(),
-                                               gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids)
+                                               options.gam_names, gam_file_ids, reads_gam_file_id,
+                                               fasta_file_id, bwa_index_ids, options.bwa, options.bwa_paired)
                                                
     # Unpack the alignment job's return values
     # TODO: we're clobbering input values...
-    (gam_file_ids, gam_names, xg_ids, bwa_bam_file_ids) = (alignment_job.rv(0), 
+    (gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids) = (alignment_job.rv(0), 
         alignment_job.rv(1), alignment_job.rv(2), alignment_job.rv(3))
 
     # Then do mapping evaluation comparison (the rest of the workflow)
     comparison_job = alignment_job.addFollowOnJobFn(run_map_eval_comparison, context, options, xg_ids,
-                     gam_file_ids, gam_names, bam_file_ids,
-                     pe_bam_file_ids, bwa_bam_file_ids,
-                     true_read_stats_file_id, cores=context.config.misc_cores,
-                     memory=context.config.misc_mem, disk=context.config.misc_disk)
+                     gam_names, gam_file_ids, options.bam_names, bam_file_ids,
+                     options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids,
+                     true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores,
+                     cores=context.config.misc_cores, memory=context.config.misc_mem,
+                     disk=context.config.misc_disk)
                      
     return comparison_job.rv()
     
