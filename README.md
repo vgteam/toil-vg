@@ -125,7 +125,7 @@ From the leader node, begin by making a toil-vg configuration file suitable for 
 Assuming a series of input vg graphs, one per chromosome, as [created here for example](https://github.com/vgteam/vg/wiki/working-with-a-whole-genome-variation-graph) exists on GRAPH_LOCATION (can be any valid Toil path), files will be written to the S3 bucket, OUT_STORE and the S3 bucket, JOB_STORE, will be used by Toil (both buckets created automatically if necessary; do not prefix OUT_STORE or JOB_STORE with s3://):
 
     MASTER_IP=`ifconfig eth0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}'`
-    toil-vg index aws:us-west-2:JOB_STORE aws:us-west-2:OUT_STORE --workDir /var/lib/toil/  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo GRAPH_LOCATION/${i}; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index --defaultPreemptable --preemptableNodeType i3.8xlarge:1.00 --maxPreemptableNodes 5 2> index.log
+    toil-vg index aws:us-west-2:JOB_STORE aws:us-west-2:OUT_STORE --workDir /var/lib/toil/  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo GRAPH_LOCATION/${i}; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index --defaultPreemptable --preemptableNodeType i3.8xlarge:1.00 --maxPreemptableNodes 5 --nodeType i3.8xlarge --provisioner aws 2> index.log
 
 Note that the spot request node type (i3.8xlarge) and amount ($1.00) can be adjusted in the above command.  Keep in mind that indexing is very memory and disk intensive.
 
@@ -138,7 +138,7 @@ If successful, this will produce for files in s3://OUT_STORE/
 
 We can now align reads and produce a VCF in a single call to `toil-vg run`. (see `toil-vg map` and `toil-vg call` to do separately).  The invocation is similar to the above, except we use r3.8xlarge instances as we do not need as much disk and memory.
 
-    toil-vg run aws:us-west-2:JOB_STORE READ_LOCATION/reads.fastq.gz SAMPLE_NAME aws:us-west-2:OUT_STORE --workDir /var/lib/toil/  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --gcsa_index s3://OUT_STORE/my_index.gcsa --xg_index s3://OUT_STORE/my_index.xg --id_ranges s3://${OUT_STORE}/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved --defaultPreemptable --preemptableNodeType r3.8xlarge:0.85 --maxPreemptableNodes 25 2> map_call.log
+    toil-vg run aws:us-west-2:JOB_STORE READ_LOCATION/reads.fastq.gz SAMPLE_NAME aws:us-west-2:OUT_STORE --workDir /var/lib/toil/  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --gcsa_index s3://OUT_STORE/my_index.gcsa --xg_index s3://OUT_STORE/my_index.xg --id_ranges s3://${OUT_STORE}/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved --defaultPreemptable --preemptableNodeType r3.8xlarge:0.85 --maxPreemptableNodes 25 --nodeType r3.8xlarge --provisioner aws 2> map_call.log
 
 If successful, this command will create a VCF file as well as a GAM for each input chromosome in s3://OUT_STORE/
 
