@@ -70,11 +70,11 @@ All other input files can either either be local (best to specify absolute path)
 
 Please read Toil's [installation documentation](http://toil.readthedocs.io/en/latest/install/basic.html)
 
-Install toil locally.  This can be done with virtualenv as follows:
+Install the latest Toil prerelease locally.  This can be done with virtualenv as follows:
 
     virtualenv ~/toilvenv
-	 . ~/toilvenv/bin/activate
-	 pip install toil[aws,mesos]
+    . ~/toilvenv/bin/activate
+    pip install --pre toil[aws,mesos]
 
 ### Create a leader node
 
