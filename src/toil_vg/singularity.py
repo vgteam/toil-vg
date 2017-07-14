@@ -96,7 +96,7 @@ def _singularity(job,
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
-        baseSingularityCall += ['-H', '{}:/data'.format(os.path.abspath(workDir)), '--pwd', '/data']
+        baseSingularityCall += ['-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME')), '--pwd', os.environ.get('HOME')]
 
     # Make subprocess call
 
