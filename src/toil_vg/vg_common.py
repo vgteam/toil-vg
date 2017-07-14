@@ -258,24 +258,46 @@ def make_url(path):
 def import_to_store(toil, options, path, use_out_store = None,
                     out_store_key = None):
     """
-    Imports a path into the Toil fileStore, and/or the IOStore.
+    Imports a URL or path into the Toil fileStore, and/or the IOStore.
 
     Returns the id in job's file store.
 
     If use_out_store is True, or options.force_outstore is True, the file will
     also be written to the IOStore specified by options.out_store.
     """
-    logger.info("Importing {}".format(path))
+    
+    # Ensure we have a URL
+    url = make_url(path)
+    
+    logger.info("Importing {}".format(url))
+
+    # Always import into Toil  
+    file_id = toil.importFile(url)
 
     if use_out_store is True or (use_out_store is None and options.force_outstore is True):
         # Write the file to the out_store also.
+        
+        # Where should it go?
         out_store = IOStore.get(options.out_store)
         key = os.path.basename(path) if out_store_key is None else out_store_key
-        out_store.write_output_file(path, key)
+        
+        # Make a temporary directory to upload from
+        temp_dir = tempfile.mkdtemp()
+        
+        # Read the file from Toil (which in turn got it from the passed-in URL)
+        toil.exportFile(file_id, 'file://{}/file.dat'.format(temp_dir))
+        
+        # Save it
+        out_store.write_output_file(os.path.join(temp_dir, 'file.dat'), key)
+        
+        # Clean up
+        os.unlink(os.path.join(temp_dir, 'file.dat'))
+        os.rmdir(temp_dir)
+        
+    return file_id
         
     
-    # Always import into Toil  
-    return toil.importFile(make_url(path))
+    
     
 def write_to_store(job, options, path, use_out_store = None,
                    out_store_key = None):
