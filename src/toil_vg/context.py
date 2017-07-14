@@ -13,11 +13,18 @@ import tempfile
 import datetime
 import pkg_resources
 import copy
+import os
+import os.path
 
 from argparse import Namespace
+
+from toil.common import Toil
+from toil.job import Job
+
 from toil_vg.vg_config import apply_config_file_args
 from toil_vg.vg_common import ContainerRunner, get_container_tool_map
 from toil_vg.iostore import IOStore
+
 
 class Context(object):
     """
@@ -28,7 +35,7 @@ class Context(object):
         """
         Make a new context, so we can run the library.
         
-        Takes an optional Namespace of overrides for default toil-vg
+        Takes an optional Namespace of overrides for default toil-vg and Toil
         configuration values.
         
         Overrides can also have a "config" key, in which case that config file
@@ -65,6 +72,25 @@ class Context(object):
         else:
             # We don't want to use an out store
             self.out_store_string = None
+    
+    def get_toil(self, job_store):
+        """
+        Produce a new Toil object for running Toil jobs, using the configuration
+        used when constructing this context, and the given job_store specifier.
+        
+        Needs to be used in a "with" statement to actually work.
+        """
+        
+        # Get the default Toil options
+        toil_options = Job.Runner.getDefaultOptions(job_store)
+        
+        for k, v in self.config.__dict__.iteritems():
+            # Blit over all the overrides, some of which will be relevant
+            toil_options.__dict__[k] = v
+        
+        # Make the Toil object and return it.
+        # It still needs to be entered as a context manager in order to be used.
+        return Toil(toil_options)
             
     def get_out_store(self):
         """
@@ -77,7 +103,27 @@ class Context(object):
         else:
             return None
             
-    def write_file(self, job, path):
+    def write_intermediate_file(self, job, path):
+        """
+        Write the file at the given path to the given job's Toil FileStore, and
+        to the out_store if one is in use and we are trying to dump intermediate
+        files.
+        
+        In the out_store, the file is saved under its basename, in the root
+        directory.
+        
+        Returns the Toil file ID for the written file.
+        """
+        
+        out_store = self.get_out_store()
+        if out_store is not None and self.config.force_outstore:
+            # Save to the out_store if it exists
+            out_store.write_output_file(path, os.path.basename(path))
+        
+        # Save to Toil
+        return job.fileStore.writeGlobalFile(path)
+            
+    def write_output_file(self, job, path):
         """
         
         Write the file at the given path to the given job's Toil FileStore, and
