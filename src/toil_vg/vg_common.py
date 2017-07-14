@@ -24,10 +24,13 @@ def test_docker():
     Return true if Docker is available on this machine, and False otherwise.
     """
     
+    # We don't actually want any Docker output.
+    nowhere = open(os.devnull, 'wb')
+    
     try:
         # Run Docker
         # TODO: implement around dockerCall somehow?
-        subprocess.check_call(['docker', 'version'])
+        subprocess.check_call(['docker', 'version'], stdout=nowhere, stderr=nowhere)
         # And report that it worked
         return True
     except:
