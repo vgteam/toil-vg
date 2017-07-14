@@ -178,6 +178,16 @@ def validate_options(options):
     if options.index_bases:
         require(options.gam_names and len(options.index_bases) == len(options.gam_names),
                  '--index-bases and --gam_names must have same number of inputs')
+                 
+    # Make sure names are unique so we can use them as dict keys and file names
+    names = []
+    if options.bam_names:
+        names += options.bam_names
+    if options.pe_bam_names:
+        names += options.pe_bam_names
+    if options.gam_names:
+        names += options.gam_names
+    require(len(names) == len(set(names)), 'all names must be unique')
     
 def parse_int(value):
     """
@@ -824,9 +834,8 @@ def run_process_position_comparisons(job, context, options, names, compare_ids):
                     # TODO: why are we quoting the aligner name here? What parses TSV and respects quotes?
                     out_results.write('{}\t{}\t"{}"\n'.format(toks[1], toks[2], a))
 
-        for i, nci in enumerate(zip(names, compare_ids)):
-            name, compare_id = nci[0], nci[1]
-            compare_file = os.path.join(work_dir, '{}-{}.compare.positions'.format(name, i))
+        for name, compare_id in itertools.izip(names, compare_ids):
+            compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
             job.fileStore.readGlobalFile(compare_id, compare_file)
             context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
@@ -1018,9 +1027,8 @@ def run_process_score_comparisons(job, context, options, names, compare_ids):
                     toks = line.rstrip().split(', ')
                     out_results.line(toks[1], a)
 
-        for i, nci in enumerate(zip(names, compare_ids)):
-            name, compare_id = nci[0], nci[1]
-            compare_file = os.path.join(work_dir, '{}-{}.compare.scores'.format(name, i))
+        for name, compare_id in itertools.izip(names, compare_ids):
+            compare_file = os.path.join(work_dir, '{}.compare.scores'.format(name))
             job.fileStore.readGlobalFile(compare_id, compare_file)
             context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
