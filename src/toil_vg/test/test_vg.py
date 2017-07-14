@@ -270,6 +270,21 @@ class VGCGLTest(TestCase):
 
         self._assertOutput(None, outstore, f1_threshold=0.70)
                 
+    def test_6_sim_small_outstore(self):
+        ''' 
+        This is the same as test #1, but exercises --force_outstore.
+        '''
+        self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.baseline = self._ci_input_path('small.vcf.gz')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
+
+        self._run(self.base_command, self.jobStoreLocal, 'sample',
+                  self.local_outstore,  '--fastq', self.sample_reads,
+                  '--graphs', self.test_vg_graph,
+                  '--chroms', 'x', '--vcfeval_baseline', self.baseline,
+                  '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
+                  '--force_outstore')
         
     def _run(self, *args):
         args = list(concat(*args))
