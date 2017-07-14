@@ -498,7 +498,7 @@ def compare_scores(job, context, options, baseline_file_id, name, score_file_id)
     read name, contig aligned to, alignment position, alignment score, MAPQ
     
     Produces a CSV (NOT TSV) of the form:
-    read name, score difference
+    read name, score difference, aligned score, baseline score
     
     Uses the given name as a file base name for the file under test.
     """
