@@ -62,7 +62,7 @@ def mapeval_subparser(parser):
     
 def add_mapeval_options(parser):
     """
-    Add the mapeval-specific options to the given argparse parser.
+    Add the mapeval options to the given argparse parser.
     """
     
     # General options
@@ -196,7 +196,7 @@ def parse_int(value):
     
     return int(value) if value.strip() != '' else 0
 
-def run_bwa_index(job, context, options, do_bwa, do_bwa_paired, gam_file_id, fasta_file_id, bwa_index_ids):
+def run_bwa_index(job, context, do_bwa, do_bwa_paired, gam_file_id, fasta_file_id, bwa_index_ids):
     """
     Make a bwa index for a fast sequence if not given in input. then run bwa mem
     
@@ -219,18 +219,18 @@ def run_bwa_index(job, context, options, do_bwa, do_bwa_paired, gam_file_id, fas
     bwa_pair_stats_file_id = None
                     
     if do_bwa:
-        bwa_stats_file_id = job.addChildJobFn(run_bwa_mem, context, options, gam_file_id, bwa_index_ids, False,
+        bwa_stats_file_id = job.addChildJobFn(run_bwa_mem, context, gam_file_id, bwa_index_ids, False,
                                             cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                             disk=context.config.alignment_disk).rv()
     if do_bwa_paired:
-        bwa_pair_stats_file_id = job.addChildJobFn(run_bwa_mem, context, options, gam_file_id, bwa_index_ids, True,
+        bwa_pair_stats_file_id = job.addChildJobFn(run_bwa_mem, context, gam_file_id, bwa_index_ids, True,
                                                  cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                  disk=context.config.alignment_disk).rv()
 
     return bwa_stats_file_id, bwa_pair_stats_file_id
 
     
-def run_bwa_mem(job, context, options, gam_file_id, bwa_index_ids, paired_mode):
+def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a gam.  optionally run in paired mode
     return id of bam file
     """
@@ -323,7 +323,7 @@ def run_bwa_mem(job, context, options, gam_file_id, bwa_index_ids, paired_mode):
 
     return bam_file_id
 
-def extract_bam_read_stats(job, context, options, name, bam_file_id, paired):
+def extract_bam_read_stats(job, context, name, bam_file_id, paired):
     """
     extract positions, scores, and MAPQs from bam, return id of read stats file
     (lots of duplicated code with vg_sim, should merge?)
@@ -364,7 +364,7 @@ def extract_bam_read_stats(job, context, options, name, bam_file_id, paired):
     return stats_file_id
 
     
-def extract_gam_read_stats(job, context, options, xg_file_id, name, gam_file_id):
+def extract_gam_read_stats(job, context, xg_file_id, name, gam_file_id):
     """
     extract positions, scores, and MAPQs for reads from gam, return id of
     read stats file
@@ -418,7 +418,7 @@ def extract_gam_read_stats(job, context, options, xg_file_id, name, gam_file_id)
     out_stats_file_id = context.write_intermediate_file(job, out_pos_file)
     return out_stats_file_id
     
-def compare_positions(job, context, options, truth_file_id, name, stats_file_id, mapeval_threshold):
+def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_threshold):
     """
     this is essentially pos_compare.py from vg/scripts
     return output file id.
@@ -491,7 +491,7 @@ def compare_positions(job, context, options, truth_file_id, name, stats_file_id,
     out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
     
-def compare_scores(job, context, options, baseline_file_id, name, score_file_id):
+def compare_scores(job, context, baseline_file_id, name, score_file_id):
     """
     Compares scores from TSV files. The baseline and file under test both have
     the format:
@@ -554,7 +554,7 @@ def compare_scores(job, context, options, baseline_file_id, name, score_file_id)
     out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
 
-def get_gam_scores(job, context, options, xg_file_id, name, gam_file_id):
+def get_gam_scores(job, context, xg_file_id, name, gam_file_id):
     """
     extract read stats from gam, return id of scores file
     
@@ -685,7 +685,7 @@ def run_map_eval_align(job, context, options, index_ids, gam_names, gam_file_ids
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
     if do_bwa or do_bwa_paired:
-        bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, context, options,
+        bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, context,
                                              do_bwa, do_bwa_paired, reads_gam_file_id,
                                              fasta_file_id, bwa_index_ids,
                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
@@ -693,7 +693,7 @@ def run_map_eval_align(job, context, options, index_ids, gam_names, gam_file_ids
     
     return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids    
     
-def run_map_eval_comparison(job, context, options, xg_file_ids, gam_names, gam_file_ids,
+def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
                             bwa_bam_file_ids, true_read_stats_file_id, mapeval_threshold, score_baseline_name=None):
     """
@@ -717,14 +717,14 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_names, gam_f
     bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(bam_file_ids):
         name = '{}-{}.bam'.format(bam_names[bam_i], bam_i)
-        bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context, options, name, bam_id, False,
+        bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, False,
                                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                     disk=context.config.misc_disk).rv())
     # separate flow for paired end bams because different logic used
     pe_bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(pe_bam_file_ids):
         name = '{}-{}.bam'.format(pe_bam_names[bam_i], bam_i)
-        pe_bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context, options, name, bam_id, True,
+        pe_bam_stats_file_ids.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, True,
                                                        cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk).rv())
 
@@ -739,13 +739,13 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_names, gam_f
             assert len(gam_id) == 1
             gam = gam_id[0]
         RealtimeLogger.info('Work on GAM {} = {} named {} with XG id {}'.format(gam_i, gam, gam_names[gam_i], xg_file_ids[gam_i]))
-        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, context, options, xg_file_ids[gam_i],
+        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, context, xg_file_ids[gam_i],
                                                     name, gam, cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                     disk=context.config.misc_disk).rv())
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
-    position_comparison_results = job.addFollowOnJobFn(run_map_eval_compare_positions, context, options,
+    position_comparison_results = job.addFollowOnJobFn(run_map_eval_compare_positions, context,
                                                        true_read_stats_file_id, gam_names, gam_stats_file_ids,
                                                        bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids,
                                                        mapeval_threshold,
@@ -763,7 +763,7 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_names, gam_f
         
         # compare all our scores against the baseline, and dump results to the
         # out store. 
-        score_comp_job = job.addFollowOnJobFn(run_map_eval_compare_scores, context, options, 
+        score_comp_job = job.addFollowOnJobFn(run_map_eval_compare_scores, context, 
                                               baseline_stats_id, gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
                                               pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
                                               memory=context.config.misc_mem, disk=context.config.misc_disk)
@@ -776,7 +776,7 @@ def run_map_eval_comparison(job, context, options, xg_file_ids, gam_names, gam_f
         
     return position_comparison_results, score_comparison_results
 
-def run_map_eval_compare_positions(job, context, options, true_read_stats_file_id, gam_names, gam_stats_file_ids,
+def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_names, gam_stats_file_ids,
                          bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids, mapeval_threshold):
     """
     Compare the read positions for each read across the different aligmment
@@ -795,18 +795,18 @@ def run_map_eval_compare_positions(job, context, options, true_read_stats_file_i
 
     compare_ids = []
     for name, stats_file_id in zip(names, stats_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_positions, context, options, true_read_stats_file_id, name,
+        compare_ids.append(job.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
                                              stats_file_id, mapeval_threshold,
                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
                                              disk=context.config.misc_disk).rv())
 
-    stats_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, options, names, compare_ids,
+    stats_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
                                          cores=context.config.misc_cores, memory=context.config.misc_mem,
                                          disk=context.config.misc_disk).rv()
                                          
     return compare_ids, stats_file_id
 
-def run_process_position_comparisons(job, context, options, names, compare_ids):
+def run_process_position_comparisons(job, context, names, compare_ids):
     """
     Write some raw tables of position comparisons to the output.  Compute some
     stats for each graph.
@@ -840,18 +840,18 @@ def run_process_position_comparisons(job, context, options, names, compare_ids):
             context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
 
-            map_stats.append([job.addChildJobFn(run_acc, context, options, name, compare_id, cores=context.config.misc_cores,
+            map_stats.append([job.addChildJobFn(run_acc, context, name, compare_id, cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                              job.addChildJobFn(run_auc, context, options, name, compare_id, cores=context.config.misc_cores,
+                              job.addChildJobFn(run_auc, context, name, compare_id, cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                              job.addChildJobFn(run_qq, context, options, name, compare_id, cores=context.config.misc_cores,
+                              job.addChildJobFn(run_qq, context, name, compare_id, cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()])
             
     context.write_output_file(job, results_file)
 
-    return job.addFollowOnJobFn(run_write_position_stats, context, options, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_position_stats, context, names, map_stats).rv()
 
-def run_write_position_stats(job, context, options, names, map_stats):
+def run_write_position_stats(job, context, names, map_stats):
     """
     write the position comparison statistics as tsv, both to the Toil fileStore
     and to the out_store as "stats.tsv".
@@ -873,7 +873,7 @@ def run_write_position_stats(job, context, options, names, map_stats):
     
     return stats_file_id
     
-def run_acc(job, context, options, name, compare_id):
+def run_acc(job, context, name, compare_id):
     """
     Percentage of correctly aligned reads (ignore quality)
     """
@@ -895,7 +895,7 @@ def run_acc(job, context, options, name, compare_id):
     acc = float(correct) / float(total) if total > 0 else 0
     return total, acc
     
-def run_auc(job, context, options, name, compare_id):
+def run_auc(job, context, name, compare_id):
     """
     AUC of roc plot
     """
@@ -917,7 +917,7 @@ def run_auc(job, context, options, name, compare_id):
 
     return auc, aupr    
 
-def run_qq(job, context, options, name, compare_id):
+def run_qq(job, context, name, compare_id):
     """
     some measure of qq consistency 
     """
@@ -955,7 +955,7 @@ def run_qq(job, context, options, name, compare_id):
 
     return r2
     
-def run_map_eval_compare_scores(job, context, options, baseline_stats_file_id, gam_names, gam_stats_file_ids,
+def run_map_eval_compare_scores(job, context, baseline_stats_file_id, gam_names, gam_stats_file_ids,
                                 bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids):
     """
     Compare scores in the given stats files in the lists to those in the given
@@ -987,17 +987,17 @@ def run_map_eval_compare_scores(job, context, options, baseline_stats_file_id, g
 
     compare_ids = []
     for name, stats_file_id in zip(names, stats_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_scores, context, options, baseline_stats_file_id, name, stats_file_id,
+        compare_ids.append(job.addChildJobFn(compare_scores, context, baseline_stats_file_id, name, stats_file_id,
                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
                                              disk=context.config.misc_disk).rv())
 
-    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, context, options, names, compare_ids,
+    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, context, names, compare_ids,
                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
                                      
     return compare_ids, stats_job.rv()
 
-def run_process_score_comparisons(job, context, options, names, compare_ids):
+def run_process_score_comparisons(job, context, names, compare_ids):
     """
     Write some raw tables of score comparisons to the output.  Compute some stats for each graph.
     
@@ -1034,15 +1034,15 @@ def run_process_score_comparisons(job, context, options, names, compare_ids):
             write_tsv(compare_file, name)
 
             # Tabulate overall statistics
-            map_stats.append([job.addChildJobFn(run_portion_worse, context, options, name, compare_id,
+            map_stats.append([job.addChildJobFn(run_portion_worse, context, name, compare_id,
                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                 disk=context.config.misc_disk).rv()])
             
     context.write_output_file(job, results_file)
     
-    return job.addFollowOnJobFn(run_write_score_stats, context, options, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_score_stats, context, names, map_stats).rv()
     
-def run_write_score_stats(job, context, options, names, map_stats):
+def run_write_score_stats(job, context, names, map_stats):
     """
     write the score comparison statistics as tsv named "score.stats.tsv".
     
@@ -1062,7 +1062,7 @@ def run_write_score_stats(job, context, options, names, map_stats):
 
     return context.write_output_file(job, stats_file)
     
-def run_portion_worse(job, context, options, name, compare_id):
+def run_portion_worse(job, context, name, compare_id):
     """
     Compute percentage of reads that get worse from the baseline graph.
     Return total reads and portion that got worse.
@@ -1127,7 +1127,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
         alignment_job.rv(1), alignment_job.rv(2), alignment_job.rv(3))
 
     # Then do mapping evaluation comparison (the rest of the workflow)
-    comparison_job = alignment_job.addFollowOnJobFn(run_map_eval_comparison, context, options, xg_ids,
+    comparison_job = alignment_job.addFollowOnJobFn(run_map_eval_comparison, context, xg_ids,
                      gam_names, gam_file_ids, options.bam_names, bam_file_ids,
                      options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids,
                      true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores,
