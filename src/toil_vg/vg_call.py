@@ -475,7 +475,8 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
                  '-o', str(options.overlap),
                  '-b', 'call_chunk_{}'.format(tag),
                  '-t', str(options.call_chunk_cores),
-                 '-E', os.path.basename(output_bed_chunks_path)]
+                 '-E', os.path.basename(output_bed_chunks_path),
+                 '-f']
     options.drunner.call(job, chunk_cmd, work_dir=work_dir)
 
     # Scrape the BED into memory
@@ -521,7 +522,7 @@ def run_calling(job, options, xg_file_id, alignment_file_id, path_names, vcf_off
         clip_file_id = job.addChildJobFn(call_chunk, options, chunk_bed_chrom, chunk_i,
                                          len(bed_lines),
                                          chunk_bed_start, clipped_chunk_offset,
-                                         xg_file_id, vg_chunk_file_id, gam_chunk_file_id,
+                                         None, vg_chunk_file_id, gam_chunk_file_id,
                                          path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
                                          cores=options.calling_cores,
                                          memory=options.calling_mem, disk=options.calling_disk).rv()
