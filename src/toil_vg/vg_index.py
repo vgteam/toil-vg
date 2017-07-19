@@ -20,6 +20,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
+from toil_vg.context import Context
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def index_subparser(parser):
 def index_parse_args(parser):
     """ centralize indexing parameters here """
 
-    parser.add_argument("--graphs", nargs='+',
+    parser.add_argument("--graphs", nargs='+', type=make_url,
                         help="input graph(s). one per chromosome (separated by space)")
 
     parser.add_argument("--chroms", nargs='+',
@@ -68,7 +69,7 @@ def index_parse_args(parser):
     parser.add_argument("--kmers_cores", type=int,
         help="number of threads during the gcsa kmers step")
 
-    parser.add_argument("--index_name", type=str,
+    parser.add_argument("--index_name", type=str, default='index',
                         help="name of index files. <name>.xg, <name>.gcsa etc.")
 
     parser.add_argument("--prune_opts", type=str,
@@ -78,7 +79,15 @@ def index_parse_args(parser):
     parser.add_argument("--gcsa_opts", type=str,
                         help="Options to pass to gcsa indexing.")
 
-def run_gcsa_prune(job, options, graph_i, input_graph_id, primary_paths=[]):
+def validate_index_options(options):
+    """
+    Throw an error if an invalid combination of options has been selected.
+    """                           
+    require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
+    require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
+            ' same number of arguments')
+    
+def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
     """
     Make the pruned graph, do kmers as a follow up and return kmers id.
     Retains the specified primary paths.
@@ -92,24 +101,23 @@ def run_gcsa_prune(job, options, graph_i, input_graph_id, primary_paths=[]):
     # Place where we put pruned vg
     to_index_filename = None
     
-    if len(options.prune_opts) > 0:
+    if len(context.config.prune_opts) > 0:
 
         # Download input graph
-        graph_name = os.path.basename(options.graphs[graph_i])
         graph_filename = os.path.join(work_dir, graph_name)
-        read_from_store(job, options, input_graph_id, graph_filename)
+        job.fileStore.readGlobalFile(input_graph_id, graph_filename)
 
         to_index_filename = os.path.join(work_dir, "pruned_{}".format(graph_name))
         with open(to_index_filename, "w") as to_index_file:
             command = ['vg', 'mod', os.path.basename(graph_filename), '-t',
-                       str(job.cores)] + options.prune_opts
+                       str(job.cores)] + context.config.prune_opts
             # tack on 2nd vg mod command if specified
             # note: perhaps this is a bakeoff relic that we don't need anymore
             # if we push -S to first command. 
-            if len(options.prune_opts_2) > 0:
+            if len(context.config.prune_opts_2) > 0:
                 command = [command]
-                command.append(['vg', 'mod', '-', '-t', str(job.cores)] + options.prune_opts_2)
-            options.drunner.call(job, command, work_dir=work_dir, outfile=to_index_file)
+                command.append(['vg', 'mod', '-', '-t', str(job.cores)] + context.config.prune_opts_2)
+            context.runner.call(job, command, work_dir=work_dir, outfile=to_index_file)
             
             # Then append in the primary path.
             command = ['vg', 'mod', '-N']
@@ -118,7 +126,7 @@ def run_gcsa_prune(job, options, graph_i, input_graph_id, primary_paths=[]):
                 command.append('-r')
                 command.append(primary_path)
             command += ['-t', str(job.cores), os.path.basename(graph_filename)]
-            options.drunner.call(job, command, work_dir=work_dir, outfile=to_index_file)
+            context.runner.call(job, command, work_dir=work_dir, outfile=to_index_file)
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
@@ -128,14 +136,14 @@ def run_gcsa_prune(job, options, graph_i, input_graph_id, primary_paths=[]):
         # no pruning done: just pass along the input graph as is
         pruned_graph_id = input_graph_id
     else:
-        pruned_graph_id = write_to_store(job, options, to_index_filename)
+        pruned_graph_id = context.write_intermediate_file(job, to_index_filename)
     
-    return job.addFollowOnJobFn(run_gcsa_kmers, options, graph_i,
+    return job.addFollowOnJobFn(run_gcsa_kmers, context, graph_name,
                                 pruned_graph_id, 
-                                cores=options.kmers_cores, memory=options.kmers_mem,
-                                disk=options.kmers_disk).rv()
+                                cores=context.config.kmers_cores, memory=context.config.kmers_mem,
+                                disk=context.config.kmers_disk).rv()
 
-def run_gcsa_kmers(job, options, graph_i, input_graph_id):
+def run_gcsa_kmers(job, context, graph_name, input_graph_id):
     """
     Make the kmers file, return its id
     """
@@ -146,8 +154,8 @@ def run_gcsa_kmers(job, options, graph_i, input_graph_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     # Download input graph
-    graph_filename = os.path.join(work_dir, os.path.basename(options.graphs[graph_i]))
-    read_from_store(job, options, input_graph_id, graph_filename)
+    graph_filename = os.path.join(work_dir, graph_name)
+    job.fileStore.readGlobalFile(input_graph_id, graph_filename)
 
     # Output
     output_kmers_filename = graph_filename + '.kmers'
@@ -158,11 +166,11 @@ def run_gcsa_kmers(job, options, graph_i, input_graph_id):
     # Make the GCSA2 kmers file
     with open(output_kmers_filename, "w") as kmers_file:
         command = ['vg', 'kmers',  os.path.basename(graph_filename), '-t', str(job.cores)]
-        command += options.kmers_opts
-        options.drunner.call(job, command, work_dir=work_dir, outfile=kmers_file)
+        command += context.config.kmers_opts
+        context.runner.call(job, command, work_dir=work_dir, outfile=kmers_file)
 
     # Back to store
-    output_kmers_id = write_to_store(job, options, output_kmers_filename)
+    output_kmers_id = context.write_intermediate_file(job, output_kmers_filename)
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
@@ -170,7 +178,9 @@ def run_gcsa_kmers(job, options, graph_i, input_graph_id):
 
     return output_kmers_id
 
-def run_gcsa_prep(job, options, input_graph_ids, primary_path_override=None):
+def run_gcsa_prep(job, context, input_graph_ids,
+                  graph_names, index_name, chroms,
+                  primary_path_override=None):
     """
     Do all the preprocessing for gcsa indexing (pruning and kmers)
     Then launch the indexing as follow-on
@@ -186,21 +196,23 @@ def run_gcsa_prep(job, options, input_graph_ids, primary_path_override=None):
         # For each input graph
         
         # Determine the primary path list to use
-        primary_paths = ([options.chroms[graph_i]] if primary_path_override
+        primary_paths = ([chroms[graph_i]] if primary_path_override
             is None else primary_path_override)
         
         # Make the kmers, passing along the primary path names
-        kmers_id = job.addChildJobFn(run_gcsa_prune, options, graph_i, input_graph_id,
+        kmers_id = job.addChildJobFn(run_gcsa_prune, context, graph_names[graph_i], input_graph_id,
                                      primary_paths=primary_paths,
-                                     cores=options.prune_cores, memory=options.prune_mem,
-                                     disk=options.prune_disk).rv()
+                                     cores=context.config.prune_cores, memory=context.config.prune_mem,
+                                     disk=context.config.prune_disk).rv()
         kmers_ids.append(kmers_id)
 
-    return job.addFollowOnJobFn(run_gcsa_indexing, options, kmers_ids,
-                                cores=options.gcsa_index_cores, memory=options.gcsa_index_mem,
-                                disk=options.gcsa_index_disk).rv()
+    return job.addFollowOnJobFn(run_gcsa_indexing, context, kmers_ids,
+                                graph_names, index_name,
+                                cores=context.config.gcsa_index_cores,
+                                memory=context.config.gcsa_index_mem,
+                                disk=context.config.gcsa_index_disk).rv()
     
-def run_gcsa_indexing(job, options, kmers_ids):
+def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name):
     """
     Make the gcsa2 index. Return its store id
     """
@@ -215,35 +227,31 @@ def run_gcsa_indexing(job, options, kmers_ids):
     kmers_filenames = []
     
     for graph_i, kmers_id in enumerate(kmers_ids):
-        kmers_filename = os.path.join(work_dir, os.path.basename(options.graphs[graph_i]) + '.kmers')
-        read_from_store(job, options, kmers_id, kmers_filename)
+        kmers_filename = os.path.join(work_dir, os.path.basename(graph_names[graph_i]) + '.kmers')
+        job.fileStore.readGlobalFile(kmers_id, kmers_filename)
         kmers_filenames.append(kmers_filename)
 
     # Where do we put the GCSA2 index?
-    gcsa_filename = "{}.gcsa".format(options.index_name)
+    gcsa_filename = "{}.gcsa".format(index_name)
 
-    command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + options.gcsa_opts
+    command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['-t', str(job.cores)]
     for kmers_filename in kmers_filenames:
         command += ['-i', os.path.basename(kmers_filename)]
-    options.drunner.call(job, command, work_dir=work_dir)
+    context.runner.call(job, command, work_dir=work_dir)
 
     # Checkpoint index to output store
-    if not options.force_outstore or options.tool == 'index':
-        write_to_store(job, options, os.path.join(work_dir, gcsa_filename), use_out_store = True)
-        write_to_store(job, options, os.path.join(work_dir, gcsa_filename) + ".lcp", use_out_store = True)
-
-    # Not in standalone Mode, then we write it to the file store
-    if options.tool != 'index':
-        gcsa_file_id = write_to_store(job, options, os.path.join(work_dir, gcsa_filename))
-        lcp_file_id = write_to_store(job, options, os.path.join(work_dir, gcsa_filename) + ".lcp")
-        return gcsa_file_id, lcp_file_id
+    gcsa_file_id = context.write_output_file(job, os.path.join(work_dir, gcsa_filename))
+    lcp_file_id = context.write_output_file(job, os.path.join(work_dir, gcsa_filename) + ".lcp")
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
     RealtimeLogger.info("Finished GCSA index. Process took {} seconds.".format(run_time))
 
-def run_xg_indexing(job, options, inputGraphFileIDs):
+    return gcsa_file_id, lcp_file_id
+
+
+def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
     """ Make the xg index and return its store id
     """
     
@@ -256,12 +264,12 @@ def run_xg_indexing(job, options, inputGraphFileIDs):
     # Our local copy of the graphs
     graph_filenames = []
     for i, graph_id in enumerate(inputGraphFileIDs):
-        graph_filename = os.path.join(work_dir, '{}.vg'.format(options.chroms[i]))
-        read_from_store(job, options, graph_id, graph_filename)
+        graph_filename = os.path.join(work_dir, graph_names[i])
+        job.fileStore.readGlobalFile(graph_id, graph_filename)
         graph_filenames.append(os.path.basename(graph_filename))
 
     # Where do we put the XG index?
-    xg_filename = "{}.xg".format(options.index_name)
+    xg_filename = "{}.xg".format(index_name)
 
     # Now run the indexer.
     RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))            
@@ -269,22 +277,19 @@ def run_xg_indexing(job, options, inputGraphFileIDs):
     command = ['vg', 'index', '-t', str(job.cores), '-x', os.path.basename(xg_filename)]
     command += graph_filenames
     
-    options.drunner.call(job, command, work_dir=work_dir)
+    context.runner.call(job, command, work_dir=work_dir)
 
     # Checkpoint index to output store
-    if not options.force_outstore or options.tool == 'index':
-        write_to_store(job, options, os.path.join(work_dir, xg_filename), use_out_store = True)
-
-    # Not in standalone Mode, then we write it to the file store
-    if options.tool != 'index':
-        xg_file_id = write_to_store(job, options, os.path.join(work_dir, xg_filename))
-        return xg_file_id
+    xg_file_id = context.write_output_file(job, os.path.join(work_dir, xg_filename))
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
     RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
-def run_id_ranges(job, options, inputGraphFileIDs):
+    return xg_file_id
+
+
+def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chroms):
     """ Make a file of chrom_name <tab> first_id <tab> last_id covering the 
     id ranges of all chromosomes.  This is to speed up gam splitting down the road. 
     """
@@ -296,23 +301,23 @@ def run_id_ranges(job, options, inputGraphFileIDs):
     id_ranges = []
 
     # Get the range for one graph per job. 
-    for i, graph_id in enumerate(inputGraphFileIDs):
-        id_range = job.addChildJobFn(run_id_range, options, i, graph_id,
-                                     cores=options.prune_cores,
-                                     memory=options.prune_mem, disk=options.prune_disk).rv()
+    for graph_id, graph_name, chrom in zip(inputGraphFileIDs, graph_names, chroms):
+        id_range = job.addChildJobFn(run_id_range, context, graph_id, graph_name, chrom,
+                                     cores=context.config.prune_cores,
+                                     memory=context.config.prune_mem, disk=context.config.prune_disk).rv()
         
         id_ranges.append(id_range)
 
     # Merge them into a file and return its id
-    return job.addFollowOnJobFn(run_merge_id_ranges, options, id_ranges,
-                                cores=options.misc_cores, memory=options.misc_mem,
-                                disk=options.misc_disk).rv()
+    return job.addFollowOnJobFn(run_merge_id_ranges, context, id_ranges, index_name,
+                                cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
     RealtimeLogger.info("Finished id ranges. Process took {} seconds.".format(run_time))
     
-def run_id_range(job, options, graph_i, graph_id):
+def run_id_range(job, context, graph_id, graph_name, chrom):
     """
     Compute a node id range for a graph (which should be an entire contig/chromosome with
     contiguous id space -- see vg ids) using vg stats
@@ -320,90 +325,83 @@ def run_id_range(job, options, graph_i, graph_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     # download graph
-    graph_filename = os.path.join(work_dir, '{}.vg'.format(options.chroms[graph_i]))
-    read_from_store(job, options, graph_id, graph_filename)
+    graph_filename = os.path.join(work_dir, graph_name)
+    job.fileStore.readGlobalFile(graph_id, graph_filename)
 
     #run vg stats
     #expect result of form node-id-range <tab> first:last
     command = ['vg', 'stats', '-r', os.path.basename(graph_filename)]
-    stats_out = options.drunner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
+    stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
     assert stats_out[0] == 'node-id-range'
     first, last = stats_out[1].split(':')
 
-    return options.chroms[graph_i], first, last
+    return chrom, first, last
     
-def run_merge_id_ranges(job, options, id_ranges):
+def run_merge_id_ranges(job, context, id_ranges, index_name):
     """ create a BED-style file of id ranges
     """
     work_dir = job.fileStore.getLocalTempDir()
 
     # Where do we put the XG index?
-    id_range_filename = os.path.join(work_dir, '{}_id_ranges.tsv'.format(options.index_name))
+    id_range_filename = os.path.join(work_dir, '{}_id_ranges.tsv'.format(index_name))
 
     with open(id_range_filename, 'w') as f:
         for id_range in id_ranges:
             f.write('{}\t{}\t{}\n'.format(*id_range))
 
     # Checkpoint index to output store
-    if not options.force_outstore or options.tool == 'index':
-        write_to_store(job, options, id_range_filename, use_out_store = True)
+    return context.write_output_file(job, id_range_filename)
 
-    # Not in standalone Mode, then we write it to the file store
-    if options.tool != 'index':
-        id_range_file_id = write_to_store(job, options, id_range_filename)
-        return id_range_file_id
-
-def run_indexing(job, options, inputGraphFileIDs, skip_xg=False, skip_gcsa=False, skip_id_ranges=False):
+def run_indexing(job, context, inputGraphFileIDs,
+                 graph_names, index_name, chroms,
+                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False):
     """ run indexing logic by itself.  Return pair of idx for xg and gcsa output index files  
     """
 
     if not skip_gcsa:
-        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, options, inputGraphFileIDs,
-                                             cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
+        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
+                                             graph_names, index_name, chroms,
+                                             cores=context.config.misc_cores,
+                                             memory=context.config.misc_mem,
+                                             disk=context.config.misc_disk).rv()
     else:
         gcsa_and_lcp_ids = None
     if not skip_xg:
-        xg_index_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
-                                        cores=options.xg_index_cores, memory=options.xg_index_mem, disk=options.xg_index_disk).rv()
+        xg_index_id = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
+                                        graph_names, index_name,
+                                        cores=context.config.xg_index_cores,
+                                        memory=context.config.xg_index_mem,
+                                        disk=context.config.xg_index_disk).rv()
     else:
         xg_index_id = None
         
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
-        id_ranges_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
-                                         cores=options.misc_cores, memory=options.misc_mem, disk=options.misc_disk).rv()
+        id_ranges_id = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
+                                         graph_names, index_name, chroms,
+                                         cores=context.config.misc_cores,
+                                         memory=context.config.misc_mem,
+                                         disk=context.config.misc_disk).rv()
     else:
         id_ranges_id = None
 
     return xg_index_id, gcsa_and_lcp_ids, id_ranges_id
 
 
-def index_main(options):
+def index_main(context, options):
     """
     Wrapper for vg indexing. 
     """
-    
-    # make the docker runner
-    options.drunner = ContainerRunner(
-        container_tool_map = get_container_tool_map(options))
 
-    # Some file io is dependent on knowing if we're in the pipeline
-    # or standalone. Hack this in here for now
-    options.tool = 'index'
-
-    require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
-    require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
-            ' same number of arguments')
-
-    # Throw error if something wrong with IOStore string
-    IOStore.get(options.out_store)
-    
+    # check some options
+    validate_index_options(options)
+        
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
         
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
-    
-    with Toil(options) as toil:
+
+    with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
             start_time = timeit.default_timer()
@@ -411,17 +409,22 @@ def index_main(options):
             # Upload local files to the remote IO Store
             inputGraphFileIDs = []
             for graph in options.graphs:
-                inputGraphFileIDs.append(import_to_store(toil, options, graph))
+                inputGraphFileIDs.append(toil.importFile(graph))
+
+            # Handy to have meaningful filenames throughout, so we remember
+            # the input graph names
+            graph_names = [os.path.basename(i) for i in options.graphs]
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_indexing, options, inputGraphFileIDs,
+            root_job = Job.wrapJobFn(run_indexing, context, inputGraphFileIDs,
+                                     graph_names, options.index_name, options.chroms,
                                      options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
-                                     cores=options.misc_cores,
-                                     memory=options.misc_mem,
-                                     disk=options.misc_disk)
+                                     cores=context.config.misc_cores,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
             
             # Run the job and store the returned list of output files to download
             index_key_and_id = toil.start(root_job)

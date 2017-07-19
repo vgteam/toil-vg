@@ -622,7 +622,9 @@ def run_map_eval_index(job, context, options, xg_file_ids, gcsa_file_ids, id_ran
             # TODO: clean up 
             options.graphs = ['./default.vg']
             options.chroms = ['default']
-            index_ids.append(job.addChildJobFn(run_indexing, context.to_options(options), [vg_file_id],
+            index_ids.append(job.addChildJobFn(run_indexing, context, [vg_file_id],
+                                               map(os.path.basename, options.graphs),
+                                               'index', options.chroms, 
                              cores=context.config.misc_cores, memory=context.config.misc_mem,
                              disk=context.config.misc_disk).rv())
     else:

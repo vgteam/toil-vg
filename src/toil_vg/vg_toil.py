@@ -103,16 +103,16 @@ def pipeline_subparser(parser_run):
         help="sample name (ex NA12878)")
     parser_run.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
-    parser_run.add_argument("--xg_index", type=str,
+    parser_run.add_argument("--xg_index", type=make_url,
         help="Path to xg index (to use instead of generating new one)")    
-    parser_run.add_argument("--gcsa_index", type=str,
+    parser_run.add_argument("--gcsa_index", type=make_url,
         help="Path to GCSA index (to use instead of generating new one)")
-    parser_run.add_argument("--id_ranges", type=str,
+    parser_run.add_argument("--id_ranges", type=make_url,
         help="Path to file with node id ranges for each chromosome in BED format.  If not"
                             " supplied, will be generated from --graphs)")
-    parser_run.add_argument("--vcfeval_baseline", type=str,
+    parser_run.add_argument("--vcfeval_baseline", type=make_url,
         help="Path to baseline VCF file for comparison (must be bgzipped and have .tbi)")
-    parser_run.add_argument("--vcfeval_fasta", type=str,
+    parser_run.add_argument("--vcfeval_fasta", type=make_url,
         help="Path to DNA sequence file, required for vcfeval. Maybe be gzipped")
 
     # Add common options shared with everybody
@@ -133,7 +133,26 @@ def pipeline_subparser(parser_run):
     # Add common docker options
     add_container_tool_parse_args(parser_run)
 
+def validate_pipeline_options(options):
+    """
+    Throw an error if an invalid combination of options has been selected.
+    """                           
+    if options.graphs:
+        require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
+                ' same number of arguments')
+        
+    if not options.xg_index or not options.gcsa_index or not options.id_ranges:
+        require(options.graphs and options.chroms, '--chroms and --graphs must be specified'
+                ' unless --xg_index --gcsa_index and --id_ranges used')
 
+    require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
+            ' passed with --fastq')
+    require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
+            '--interleaved cannot be used when > 1 fastq given')
+    require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
+            'reads must be speficied with either --fastq or --gam_reads')    
+
+    
 # Below are the top level jobs of the toil_vg pipeline.  They
 # form a chain of "follow-on" jobs as follows:
 #
@@ -145,7 +164,7 @@ def pipeline_subparser(parser_run):
 # Data is communicated across the chain via the output store (at least for now). 
 
 
-def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, inputXGFileID,
+def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileIDs, inputXGFileID,
                        inputGCSAFileID, inputLCPFileID, inputIDRangesFileID,
                        inputVCFFileID, inputTBIFileID,
                        inputFastaFileID, inputBeDFileID):
@@ -155,16 +174,20 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, input
     """
 
     if inputXGFileID is None:
-        xg_file_id = job.addChildJobFn(run_xg_indexing, options, inputGraphFileIDs,
+        xg_file_id = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
+                                       map(os.path.basename, options.graphs),
+                                       options.index_name,
                                        cores=options.xg_index_cores, memory=options.xg_index_mem,
                                        disk=options.xg_index_disk).rv()
     else:
         xg_file_id = inputXGFileID
         
     if inputGCSAFileID is None:
-        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, options, inputGraphFileIDs,
-                                             cores=options.misc_cores, memory=options.misc_mem,
-                                             disk=options.misc_disk).rv()
+        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
+                                             map(os.path.basename, options.graphs),
+                                             options.index_name, options.chroms,
+                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                             disk=context.config.misc_disk).rv()
     else:
         assert inputLCPFileID is not None
         gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
@@ -172,25 +195,27 @@ def run_pipeline_index(job, options, inputGraphFileIDs, inputReadsFileIDs, input
     if inputIDRangesFileID is not None:
         id_ranges_file_id = inputIDRangesFileID
     elif len(inputGraphFileIDs) > 1:
-        id_ranges_file_id = job.addChildJobFn(run_id_ranges, options, inputGraphFileIDs,
-                                               cores=options.misc_cores,
-                                               memory=options.misc_mem, disk=options.misc_disk).rv()
+        id_ranges_file_id = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
+                                              map(os.path.basename, options.graphs),
+                                              options.index_name, options.chroms,
+                                              cores=context.config.misc_cores,
+                                              memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
     else:
         # don't bother making id ranges if only one input graph
         id_ranges_file_id = None        
 
     if not options.single_reads_chunk:
         fastq_chunk_ids = job.addChildJobFn(run_split_reads, options, inputReadsFileIDs,
-                                            cores=options.misc_cores, memory=options.misc_mem,
-                                            disk=options.misc_disk).rv()
+                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                            disk=context.config.misc_disk).rv()
     else:
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         fastq_chunk_ids = [inputReadsFileIDs]
 
     return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
-                                inputFastaFileID, inputBeDFileID, cores=options.misc_cores,
-                                memory=options.misc_mem, disk=options.misc_disk).rv()
+                                inputFastaFileID, inputBeDFileID, cores=context.config.misc_cores,
+                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
 def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
@@ -283,9 +308,9 @@ def main():
     if args.command == 'vcfeval':
         vcfeval_main(context.to_options(args))
     elif args.command == 'run':
-        pipeline_main(context.to_options(args))
+        pipeline_main(context, context.to_options(args))
     elif args.command == 'index':
-        index_main(context.to_options(args))
+        index_main(context, args)
     elif args.command == 'map':
         map_main(context.to_options(args))
     elif args.command == 'call':
@@ -296,77 +321,57 @@ def main():
         mapeval_main(context, args)
         
     
-def pipeline_main(options):
+def pipeline_main(context, options):
+    """
+    toil-vg run
+    """
     
-    # make the docker runner
-    options.drunner = ContainerRunner(
-        container_tool_map = get_container_tool_map(options))
-
-    # Some file io is dependent on knowing if we're in the pipeline
-    # or standalone. Hack this in here for now
-    options.tool = 'pipeline'
-
-    if options.graphs:
-        require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
-                ' same number of arguments')
-        
-    if not options.xg_index or not options.gcsa_index or not options.id_ranges:
-        require(options.graphs and options.chroms, '--chroms and --graphs must be specified'
-                ' unless --xg_index --gcsa_index and --id_ranges used')
-
-    require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
-            ' passed with --fastq')
-    require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
-            '--interleaved cannot be used when > 1 fastq given')
-    require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
-            'reads must be speficied with either --fastq or --gam_reads')    
-
-    # Throw error if something wrong with IOStore string
-    IOStore.get(options.out_store)
-
+    # check the options
+    validate_pipeline_options(options)
+    
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
 
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
 
-    with Toil(options) as toil:
+    with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
-
+    
             start_time = timeit.default_timer()
             
             # Upload local files to the remote IO Store
             inputGraphFileIDs = []
             if options.graphs:
                 for graph in options.graphs:
-                    inputGraphFileIDs.append(import_to_store(toil, options, graph))
+                    inputGraphFileIDs.append(toil.importFile(graph))
             inputReadsFileIDs = []
             if options.fastq:
                 for sample_reads in options.fastq:
-                    inputReadsFileIDs.append(import_to_store(toil, options, sample_reads))
+                    inputReadsFileIDs.append(toil.importFile(sample_reads))
             else:
-                inputReadsFileIDs.append(import_to_store(toil, options, options.gam_input_reads))
+                inputReadsFileIDs.append(toil.importFile(options.gam_input_reads))
             if options.gcsa_index:
-                inputGCSAFileID = import_to_store(toil, options, options.gcsa_index)
-                inputLCPFileID = import_to_store(toil, options, options.gcsa_index + ".lcp")
+                inputGCSAFileID = toil.importFile(options.gcsa_index)
+                inputLCPFileID = toil.importFile(options.gcsa_index + ".lcp")
             else:
                 inputGCSAFileID = None
                 inputLCPFileID = None
             if options.xg_index:
-                inputXGFileID = import_to_store(toil, options, options.xg_index)
+                inputXGFileID = toil.importFile(options.xg_index)
             else:
                 inputXGFileID = None
             if options.id_ranges:
-                inputIDRangesFileID = import_to_store(toil, options, options.id_ranges)
+                inputIDRangesFileID = toil.importFile(options.id_ranges)
             else:
                 inputIDRangesFileID = None
             if options.vcfeval_baseline is not None:
                 assert options.vcfeval_baseline.endswith('.vcf.gz')
                 assert options.vcfeval_fasta is not None
-                inputVCFFileID = import_to_store(toil, options, options.vcfeval_baseline)
-                inputTBIFileID = import_to_store(toil, options, options.vcfeval_baseline + '.tbi')
-                inputFastaFileID = import_to_store(toil, options, options.vcfeval_fasta)
-                inputBedFileID = import_to_store(toil, options, options.vcfeval_bed_regions) \
+                inputVCFFileID = toil.importFile(options.vcfeval_baseline)
+                inputTBIFileID = toil.importFile(options.vcfeval_baseline + '.tbi')
+                inputFastaFileID = toil.importFile(options.vcfeval_fasta)
+                inputBedFileID = toil.importFile(options.vcfeval_bed_regions) \
                                  if options.vcfeval_bed_regions is not None else None
             else:
                 inputVCFFileID = None
@@ -378,13 +383,13 @@ def pipeline_main(options):
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_pipeline_index, options, inputGraphFileIDs,
+            root_job = Job.wrapJobFn(run_pipeline_index, context, options, inputGraphFileIDs,
                                      inputReadsFileIDs, inputXGFileID, inputGCSAFileID,
                                      inputLCPFileID, inputIDRangesFileID,
                                      inputVCFFileID, inputTBIFileID,
                                      inputFastaFileID, inputBedFileID,
-                                     cores=options.misc_cores, memory=options.misc_mem,
-                                     disk=options.misc_disk)
+                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
 
             # Run the job and store
             toil.start(root_job)
