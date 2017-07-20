@@ -34,8 +34,8 @@ def sim_subparser(parser):
     
     # General options
     
-    parser.add_argument("xg_index", type=str,
-                        help="Path to xg index")
+    parser.add_argument("xg_indexes", nargs='+', type=make_url,
+                        help="Path(s) to xg index(es) (separated by space)")
     parser.add_argument("num_reads", type=int,
                         help="Number of reads to simulate")
     parser.add_argument("out_store",
@@ -55,28 +55,42 @@ def sim_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
 
-def run_sim(job, options, xg_file_id):
+def validate_sim_options(options):
+    require(all([i not in options.sim_opts for i in ['-x', '-n', '-a', '-s']]),
+            ' sim-opts cannot contain -x, -n, -s or -a')
+    require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
+    
+def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
-
-    # each element is either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
-    # if --gam not specified
     sim_out_id_infos = []
-    for chunk_i in range(options.sim_chunks):
-        num_reads = options.num_reads / options.sim_chunks
-        if chunk_i == options.sim_chunks - 1:
-            num_reads += options.num_reads % options.sim_chunks
-        sim_out_id_info = job.addChildJobFn(run_sim_chunk, options,xg_file_id,  chunk_i, num_reads,
-                                            cores=options.sim_cores, memory=options.sim_mem,
-                                            disk=options.sim_disk).rv()
-        sim_out_id_infos.append(sim_out_id_info)
 
-    return job.addFollowOnJobFn(run_merge_sim_chunks, options, sim_out_id_infos,
-                                cores=options.sim_cores, memory=options.sim_mem,
-                                disk=options.sim_disk).rv()
+    # we can have more than one xg file if we've split our input graphs up
+    # into haplotypes
+    for xg_i, xg_file_id in enumerate(xg_file_ids):
+        file_reads = num_reads / len(xg_file_ids)
+        if xg_file_id == xg_file_ids[-1]:
+            file_reads += num_reads % len(xg_file_ids)
+        file_seed = seed + xg_i * sim_chunks
+        
+        # each element is either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
+        # if --gam not specified
+        for chunk_i in range(sim_chunks):
+            chunk_reads = file_reads / sim_chunks
+            if chunk_i == sim_chunks - 1:
+                chunk_reads += file_reads % sim_chunks
+            sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, file_seed, xg_file_id,
+                                                chunk_i, chunk_reads,
+                                                cores=context.config.sim_cores, memory=context.config.sim_mem,
+                                                disk=context.config.sim_disk).rv()
+            sim_out_id_infos.append(sim_out_id_info)
 
-def run_sim_chunk(job, options, xg_file_id, chunk_i, num_reads):
+    return job.addFollowOnJobFn(run_merge_sim_chunks, context, gam, sim_out_id_infos,
+                                cores=context.config.sim_cores, memory=context.config.sim_mem,
+                                disk=context.config.sim_disk).rv()
+
+def run_sim_chunk(job, context, gam, seed, xg_file_id, chunk_i, num_reads):
     """
     simulate some reads (and optionally gam),
     return either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
@@ -87,25 +101,24 @@ def run_sim_chunk(job, options, xg_file_id, chunk_i, num_reads):
     work_dir = job.fileStore.getLocalTempDir()
 
     # read the xg file
-    xg_file = os.path.join(work_dir, os.path.basename(options.xg_index))
-    read_from_store(job, options, xg_file_id, xg_file)
+    xg_file = os.path.join(work_dir, 'index.xg')
+    job.fileStore.readGlobalFile(xg_file_id, xg_file)
 
     # run vg sim
-    sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + options.sim_opts
-    if options.seed is not None:
-        sim_cmd += ['-s', options.seed + chunk_i]
+    sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + context.config.sim_opts
+    if seed is not None:
+        sim_cmd += ['-s', seed + chunk_i]
 
-    if not options.gam:
+    if not gam:
         # output reads
         reads_file = os.path.join(work_dir, 'sim_reads_{}'.format(chunk_i))
 
         # run vg sim
         with open(reads_file, 'w') as output_reads:
-            options.drunner.call(job, sim_cmd, work_dir = work_dir, outfile=output_reads)
+            context.runner.call(job, sim_cmd, work_dir = work_dir, outfile=output_reads)
 
         # write to the store
-        reads_chunk_id = write_to_store(job, options, reads_file)
-        return reads_chunk_id
+        return context.write_intermediate_file(job, reads_file)
     else:
         # output gam
         gam_file = os.path.join(work_dir, 'sim_{}.gam'.format(chunk_i))
@@ -120,7 +133,7 @@ def run_sim_chunk(job, options, xg_file_id, chunk_i, num_reads):
         cmd.append(['tee', os.path.basename(gam_annot_file)])
         cmd.append(['vg', 'view', '-aj', '-'])
         with open(gam_annot_json, 'w') as output_annot_json:
-            options.drunner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+            context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
 
         # turn the annotated gam json into truth positions, as separate command since
         # we're going to use a different docker container.  (Note, would be nice to
@@ -131,22 +144,22 @@ def run_sim_chunk(job, options, xg_file_id, chunk_i, num_reads):
         # output truth positions
         true_pos_file = os.path.join(work_dir, 'true_{}.pos'.format(chunk_i))
         with open(true_pos_file, 'w') as out_true_pos:
-            options.drunner.call(job, jq_cmd, work_dir = work_dir, outfile=out_true_pos)
+            context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_true_pos)
 
         # get rid of that big json asap
         os.remove(gam_annot_json)
 
         # write to store. todo: there's probably no reason outside debugging to
         # keep both gams around.
-        gam_chunk_id = write_to_store(job, options, gam_file)
-        annot_gam_chunk_id = write_to_store(job, options, gam_annot_file)
-        true_pos_chunk_id = write_to_store(job, options, true_pos_file)
+        gam_chunk_id = context.write_intermediate_file(job, gam_file)
+        annot_gam_chunk_id = context.write_intermediate_file(job, gam_annot_file)
+        true_pos_chunk_id = context.write_intermediate_file(job, true_pos_file)
 
         # return everythin as a tuple.
         return gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id
         
 
-def run_merge_sim_chunks(job, options, sim_out_id_infos):
+def run_merge_sim_chunks(job, context, gam, sim_out_id_infos):
     """
     merge the sim output
     """
@@ -154,23 +167,17 @@ def run_merge_sim_chunks(job, options, sim_out_id_infos):
 
     work_dir = job.fileStore.getLocalTempDir()
 
-    if not options.gam:
+    if not gam:
         # merge up the reads files
         merged_reads_file = os.path.join('sim_reads')
         with open(merged_reads_file, 'a') as out_reads:
             for i, reads_file_id in enumerate(sim_out_id_infos):
                 reads_file = os.path.join(work_dir, 'sim_reads_{}'.format(i))
-                read_from_store(job, options, reads_file_id, reads_file)
+                job.fileStore.readGlobalFile(reads_file_id, reads_file)
                 with open(reads_file) as rf:
                     shutil.copyfileobj(rf, out_reads)
 
-        reads_id =  write_to_store(job, options, merged_reads_file)
-
-        # checkpoint to the output store
-        if not options.force_outstore:
-            write_to_store(job, options, merged_reads_file, use_out_store = True)
-
-        return reads_id
+        return context.write_output_file(job, merged_reads_file)
     
     else:
         # merge up the gam files
@@ -184,17 +191,17 @@ def run_merge_sim_chunks(job, options, sim_out_id_infos):
             
             for i, sim_out_id_info in enumerate(sim_out_id_infos):
                 gam_file = os.path.join(work_dir, 'sim_{}.gam'.format(i))
-                read_from_store(job, options, sim_out_id_info[0], gam_file)
+                job.fileStore.readGlobalFile(sim_out_id_info[0], gam_file)
                 with open(gam_file) as rf:
                     shutil.copyfileobj(rf, out_gam)
                     
                 gam_annot_file = os.path.join(work_dir, 'sim_annot_{}.gam'.format(i))
-                read_from_store(job, options, sim_out_id_info[1], gam_annot_file)
+                job.fileStore.readGlobalFile(sim_out_id_info[1], gam_annot_file)
                 with open(gam_annot_file) as rf:
                     shutil.copyfileobj(rf, out_annot_gam)
 
                 true_file = os.path.join(work_dir, 'true_{}.pos'.format(i))
-                read_from_store(job, options, sim_out_id_info[2], true_file)
+                job.fileStore.readGlobalFile(sim_out_id_info[2], true_file)
                 with open(true_file) as rf:
                     shutil.copyfileobj(rf, out_true)
 
@@ -202,40 +209,21 @@ def run_merge_sim_chunks(job, options, sim_out_id_infos):
         sorted_true_file = os.path.join(work_dir, 'true.pos')
         sort_cmd = ['sort', os.path.basename(merged_true_file)]
         with open(sorted_true_file, 'w') as out_true:
-            options.drunner.call(job, sort_cmd, work_dir = work_dir, outfile = out_true)
+            context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_true)
 
         
-        merged_gam_id = write_to_store(job, options, merged_gam_file)
-        merged_gam_annot_id = write_to_store(job, options, merged_annot_gam_file)
-        true_id = write_to_store(job, options, sorted_true_file)
-
-        # checkpoint to the output store
-        if not options.force_outstore:
-            write_to_store(job, options, merged_gam_file, use_out_store = True)
-            write_to_store(job, options, merged_annot_gam_file, use_out_store = True)
-            write_to_store(job, options, sorted_true_file, use_out_store = True)
+        merged_gam_id = context.write_output_file(job, merged_gam_file)
+        merged_gam_annot_id = context.write_output_file(job, merged_annot_gam_file)
+        true_id = context.write_output_file(job, sorted_true_file)
 
         return merged_gam_id, merged_gam_annot_id, true_id
             
-def sim_main(options):
+def sim_main(context, options):
     """
     Wrapper for vg sim. 
     """
 
-    # make the docker runner
-    options.drunner = ContainerRunner(
-        container_tool_map = get_container_tool_map(options))
-
-    require(all([i not in options.sim_opts for i in ['-x', '-n', '-a', '-s']]),
-            ' sim-opts cannot contain -x, -n, -s or -a')
-    require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
-    
-    # Some file io is dependent on knowing if we're in the pipeline
-    # or standalone. Hack this in here for now
-    options.tool = 'sim'
-
-    # Throw error if something wrong with IOStore string
-    IOStore.get(options.out_store)
+    validate_sim_options(options)
     
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
@@ -243,22 +231,26 @@ def sim_main(options):
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
     
-    with Toil(options) as toil:
+    with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
             start_time = timeit.default_timer()
             
             # Upload local files to the remote IO Store
-            inputXGFileID = import_to_store(toil, options, options.xg_index)
+            inputXGFileIDs = []
+            for xg_index in options.xg_indexes:
+                inputXGFileIDs.append(toil.importFile(xg_index))
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_sim, options,inputXGFileID,
-                                     cores=options.misc_cores,
-                                     memory=options.misc_mem,
-                                     disk=options.misc_disk)
+            root_job = Job.wrapJobFn(run_sim, context, options.num_reads, options.gam,
+                                     options.seed, options.sim_chunks,
+                                     inputXGFileIDs,
+                                     cores=context.config.misc_cores,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
             
             # Run the job and store the returned list of output files to download
             toil.start(root_job)
