@@ -319,7 +319,7 @@ def main():
     elif args.command == 'call':
         call_main(context.to_options(args))
     elif args.command == 'sim':
-        sim_main(context.to_options(args))
+        sim_main(context, args)
     elif args.command == 'mapeval':
         mapeval_main(context, args)
         
