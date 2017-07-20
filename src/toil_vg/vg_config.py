@@ -178,16 +178,10 @@ single-reads-chunk: False
 # Each chunk will correspond to a vg map job
 reads-per-chunk: 10000000
 
-# Treat input fastq as paired-end interleaved
-interleaved: False
-
 # Core arguments for vg mapping (do not include file names or -t/--threads)
 # Note -i/--interleaved will be ignored. use the --interleaved option 
 # on the toil-vg command line instead
 map-opts: []
-
-# Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
-index-mode: gcsa-mem
 
 #########################
 ### vg_call Arguments ###
@@ -395,16 +389,10 @@ single-reads-chunk: False
 # Each chunk will correspond to a vg map job
 reads-per-chunk: 50000000
 
-# Treat input fastq as paired-end interleaved
-interleaved: False
-
 # Core arguments for vg mapping (do not include file names or -t/--threads)
 # Note -i/--interleaved will be ignored. use the --interleaved option 
 # on the toil-vg command line instead
 map-opts: []
-
-# Type of vg index to use for mapping (either 'gcsa-kmer' or 'gcsa-mem')
-index-mode: gcsa-mem
 
 #########################
 ### vg_call Arguments ###

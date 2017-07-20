@@ -658,11 +658,9 @@ def run_map_eval_align(job, context, options, index_ids, gam_names, gam_file_ids
         gam_file_ids = []
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
-            # todo: clean up
-            map_opts = copy.deepcopy(options)
-            map_opts.sample_name = 'sample-{}'.format(i)
-            map_opts.interleaved = False
-            gam_file_ids.append(job.addChildJobFn(run_mapping, context.to_options(map_opts), index_id[0], index_id[1],
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context, options.fastq,
+                                                  options.gam_input_reads, 'sample-{}'.format(i),
+                                                  False, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
@@ -670,11 +668,9 @@ def run_map_eval_align(job, context, options, index_ids, gam_names, gam_file_ids
     if do_vg_mapping and options.vg_paired:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
-            # todo: clean up
-            map_opts_pe = copy.deepcopy(options)
-            map_opts_pe.sample_name = 'sample-pe-{}'.format(i)
-            map_opts_pe.interleaved = True
-            gam_file_ids.append(job.addChildJobFn(run_mapping, context.to_options(map_opts_pe), index_id[0], index_id[1],
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context, options.fastq,
+                                                  options.gam_input_reads, 'sample-pe-{}'.format(i),
+                                                  True, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
