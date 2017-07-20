@@ -59,7 +59,7 @@ class VGCGLTest(TestCase):
         self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                                    '--call_chunk_size', '20000',
-                                   '--index_mode', 'gcsa-mem', '--gcsa_index_cores', '8', '--kmers_cores', '8',
+                                   '--gcsa_index_cores', '8', '--kmers_cores', '8',
                                    '--alignment_cores', '4',
                                    '--calling_cores', '4', '--vcfeval_cores', '4',
                                    '--vcfeval_opts', ' --ref-overlap',

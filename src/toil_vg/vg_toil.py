@@ -205,23 +205,26 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         id_ranges_file_id = None        
 
     if not options.single_reads_chunk:
-        fastq_chunk_ids = job.addChildJobFn(run_split_reads, options, inputReadsFileIDs,
-                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
+        fastq_chunk_ids = job.addChildJobFn(run_split_reads, context, options.fastq,
+                                            options.gam_input_reads, inputReadsFileIDs,
+                                            cores=context.config.misc_cores,
+                                            memory=context.config.misc_mem,
                                             disk=context.config.misc_disk).rv()
     else:
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         fastq_chunk_ids = [inputReadsFileIDs]
 
-    return job.addFollowOnJobFn(run_pipeline_map, options, xg_file_id, gcsa_and_lcp_ids,
+    return job.addFollowOnJobFn(run_pipeline_map, context, options, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
                                 inputFastaFileID, inputBeDFileID, cores=context.config.misc_cores,
                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
-def run_pipeline_map(job, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
+def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
-    chr_gam_ids = job.addChildJobFn(run_whole_alignment, options,
+    chr_gam_ids = job.addChildJobFn(run_whole_alignment, context, options.fastq, options.gam_input_reads,
+                                    options.sample_name, options.interleaved,
                                     xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
                                     cores=options.misc_cores, memory=options.misc_mem,
                                     disk=options.misc_disk).rv()
@@ -236,7 +239,7 @@ def run_pipeline_call(job, options, xg_file_id, id_ranges_file_id, chr_gam_ids, 
     """ Run variant calling on the chromosomes in parallel """
 
     if id_ranges_file_id:
-        chroms = [x[0] for x in parse_id_ranges(job, options, id_ranges_file_id)]
+        chroms = [x[0] for x in parse_id_ranges(job, id_ranges_file_id)]
     else:
         chroms = options.chroms
     assert len(chr_gam_ids) == len(chroms)
@@ -312,7 +315,7 @@ def main():
     elif args.command == 'index':
         index_main(context, args)
     elif args.command == 'map':
-        map_main(context.to_options(args))
+        map_main(context, args)
     elif args.command == 'call':
         call_main(context.to_options(args))
     elif args.command == 'sim':
