@@ -34,8 +34,8 @@ def sim_subparser(parser):
     
     # General options
     
-    parser.add_argument("xg_index", type=make_url,
-                        help="Path to xg index")
+    parser.add_argument("xg_indexes", nargs='+', type=make_url,
+                        help="Path(s) to xg index(es) (separated by space)")
     parser.add_argument("num_reads", type=int,
                         help="Number of reads to simulate")
     parser.add_argument("out_store",
@@ -60,23 +60,31 @@ def validate_sim_options(options):
             ' sim-opts cannot contain -x, -n, -s or -a')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     
-def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_id):
+def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
-
-    # each element is either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
-    # if --gam not specified
     sim_out_id_infos = []
-    for chunk_i in range(sim_chunks):
-        chunk_reads = num_reads / sim_chunks
-        if chunk_i == sim_chunks - 1:
-            chunk_reads += num_reads % sim_chunks
-        sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, seed, xg_file_id,
-                                            chunk_i, chunk_reads,
-                                            cores=context.config.sim_cores, memory=context.config.sim_mem,
-                                            disk=context.config.sim_disk).rv()
-        sim_out_id_infos.append(sim_out_id_info)
+
+    # we can have more than one xg file if we've split our input graphs up
+    # into haplotypes
+    for xg_i, xg_file_id in enumerate(xg_file_ids):
+        file_reads = num_reads / len(xg_file_ids)
+        if xg_file_id == xg_file_ids[-1]:
+            file_reads += num_reads % len(xg_file_ids)
+        file_seed = seed + xg_i * sim_chunks
+        
+        # each element is either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
+        # if --gam not specified
+        for chunk_i in range(sim_chunks):
+            chunk_reads = file_reads / sim_chunks
+            if chunk_i == sim_chunks - 1:
+                chunk_reads += file_reads % sim_chunks
+            sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, file_seed, xg_file_id,
+                                                chunk_i, chunk_reads,
+                                                cores=context.config.sim_cores, memory=context.config.sim_mem,
+                                                disk=context.config.sim_disk).rv()
+            sim_out_id_infos.append(sim_out_id_info)
 
     return job.addFollowOnJobFn(run_merge_sim_chunks, context, gam, sim_out_id_infos,
                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
@@ -229,7 +237,9 @@ def sim_main(context, options):
             start_time = timeit.default_timer()
             
             # Upload local files to the remote IO Store
-            inputXGFileID = toil.importFile(options.xg_index)
+            inputXGFileIDs = []
+            for xg_index in options.xg_indexes:
+                inputXGFileIDs.append(toil.importFile(xg_index))
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -237,7 +247,7 @@ def sim_main(context, options):
             # Make a root job
             root_job = Job.wrapJobFn(run_sim, context, options.num_reads, options.gam,
                                      options.seed, options.sim_chunks,
-                                     inputXGFileID,
+                                     inputXGFileIDs,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
