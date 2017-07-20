@@ -602,7 +602,7 @@ def get_gam_scores(job, context, xg_file_id, name, gam_file_id):
     return out_stats_file_id
 
 
-def run_map_eval_index(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file_ids, vg_file_ids):
+def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_ids, vg_file_ids):
     """ 
     Index the given vg files.
     
@@ -618,13 +618,7 @@ def run_map_eval_index(job, context, options, xg_file_ids, gcsa_file_ids, id_ran
     index_ids = []
     if vg_file_ids:
         for vg_file_id in vg_file_ids:
-            # vg index uses .graphs and .chroms for naming
-            # TODO: clean up 
-            options.graphs = ['./default.vg']
-            options.chroms = ['default']
-            index_ids.append(job.addChildJobFn(run_indexing, context, [vg_file_id],
-                                               map(os.path.basename, options.graphs),
-                                               'index', options.chroms, 
+            index_ids.append(job.addChildJobFn(run_indexing, context, [vg_file_id], ['default.vg'], 'index', 'default', 
                              cores=context.config.misc_cores, memory=context.config.misc_mem,
                              disk=context.config.misc_disk).rv())
     else:
@@ -637,7 +631,7 @@ def run_map_eval_index(job, context, options, xg_file_ids, gcsa_file_ids, id_ran
             
 
 
-def run_map_eval_align(job, context, options, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_bwa_paired):
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_bwa_paired, do_vg_paired):
     """
     Run alignments, if alignment files have not already been provided.
     
@@ -658,18 +652,18 @@ def run_map_eval_align(job, context, options, index_ids, gam_names, gam_file_ids
         gam_file_ids = []
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
-            gam_file_ids.append(job.addChildJobFn(run_mapping, context, options.fastq,
-                                                  options.gam_input_reads, 'sample-{}'.format(i),
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
+                                                  'input.gam', 'sample-{}'.format(i),
                                                   False, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
-    if do_vg_mapping and options.vg_paired:
+    if do_vg_mapping and do_vg_paired:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
-            gam_file_ids.append(job.addChildJobFn(run_mapping, context, options.fastq,
-                                                  options.gam_input_reads, 'sample-pe-{}'.format(i),
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
+                                                  'input.gam', 'sample-pe-{}'.format(i),
                                                   True, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
@@ -1106,7 +1100,9 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
     # particular analyses done).
     
     # Make an indexing job
-    index_job = job.addChildJobFn(run_map_eval_index, context, options, xg_file_ids,
+    index_job = job.addChildJobFn(run_map_eval_index,
+                                  context,
+                                  xg_file_ids,
                                   gcsa_file_ids,
                                   id_range_file_ids,
                                   vg_file_ids,
@@ -1115,9 +1111,10 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
                                   disk=context.config.misc_disk)
                               
     # Then after indexing, do alignment
-    alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, options, index_job.rv(),
+    alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids, reads_gam_file_id,
-                                               fasta_file_id, bwa_index_ids, options.bwa, options.bwa_paired)
+                                               fasta_file_id, bwa_index_ids, options.bwa,
+                                               options.bwa_paired, options.vg_paired)
                                                
     # Unpack the alignment job's return values
     # TODO: we're clobbering input values...
