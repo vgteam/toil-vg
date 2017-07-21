@@ -108,12 +108,11 @@ def add_mapeval_options(parser):
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
                         
-
-    # Add mapping options
-    map_parse_args(parser)
-                        
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
+    
+    # Add mapping options
+    map_parse_args(parser)
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
