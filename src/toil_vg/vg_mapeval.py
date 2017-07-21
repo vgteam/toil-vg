@@ -364,10 +364,33 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired):
     return stats_file_id
 
     
-def extract_gam_read_stats(job, context, xg_file_id, name, gam_file_id):
+def annotate_gam(job, context, xg_file_id, gam_file_id):
     """
-    extract positions, scores, and MAPQs for reads from gam, return id of
-    read stats file
+    Annotate the given GAM file with positions from the given XG file.
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # download input
+    RealtimeLogger.info('Download XG from file {}'.format(xg_file_id))
+    xg_file = os.path.join(work_dir, 'index.xg')
+    job.fileStore.readGlobalFile(xg_file_id, xg_file)
+    gam_file = os.path.join(work_dir, 'reads.gam')
+    job.fileStore.readGlobalFile(gam_file_id, gam_file)
+    
+    annotated_gam_file = os.path.join(work_dir, 'annotated.gam')
+    
+    cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
+    with open(annotated_gam_file, 'w') as out_file:
+        context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
+    
+    return context.write_intermediate_file(job, annotated_gam_file)
+    
+    
+def extract_gam_read_stats(job, context, name, gam_file_id):
+    """
+    extract positions, scores, and MAPQs for reads from position-annotated gam,
+    return id of read stats file
     
     Produces a read stats TSV of the format:
     read name, contig aligned to, alignment position, score, MAPQ
@@ -376,10 +399,6 @@ def extract_gam_read_stats(job, context, xg_file_id, name, gam_file_id):
 
     work_dir = job.fileStore.getLocalTempDir()
 
-    # download input
-    RealtimeLogger.info('Download XG from file {}'.format(xg_file_id))
-    xg_file = os.path.join(work_dir, '{}.xg'.format(name))
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
     gam_file = os.path.join(work_dir, name)
     job.fileStore.readGlobalFile(gam_file_id, gam_file)
 
@@ -387,8 +406,7 @@ def extract_gam_read_stats(job, context, xg_file_id, name, gam_file_id):
                            
     # go through intermediate json file until docker worked out
     gam_annot_json = gam_file + '.json'
-    cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
-    cmd.append(['vg', 'view', '-aj', '-'])
+    cmd = [['vg', 'view', '-aj', os.path.basename(gam_file)]]
     with open(gam_annot_json, 'w') as output_annot_json:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
 
@@ -731,9 +749,17 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
             assert len(gam_id) == 1
             gam = gam_id[0]
         RealtimeLogger.info('Work on GAM {} = {} named {} with XG id {}'.format(gam_i, gam, gam_names[gam_i], xg_file_ids[gam_i]))
-        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, context, xg_file_ids[gam_i],
-                                                    name, gam, cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                    disk=context.config.misc_disk).rv())
+        
+        # Make a job to annotate the GAM
+        annotate_job = job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
+                                         cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                         disk=context.config.misc_disk)
+        
+        # Then compute stats on the annotated GAM
+        gam_stats_file_ids.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
+                                                                name, annotate_job.rv(),
+                                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                                disk=context.config.misc_disk).rv())
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
