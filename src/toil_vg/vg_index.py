@@ -42,7 +42,6 @@ def index_subparser(parser):
                         help="Do not generate gcsa index")
     parser.add_argument("--skip_id_ranges", action="store_true",
                         help="Do not generate id_ranges.tsv")
-    
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -79,6 +78,9 @@ def index_parse_args(parser):
     parser.add_argument("--gcsa_opts", type=str,
                         help="Options to pass to gcsa indexing.")
 
+    parser.add_argument("--vcf_phasing", type=make_url,
+                        help="Import phasing information from VCF into xg")
+
 def validate_index_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
@@ -86,6 +88,8 @@ def validate_index_options(options):
     require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
     require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
             ' same number of arguments')
+    if options.vcf_phasing:
+        require(options.vcf_phasing.endswith('.vcf.gz'), 'input phasing file must end with .vcf.gz')
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
     """
@@ -251,7 +255,8 @@ def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name):
     return gcsa_file_id, lcp_file_id
 
 
-def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
+def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
+                    vcf_phasing_file_id = None, tbi_phasing_file_id = None):
     """ Make the xg index and return its store id
     """
     
@@ -268,14 +273,23 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
         job.fileStore.readGlobalFile(graph_id, graph_filename)
         graph_filenames.append(os.path.basename(graph_filename))
 
+    # Get the vcf file for making gpbwt
+    if vcf_phasing_file_id:
+        phasing_file = os.path.join(work_dir, 'phasing.vcf.gz')
+        job.fileStore.readGlobalFile(vcf_phasing_file_id, phasing_file)
+        job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
+        phasing_opts = ['-v', os.path.basename(phasing_file)]
+    else:
+        phasing_opts = []
+
     # Where do we put the XG index?
     xg_filename = "{}.xg".format(index_name)
 
     # Now run the indexer.
-    RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))            
+    RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))
 
     command = ['vg', 'index', '-t', str(job.cores), '-x', os.path.basename(xg_filename)]
-    command += graph_filenames
+    command += phasing_opts + graph_filenames
     
     context.runner.call(job, command, work_dir=work_dir)
 
@@ -354,6 +368,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
+                 vcf_phasing_file_id = None, tbi_phasing_file_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False):
     """ run indexing logic by itself.  Return pair of idx for xg and gcsa output index files  
     """
@@ -369,6 +384,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     if not skip_xg:
         xg_index_id = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
                                         graph_names, index_name,
+                                        vcf_phasing_file_id, tbi_phasing_file_id,
                                         cores=context.config.xg_index_cores,
                                         memory=context.config.xg_index_mem,
                                         disk=context.config.xg_index_disk).rv()
@@ -410,6 +426,12 @@ def index_main(context, options):
             inputGraphFileIDs = []
             for graph in options.graphs:
                 inputGraphFileIDs.append(toil.importFile(graph))
+            if options.vcf_phasing:
+                inputPhasingVCFFileID = toil.importFile(options.vcf_phasing)
+                inputPhasingTBIFileID = toil.importFile(options.vcf_phasing + '.tbi')
+            else:
+                inputPhasingVCFFileID = None
+                inputPhasingTBIFileID = None
 
             # Handy to have meaningful filenames throughout, so we remember
             # the input graph names
@@ -421,6 +443,7 @@ def index_main(context, options):
             # Make a root job
             root_job = Job.wrapJobFn(run_indexing, context, inputGraphFileIDs,
                                      graph_names, options.index_name, options.chroms,
+                                     inputPhasingVCFFileID, inputPhasingTBIFileID,
                                      options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,

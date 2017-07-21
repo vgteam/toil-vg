@@ -167,7 +167,8 @@ def validate_pipeline_options(options):
 def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileIDs, inputXGFileID,
                        inputGCSAFileID, inputLCPFileID, inputIDRangesFileID,
                        inputVCFFileID, inputTBIFileID,
-                       inputFastaFileID, inputBeDFileID):
+                       inputFastaFileID, inputBeDFileID,
+                       inputPhasingVCFFileID, inputPhasingTBIFileID):
     """
     All indexing.  result is a tarball in thie output store.  Will also do the fastq
     splitting, which doesn't depend on indexing. 
@@ -177,6 +178,7 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         xg_file_id = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
                                        map(os.path.basename, options.graphs),
                                        options.index_name,
+                                       inputPhasingVCFFileID, inputPhasingTBIFileID,
                                        cores=options.xg_index_cores, memory=options.xg_index_mem,
                                        disk=options.xg_index_disk).rv()
     else:
@@ -381,6 +383,12 @@ def pipeline_main(context, options):
                 inputTBIFileID = None
                 inputFastaFileID = None
                 inputBedFileID = None
+            if options.vcf_phasing:
+                inputPhasingVCFFileID = toil.importFile(options.vcf_phasing)
+                inputPhasingTBIFileID = toil.importFile(options.vcf_phasing + '.tbi')
+            else:
+                inputPhasingVCFFileID = None
+                inputPhasingTBIFileID = None
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -391,6 +399,7 @@ def pipeline_main(context, options):
                                      inputLCPFileID, inputIDRangesFileID,
                                      inputVCFFileID, inputTBIFileID,
                                      inputFastaFileID, inputBedFileID,
+                                     inputPhasingVCFFileID, inputPhasingTBIFileID,
                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
 
