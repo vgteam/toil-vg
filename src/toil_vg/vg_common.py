@@ -72,7 +72,16 @@ def get_container_tool_map(options):
     # to do: could be a good place to do an existence check on these tools
 
     return cmap
-        
+
+def toil_call(job, context, cmd, work_dir, out_path = None, out_append = False):
+    """ use to run a one-job toil workflow just to call a command
+    using context.runner """
+    if out_path:
+        out_path = os.path.abspath(out_path)
+    open_flag = 'a' if out_append is True else 'w'
+    with open(out_path, open_flag) if out_path else None as out_file:
+        context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
+    
 class ContainerRunner(object):
     """ Helper class to centralize container calling.  So we can toggle both
 Docker and Singularity on and off in just one place.

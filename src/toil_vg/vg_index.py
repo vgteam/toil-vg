@@ -64,6 +64,8 @@ def index_parse_args(parser):
 
     parser.add_argument("--gcsa_index_cores", type=int,
         help="number of threads during the gcsa indexing step")
+    parser.add_argument("--xg_index_cores", type=int,
+        help="number of threads during the xg indexing step")
 
     parser.add_argument("--kmers_cores", type=int,
         help="number of threads during the gcsa kmers step")
