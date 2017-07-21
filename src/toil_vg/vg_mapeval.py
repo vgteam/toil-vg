@@ -1072,9 +1072,10 @@ def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file
 
 def run_process_score_comparisons(job, context, baseline_name, names, compare_ids):
     """
-    Write some raw tables of score comparisons to the output.  Compute some stats for each graph.
+    Write some raw tables of score comparisons against the given baseline to the
+    output.  Compute some stats for each graph.
     
-    Returns the file ID of the overall stats file "score.stats.tsv".
+    Returns the file ID of the overall stats file "score.stats.<baseline name>.tsv".
     """
 
     work_dir = job.fileStore.getLocalTempDir()
@@ -1113,11 +1114,12 @@ def run_process_score_comparisons(job, context, baseline_name, names, compare_id
             
     context.write_output_file(job, results_file)
     
-    return job.addFollowOnJobFn(run_write_score_stats, context, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_score_stats, context, baseline_name, names, map_stats).rv()
     
-def run_write_score_stats(job, context, names, map_stats):
+def run_write_score_stats(job, context, baseline_name, names, map_stats):
     """
-    write the score comparison statistics as tsv named "score.stats.tsv".
+    write the score comparison statistics against the baseline with the given
+    name as tsv named "score.stats.<baseline name>.tsv".
     
     Returns the file ID for that file.
     
@@ -1125,7 +1127,7 @@ def run_write_score_stats(job, context, names, map_stats):
     """
 
     work_dir = job.fileStore.getLocalTempDir()
-    stats_file = os.path.join(work_dir, 'score.stats.tsv')
+    stats_file = os.path.join(work_dir, 'score.stats.{}.tsv'.format(baseline_name))
     with open(stats_file, 'w') as stats_out_file:
         # Put each stat as a different column.
         stats_out = tsv.TsvWriter(stats_out_file)
