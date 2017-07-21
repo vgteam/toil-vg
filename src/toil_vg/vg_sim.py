@@ -42,6 +42,8 @@ def sim_subparser(parser):
                         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--gam", action="store_true",
                         help="Output GAM file, annotated gam file and truth positions")
+    parser.add_argument("--annotate_xg", type=make_url,
+                        help="xg index used for gam annotation (if different from input indexes)")
     parser.add_argument("--sim_opts", type=str,
                         help="arguments for vg sim (wrapped in \"\"). Do not include -x, -n, -s, or -a")
     parser.add_argument("--sim_chunks", type=int, default=1,
@@ -60,7 +62,7 @@ def validate_sim_options(options):
             ' sim-opts cannot contain -x, -n, -s or -a')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     
-def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids):
+def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
@@ -81,6 +83,7 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids):
             if chunk_i == sim_chunks - 1:
                 chunk_reads += file_reads % sim_chunks
             sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, file_seed, xg_file_id,
+                                                xg_annot_file_id,
                                                 chunk_i, chunk_reads,
                                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                                 disk=context.config.sim_disk).rv()
@@ -90,7 +93,7 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids):
                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                 disk=context.config.sim_disk).rv()
 
-def run_sim_chunk(job, context, gam, seed, xg_file_id, chunk_i, num_reads):
+def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i, num_reads):
     """
     simulate some reads (and optionally gam),
     return either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
@@ -103,6 +106,13 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, chunk_i, num_reads):
     # read the xg file
     xg_file = os.path.join(work_dir, 'index.xg')
     job.fileStore.readGlobalFile(xg_file_id, xg_file)
+    
+    # and the annotation xg file
+    if xg_annot_file_id:
+        xg_annot_file = os.path.join(work_dir, 'annot_index.xg')
+        xg_annot_file = job.fileStore.readGlobalFile(xg_annot_file_id, xg_annot_file)
+    else:
+        xg_annot_file = xg_file
 
     # run vg sim
     sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + context.config.sim_opts
@@ -129,7 +139,7 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, chunk_i, num_reads):
         # (from vg/scripts/map-sim)
         cmd = [sim_cmd + ['-a']]
         cmd.append(['tee', os.path.basename(gam_file)])
-        cmd.append(['vg', 'annotate', '-p', '-x', os.path.basename(xg_file), '-a', '-'])
+        cmd.append(['vg', 'annotate', '-p', '-x', os.path.basename(xg_annot_file), '-a', '-'])
         cmd.append(['tee', os.path.basename(gam_annot_file)])
         cmd.append(['vg', 'view', '-aj', '-'])
         with open(gam_annot_json, 'w') as output_annot_json:
@@ -240,6 +250,10 @@ def sim_main(context, options):
             inputXGFileIDs = []
             for xg_index in options.xg_indexes:
                 inputXGFileIDs.append(toil.importFile(xg_index))
+            if options.annotate_xg:
+                inputAnnotXGFileID = toil.importFile(options.annotate_xg)
+            else:
+                inputAnnotXGFileID = None
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -248,6 +262,7 @@ def sim_main(context, options):
             root_job = Job.wrapJobFn(run_sim, context, options.num_reads, options.gam,
                                      options.seed, options.sim_chunks,
                                      inputXGFileIDs,
+                                     inputAnnotXGFileID,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
