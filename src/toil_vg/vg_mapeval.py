@@ -108,9 +108,9 @@ def add_mapeval_options(parser):
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
                         
-    # What options originally from vg map do we need to keep around?
-    parser.add_argument("--gam_input_reads", type=make_url, default=None,
-                        help="Input reads in GAM format")
+
+    # Add mapping options
+    map_parse_args(parser)
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -760,6 +760,8 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
 
     # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
     gam_stats_file_ids = []
+    # We also need to keep the jobs around so we can enforce that things run after them.
+    gam_stats_jobs = []
     for gam_i, gam_id in enumerate(gam_file_ids):
         name = '{}-{}.gam'.format(gam_names[gam_i], gam_i)
         # run_mapping will return a list of gam_ids.  since we don't
@@ -776,10 +778,13 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                                          disk=context.config.misc_disk)
         
         # Then compute stats on the annotated GAM
-        gam_stats_file_ids.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
-                                                                name, annotate_job.rv(),
-                                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                                disk=context.config.misc_disk).rv())
+        gam_stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
+                                                            name, annotate_job.rv(),
+                                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                            disk=context.config.misc_disk))
+        
+        gam_stats_file_ids.append(gam_stats_jobs[-1].rv())
+    
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
@@ -805,10 +810,14 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         # compare all our scores against the baseline, and dump results to the
         # out store. 
-        score_comp_job = job.addFollowOnJobFn(run_map_eval_compare_scores, context, score_baseline_name, baseline_stats_id,
-                                              gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
-                                              pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
-                                              memory=context.config.misc_mem, disk=context.config.misc_disk)
+        score_comp_job = job.addChildJobFn(run_map_eval_compare_scores, context, score_baseline_name, baseline_stats_id,
+                                           gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
+                                           pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
+                                           memory=context.config.misc_mem, disk=context.config.misc_disk)
+                             
+        for stats_job in gam_stats_jobs:
+            # Make sure we don't try and get the stats GAMs too early.
+            stats_job.addFollowOn(score_comp_job)
                              
         # Get a tuple of individual comparison files and overall stats file.
         score_comparisons[score_baseline_name] = score_comp_job.rv()
@@ -828,6 +837,10 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                                                     gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
                                                     pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
                                                     memory=context.config.misc_mem, disk=context.config.misc_disk)
+                                                    
+        for stats_job in gam_stats_jobs:
+            # Make sure we don't try and get the stats GAMs too early.
+            stats_job.addFollowOn(score_comp_job)
                                                     
         # Save the results
         score_comparisons['input'] = score_comp_job.rv()
