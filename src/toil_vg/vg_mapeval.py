@@ -113,7 +113,7 @@ def add_mapeval_options(parser):
     
     # Add mapping options
     map_parse_args(parser)
-
+    
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
     
@@ -364,22 +364,44 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired):
     return stats_file_id
 
     
-def extract_gam_read_stats(job, context, xg_file_id, name, gam_file_id):
+def annotate_gam(job, context, xg_file_id, gam_file_id):
     """
-    extract positions, scores, and MAPQs for reads from gam, return id of
-    read stats file
+    Annotate the given GAM file with positions from the given XG file.
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # download input
+    RealtimeLogger.info('Download XG from file {}'.format(xg_file_id))
+    xg_file = os.path.join(work_dir, 'index.xg')
+    job.fileStore.readGlobalFile(xg_file_id, xg_file)
+    gam_file = os.path.join(work_dir, 'reads.gam')
+    job.fileStore.readGlobalFile(gam_file_id, gam_file)
+    
+    annotated_gam_file = os.path.join(work_dir, 'annotated.gam')
+    
+    cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
+    with open(annotated_gam_file, 'w') as out_file:
+        context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
+    
+    return context.write_intermediate_file(job, annotated_gam_file)
+    
+    
+def extract_gam_read_stats(job, context, name, gam_file_id):
+    """
+    extract positions, scores, and MAPQs for reads from a gam, and return the id
+    of the resulting read stats file
     
     Produces a read stats TSV of the format:
     read name, contig aligned to, alignment position, score, MAPQ
+    
+    If the GAM is not annotated with alignment positions, contig and position
+    will both contain only "0" values.
 
     """
 
     work_dir = job.fileStore.getLocalTempDir()
 
-    # download input
-    RealtimeLogger.info('Download XG from file {}'.format(xg_file_id))
-    xg_file = os.path.join(work_dir, '{}.xg'.format(name))
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
     gam_file = os.path.join(work_dir, name)
     job.fileStore.readGlobalFile(gam_file_id, gam_file)
 
@@ -387,8 +409,7 @@ def extract_gam_read_stats(job, context, xg_file_id, name, gam_file_id):
                            
     # go through intermediate json file until docker worked out
     gam_annot_json = gam_file + '.json'
-    cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
-    cmd.append(['vg', 'view', '-aj', '-'])
+    cmd = [['vg', 'view', '-aj', os.path.basename(gam_file)]]
     with open(gam_annot_json, 'w') as output_annot_json:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
 
@@ -491,7 +512,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
     
-def compare_scores(job, context, baseline_file_id, name, score_file_id):
+def compare_scores(job, context, baseline_name, baseline_file_id, name, score_file_id):
     """
     Compares scores from TSV files. The baseline and file under test both have
     the format:
@@ -500,7 +521,11 @@ def compare_scores(job, context, baseline_file_id, name, score_file_id):
     Produces a CSV (NOT TSV) of the form:
     read name, score difference, aligned score, baseline score
     
-    Uses the given name as a file base name for the file under test.
+    If saved to the out store it will be:
+    <condition name>.compare.<baseline name>.scores
+    
+    Uses the given (condition) name as a file base name for the file under test.
+    
     """
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -509,7 +534,7 @@ def compare_scores(job, context, baseline_file_id, name, score_file_id):
     test_read_stats_file = os.path.join(work_dir, name + '.tsv')
     job.fileStore.readGlobalFile(score_file_id, test_read_stats_file)
 
-    out_file = os.path.join(work_dir, name + '.compare.scores')
+    out_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
 
     with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test, \
          open(out_file, 'w') as out:
@@ -687,11 +712,23 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     
 def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
-                            bwa_bam_file_ids, true_read_stats_file_id, mapeval_threshold, score_baseline_name=None):
+                            bwa_bam_file_ids, true_read_stats_file_id, mapeval_threshold,
+                            score_baseline_name=None, original_read_gam=None):
     """
     run the mapping comparison.  Dump some tables into the outstore.
     
     Returns a pair of the position comparison results and the score comparison results.
+    
+    The score comparison results are a dict from baseline name to comparison
+    against that baseline. Each comparison's data is a tuple of a list of
+    individual per-graph comparison file IDs and an overall stats file for that
+    comparison.
+    
+    If score_baseline_name is specified, all GAMs have their scores compared
+    against the scores from the GAM with that name as a baseline.
+    
+    If original_read_gam is specified, all GAMs have their scores compared
+    against that GAM's scores as a baseline.
     
     Each result set is itself a pair, consisting of a list of per-graph file IDs, and an overall statistics file ID.
     
@@ -722,6 +759,8 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
 
     # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
     gam_stats_file_ids = []
+    # We also need to keep the jobs around so we can enforce that things run after them.
+    gam_stats_jobs = []
     for gam_i, gam_id in enumerate(gam_file_ids):
         name = '{}-{}.gam'.format(gam_names[gam_i], gam_i)
         # run_mapping will return a list of gam_ids.  since we don't
@@ -731,9 +770,20 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
             assert len(gam_id) == 1
             gam = gam_id[0]
         RealtimeLogger.info('Work on GAM {} = {} named {} with XG id {}'.format(gam_i, gam, gam_names[gam_i], xg_file_ids[gam_i]))
-        gam_stats_file_ids.append(job.addChildJobFn(extract_gam_read_stats, context, xg_file_ids[gam_i],
-                                                    name, gam, cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                    disk=context.config.misc_disk).rv())
+        
+        # Make a job to annotate the GAM
+        annotate_job = job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
+                                         cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                         disk=context.config.misc_disk)
+        
+        # Then compute stats on the annotated GAM
+        gam_stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
+                                                            name, annotate_job.rv(),
+                                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                            disk=context.config.misc_disk))
+        
+        gam_stats_file_ids.append(gam_stats_jobs[-1].rv())
+    
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
@@ -743,6 +793,10 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                                                        mapeval_threshold,
                                                        cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk).rv()
+    
+    # This will map from baseline name to score comparison data against that
+    # baseline
+    score_comparisons = {}
     
     if score_baseline_name is not None:
         # We want to compare the scores from all the GAMs against a baseline
@@ -755,18 +809,44 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         # compare all our scores against the baseline, and dump results to the
         # out store. 
-        score_comp_job = job.addFollowOnJobFn(run_map_eval_compare_scores, context, 
-                                              baseline_stats_id, gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
-                                              pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
-                                              memory=context.config.misc_mem, disk=context.config.misc_disk)
+        score_comp_job = job.addChildJobFn(run_map_eval_compare_scores, context, score_baseline_name, baseline_stats_id,
+                                           gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
+                                           pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
+                                           memory=context.config.misc_mem, disk=context.config.misc_disk)
+                             
+        for stats_job in gam_stats_jobs:
+            # Make sure we don't try and get the stats GAMs too early.
+            stats_job.addFollowOn(score_comp_job)
                              
         # Get a tuple of individual comparison files and overall stats file.
-        score_comparison_results = score_comp_job.rv()
-    else:
-        # We still need a value to return
-        score_comparison_results = None
+        score_comparisons[score_baseline_name] = score_comp_job.rv()
         
-    return position_comparison_results, score_comparison_results
+    if original_read_gam is not None:
+        # Also compare against the original GAM's scores as a baseline
+        
+        # First compute its stats file
+        stats_job = job.addChildJobFn(extract_gam_read_stats, context,
+                                      name, original_read_gam,
+                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                      disk=context.config.misc_disk)
+        
+        # compare all our scores against this other baseline, and dump results
+        # to the out store.
+        score_comp_job = stats_job.addFollowOnJobFn(run_map_eval_compare_scores, context, 'input', stats_job.rv(),
+                                                    gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
+                                                    pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
+                                                    memory=context.config.misc_mem, disk=context.config.misc_disk)
+                                                    
+        for stats_job in gam_stats_jobs:
+            # Make sure we don't try and get the stats GAMs too early.
+            stats_job.addFollowOn(score_comp_job)
+                                                    
+        # Save the results
+        score_comparisons['input'] = score_comp_job.rv()
+        
+        
+        
+    return position_comparison_results, score_comparisons
 
 def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_names, gam_stats_file_ids,
                          bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids, mapeval_threshold):
@@ -947,7 +1027,7 @@ def run_qq(job, context, name, compare_id):
 
     return r2
     
-def run_map_eval_compare_scores(job, context, baseline_stats_file_id, gam_names, gam_stats_file_ids,
+def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file_id, gam_names, gam_stats_file_ids,
                                 bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids):
     """
     Compare scores in the given stats files in the lists to those in the given
@@ -957,10 +1037,10 @@ def run_map_eval_compare_scores(job, context, baseline_stats_file_id, gam_names,
     read name, contig name, contig offset, score, mapping quality
     
     Will save the output to the outstore, as a CSV of read name and score
-    difference, named <GAM/BAM name>.compare.scores.
+    difference, named <GAM/BAM name>.compare.<baseline name>.scores.
     
     Will also save a concatenated TSV file, with score difference and quoted
-    aligner/condition name, as score.results.tsv
+    aligner/condition name, as score.results.<baseline_name>.tsv
     
     Returns the list of comparison file IDs and the score results file ID.
     
@@ -979,21 +1059,22 @@ def run_map_eval_compare_scores(job, context, baseline_stats_file_id, gam_names,
 
     compare_ids = []
     for name, stats_file_id in zip(names, stats_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_scores, context, baseline_stats_file_id, name, stats_file_id,
+        compare_ids.append(job.addChildJobFn(compare_scores, context, baseline_name, baseline_stats_file_id, name, stats_file_id,
                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
                                              disk=context.config.misc_disk).rv())
 
-    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, context, names, compare_ids,
+    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, context, baseline_name, names, compare_ids,
                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
                                      
     return compare_ids, stats_job.rv()
 
-def run_process_score_comparisons(job, context, names, compare_ids):
+def run_process_score_comparisons(job, context, baseline_name, names, compare_ids):
     """
-    Write some raw tables of score comparisons to the output.  Compute some stats for each graph.
+    Write some raw tables of score comparisons against the given baseline to the
+    output.  Compute some stats for each graph.
     
-    Returns the file ID of the overall stats file "score.stats.tsv".
+    Returns the file ID of the overall stats file "score.stats.<baseline name>.tsv".
     """
 
     work_dir = job.fileStore.getLocalTempDir()
@@ -1004,7 +1085,7 @@ def run_process_score_comparisons(job, context, names, compare_ids):
     map_stats = []
 
     # make the score.results.tsv, which holds score differences and aligner/condition names.
-    results_file = os.path.join(work_dir, 'score.results.tsv')
+    results_file = os.path.join(work_dir, 'score.{}.results.tsv'.format(baseline_name))
     with open(results_file, 'w') as out_results_file:
         out_results = tsv.TsvWriter(out_results_file)
         out_results.comment('diff\taligner')
@@ -1020,7 +1101,7 @@ def run_process_score_comparisons(job, context, names, compare_ids):
                     out_results.line(toks[1], a)
 
         for name, compare_id in itertools.izip(names, compare_ids):
-            compare_file = os.path.join(work_dir, '{}.compare.scores'.format(name))
+            compare_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
             job.fileStore.readGlobalFile(compare_id, compare_file)
             context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
@@ -1032,11 +1113,12 @@ def run_process_score_comparisons(job, context, names, compare_ids):
             
     context.write_output_file(job, results_file)
     
-    return job.addFollowOnJobFn(run_write_score_stats, context, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_score_stats, context, baseline_name, names, map_stats).rv()
     
-def run_write_score_stats(job, context, names, map_stats):
+def run_write_score_stats(job, context, baseline_name, names, map_stats):
     """
-    write the score comparison statistics as tsv named "score.stats.tsv".
+    write the score comparison statistics against the baseline with the given
+    name as tsv named "score.stats.<baseline name>.tsv".
     
     Returns the file ID for that file.
     
@@ -1044,7 +1126,7 @@ def run_write_score_stats(job, context, names, map_stats):
     """
 
     work_dir = job.fileStore.getLocalTempDir()
-    stats_file = os.path.join(work_dir, 'score.stats.tsv')
+    stats_file = os.path.join(work_dir, 'score.stats.{}.tsv'.format(baseline_name))
     with open(stats_file, 'w') as stats_out_file:
         # Put each stat as a different column.
         stats_out = tsv.TsvWriter(stats_out_file)
@@ -1125,7 +1207,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
     comparison_job = alignment_job.addFollowOnJobFn(run_map_eval_comparison, context, xg_ids,
                      gam_names, gam_file_ids, options.bam_names, bam_file_ids,
                      options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids,
-                     true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores,
+                     true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores, reads_gam_file_id,
                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                      disk=context.config.misc_disk)
                      
@@ -1146,12 +1228,10 @@ def make_mapeval_plan(toil, options):
     start_time = timeit.default_timer()
             
     # Upload local files to the remote IO Store
-    if options.gam_input_reads:
-        plan.reads_gam_file_id = toil.importFile(options.gam_input_reads)
-    else:
-        plan.reads_gam_file_id = None
-
-    # Input vg data.  can be either .vg or .gam/.xg or .xg/.gcsa/.gcsa.lcp
+    
+    # Input vg data (either pre-aligned or to align against). Can be either .vg
+    # (to index and align against) or .xg/.gcsa/.gcsa.lcp (to align against) or
+    # .gam/.xg (pre-alligned, just annotate)
     plan.gam_file_ids = []
     if options.gams:
         for gam in options.gams:
@@ -1176,7 +1256,12 @@ def make_mapeval_plan(toil, options):
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
                 #    id_range_file_ids.append(
                 #        toil.importFile(ib + '_id_ranges.tsv'))
-                                                               
+                    
+    # Import input reads to be realigned
+    if options.gam_input_reads:
+        plan.reads_gam_file_id = toil.importFile(options.gam_input_reads)
+    else:
+        plan.reads_gam_file_id = None                                           
                                 
     # Input bwa data        
     plan.bam_file_ids = []
