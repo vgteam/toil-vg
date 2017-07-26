@@ -68,6 +68,7 @@ def get_container_tool_map(options):
     cmap[0]["pigz"] = options.pigz_docker
     cmap[0]["samtools"] = options.samtools_docker
     cmap[0]["bwa"] = options.bwa_docker
+    cmap[0]["Rscript"] = options.r_docker
      
     # to do: could be a good place to do an existence check on these tools
 
@@ -77,10 +78,11 @@ def toil_call(job, context, cmd, work_dir, out_path = None, out_append = False):
     """ use to run a one-job toil workflow just to call a command
     using context.runner """
     if out_path:
-        out_path = os.path.abspath(out_path)
-    open_flag = 'a' if out_append is True else 'w'
-    with open(out_path, open_flag) if out_path else None as out_file:
-        context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
+        open_flag = 'a' if out_append is True else 'w'
+        with open(os.path.abspath(out_path), open_flag) as out_file:
+            context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
+    else:
+        context.runner.call(job, cmd, work_dir=work_dir)        
     
 class ContainerRunner(object):
     """ Helper class to centralize container calling.  So we can toggle both
@@ -95,10 +97,6 @@ to do: Should go somewhere more central """
         #           container_support = 'Docker'
         self.docker_tool_map = container_tool_map[0]
         self.container_support = container_tool_map[1]
-
-    def has_tool(self, tool):
-        # return true if we have an image for this tool
-        return tool in self.docker_tool_map[0] or tool in self.singularity_tool_map
 
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
              check_output = False, tool_name=None):
@@ -150,10 +148,12 @@ to do: Should go somewhere more central """
             # todo: check we have a bash entrypoint!
             parameters = args
         
-        # vg uses TMPDIR for temporary files
-        # this is particularly important for gcsa, which makes massive files.
-        # we will default to keeping these in our working directory
-        docker_parameters += ['--env', 'TMPDIR=.']
+        # breaks Rscript.  Todo: investigate how general this actually is
+        if name != 'Rscript':
+            # vg uses TMPDIR for temporary files
+            # this is particularly important for gcsa, which makes massive files.
+            # we will default to keeping these in our working directory
+            docker_parameters += ['--env', 'TMPDIR=.']
 
         # set our working directory map
         if work_dir is not None:

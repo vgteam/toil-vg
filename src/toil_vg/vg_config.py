@@ -146,6 +146,9 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
 # Docker container to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
+# Docker container to use to run R scripts
+r-docker: 'rocker/tidyverse:3.4.1'
+
 ##########################
 ### vg_index Arguments ###
 
@@ -356,6 +359,9 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
 
 # Docker container to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
+
+# Docker container to use to run R scripts
+r-docker: 'rocker/tidyverse:3.4.1'
 
 ##########################
 ### vg_index Arguments ###
