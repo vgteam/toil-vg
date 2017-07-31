@@ -678,7 +678,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
-                                                  'input.gam', 'sample-{}'.format(i),
+                                                  'input.gam', 'aligned-{}'.format(gam_names[i]),
                                                   False, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
@@ -688,7 +688,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
-                                                  'input.gam', 'sample-pe-{}'.format(i),
+                                                  'input.gam', 'aligned-{}-pe'.format(gam_names[i]),
                                                   True, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
