@@ -900,11 +900,14 @@ def run_process_position_comparisons(job, context, names, compare_ids):
             Read the given comparison CSV for the given condition name, and dump
             it to the combined results file.
             """
+            # tack on '-se' to single endings to make more consistent ordering in r plots
+            method = a + '-se' if not (a.endswith('-pe') or a.endswith('-se')) else a
+            
             with open(comp_file) as comp_in:
                 for line in comp_in:
                     toks = line.rstrip().split(', ')
                     # TODO: why are we quoting the aligner name here? What parses TSV and respects quotes?
-                    out_results.write('{}\t{}\t"{}"\n'.format(toks[1], toks[2], a))
+                    out_results.write('{}\t{}\t"{}"\n'.format(toks[1], toks[2], method))
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
