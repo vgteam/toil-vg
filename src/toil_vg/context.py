@@ -123,7 +123,7 @@ class Context(object):
         # Save to Toil
         return job.fileStore.writeGlobalFile(path)
             
-    def write_output_file(self, job, path):
+    def write_output_file(self, job, path, out_store_path = None):
         """
         
         Write the file at the given path to the given job's Toil FileStore, and
@@ -137,8 +137,9 @@ class Context(object):
         
         out_store = self.get_out_store()
         if out_store is not None:
+            name = os.path.basename(out_store_path if out_store_path else path)
             # Save to the out_store if it exists
-            out_store.write_output_file(path, os.path.basename(path))
+            out_store.write_output_file(path, name)
         
         # Save to Toil
         return job.fileStore.writeGlobalFile(path)
