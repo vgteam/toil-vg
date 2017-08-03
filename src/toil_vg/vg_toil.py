@@ -229,13 +229,13 @@ def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, id_ran
                                     options.fastq, options.gam_input_reads,
                                     options.sample_name, options.interleaved,
                                     xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
-                                    cores=options.misc_cores, memory=options.misc_mem,
-                                    disk=options.misc_disk).rv()
+                                    cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                    disk=context.config.misc_disk).rv()
 
     return job.addFollowOnJobFn(run_pipeline_call, context, options, xg_file_id, id_ranges_file_id,
                                 chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
-                                fasta_id, bed_id, cores=options.misc_cores, memory=options.misc_mem,
-                                disk=options.misc_disk).rv()
+                                fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
 
 def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_gam_ids,
                       baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
@@ -247,9 +247,10 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
         chroms = options.chroms
     assert len(chr_gam_ids) == len(chroms)
 
-    vcf_tbi_wg_id_pair = job.addChildJobFn(run_all_calling, options, xg_file_id, chr_gam_ids, chroms,
-                                           cores=options.misc_cores, memory=options.misc_mem,
-                                           disk=options.misc_disk).rv()
+    vcf_tbi_wg_id_pair = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, chroms,
+                                           options.vcf_offsets, options.sample_name,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=context.config.misc_disk).rv()
 
     # optionally run vcfeval at the very end.  output will end up in the outstore.
     # f1 score will be returned.
@@ -321,7 +322,7 @@ def main():
     elif args.command == 'map':
         map_main(context, args)
     elif args.command == 'call':
-        call_main(context.to_options(args))
+        call_main(context, args)
     elif args.command == 'sim':
         sim_main(context, args)
     elif args.command == 'mapeval':

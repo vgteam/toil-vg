@@ -33,7 +33,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, \
-    write_to_store, add_common_vg_parse_args, add_container_tool_parse_args
+    add_common_vg_parse_args, add_container_tool_parse_args
 from toil_vg.vg_map import map_parse_args, run_mapping
 from toil_vg.vg_index import run_indexing
 from toil_vg.context import Context
