@@ -225,19 +225,20 @@ def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, id_ran
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
-    chr_gam_ids = job.addChildJobFn(run_whole_alignment, context, options.fastq, options.gam_input_reads,
+    chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
+                                    options.fastq, options.gam_input_reads,
                                     options.sample_name, options.interleaved,
                                     xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
                                     cores=options.misc_cores, memory=options.misc_mem,
                                     disk=options.misc_disk).rv()
 
-    return job.addFollowOnJobFn(run_pipeline_call, options, xg_file_id, id_ranges_file_id,
+    return job.addFollowOnJobFn(run_pipeline_call, context, options, xg_file_id, id_ranges_file_id,
                                 chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
                                 fasta_id, bed_id, cores=options.misc_cores, memory=options.misc_mem,
                                 disk=options.misc_disk).rv()
 
-def run_pipeline_call(job, options, xg_file_id, id_ranges_file_id, chr_gam_ids, baseline_vcf_id,
-                      baseline_tbi_id, fasta_id, bed_id):
+def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_gam_ids,
+                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ Run variant calling on the chromosomes in parallel """
 
     if id_ranges_file_id:
@@ -253,8 +254,9 @@ def run_pipeline_call(job, options, xg_file_id, id_ranges_file_id, chr_gam_ids, 
     # optionally run vcfeval at the very end.  output will end up in the outstore.
     # f1 score will be returned.
     if baseline_vcf_id is not None:
-        return job.addFollowOnJobFn(run_vcfeval, options, vcf_tbi_wg_id_pair,
-                                    baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id,
+        return job.addFollowOnJobFn(run_vcfeval, context, options.sample_name,
+                                    vcf_tbi_wg_id_pair, baseline_vcf_id, baseline_tbi_id,
+                                    options.vcfeval_fasta, fasta_id, bed_id,
                                     cores=options.vcfeval_cores,
                                     memory=options.vcfeval_mem,
                                     disk=options.vcfeval_disk).rv()
@@ -311,7 +313,7 @@ def main():
     context = Context(args.out_store, args)
     
     if args.command == 'vcfeval':
-        vcfeval_main(context.to_options(args))
+        vcfeval_main(context, args)
     elif args.command == 'run':
         pipeline_main(context, context.to_options(args))
     elif args.command == 'index':

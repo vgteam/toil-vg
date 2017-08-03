@@ -217,9 +217,6 @@ genotype: False
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
 vcfeval-opts: []
 
-# BED region file for vcfeval
-vcfeval-bed-regions:
-
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
@@ -431,9 +428,6 @@ genotype: False
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
 vcfeval-opts: []
-
-# BED region file for vcfeval
-vcfeval-bed-regions:
 
 #########################
 ### sim and mapeval Arguments ###
