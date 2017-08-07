@@ -60,7 +60,7 @@ def index_parse_args(parser):
 
     parser.add_argument("--chroms", nargs='+',
                         help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
-                        " specified, must be same length/order as --chroms")
+                        " has multiple elements, must be same length/order as --chroms")
 
     parser.add_argument("--gcsa_index_cores", type=int,
         help="number of threads during the gcsa indexing step")
@@ -88,8 +88,9 @@ def validate_index_options(options):
     Throw an error if an invalid combination of options has been selected.
     """                           
     require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
-    require(len(options.chroms) == len(options.graphs), '--chroms and --graphs must have'
-            ' same number of arguments')
+    require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
+            '--chroms and --graphs must have'
+            ' same number of arguments if more than one graph specified')
     if options.vcf_phasing:
         require(options.vcf_phasing.endswith('.vcf.gz'), 'input phasing file must end with .vcf.gz')
     
@@ -202,8 +203,13 @@ def run_gcsa_prep(job, context, input_graph_ids,
         # For each input graph
         
         # Determine the primary path list to use
-        primary_paths = ([chroms[graph_i]] if primary_path_override
-            is None else primary_path_override)
+        if primary_path_override is not None:
+            primary_paths = primary_path_override
+        elif len(input_graph_ids) == len(chroms):
+            primary_paths = [chroms[graph_i]]
+        else:
+            assert len(input_graph_ids) == 1
+            primary_paths = chroms
         
         # Make the kmers, passing along the primary path names
         kmers_id = job.addChildJobFn(run_gcsa_prune, context, graph_names[graph_i], input_graph_id,
