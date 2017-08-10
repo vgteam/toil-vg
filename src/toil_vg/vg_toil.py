@@ -34,6 +34,7 @@ from toil_vg.vg_config import *
 from toil_vg.vg_sim import *
 from toil_vg.vg_mapeval import *
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_construct import *
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,10 @@ def parse_args(args=None):
     # mapeval subparser
     parser_mapeval = subparsers.add_parser('mapeval', help='Compare mapping results')
     mapeval_subparser(parser_mapeval)
+
+    # construct subparser
+    parser_construct = subparsers.add_parser('construct', help="Construct graphs from VCF")
+    construct_subparser(parser_construct)
 
     return parser.parse_args(args)
 
@@ -327,6 +332,8 @@ def main():
         sim_main(context, args)
     elif args.command == 'mapeval':
         mapeval_main(context, args)
+    elif args.command == 'construct':
+        construct_main(context, args)
         
     
 def pipeline_main(context, options):
