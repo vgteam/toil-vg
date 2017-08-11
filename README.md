@@ -1,4 +1,4 @@
-# TOIl-VG
+# TOIl-VG 
 ## University of California, Santa Cruz Genomics Institute
 ### Please contact us on [github with any issues](https://github.com/BD2KGenomics/toil-vg/issues/new)
 
