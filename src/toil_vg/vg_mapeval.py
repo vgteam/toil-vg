@@ -653,8 +653,6 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
 
     
     return index_ids
-            
-
 
 def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_bwa_paired, do_vg_paired):
     """
@@ -893,7 +891,7 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     # make the position.results.tsv and position.stats.tsv
     results_file = os.path.join(work_dir, 'position.results.tsv')
     with open(results_file, 'w') as out_results:
-        out_results.write('correct\tmq\taligner\n')
+        out_results.write('correct\tmq\taligner\tread\n')
 
         def write_tsv(comp_file, a):
             """
@@ -906,8 +904,7 @@ def run_process_position_comparisons(job, context, names, compare_ids):
             with open(comp_file) as comp_in:
                 for line in comp_in:
                     toks = line.rstrip().split(', ')
-                    # TODO: why are we quoting the aligner name here? What parses TSV and respects quotes?
-                    out_results.write('{}\t{}\t"{}"\n'.format(toks[1], toks[2], method))
+                    out_results.write('{}\t{}\t{}\t{}\n'.format(toks[1], toks[2], method, toks[0]))
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
