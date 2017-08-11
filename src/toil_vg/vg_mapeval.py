@@ -36,7 +36,7 @@ from toil_vg.vg_common import require, make_url, \
     add_common_vg_parse_args, add_container_tool_parse_args
 from toil_vg.vg_map import map_parse_args, run_mapping
 from toil_vg.vg_index import run_indexing
-from toil_vg.context import Context
+from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
 
@@ -1331,9 +1331,13 @@ def mapeval_main(context, options):
                                      plan.true_read_stats_file_id)
                 
             # Output files all live in the out_store, but if we wanted to we could export them also/instead.
-            
+
+            # Init the outstore
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job.addFollowOn(main_job)
+
             # Run the root job
-            toil.start(main_job)
+            toil.start(init_job)
         else:
             toil.restart()
             

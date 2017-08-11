@@ -12,6 +12,7 @@ import logging
 from toil.common import Toil
 from toil.job import Job
 from toil_vg.vg_common import *
+from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
 
@@ -199,8 +200,12 @@ def vcfeval_main(context, options):
                                      cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                      disk=context.config.vcfeval_disk)
 
+            # Init the outstore
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job.addFollowOn(root_job)            
+
             # Run the job
-            f1 = toil.start(root_job)
+            f1 = toil.start(init_job)
         else:
             f1 = toil.restart()
 
