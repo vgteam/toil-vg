@@ -158,7 +158,7 @@ index-name: 'genome'
 # Options to pass to vg mod for pruning phase.
 # The primary path(s) will always be added back onto the pruned grpah
 # Phase skipped if empty.  If list of lists, mod commands will be chained together
-prune-opts: [['-p', '-l', '16', '-S', '-e', '5'], ['-S', '-l', '32']]
+prune-opts: [['-D'], ['-p', '-l', '16', '-S', '-e', '5'], ['-S', '-l', '32']]
 
 # Options to pass to vg kmers.
 kmers-opts: ['-g', '-B', '-k', '16', '-H', '1000000000', '-T', '1000000001']
@@ -365,7 +365,7 @@ index-name: 'genome'
 # Options to pass to vg mod for pruning phase.
 # The primary path(s) will always be added back onto the pruned grpah
 # Phase skipped if empty.  If list of lists, mod commands will be chained together
-prune-opts: [['-p', '-l', '16', '-S', '-e', '4'], ['-S', '-l', '32']]
+prune-opts: [['-D'], ['-p', '-l', '16', '-S', '-e', '4'], ['-S', '-l', '32']]
 
 # Options to pass to vg kmers.
 kmers-opts: ['-g', '-B', '-k', '16', '-H', '1000000000', '-T', '1000000001']
