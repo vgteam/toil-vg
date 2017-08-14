@@ -155,14 +155,10 @@ r-docker: 'rocker/tidyverse:3.4.1'
 # Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
 index-name: 'genome'
 
-# Options to pass to vg mod for pruning phase. (if empty list, phase skipped)
-# The primary path will always be added back onto the pruned grpah
-prune-opts: ['-p', '-l', '16', '-S', '-e', '5']
-
-# Options to pass to 2nd vg mod for pruning phase.  The input will
-# will be piped in from the prune-opts command above.  Will be 
-# skipped if empty list
-prune-opts-2: ['-S', '-l', '32']
+# Options to pass to vg mod for pruning phase.
+# The primary path(s) will always be added back onto the pruned grpah
+# Phase skipped if empty.  If list of lists, mod commands will be chained together
+prune-opts: [['-p', '-l', '16', '-S', '-e', '5'], ['-S', '-l', '32']]
 
 # Options to pass to vg kmers.
 kmers-opts: ['-g', '-B', '-k', '16', '-H', '1000000000', '-T', '1000000001']
@@ -366,14 +362,10 @@ r-docker: 'rocker/tidyverse:3.4.1'
 # Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
 index-name: 'genome'
 
-# Options to pass to vg mod for pruning phase. (if empty list, phase skipped)
-# The primary path will always be added back onto the pruned grpah
-prune-opts: ['-p', '-l', '16', '-S', '-e', '4']
-
-# Options to pass to 2nd vg mod for pruning phase.  The input will
-# will be piped in from the prune-opts command above.  Will be 
-# skipped if empty list
-prune-opts-2: ['-S', '-l', '32']
+# Options to pass to vg mod for pruning phase.
+# The primary path(s) will always be added back onto the pruned grpah
+# Phase skipped if empty.  If list of lists, mod commands will be chained together
+prune-opts: [['-p', '-l', '16', '-S', '-e', '4'], ['-S', '-l', '32']]
 
 # Options to pass to vg kmers.
 kmers-opts: ['-g', '-B', '-k', '16', '-H', '1000000000', '-T', '1000000001']
@@ -450,7 +442,7 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'prune_opts', 'kmers_opts', 'gcsa_opts']:
+                   'bwa_opts', 'kmers_opts', 'gcsa_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
             # get rid of any -t or --threads while we're at it
@@ -470,6 +462,8 @@ def apply_config_file_args(args):
                 
     # Parse config
     parsed_config = {x.replace('-', '_'): y for x, y in yaml.load(config).iteritems()}
+    if 'prune_opts_2' in parsed_config:
+        raise RuntimeError('prune-opts-2 from config no longer supported')
     options = argparse.Namespace(**parsed_config)
 
     # Add in options from the program arguments to the arguments in the config file

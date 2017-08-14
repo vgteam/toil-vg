@@ -73,8 +73,6 @@ def index_parse_args(parser):
     parser.add_argument("--index_name", type=str, default='index',
                         help="name of index files. <name>.xg, <name>.gcsa etc.")
 
-    parser.add_argument("--prune_opts", type=str,
-                        help="Options to pass to vg mod for pruning phase.")
     parser.add_argument("--kmers_opts", type=str,
                         help="Options to pass to vg kmers.")
     parser.add_argument("--gcsa_opts", type=str,
@@ -110,20 +108,26 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
     
     if len(context.config.prune_opts) > 0:
 
+        # Make sure we are dealing with list of lists
+        if not isinstance(context.config.prune_opts[0], list):
+            context.config.prune_opts = [context.config.prune_opts]
+        assert all([isinstance(x, list) for x in  context.config.prune_opts])
+
         # Download input graph
         graph_filename = os.path.join(work_dir, graph_name)
         job.fileStore.readGlobalFile(input_graph_id, graph_filename)
 
         to_index_filename = os.path.join(work_dir, "pruned_{}".format(graph_name))
         with open(to_index_filename, "w") as to_index_file:
-            command = ['vg', 'mod', os.path.basename(graph_filename), '-t',
-                       str(job.cores)] + context.config.prune_opts
-            # tack on 2nd vg mod command if specified
-            # note: perhaps this is a bakeoff relic that we don't need anymore
-            # if we push -S to first command. 
-            if len(context.config.prune_opts_2) > 0:
-                command = [command]
-                command.append(['vg', 'mod', '-', '-t', str(job.cores)] + context.config.prune_opts_2)
+            command = [['vg', 'mod', os.path.basename(graph_filename), '-t',
+                        str(max(1, job.cores / len(context.config.prune_opts)))] +
+                       context.config.prune_opts[0]]
+            
+            # tack on subsequent vg mod commands if specified
+            for po in context.config.prune_opts[1:]:
+                command.append(['vg', 'mod', '-', '-t', 
+                                str(max(1, job.cores / len(context.config.prune_opts)))] + po)
+                               
             context.runner.call(job, command, work_dir=work_dir, outfile=to_index_file)
             
             # Then append in the primary path.
