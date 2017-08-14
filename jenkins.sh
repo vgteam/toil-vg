@@ -11,9 +11,12 @@ virtualenv --never-download .env
 pip install --upgrade pip setuptools
 
 # Prepare directory for temp files
+# Sometimes the instances have un-deletable files in tmp, so we continue through errors
 TMPDIR=/mnt/ephemeral/tmp
+set +e
 rm -rf $TMPDIR
 mkdir $TMPDIR
+set -e
 export TMPDIR
 
 # Create s3am venv
