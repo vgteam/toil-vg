@@ -20,7 +20,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_vg.context import Context
+from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
 
@@ -460,9 +460,13 @@ def index_main(context, options):
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
+
+            # Init the outstore
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job.addFollowOn(root_job)            
             
             # Run the job and store the returned list of output files to download
-            index_key_and_id = toil.start(root_job)
+            index_key_and_id = toil.start(init_job)
         else:
             index_key_and_id = toil.restart()
             

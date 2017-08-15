@@ -33,7 +33,7 @@ from toil_vg.vg_vcfeval import *
 from toil_vg.vg_config import *
 from toil_vg.vg_sim import *
 from toil_vg.vg_mapeval import *
-from toil_vg.context import Context
+from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
 
@@ -406,8 +406,12 @@ def pipeline_main(context, options):
                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
 
+            # Init the outstore
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job.addFollowOn(root_job)
+
             # Run the job and store
-            toil.start(root_job)
+            toil.start(init_job)
         else:
             toil.restart()
 

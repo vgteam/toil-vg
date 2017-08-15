@@ -25,6 +25,22 @@ from toil_vg.vg_config import apply_config_file_args
 from toil_vg.vg_common import ContainerRunner, get_container_tool_map
 from toil_vg.iostore import IOStore
 
+def run_write_info_to_outstore(job, context):
+    """ Writing to the output is still problematic, especially from within jobs.  So 
+    we write some options info into the output store first-thing to trigger errors
+    before doing all the compute if possible.  To do this, this job needs to be passed
+    to the root of the workflow """
+    
+    f = tempfile.NamedTemporaryFile(delete=True)
+    now = datetime.datetime.now()
+    f.write('{}\ntoil-vg version {}\nConfiguration:'.format(now,
+        pkg_resources.get_distribution('toil-vg').version))
+
+    for key, val in context.config.__dict__.items():
+        f.write('{}: {}\n'.format(key, val))
+    f.flush()
+    context.get_out_store().write_output_file(f.name, 'toil-vg-info.txt')
+    f.close()
 
 class Context(object):
     """
@@ -55,20 +71,7 @@ class Context(object):
         if out_store is not None:
             # We want to dump files to an IOStore
             # Make it an absolute path while we're getting set up.
-            self.out_store_string = IOStore.absolute(out_store)
-            
-            # Make sure it works by writing some data to it
-            f = tempfile.NamedTemporaryFile(delete=True)
-            now = datetime.datetime.now()
-            f.write('{}\ntoil-vg version {}\nConfiguration:'.format(now,
-                pkg_resources.get_distribution('toil-vg').version))
-                
-            for key, val in self.config.__dict__.items():
-                f.write('{}: {}\n'.format(key, val))
-            f.flush()
-            self.get_out_store().write_output_file(f.name, 'toil-vg-info.txt')
-            f.close()
-            
+            self.out_store_string = IOStore.absolute(out_store)            
         else:
             # We don't want to use an out store
             self.out_store_string = None
