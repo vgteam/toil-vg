@@ -93,8 +93,8 @@ def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_
             pos_region_names = None
             neg_region_names = None
         if merge_output_name:
-            pos_output_name = mergeoutput.name.rstrip('.vg') + '_{}.vg'.format(sample)
-            neg_output_name = mergeoutput.name.rstrip('.vg') + '_minus_{}.vg'.format(sample)
+            pos_output_name = merge_output_name.rstrip('.vg') + '_{}.vg'.format(sample)
+            neg_output_name = merge_output_name.rstrip('.vg') + '_minus_{}.vg'.format(sample)
         else:
             pos_output_name = None
             neg_output_name = None
@@ -135,7 +135,7 @@ def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_
         else:
             filter_region_names = None
         if merge_output_name:
-            filter_output_name = mergeoutput.name.rstrip('.vg') + '_filter.vg'
+            filter_output_name = merge_output_name.rstrip('.vg') + '_filter.vg'
         else:
             filter_output_name = None
 
@@ -203,11 +203,15 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
         job.fileStore.readGlobalFile(region_graph_id, os.path.join(work_dir, region_file), mutable=True)
         region_files.append(region_file)
 
+    if merge_output_name and not merge_output_name.endswith('.vg'):
+        merge_output_name += '.vg'
+
     # if there's nothing to do, just write the files and return
-    if len(region_graph_ids) == 1 or not join_ids:
+    if len(region_graph_ids) == 1 or not (join_ids or merge_output_name):
         out_ids = []
         for region_file in region_files:
-            out_ids.append(context.write_output_file(job, os.path.join(work_dir, region_file)))
+            out_ids.append(context.write_output_file(job, os.path.join(work_dir, region_file),
+                                                     out_store_path = merge_output_name))
         return out_ids
 
     if join_ids:
@@ -216,8 +220,6 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
         context.runner.call(job, cmd, work_dir=work_dir)
 
     if merge_output_name is not None:
-        if not merge_output_name.endswith('.vg'):
-            merge_output_name += '.vg'
         assert merge_output_name[:-3] not in region_names
         with open(os.path.join(work_dir, merge_output_name), 'w') as merge_file:
             for region_file in region_files:
@@ -270,7 +272,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     """ Use vcflib to remove all variants specifc to a set of samples.
     
     This is extremely slow.  Will want to parallelize if doing often on large VCFs
-    (or rewrite custom too?  I think running time sunk in vcffixup recomputing allele freqs
+    (or rewrite custom tool?  I think running time sunk in vcffixup recomputing allele freqs
     which is overkill)
     """
     if not samples:

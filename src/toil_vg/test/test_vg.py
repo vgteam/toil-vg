@@ -285,6 +285,49 @@ class VGCGLTest(TestCase):
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
                   '--force_outstore')
+
+    def test_7_construct(self):
+        '''
+        Test that the output of toil-vg construct is somewhat reasonable
+        '''
+
+        in_vcf = self._ci_input_path('1kg_hg38-BRCA1.vcf.gz')
+        in_tbi = in_vcf + '.tbi'
+        in_fa = self._ci_input_path('17.fa')
+        in_region = '17:43044294-43125482'
+        
+        self._run('toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                  '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
+                  '--graph_name', 'snp1kg-BRCA1', '--control_sample', 'HG00096',
+                  '--filter_ceph', '--realTimeLogging', '--logInfo')
+
+        # This is a fairly superficial check without adding machinery to read vg files
+        # Make sure output files exist and that they have expected relative sizes.
+        # Todo: better correctness checks (maybe compare to hand-generated data?
+        prev_vg_size = None
+        prev_vcf_size = None
+        for ext in ['', '_filter', '_minus_HG00096', '_HG00096']:
+            if ext:
+                vcf_file = os.path.join(self.local_outstore, '1kg_hg38-BRCA1{}.vcf.gz'.format(ext))
+
+                assert os.path.isfile(vcf_file)
+                assert os.path.isfile(vcf_file + '.tbi')
+
+                vcf_size = os.path.getsize(vcf_file)
+                if prev_vcf_size is not None:
+                    assert vcf_size < prev_vcf_size
+                prev_vcf_size = vcf_size
+
+            vg_file = os.path.join(self.local_outstore, 'snp1kg-BRCA1{}.vg'.format(ext))
+
+            assert os.path.isfile(vg_file)
+
+            vg_size = os.path.getsize(vg_file)
+            if prev_vg_size is not None:
+                assert vg_size < prev_vg_size
+            prev_vg_size = vg_size
+
+        
         
     def _run(self, *args):
         args = list(concat(*args))
