@@ -44,6 +44,11 @@ misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
 
+# Resources allotted for vg construction.
+construct-cores: 1
+construct-mem: '4G'
+construct-disk: '2G'
+
 # Resources allotted for xg indexing.
 # this stage generally cannot take advantage of more than one thread
 xg-index-cores: 1
@@ -149,6 +154,9 @@ pigz-docker: 'quay.io/glennhickey/pigz:latest'
 # Docker container to use to run R scripts
 r-docker: 'rocker/tidyverse:3.4.1'
 
+# Docker container to use for vcflib
+vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
+
 ##########################
 ### vg_index Arguments ###
 
@@ -250,6 +258,11 @@ whole_genome_config = textwrap.dedent("""
 misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
+
+# Resources allotted for vg construction.
+construct-cores: 1
+construct-mem: '32G'
+construct-disk: '32G'
 
 # Resources allotted for xg indexing.
 # this stage generally cannot take advantage of more than one thread
@@ -355,6 +368,9 @@ pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
 # Docker container to use to run R scripts
 r-docker: 'rocker/tidyverse:3.4.1'
+
+# Docker container to use for vcflib
+vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
 
 ##########################
 ### vg_index Arguments ###

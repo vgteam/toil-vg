@@ -20,13 +20,16 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_vg.context import Context
+from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
 
+# from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
+CEPH_SAMPLES="NA12889 NA12890 NA12891 NA12892 NA12877 NA12878 NA12879 NA12880 NA12881 NA12882 NA12883 NA12884 NA12885 NA12886 NA12887 NA12888 NA12893".split()
+
 def construct_subparser(parser):
     """
-    Create a subparser for indexing.  Should pass in results of subparsers.add_parser()
+    Create a subparser for construction.  Should pass in results of subparsers.add_parser()
     """
 
     # Add the Toil options so the job store is the first argument
@@ -54,6 +57,10 @@ def construct_subparser(parser):
                         help="Number of cores for vg construct")
     parser.add_argument("--graph_name",
                         help="Name of output graph.  If specified with multiple regions, they will be merged together")
+    parser.add_argument("--filter_ceph", action="store_true",
+                        help="Filter out all variants specific to the CEPH pedigree, which includes NA12878")
+    parser.add_argument("--filter_samples", nargs='+',
+                        help="Filter out all variants specific to given samples")
     
 
     # Add common docker options
@@ -62,14 +69,17 @@ def construct_subparser(parser):
     
 def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
                                 max_node_size, alt_paths, flat_alts, regions, sort_ids = True,
-                                join_ids = True, merge_output_name=None):
+                                join_ids = True, merge_output_name=None, filter_samples = None):
     """ 
     construct a genome graph from a vcf.  also extract a negative and postive control using 
     a given sample and construct those too
-    return ((vg ids), (positive control ids), (negative control ids))
+    return ((vg ids), (positive control ids), (negative control ids), (filter ids))
     """
     if sample:
-        make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample)
+        make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample,
+                                          cores=context.config.construct_cores,
+                                          memory=context.config.construct_mem,
+                                          disk=context.config.construct_disk)
         pos_control_vcf_id, pos_control_tbi_id = make_controls.rv(0), make_controls.rv(1)
         neg_control_vcf_id, neg_control_tbi_id = make_controls.rv(2), make_controls.rv(3)
 
@@ -91,24 +101,54 @@ def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_
         
         
         pos_control_vg_ids = job.addFollowOnJobFn(run_construct_genome_graph, context, fasta_id,
-                                               fasta_name, pos_control_vcf_id, pos_control_vcf_name,
-                                               pos_control_tbi_id,
-                                               max_node_size, alt_paths, flat_alts, regions,
-                                               pos_region_names,
-                                               sort_ids=sort_ids, join_ids=join_ids,
-                                               merge_output_name=pos_output_name).rv()
+                                                  fasta_name, pos_control_vcf_id, pos_control_vcf_name,
+                                                  pos_control_tbi_id,
+                                                  max_node_size, alt_paths, flat_alts, regions,
+                                                  pos_region_names,
+                                                  sort_ids=sort_ids, join_ids=join_ids,
+                                                  merge_output_name=pos_output_name).rv()
 
         neg_control_vg_ids = job.addFollowOnJobFn(run_construct_genome_graph, context, fasta_id,
-                                               fasta_name, neg_control_vcf_id, neg_control_vcf_name,
-                                               neg_control_tbi_id,
-                                               max_node_size, alt_paths, flat_alts, regions,
-                                               neg_region_names,
-                                               sort_ids=sort_ids, join_ids=join_ids,
-                                               merge_output_name=neg_output_name).rv()
+                                                  fasta_name, neg_control_vcf_id, neg_control_vcf_name,
+                                                  neg_control_tbi_id,
+                                                  max_node_size, alt_paths, flat_alts, regions,
+                                                  neg_region_names,
+                                                  sort_ids=sort_ids, join_ids=join_ids,
+                                                  merge_output_name=neg_output_name).rv()
     else:
         pos_control_vg_ids = None
         neg_control_vg_ids = None
 
+    if filter_samples:
+        filter_job = job.addChildJobFn(run_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
+                                       filter_samples,
+                                       cores=context.config.construct_cores,
+                                       memory=context.config.construct_mem,
+                                       disk=context.config.construct_disk)
+
+        filter_vcf_id, filter_tbi_id = filter_job.rv(0), filter_job.rv(1)
+
+        vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
+        filter_vcf_name = '{}_filter.vcf.gz'.format(vcf_base)
+        if regions:
+            filter_region_names = [c.replace(':','-') + '_filter' for c in regions]
+        else:
+            filter_region_names = None
+        if merge_output_name:
+            filter_output_name = mergeoutput.name.rstrip('.vg') + '_filter.vg'
+        else:
+            filter_output_name = None
+
+        filter_vg_ids = job.addFollowOnJobFn(run_construct_genome_graph, context, fasta_id,
+                                             fasta_name, filter_vcf_id, filter_vcf_name,
+                                             filter_tbi_id,
+                                             max_node_size, alt_paths, flat_alts, regions,
+                                             filter_region_names,
+                                             sort_ids=sort_ids, join_ids=join_ids,
+                                             merge_output_name=filter_output_name).rv()
+    else:
+        filter_vg_ids = None
+            
     vg_ids = job.addChildJobFn(run_construct_genome_graph, context, fasta_id,
                                fasta_name, vcf_id, vcf_name, tbi_id,
                                max_node_size, alt_paths, flat_alts, regions,
@@ -117,7 +157,7 @@ def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_
                                merge_output_name=merge_output_name).rv()
 
     
-    return (vg_ids, pos_control_vg_ids, neg_control_vg_ids)
+    return (vg_ids, pos_control_vg_ids, neg_control_vg_ids, filter_vg_ids)
                 
 
 def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
@@ -139,7 +179,10 @@ def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
                                                   fasta_id, fasta_name,
                                                   vcf_id, vcf_name, tbi_id, region, region_name,
                                                   max_node_size, alt_paths, flat_alts,
-                                                  sort_ids=sort_ids).rv())
+                                                  sort_ids=sort_ids,
+                                                  cores=context.config.construct_cores,
+                                                  memory=context.config.construct_mem,
+                                                  disk=context.config.construct_disk).rv())
 
     return job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
                                 region_names, merge_output_name).rv()
@@ -200,8 +243,6 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         job.fileStore.readGlobalFile(vcf_id, vcf_file)
         job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
-    RealtimeLogger.info("Fasta file {}".format(fasta_file))
-
     cmd = ['vg', 'construct', '-r', os.path.basename(fasta_file)]
     if vcf_id:
         cmd += ['-v', os.path.basename(vcf_file)]
@@ -225,6 +266,47 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
 
     return context.write_intermediate_file(job, vg_path)
 
+def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
+    """ Use vcflib to remove all variants specifc to a set of samples.
+    
+    This is extremely slow.  Will want to parallelize if doing often on large VCFs
+    (or rewrite custom too?  I think running time sunk in vcffixup recomputing allele freqs
+    which is overkill)
+    """
+    if not samples:
+        return vcf_id, tbi_id
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
+    job.fileStore.readGlobalFile(vcf_id, vcf_file)
+    job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
+
+    cmd = [['vcfremovesamples', os.path.basename(vcf_file)] + samples]
+    cmd.append(['vcffixup', '-'])
+    cmd.append(['vcffilter', '-f', 'AC > 0'])
+
+    vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
+    filter_vcf_name = '{}_filter.vcf'.format(vcf_base)
+
+    with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile=out_file)
+
+    # bgzip in separate command because docker interface requires (big waste of time/space)
+    # note: tried to use Bio.bgzf.open above to get around but it doesn't seem to work
+    # with streaming
+    context.runner.call(job, ['bgzip', filter_vcf_name], work_dir=work_dir)
+    filter_vcf_name += '.gz'
+
+    out_vcf_id = context.write_output_file(job, os.path.join(work_dir, filter_vcf_name))
+
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', filter_vcf_name],
+                        work_dir=work_dir)
+                                        
+    out_tbi_id = context.write_output_file(job, os.path.join(work_dir, filter_vcf_name) + '.tbi')
+    
+    return out_vcf_id, out_tbi_id
+    
 def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample):
     """ make a positive and negative control vcf 
     The positive control has only variants in the sample, the negative
@@ -240,7 +322,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample):
     # filter down to sample in question
     cmd = [['bcftools', 'view', os.path.basename(vcf_file), '-s', sample]]
     
-    # remove anything that's not alt (probably cleaner way to do this0
+    # remove anything that's not alt (probably cleaner way to do this)
     gfilter = 'GT="0" || GT="0|0" || GT="0/0"'
     gfilter += ' || GT="." || GT=".|." || GT="./."'
     gfilter += ' || GT=".|0" || GT="0/."'
@@ -289,6 +371,14 @@ def construct_main(context, options):
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
 
+    # Merge up all filter samples
+    filter_samples = []
+    if options.filter_samples:
+        filter_samples += options.filter_samples
+    if options.filter_ceph:
+        filter_samples += CEPH_SAMPLES
+    filter_samples = list(set(filter_samples))
+
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
@@ -318,9 +408,15 @@ def construct_main(context, options):
                                      options.alt_paths,
                                      options.flat_alts,
                                      options.regions,
-                                     merge_output_name = options.graph_name)
+                                     merge_output_name = options.graph_name,
+                                     filter_samples = filter_samples)
+
+            # Init the outstore
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job.addFollowOn(root_job)
+            
             # Run the job
-            toil.start(root_job)
+            toil.start(init_job)
         else:
             toil.restart()
             
