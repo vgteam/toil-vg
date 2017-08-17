@@ -4,6 +4,8 @@
 
 [vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [toil](https://github.com/BD2KGenomics/toil)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
 
+`toil-vg constrct`: Create vg graph from FASTA and VCF, constructing contigs in parallel.
+
 `toil-vg run`: Given input vg graph(s), create indexes, map reads, then produce VCF variant calls.
 
 `toil-vg index`: Produce a GCSA and/or XG index from input graph(s).
@@ -20,7 +22,7 @@ Installation requires Python and Toil.  We recommend installing within virtualen
 
     virtualenv --system-site-packages toilvenv
     source toilvenv/bin/activate
-    pip install -I -U 'toil[aws,mesos]' toil-vg
+    pip install -I -U toil[aws,mesos] toil-vg
 
 ### Docker
 
@@ -70,11 +72,11 @@ All other input files can either either be local (best to specify absolute path)
 
 Please read Toil's [installation documentation](http://toil.readthedocs.io/en/latest/install/basic.html)
 
-Install the latest Toil prerelease locally.  This can be done with virtualenv as follows:
+Install Toil locally.  This can be done with virtualenv as follows:
 
     virtualenv ~/toilvenv
     . ~/toilvenv/bin/activate
-    pip install --pre toil[aws,mesos]
+    pip install toil[aws,mesos]
 
 ### Create a leader node
 
@@ -96,13 +98,13 @@ In order to use `screen` (recommended for long jobs), you need to run `script` f
 
 In order to log onto a worker node instead of the leader, find its public IP from the EC2 Management Console or command line, and log in using the core username: `ssh core@public-ip`
 
-Install toil-vg on the leader following [Toil's Hot-deployment instructions](http://toil.readthedocs.io/en/latest/deploying.html#hot-deploying-toil)
+Install the latest prelease toil-vg on the leader following [Toil's Hot-deployment instructions](http://toil.readthedocs.io/en/latest/deploying.html#hot-deploying-toil)
 
     mkdir work
     cd work
     virtualenv --system-site-packages venv
     . venv/bin/activate
-    pip install toil-vg
+    pip install --pre toil-vg
 
 Destroy the leader when finished with it.  After logging out with `exit`:
 
