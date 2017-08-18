@@ -40,7 +40,7 @@ def construct_subparser(parser):
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
     parser.add_argument("--fasta", required=True, type=make_url,
-                        help="Reference sequence in fasta format")
+                        help="Reference sequence in fasta format (gzipped ok with .gz)")
     parser.add_argument("--vcf", default=None, type=make_url,
                         help="Variants to make graph from")
     parser.add_argument("--regions", nargs='+',
@@ -73,6 +73,20 @@ def construct_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
 
+def run_unzip_fasta(job, context, fasta_id, fasta_name):
+    """
+    vg construct doesn't work with zipped fasta, so we run this on input fasta that end in .gz
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Download input files
+    fasta_file = os.path.join(work_dir, os.path.basename(fasta_name))
+    job.fileStore.readGlobalFile(fasta_id, fasta_file, mutable=True)
+    context.runner.call(job, ['bgzip', '-d', os.path.basename(fasta_file)], work_dir=work_dir)
+
+    return context.write_intermediate_file(job, fasta_file[:-3])
+        
 def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tbi_id,
                             regions, output_name, filter_samples = None):
     """
@@ -410,6 +424,7 @@ def construct_main(context, options):
             
             # Upload local files to the remote IO Store
             inputFastaFileID = toil.importFile(options.fasta)
+            inputFastaName = os.path.basename(options.fasta)
             if options.vcf:
                 inputVCFFileID = toil.importFile(options.vcf)
                 inputVCFName = os.path.basename(options.vcf)
@@ -434,9 +449,15 @@ def construct_main(context, options):
                                                 options.out_name,
                                                 filter_samples)
 
+            # Unzip the fasta
+            if options.fasta.endswith('.gz'):
+                inputFastaFileID = vcf_job.addChildJobFn(run_unzip_fasta, context, inputFastaFileID, 
+                                                         os.path.basename(options.fasta)).rv()
+                inputFastaName = inputFastaName[:-3]
+                
             # Cosntruct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileID,
-                                     os.path.basename(options.fasta), vcf_job.rv(),
+                                     inputFastaName, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
                                      options.flat_alts, options.regions, options.merge_graphs,
                                      True, True, options.gcsa_index, options.xg_index)
