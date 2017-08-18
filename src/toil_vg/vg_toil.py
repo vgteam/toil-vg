@@ -232,7 +232,7 @@ def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, id_ran
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
                                     options.fastq, options.gam_input_reads,
-                                    options.sample_name, options.interleaved,
+                                    options.sample_name, options.interleaved, options.multipath,
                                     xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                     disk=context.config.misc_disk).rv()
