@@ -74,8 +74,13 @@ def map_parse_args(parser, stand_alone = False):
                         help="treat fastq as interleaved read pairs.  overrides map-args")
     parser.add_argument("--map_opts", type=str,
                         help="arguments for vg map (wrapped in \"\")")
+    parser.add_argument("--multipath", action="store_true",
+                        help="use vg mpmap instead of vg map")
+    parser.add_argument("--mpmap_opts", type=str,
+                        help="arguments for vg mpmap (wrapped in \"\")")
+    
 
-def validate_map_options(options):
+def validate_map_options(context, options):
     """
     Throw an error if an invalid combination of options has been selected.
     """                               
@@ -85,8 +90,11 @@ def validate_map_options(options):
             '--interleaved cannot be used when > 1 fastq given')
     require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
             'reads must be speficied with either --fastq or --gam_reads')
+    if options.multipath:
+        require('-S' in context.config.mpmap_opts,
+                '-S must be used with multipath aligner to produce GAM output')
     
-def run_mapping(job, context, fastq, gam_input_reads, sample_name, interleaved,
+def run_mapping(job, context, fastq, gam_input_reads, sample_name, interleaved, multipath,
                 xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_file_ids):
     """ split the fastq, then align each chunk """
 
@@ -98,7 +106,8 @@ def run_mapping(job, context, fastq, gam_input_reads, sample_name, interleaved,
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         reads_chunk_ids = [reads_file_ids]
     
-    return job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, sample_name, interleaved, xg_file_id, gcsa_and_lcp_ids,
+    return job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, sample_name, interleaved,
+                                multipath, xg_file_id, gcsa_and_lcp_ids,
                                 id_ranges_file_id, reads_chunk_ids, cores=context.config.misc_cores,
                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
 
@@ -211,7 +220,8 @@ def run_split_gam_reads(job, context, gam_input_reads, gam_reads_file_id):
 
     return gam_chunk_ids
     
-def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, interleaved, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_chunk_ids):
+def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, interleaved, multipath,
+                        xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_chunk_ids):
     """ align all fastq chunks in parallel
     """
     
@@ -223,7 +233,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, inter
     for chunk_id, chunk_filename_ids in enumerate(zip(*reads_chunk_ids)):
         #Run graph alignment on each fastq chunk
         gam_chunk_ids = job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, sample_name,
-                                          interleaved, chunk_filename_ids, chunk_id,
+                                          interleaved, multipath, chunk_filename_ids, chunk_id,
                                           xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
                                           cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                           disk=context.config.alignment_disk).rv()
@@ -234,7 +244,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, inter
                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
 
-def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved, chunk_filename_ids,
+def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved, multipath, chunk_filename_ids,
                         chunk_id, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id):
 
     RealtimeLogger.info("Starting alignment on {} chunk {}".format(sample_name, chunk_id))
@@ -275,11 +285,19 @@ def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved,
 
         # Plan out what to run
         vg_parts = []
-        vg_parts += ['vg', 'map', '-t', str(context.config.alignment_cores)]
+        
+        # toggle multipath here
+        if multipath:
+            vg_parts += ['vg', 'mpmap']
+            vg_parts += context.config.mpmap_opts
+        else:
+            vg_parts += ['vg', 'map'] 
+            vg_parts += context.config.map_opts
+            
         for reads_file in reads_files:
             input_flag = '-G' if gam_input_reads else '-f'
             vg_parts += [input_flag, os.path.basename(reads_file)]
-        vg_parts += context.config.map_opts
+        vg_parts += ['-t', str(context.config.alignment_cores)]
 
         # Override the -i flag in args with the --interleaved command-line flag
         if interleaved is True and '-i' not in vg_parts and '--interleaved' not in vg_parts:
@@ -449,7 +467,7 @@ def map_main(context, options):
     Wrapper for vg map. 
     """
 
-    validate_map_options(options)
+    validate_map_options(context, options)
         
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
@@ -482,7 +500,8 @@ def map_main(context, options):
             # Make a root job
             root_job = Job.wrapJobFn(run_mapping, context, options.fastq,
                                      options.gam_input_reads, options.sample_name,
-                                     options.interleaved, inputXGFileID,
+                                     options.interleaved, options.multipath,
+                                     inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID),
                                      inputIDRangesFileID, inputReadsFileIDs,
                                      cores=context.config.misc_cores,

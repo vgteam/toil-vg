@@ -190,6 +190,9 @@ reads-per-chunk: 10000000
 # on the toil-vg command line instead
 map-opts: []
 
+# Core arguments for vg multipath mapping (do not include file names or -t/--threads)
+mpmap-opts: ['-S']
+
 #########################
 ### vg_call Arguments ###
 # Overlap option that is passed into make_chunks and call_chunk
@@ -405,6 +408,9 @@ reads-per-chunk: 50000000
 # on the toil-vg command line instead
 map-opts: []
 
+# Core arguments for vg multipath mapping (do not include file names or -t/--threads)
+mpmap-opts: ['-S']
+
 #########################
 ### vg_call Arguments ###
 # Overlap option that is passed into make_chunks and call_chunk
@@ -458,7 +464,7 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'kmers_opts', 'gcsa_opts']:
+                   'bwa_opts', 'kmers_opts', 'gcsa_opts', 'mpmap_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
             # get rid of any -t or --threads while we're at it

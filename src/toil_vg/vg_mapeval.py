@@ -654,7 +654,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_bwa_paired, do_vg_paired):
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_bwa_paired, do_vg_paired, multipath):
     """
     Run alignments, if alignment files have not already been provided.
     
@@ -677,17 +677,18 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
                                                   'input.gam', 'aligned-{}'.format(gam_names[i]),
-                                                  False, index_id[0], index_id[1],
+                                                  False, multipath, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
-    if do_vg_mapping and do_vg_paired:
+    # NOTE: we're deactivating for multipath since it only supports single end at the moment.
+    if do_vg_mapping and do_vg_paired and not multipath:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
                                                   'input.gam', 'aligned-{}-pe'.format(gam_names[i]),
-                                                  True, index_id[0], index_id[1],
+                                                  True, multipath, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
@@ -1196,7 +1197,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids, reads_gam_file_id,
                                                fasta_file_id, bwa_index_ids, options.bwa,
-                                               options.bwa_paired, options.vg_paired)
+                                               options.bwa_paired, options.vg_paired, options.multipath)
                                                
     # Unpack the alignment job's return values
     # TODO: we're clobbering input values...
