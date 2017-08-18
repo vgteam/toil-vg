@@ -154,11 +154,15 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
                                           max_node_size, alt_paths, flat_alts, regions,
                                           region_names, sort_ids, join_ids, merge_output_name)
         vg_ids = construct_job.rv()
-        vg_names = output_name if merge_graphs else region_names
+        vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
 
         if gcsa_index:
+            if not regions:
+                paths = []
+            else:
+                paths = [p.split(':')[0] for p in regions]
             gcsa_job = job.addFollowOnJobFn(run_gcsa_prep, context, vg_ids,
-                                            vg_names, output_name, regions)
+                                            vg_names, output_name, paths)
             gcsa_id = gcsa_job.rv(0)
             lcp_id = gcsa_job.rv(1)
         else:
@@ -194,6 +198,9 @@ def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
                                                   fasta_id, fasta_name,
                                                   vcf_id, vcf_name, tbi_id, region, region_name,
                                                   max_node_size, alt_paths, flat_alts,
+                                                  # todo: bump as command line option?
+                                                  #       also, needed if we update vg docker image?
+                                                  is_chrom=not region or ':' not in region,
                                                   sort_ids=sort_ids,
                                                   cores=context.config.construct_cores,
                                                   memory=context.config.construct_mem,
@@ -270,7 +277,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
     if max_node_size:
         cmd += ['-m', max_node_size]
     if alt_paths:
-        cmd += '-a'
+        cmd += ['-a']
     if job.cores:
         cmd += ['-t', job.cores]
 
