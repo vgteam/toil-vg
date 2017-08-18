@@ -21,7 +21,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-
+from toil_vg.vg_index import run_xg_indexing, run_gcsa_prep
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -45,7 +45,7 @@ def construct_subparser(parser):
                         help="Variants to make graph from")
     parser.add_argument("--regions", nargs='+',
                         help="1-based inclusive VCF coordinates in the form SEQ:START-END")
-    parser.add_argument("--max_node_size", type=int,
+    parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
                         help="Save paths for alts with variant ID (required for GPBWT)")
@@ -55,26 +55,38 @@ def construct_subparser(parser):
                         help="Make a positive and negative control using this sample")
     parser.add_argument("--construct_cores", type=int,
                         help="Number of cores for vg construct")
-    parser.add_argument("--graph_name",
-                        help="Name of output graph.  If specified with multiple regions, they will be merged together")
+    parser.add_argument("--out_name", required=True,
+                        help="Name used for output graphs and indexes")
+    parser.add_argument("--merge_graphs", action="store_true",
+                        help="Merge all regions into one graph")
     parser.add_argument("--filter_ceph", action="store_true",
                         help="Filter out all variants specific to the CEPH pedigree, which includes NA12878")
     parser.add_argument("--filter_samples", nargs='+',
                         help="Filter out all variants specific to given samples")
-    
+    parser.add_argument("--gcsa_index", action="store_true",
+                        help="Make a gcsa index for each output graph")
+    parser.add_argument("--xg_index", action="store_true",
+                        help="Make an xg index for each output graph")
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
 
     # Add common docker options
     add_container_tool_parse_args(parser)
 
-    
-def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
-                                max_node_size, alt_paths, flat_alts, regions, sort_ids = True,
-                                join_ids = True, merge_output_name=None, filter_samples = None):
-    """ 
-    construct a genome graph from a vcf.  also extract a negative and postive control using 
-    a given sample and construct those too
-    return ((vg ids), (positive control ids), (negative control ids), (filter ids))
+def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tbi_id,
+                            regions, output_name, filter_samples = None):
     """
+    Preprocessing step to make a bunch of vcfs if wanted:
+    - positive control
+    - negative control
+    - family filter
+    returns a list of (vcf_id, vcf_name, tbi_id, merge_name, region_names) tuples
+    """
+    # our input vcf 
+    output = [(vcf_id, vcf_name, tbi_id, output_name,
+               [c.replace(':','-') for c in regions] if regions else None)]
+    
+    # our positive and negative controls
     if sample:
         make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample,
                                           cores=context.config.construct_cores,
@@ -87,38 +99,21 @@ def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_
         pos_control_vcf_name = '{}_{}.vcf.gz'.format(vcf_base, sample)
         neg_control_vcf_name = '{}_minus_{}.vcf.gz'.format(vcf_base, sample)
         if regions:
-            pos_region_names = [c.replace(':','-') + '_{}'.format(sample) for c in regions]
-            neg_region_names = [c.replace(':','-') + '_minus_{}'.format(sample) for c in regions]
+            pos_region_names = [output_name + '_' + c.replace(':','-') + '_{}'.format(sample) for c in regions]
+            neg_region_names = [output_name + '_' + c.replace(':','-') + '_minus_{}'.format(sample) for c in regions]
         else:
             pos_region_names = None
             neg_region_names = None
-        if merge_output_name:
-            pos_output_name = merge_output_name.rstrip('.vg') + '_{}.vg'.format(sample)
-            neg_output_name = merge_output_name.rstrip('.vg') + '_minus_{}.vg'.format(sample)
-        else:
-            pos_output_name = None
-            neg_output_name = None
-        
-        
-        pos_control_vg_ids = job.addFollowOnJobFn(run_construct_genome_graph, context, fasta_id,
-                                                  fasta_name, pos_control_vcf_id, pos_control_vcf_name,
-                                                  pos_control_tbi_id,
-                                                  max_node_size, alt_paths, flat_alts, regions,
-                                                  pos_region_names,
-                                                  sort_ids=sort_ids, join_ids=join_ids,
-                                                  merge_output_name=pos_output_name).rv()
+        pos_output_name = output_name.rstrip('.vg') + '_{}.vg'.format(sample)
+        neg_output_name = output_name.rstrip('.vg') + '_minus_{}.vg'.format(sample)
 
-        neg_control_vg_ids = job.addFollowOnJobFn(run_construct_genome_graph, context, fasta_id,
-                                                  fasta_name, neg_control_vcf_id, neg_control_vcf_name,
-                                                  neg_control_tbi_id,
-                                                  max_node_size, alt_paths, flat_alts, regions,
-                                                  neg_region_names,
-                                                  sort_ids=sort_ids, join_ids=join_ids,
-                                                  merge_output_name=neg_output_name).rv()
-    else:
-        pos_control_vg_ids = None
-        neg_control_vg_ids = None
+        output.append((pos_control_vcf_id, pos_control_vcf_name, pos_control_tbi_id,
+                       pos_output_name, pos_region_names))
 
+        output.append((neg_control_vcf_id, neg_control_vcf_name, neg_control_tbi_id,
+                       neg_output_name, neg_region_names))
+
+    # our family filter
     if filter_samples:
         filter_job = job.addChildJobFn(run_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
                                        filter_samples,
@@ -131,33 +126,53 @@ def run_construct_with_controls(job, context, sample, fasta_id, fasta_name, vcf_
         vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
         filter_vcf_name = '{}_filter.vcf.gz'.format(vcf_base)
         if regions:
-            filter_region_names = [c.replace(':','-') + '_filter' for c in regions]
+            filter_region_names = [output_name + '_' + c.replace(':','-') + '_filter' for c in regions]
         else:
             filter_region_names = None
-        if merge_output_name:
-            filter_output_name = merge_output_name.rstrip('.vg') + '_filter.vg'
-        else:
-            filter_output_name = None
+        filter_output_name = output_name.rstrip('.vg') + '_filter.vg'
 
-        filter_vg_ids = job.addFollowOnJobFn(run_construct_genome_graph, context, fasta_id,
-                                             fasta_name, filter_vcf_id, filter_vcf_name,
-                                             filter_tbi_id,
-                                             max_node_size, alt_paths, flat_alts, regions,
-                                             filter_region_names,
-                                             sort_ids=sort_ids, join_ids=join_ids,
-                                             merge_output_name=filter_output_name).rv()
-    else:
-        filter_vg_ids = None
-            
-    vg_ids = job.addChildJobFn(run_construct_genome_graph, context, fasta_id,
-                               fasta_name, vcf_id, vcf_name, tbi_id,
-                               max_node_size, alt_paths, flat_alts, regions,
-                               [c.replace(':','-') for c in regions] if regions else None,
-                               sort_ids=sort_ids, join_ids=join_ids,
-                               merge_output_name=merge_output_name).rv()
+        output.append((filter_vcf_id, filter_vcf_name, filter_tbi_id,
+                       filter_output_name, filter_region_names))
+
+    return output
 
     
-    return (vg_ids, pos_control_vg_ids, neg_control_vg_ids, filter_vg_ids)
+def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs, 
+                      max_node_size, alt_paths, flat_alts, regions, merge_graphs,
+                      sort_ids, join_ids, gcsa_index, xg_index):
+    """ 
+    construct many graphs in parallel, optionally doing indexing too.  vcf_inputs
+    is a list of tuples as created by  run_generate_input_vcfs
+    """
+
+    output = []
+    
+    for (vcf_id, vcf_name, tbi_id, output_name, region_names) in vcf_inputs:
+        merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
+        construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_id,
+                                          fasta_name, vcf_id, vcf_name, tbi_id,
+                                          max_node_size, alt_paths, flat_alts, regions,
+                                          region_names, sort_ids, join_ids, merge_output_name)
+        vg_ids = construct_job.rv()
+        vg_names = output_name if merge_graphs else region_names
+
+        if gcsa_index:
+            gcsa_job = job.addFollowOnJobFn(run_gcsa_prep, context, vg_ids,
+                                            vg_names, output_name, regions)
+            gcsa_id = gcsa_job.rv(0)
+            lcp_id = gcsa_job.rv(1)
+        else:
+            gcsa_id = None
+            lcp_id = None
+            
+        if xg_index:
+            xg_id = job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
+                                         vg_names, output_name).rv()
+        else:
+            xg_id = None
+
+        output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id))
+    return output
                 
 
 def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
@@ -253,7 +268,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
     if is_chrom:
         cmd += ['-C']
     if max_node_size:
-        cmd += ['-m', context.max_node_size]
+        cmd += ['-m', max_node_size]
     if alt_paths:
         cmd += '-a'
     if job.cores:
@@ -400,24 +415,26 @@ def construct_main(context, options):
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
-            # Make a root job
-            root_job = Job.wrapJobFn(run_construct_with_controls, context, options.control_sample,
-                                     inputFastaFileID,
-                                     os.path.basename(options.fasta),
-                                     inputVCFFileID, inputVCFName,
-                                     inputTBIFileID,
-                                     options.max_node_size,
-                                     options.alt_paths,
-                                     options.flat_alts,
-                                     options.regions,
-                                     merge_output_name = options.graph_name,
-                                     filter_samples = filter_samples)
-
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
-            init_job.addFollowOn(root_job)
+
+            # Automatically make and name a bunch of vcfs
+            vcf_job = init_job.addFollowOnJobFn(run_generate_input_vcfs, context, options.control_sample,
+                                                inputFastaFileID, 
+                                                inputVCFFileID, inputVCFName,
+                                                inputTBIFileID, 
+                                                options.regions,
+                                                options.out_name,
+                                                filter_samples)
+
+            # Cosntruct graphs
+            vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileID,
+                                     os.path.basename(options.fasta), vcf_job.rv(),
+                                     options.max_node_size, options.alt_paths,
+                                     options.flat_alts, options.regions, options.merge_graphs,
+                                     True, True, options.gcsa_index, options.xg_index)
             
-            # Run the job
+            # Run the workflow
             toil.start(init_job)
         else:
             toil.restart()

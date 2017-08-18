@@ -298,7 +298,7 @@ class VGCGLTest(TestCase):
         
         self._run('toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                   '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
-                  '--graph_name', 'snp1kg-BRCA1', '--control_sample', 'HG00096',
+                  '--out_name', 'snp1kg-BRCA1', '--control_sample', 'HG00096',
                   '--filter_ceph', '--realTimeLogging', '--logInfo')
 
         # This is a fairly superficial check without adding machinery to read vg files
