@@ -670,6 +670,11 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id[0] for index_id in index_ids]
 
+    # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
+    if '-A' not in context.config.mpmap_opts and '--no-qual-adjust' not in context.config.mpmap_opts:
+        context.config.mpmap_opts.append('-A')
+    context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
+
     do_vg_mapping = not gam_file_ids
     if do_vg_mapping:
         gam_file_ids = []
