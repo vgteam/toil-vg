@@ -682,18 +682,32 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
                                                   'input.gam', 'aligned-{}'.format(gam_names[i]),
-                                                  False, multipath, index_id[0], index_id[1],
+                                                  False, False, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
-    # NOTE: we're deactivating for multipath since it only supports single end at the moment.
+    # Do the (single-ended) multipath mapping
+    if do_vg_mapping and multipath:
+        for i, index_id in enumerate(index_ids):
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
+                                                  'input.gam', 'aligned-{}'.format(gam_names[i]),
+                                                  False, True, index_id[0], index_id[1],
+                                                  None, [reads_gam_file_id],
+                                                  cores=context.config.misc_cores,
+                                                  memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
+
+        # make sure associated lists are extended to fit new paired end mappings
+        for i in range(len(xg_ids)):
+            xg_ids.append(xg_ids[i])
+            gam_names.append(gam_names[i] + '-mp')
+
     if do_vg_mapping and do_vg_paired and not multipath:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
                                                   'input.gam', 'aligned-{}-pe'.format(gam_names[i]),
-                                                  True, multipath, index_id[0], index_id[1],
+                                                  True, False, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
