@@ -247,7 +247,8 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, inter
 def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved, multipath, chunk_filename_ids,
                         chunk_id, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id):
 
-    RealtimeLogger.info("Starting alignment on {} chunk {}".format(sample_name, chunk_id))
+    RealtimeLogger.info("Starting {}alignment on {} chunk {}".format(
+        "multipath " if multipath else "", sample_name, chunk_id))
 
     # How long did the alignment take to run, in seconds?
     run_time = None
@@ -322,7 +323,10 @@ def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved,
         end_time = timeit.default_timer()
         run_time = end_time - start_time
 
-    RealtimeLogger.info("Aligned {}. Process took {} seconds.".format(output_file, run_time))
+    paired_end = '-i' in vg_parts or '--interleaved' in vg_parts or len(chunk_filename_ids) > 1
+    RealtimeLogger.info("Aligned {}. Process took {} seconds with {} vg-{}".format(
+        output_file, run_time, 'paired-end' if paired_end else 'single-end',
+        'mpmap' if multipath else 'map'))
 
     if id_ranges_file_id is not None:
         # Break GAM into multiple chunks at the end. So we need the file
