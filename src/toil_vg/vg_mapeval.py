@@ -284,11 +284,20 @@ def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
             os.remove(end_file)
 
         # run bwa-mem on the paired end input
+        start_time = timeit.default_timer()
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
                 os.path.basename(sim_fq_files[1]), os.path.basename(sim_fq_files[2])] + context.config.bwa_opts        
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+
+        # we take care to mimic output message from vg_map.py, so we can mine them both for the jenkins
+        # report        
+        RealtimeLogger.info("Aligned aligned-linear_0.gam. Process took {} seconds with paired-end bwa-mem".format(
+            run_time))
+            
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
@@ -306,17 +315,27 @@ def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
 
         # run bwa-mem on single end input
+        start_time = timeit.default_timer()
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
                 os.path.basename(extracted_reads_file)] + context.config.bwa_opts
 
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+
+        # we take care to mimic output message from vg_map.py, so we can mine them both for the jenkins
+        # report
+        RealtimeLogger.info("Aligned aligned-linear_0.gam. Process took {} seconds with single-end bwa-mem".format(
+            run_time))            
+
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
         with open(bam_file, 'w') as out_bam:
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam) 
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+
 
     # return our id for the output bam file
     bam_file_id = context.write_intermediate_file(job, bam_file)
