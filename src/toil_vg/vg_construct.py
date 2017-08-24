@@ -27,6 +27,16 @@ logger = logging.getLogger(__name__)
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
 CEPH_SAMPLES="NA12889 NA12890 NA12891 NA12892 NA12877 NA12878 NA12879 NA12880 NA12881 NA12882 NA12883 NA12884 NA12885 NA12886 NA12887 NA12888 NA12893".split()
 
+def remove_ext(string, ext):
+    """
+    Strip a suffix from a string. Case insensitive.
+    """
+    # See <https://stackoverflow.com/a/18723694>
+    if string.lower().endswith(ext.lower()):
+        return string[:-len(ext)]
+    else:
+        return string
+
 def construct_subparser(parser):
     """
     Create a subparser for construction.  Should pass in results of subparsers.add_parser()
@@ -109,7 +119,7 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
         pos_control_vcf_id, pos_control_tbi_id = make_controls.rv(0), make_controls.rv(1)
         neg_control_vcf_id, neg_control_tbi_id = make_controls.rv(2), make_controls.rv(3)
 
-        vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
+        vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
         pos_control_vcf_name = '{}_{}.vcf.gz'.format(vcf_base, sample)
         neg_control_vcf_name = '{}_minus_{}.vcf.gz'.format(vcf_base, sample)
         if regions:
@@ -118,8 +128,8 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
         else:
             pos_region_names = None
             neg_region_names = None
-        pos_output_name = output_name.rstrip('.vg') + '_{}.vg'.format(sample)
-        neg_output_name = output_name.rstrip('.vg') + '_minus_{}.vg'.format(sample)
+        pos_output_name = remove_ext(output_name, '.vg') + '_{}.vg'.format(sample)
+        neg_output_name = remove_ext(output_name, '.vg') + '_minus_{}.vg'.format(sample)
 
         output.append((pos_control_vcf_id, pos_control_vcf_name, pos_control_tbi_id,
                        pos_output_name, pos_region_names))
@@ -137,13 +147,13 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
 
         filter_vcf_id, filter_tbi_id = filter_job.rv(0), filter_job.rv(1)
 
-        vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
+        vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
         filter_vcf_name = '{}_filter.vcf.gz'.format(vcf_base)
         if regions:
             filter_region_names = [output_name + '_' + c.replace(':','-') + '_filter' for c in regions]
         else:
             filter_region_names = None
-        filter_output_name = output_name.rstrip('.vg') + '_filter.vg'
+        filter_output_name = remove_ext(output_name, '.vg') + '_filter.vg'
 
         output.append((filter_vcf_id, filter_vcf_name, filter_tbi_id,
                        filter_output_name, filter_region_names))
@@ -324,7 +334,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     cmd.append(['vcffixup', '-'])
     cmd.append(['vcffilter', '-f', 'AC > 0'])
 
-    vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
+    vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
     filter_vcf_name = '{}_filter.vcf'.format(vcf_base)
 
     with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
