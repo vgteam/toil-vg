@@ -355,8 +355,9 @@ class VGCGLTest(TestCase):
         headers = set()
         for row in table[1:]:
             toks = row.split()
-            self.assertTrue(len(toks) == 5)
-            name, count, acc, auc, qqr = toks[0], int(toks[1]), float(toks[2]), float(toks[3]), float(toks[4])
+            self.assertTrue(len(toks) == 6)
+            name, count, acc, auc, qqr, maxf1 = \
+                toks[0], int(toks[1]), float(toks[2]), float(toks[3]), float(toks[4]), float(toks[5])
             headers.add(name)
             self.assertTrue(count == count)
             self.assertTrue(acc > acc_threshold)

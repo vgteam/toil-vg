@@ -22,7 +22,7 @@ from subprocess import Popen, PIPE
 
 try:
     import numpy as np
-    from sklearn.metrics import roc_auc_score, average_precision_score, r2_score
+    from sklearn.metrics import roc_auc_score, average_precision_score, r2_score, roc_curve
     have_sklearn = True
 except:
     have_sklearn = False
@@ -956,6 +956,8 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                               job.addChildJobFn(run_auc, context, name, compare_id, cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
                               job.addChildJobFn(run_qq, context, name, compare_id, cores=context.config.misc_cores,
+                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                              job.addChildJobFn(run_max_f1, context, name, compare_id, cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()])
             
     context.write_output_file(job, results_file)
@@ -975,10 +977,10 @@ def run_write_position_stats(job, context, names, map_stats):
     work_dir = job.fileStore.getLocalTempDir()
     stats_file = os.path.join(work_dir, 'stats.tsv')
     with open(stats_file, 'w') as stats_out:
-        stats_out.write('aligner\tcount\tacc\tauc\tqq-r\n')
+        stats_out.write('aligner\tcount\tacc\tauc\tqq-r\tmax-f1\n')
         for name, stats in zip(names, map_stats):
-            stats_out.write('{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
-                                                          stats[1][0], stats[2]))
+            stats_out.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
+                                                          stats[1][0], stats[2], stats[3]))
 
     stats_file_id = context.write_output_file(job, stats_file)
     
@@ -1008,7 +1010,13 @@ def run_acc(job, context, name, compare_id):
     
 def run_auc(job, context, name, compare_id):
     """
-    AUC of roc plot
+    AUC of roc plot.
+    
+    ROC plot is defined with mismapped reads being negatives, correctly-mapped
+    reads being positives, and AUC expressing how good of a classifier of
+    correctly-mapped-ness the MAPQ score is. It says nothing about how well the
+    reads are actually mapped.
+    
     """
     if not have_sklearn:
         return ["sklearn_not_installed"] * 2 
@@ -1026,7 +1034,83 @@ def run_auc(job, context, name, compare_id):
         # will happen if file is empty
         auc, aupr = 0, 0
 
-    return auc, aupr    
+    return auc, aupr
+    
+def run_max_f1(job, context, name, compare_id):
+    """
+    Compute and return maximum F1 score for correctly mapping reads, using MAPQ as a confidence.
+    
+    The problem is that read mapping is a multi-class classification problem with ~ 1 class per genome base, and F1 is a 2-class classification statistic. So we squish the concept a bit.
+    
+    For a given MAPQ threshold, we define a fake confusion matrix:
+    
+    TP = reads meeting threshold mapped correctly
+    FP = reads meeting threshold mapped incorrectly
+    TN = reads that didn't come from the target graph and didn't meet the threshold (i.e. 0 reads)
+    FN = reads that weren't both correctly mapped and assigned a MAPQ meeting the threshold
+    
+    Then we calculate precision = TP / (TP + FP) and recall = TP / (TP + FN), and from those calculate an F1.
+    Then we calculate the best F1 across all the MAPQ values.
+    
+    """
+    if not have_sklearn:
+        return ["sklearn_not_installed"] * 2 
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
+    job.fileStore.readGlobalFile(compare_id, compare_file)
+
+    # Load up the correct/incorrect flag (data[_, 0]) and the scores (data[_, 1])
+    data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
+    
+    # Sort on score (see <https://stackoverflow.com/a/2828121/402891>) in
+    # descending order. So reads we want to take first come first.
+    data = data[data[:,1].argsort()[::-1]]
+    
+    # What's the last MAPQ we did?
+    last_mapq = None
+    
+    # What so far is our confusion matrix?
+    tp = 0
+    fp = 0
+    tn = 0
+    fn = len(data)
+    
+    # What's our max f1?
+    max_f1 = 0
+    
+    # And how do we calculate it?
+    def emit_f1():
+        if tp > 0 or (fp > 0 and fn > 0):
+            # Safe to compute precision and recall, so do that.
+            precision = float(tp) / (tp + fp)
+            recall = float(tp) / (tp + fn)
+            if precision > 0 or recall > 0:
+                # Safe to compute an F1, so do that
+                f1 = 2 * (precision * recall) / (precision + recall)
+                return max(max_f1, f1)
+        return max_f1
+    
+    for correct, score in data:
+        # For each read in descending MAPQ order
+        
+        if score != last_mapq:
+            # We're moving on to a new tranche
+            max_f1 = emit_f1()
+            
+        # This read is now a positive. It may be true or false.
+        if correct:
+            tp += 1
+        else:
+            fp += 1
+        # It is no longer a false negative
+        fn -= 1
+        
+    # At the end of all the reads, that's another tranche done
+    max_f1 = emit_f1()
+        
+    return max_f1
 
 def run_qq(job, context, name, compare_id):
     """
