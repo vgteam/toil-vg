@@ -77,12 +77,21 @@ def construct_subparser(parser):
                         help="Make a gcsa index for each output graph")
     parser.add_argument("--xg_index", action="store_true",
                         help="Make an xg index for each output graph")
+    parser.add_argument("--haplo_sample", type=str,
+                        help="Make haplotype thread graphs (for simulating from) for this sample")    
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
     # Add common docker options
     add_container_tool_parse_args(parser)
 
+def validate_construct_options(options):
+    """
+    Throw an error if an invalid combination of options has been selected.
+    """
+    require(not options.haplo_sample or options.regions,
+            '--regions required with --haplo_sample')
+    
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
     """
     vg construct doesn't work with zipped fasta, so we run this on input fasta that end in .gz
@@ -98,17 +107,19 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
     return context.write_intermediate_file(job, fasta_file[:-3])
         
 def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tbi_id,
-                            regions, output_name, filter_samples = None):
+                            regions, output_name, filter_samples = None, haplo_sample = None):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
     - positive control
     - negative control
     - family filter
-    returns a list of (vcf_id, vcf_name, tbi_id, merge_name, region_names) tuples
+    returns a dictionary of name -> (vcf_id, vcf_name, tbi_id, merge_name, region_names) tuples
+    where name can be used to, ex, tell the controls apart
     """
-    # our input vcf 
-    output = [(vcf_id, vcf_name, tbi_id, output_name,
-               [c.replace(':','-') for c in regions] if regions else None)]
+    # our input vcf
+    output = dict()
+    output['base'] = (vcf_id, vcf_name, tbi_id, output_name,
+                      [c.replace(':','-') for c in regions] if regions else None)
     
     # our positive and negative controls
     if sample:
@@ -131,11 +142,14 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
         pos_output_name = remove_ext(output_name, '.vg') + '_{}.vg'.format(sample)
         neg_output_name = remove_ext(output_name, '.vg') + '_minus_{}.vg'.format(sample)
 
-        output.append((pos_control_vcf_id, pos_control_vcf_name, pos_control_tbi_id,
-                       pos_output_name, pos_region_names))
+        output['pos-control'] = (pos_control_vcf_id, pos_control_vcf_name, pos_control_tbi_id,
+                                 pos_output_name, pos_region_names)
 
-        output.append((neg_control_vcf_id, neg_control_vcf_name, neg_control_tbi_id,
-                       neg_output_name, neg_region_names))
+        output['neg-control'] = (neg_control_vcf_id, neg_control_vcf_name, neg_control_tbi_id,
+                                 neg_output_name, neg_region_names)
+
+        if haplo_sample and haplo_sample == sample:
+            output['haplo'] = output['pos-control']
 
     # our family filter
     if filter_samples:
@@ -155,15 +169,37 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
             filter_region_names = None
         filter_output_name = remove_ext(output_name, '.vg') + '_filter.vg'
 
-        output.append((filter_vcf_id, filter_vcf_name, filter_tbi_id,
-                       filter_output_name, filter_region_names))
+        output['filter'] = (filter_vcf_id, filter_vcf_name, filter_tbi_id,
+                            filter_output_name, filter_region_names)
+
+    # we want a vcf to make a gpbwt out of for making haplo graphs
+    if haplo_sample and haplo_sample != sample:
+        make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
+                                          pos_only = True,
+                                          cores=context.config.construct_cores,
+                                          memory=context.config.construct_mem,
+                                          disk=context.config.construct_disk)
+        pos_control_vcf_id, pos_control_tbi_id = make_controls.rv(0), make_controls.rv(1)
+
+        vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
+        pos_control_vcf_name = '{}_{}.vcf.gz'.format(vcf_base, haplo_sample)
+        if regions:
+            pos_region_names = [output_name + '_' + c.replace(':','-') + '_{}'.format(haplo_sample) for c in regions]
+        else:
+            pos_region_names = None
+        pos_output_name = output_name.rstrip('.vg') + '_{}.vg'.format(sample)
+        
+        output['haplo'] = (pos_control_vcf_id, pos_control_vcf_name, pos_control_tbi_id,
+                           pos_output_name, pos_region_names)
+        
 
     return output
 
     
 def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs, 
                       max_node_size, alt_paths, flat_alts, regions, merge_graphs,
-                      sort_ids, join_ids, gcsa_index, xg_index):
+                      sort_ids, join_ids, gcsa_index, xg_index, haplo_sample = None,
+                      haplotypes = [0,1]):
     """ 
     construct many graphs in parallel, optionally doing indexing too.  vcf_inputs
     is a list of tuples as created by  run_generate_input_vcfs
@@ -171,11 +207,14 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
 
     output = []
     
-    for (vcf_id, vcf_name, tbi_id, output_name, region_names) in vcf_inputs:
+    for name, (vcf_id, vcf_name, tbi_id, output_name, region_names) in vcf_inputs.items():
+        if name == 'haplo':
+            continue
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
+        gpbwt = name == 'base' and 'haplo' in vcf_inputs        
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_id,
                                           fasta_name, vcf_id, vcf_name, tbi_id,
-                                          max_node_size, alt_paths, flat_alts, regions,
+                                          max_node_size, gpbwt or alt_paths, flat_alts, regions,
                                           region_names, sort_ids, join_ids, merge_output_name)
         vg_ids = construct_job.rv()
         vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
@@ -193,9 +232,30 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
             gcsa_id = None
             lcp_id = None
             
-        if xg_index:
-            xg_id = job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
-                                         vg_names, output_name).rv()
+        if xg_index or gpbwt:
+            # if we want to make our thread graphs, we make sure we have an xg
+            # index of with a gpbwt for our haplo sample in it
+            phasing_id = vcf_inputs['haplo'][0] if gpbwt else None
+            phasing_tbi_id = vcf_inputs['haplo'][2] if gpbwt else None
+            xg_job = job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
+                                          vg_names, output_name, phasing_id, phasing_tbi_id,
+                                          cores=context.config.xg_index_cores,
+                                          memory=context.config.xg_index_mem,
+                                          disk=context.config.xg_index_disk)
+            xg_id = xg_job.rv()
+            if gpbwt:
+                haplo_job = xg_job.addFollowOnJobFn(run_make_haplo_graphs, context, vg_ids,
+                                                    vg_names, output_name, regions, xg_id, haplo_sample,
+                                                    haplotypes)
+
+                # we want an xg index from our thread graphs to pass to vg sim for each haplotype
+                for haplotype in haplotypes:
+                    haplo_xg_job = haplo_job.addFollowOnJobFn(run_xg_indexing, context, haplo_job.rv(haplotype),
+                                                              vg_names,
+                                                              output_name + '_thread_{}'.format(haplotype),
+                                                              cores=context.config.xg_index_cores,
+                                                              memory=context.config.xg_index_mem,
+                                                              disk=context.config.xg_index_disk)
         else:
             xg_id = None
 
@@ -355,7 +415,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     
     return out_vcf_id, out_tbi_id
     
-def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample):
+def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False):
     """ make a positive and negative control vcf 
     The positive control has only variants in the sample, the negative
     control has only variants not in the sample
@@ -394,6 +454,9 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample):
     pos_control_vcf_id = context.write_output_file(job, os.path.join(work_dir, out_pos_name))
     pos_control_tbi_id = context.write_output_file(job, os.path.join(work_dir, out_pos_name + '.tbi'))
 
+    if pos_only:
+        return pos_control_vcf_id, pos_control_tbi_id, None, None
+
     # subtract the positive control to make the negative control
     cmd = ['bcftools', 'isec', os.path.basename(vcf_file), out_pos_name, '-p', 'isec', '-O', 'z']
     context.runner.call(job, cmd, work_dir=work_dir)
@@ -407,12 +470,79 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample):
 
     return pos_control_vcf_id, pos_control_tbi_id, neg_control_vcf_id, neg_control_tbi_id
     
-    
+def run_make_haplo_graphs(job, context, vg_ids, vg_names, output_name, regions, xg_id,
+                          sample, haplotypes):
+    """
+    make some haplotype graphs for threads in a gpbwt.  regions must be defined since we use the
+    chromosome name to get the threads
+    """
+
+    # ith element will be a list of graphs (1 list / region) for haplotype i
+    thread_vg_ids = []
+    for h in haplotypes:
+        thread_vg_ids.append([])
+
+    for vg_id, vg_name, region in zip(vg_ids, vg_names, regions):
+        chrom = region[0:region.find(':')] if ':' in region else region
+
+        hap_job = job.addChildJobFn(run_make_haplo_chrom_graph, context, vg_id, vg_name,
+                                         output_name, chrom, xg_id, sample, haplotypes,
+                                         cores=context.config.construct_cores,
+                                         memory=context.config.construct_mem,
+                                         disk=context.config.construct_disk)
+        for i in range(len(haplotypes)):
+            thread_vg_ids[i].append(hap_job.rv(i))
+
+    return thread_vg_ids
+
+def run_make_haplo_chrom_graph(job, context, vg_id, vg_name, output_name, chrom, xg_id,
+                                sample, haplotypes):
+    """
+    make some haplotype graphs for threads in a gpbwt for single chrom region
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    xg_path = os.path.join(work_dir, 'gpbwt.xg')
+    job.fileStore.readGlobalFile(xg_id, xg_path)
+
+    vg_path = os.path.join(work_dir, vg_name + '.vg')
+    job.fileStore.readGlobalFile(vg_id, vg_path)
+
+    thread_vg_ids = []
+
+    for hap in haplotypes:
+
+        thread_path = os.path.join(work_dir, '{}_{}_thread_{}_merge.vg'.format(output_name, chrom, hap))
+        with open(thread_path, 'w') as thread_file:
+            # strip paths from our original graph            
+            cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+
+            # get haplotype thread paths from the gpbwt
+            cmd = ['vg', 'find', '-q', '_thread_{}_{}_{}'.format(sample, chrom, hap),
+                   '-x', os.path.basename(xg_path)]
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+
+        thread_path_trim = os.path.join(work_dir, '{}_{}_thread_{}.vg'.format(output_name, chrom, hap))
+        with open(thread_path_trim, 'w') as thread_file:
+            # Then we trim out anything other than our thread path
+            cmd = [['vg', 'mod', '-N', os.path.basename(thread_path)]]
+            # And get rid of our thread paths since they take up lots of space when re-indexing
+            cmd.append(['vg', 'mod', '-r', chrom, '-'])
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+
+        thread_vg_ids.append(context.write_output_file(job, thread_path_trim))
+
+    return thread_vg_ids
+
 def construct_main(context, options):
     """
     Wrapper for vg constructing. 
     """
-        
+
+    # check some options
+    validate_construct_options(options)
+
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
         
@@ -457,7 +587,8 @@ def construct_main(context, options):
                                                 inputTBIFileID, 
                                                 options.regions,
                                                 options.out_name,
-                                                filter_samples)
+                                                filter_samples,
+                                                options.haplo_sample)
 
             # Unzip the fasta
             if options.fasta.endswith('.gz'):
@@ -470,7 +601,7 @@ def construct_main(context, options):
                                      inputFastaName, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
                                      options.flat_alts, options.regions, options.merge_graphs,
-                                     True, True, options.gcsa_index, options.xg_index)
+                                     True, True, options.gcsa_index, options.xg_index, options.haplo_sample)
             
             # Run the workflow
             toil.start(init_job)
