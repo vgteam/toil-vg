@@ -59,7 +59,7 @@ def sim_subparser(parser):
     add_container_tool_parse_args(parser)
 
 def validate_sim_options(options):
-    require(all([i not in options.sim_opts for i in ['-x', '-n', '-a', '-s']]),
+    require(not options.sim_opts or all([i not in options.sim_opts for i in ['-x', '-n', '-a', '-s']]),
             ' sim-opts cannot contain -x, -n, -s or -a')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     
@@ -68,6 +68,11 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
     sim_out_id_infos = []
+
+    # no seed specified, we choose one at random
+    if seed is None:
+        seed = random.randint(0, 2147483647)
+        RealtimeLogger.info('No seed specifed, choosing random value = {}'.format(seed))
 
     # we can have more than one xg file if we've split our input graphs up
     # into haplotypes
