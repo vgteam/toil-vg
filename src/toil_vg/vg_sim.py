@@ -22,6 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_construct import run_unzip_fasta
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,8 @@ def sim_subparser(parser):
                         help="split simulation into this many chunks, run in parallel when possible")
     parser.add_argument("--seed", type=int, default=None,
                         help="random seed")
+    parser.add_argument("--fastq", type=make_url,
+                        help="use error profile derived from given reads (ignores -l, -N, -f from sim_opts)")
                         
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -63,7 +66,7 @@ def validate_sim_options(options):
             ' sim-opts cannot contain -x, -n, -s or -a')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     
-def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id):
+def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id, fastq_id = None):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
@@ -91,6 +94,7 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
             sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, file_seed, xg_file_id,
                                                 xg_annot_file_id,
                                                 chunk_i, chunk_reads,
+                                                fastq_id,
                                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                                 disk=context.config.sim_disk).rv()
             sim_out_id_infos.append(sim_out_id_info)
@@ -99,7 +103,7 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                 disk=context.config.sim_disk).rv()
 
-def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i, num_reads):
+def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i, num_reads, fastq_id):
     """
     simulate some reads (and optionally gam),
     return either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
@@ -112,6 +116,11 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
     # read the xg file
     xg_file = os.path.join(work_dir, 'index.xg')
     job.fileStore.readGlobalFile(xg_file_id, xg_file)
+
+    # read the fastq file
+    if fastq_id:
+        fastq_file = os.path.join(work_dir, 'error_template.fastq')
+        job.fileStore.readGlobalFile(fastq_id, fastq_file)
     
     # and the annotation xg file
     if xg_annot_file_id:
@@ -124,6 +133,8 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
     sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + context.config.sim_opts
     if seed is not None:
         sim_cmd += ['-s', seed + chunk_i]
+    if fastq_id:
+        sim_cmd += ['-F', os.path.basename(fastq_file)]
 
     if not gam:
         # output reads
@@ -260,21 +271,32 @@ def sim_main(context, options):
                 inputAnnotXGFileID = toil.importFile(options.annotate_xg)
             else:
                 inputAnnotXGFileID = None
+            if options.fastq:
+                inputFastqFileID = toil.importFile(options.fastq)
+            else:
+                inputFastqFileID = None
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+
+            # Init the outstore
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+
+            # Unzip the fastq
+            if options.fastq and options.fastq.endswith('.gz'):
+                inputFastqFileID = init_job.addChildJobFn(run_unzip_fasta, context, inputFastqFileID, 
+                                                          os.path.basename(options.fastq)).rv()
 
             # Make a root job
             root_job = Job.wrapJobFn(run_sim, context, options.num_reads, options.gam,
                                      options.seed, options.sim_chunks,
                                      inputXGFileIDs,
                                      inputAnnotXGFileID,
+                                     inputFastqFileID,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
 
-            # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
             init_job.addFollowOn(root_job)            
             
             # Run the job and store the returned list of output files to download
