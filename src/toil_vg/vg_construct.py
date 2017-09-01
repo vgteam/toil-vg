@@ -49,8 +49,8 @@ def construct_subparser(parser):
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
-    parser.add_argument("--fasta", required=True, type=make_url,
-                        help="Reference sequence in fasta format (gzipped ok with .gz)")
+    parser.add_argument("--fasta", required=True, type=make_url, nargs='+',
+                        help="Reference sequence in fasta or fasta.gz (single fasta or 1/region in same order as --regions)")
     parser.add_argument("--vcf", default=None, type=make_url, nargs='+',
                         help="Variants to make graph from (single vcf or 1/region in same order as --regions)")
     parser.add_argument("--regions", nargs='+',
@@ -95,6 +95,8 @@ def validate_construct_options(options):
             'if many vcfs specified, must be same number as --regions')
     require(not options.haplo_sample or not options.vcf or len(options.vcf) == 1,
             'multiple input vcfs not supported with --haplo_sample')
+    require(len(options.fasta) == 1 or len(options.fasta) == len(options.regions),
+            'if many fastas specified, must be same number as --regions')
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
     """
@@ -110,7 +112,7 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
 
     return context.write_intermediate_file(job, fasta_file[:-3])
         
-def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_ids, vcf_names, tbi_ids,
+def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name, filter_samples = None, haplo_sample = None):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
@@ -217,7 +219,7 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_ids, vcf_names, 
     return output
 
     
-def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs, 
+def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
                       max_node_size, alt_paths, flat_alts, regions, merge_graphs,
                       sort_ids, join_ids, gcsa_index, xg_index, haplo_sample = None,
                       haplotypes = [0,1]):
@@ -233,8 +235,8 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
             continue
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
         gpbwt = name == 'base' and 'haplo' in vcf_inputs        
-        construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_id,
-                                          fasta_name, vcf_ids, vcf_names, tbi_ids,
+        construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
+                                          fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gpbwt or alt_paths, flat_alts, regions,
                                           region_names, sort_ids, join_ids, merge_output_name)
         vg_ids = construct_job.rv()
@@ -284,7 +286,7 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
     return output
                 
 
-def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_ids, vcf_names, tbi_ids,
+def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
                               max_node_size, alt_paths, flat_alts, regions, region_names,
                               sort_ids = True, join_ids = True, merge_output_name=None):
     """ construct graph(s) from several regions in parallel.  we could eventually generalize this
@@ -295,14 +297,15 @@ def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_ids, vcf_
     work_dir = job.fileStore.getLocalTempDir()
 
     if not regions:
-        regions, region_names = [None], ['genome']
-        
+        regions, region_names = [None], ['genome']        
         
     region_graph_ids = []    
     for i, (region, region_name) in enumerate(zip(regions, region_names)):
         vcf_id = None if not vcf_ids else vcf_ids[0] if len(vcf_ids) == 1 else vcf_ids[i]
         vcf_name = None if not vcf_names else vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
         tbi_id = None if not tbi_ids else tbi_ids[0] if len(tbi_ids) == 1 else tbi_ids[i]
+        fasta_id = fasta_ids[0] if len(fasta_ids) == 1 else fasta_ids[i]
+        fasta_name = fasta_names[0] if len(fasta_names) == 1 else fasta_names[i]
         region_graph_ids.append(job.addChildJobFn(run_construct_region_graph, context,
                                                   fasta_id, fasta_name,
                                                   vcf_id, vcf_name, tbi_id, region, region_name,
@@ -588,8 +591,8 @@ def construct_main(context, options):
             start_time = timeit.default_timer()
             
             # Upload local files to the remote IO Store
-            inputFastaFileID = toil.importFile(options.fasta)
-            inputFastaName = os.path.basename(options.fasta)
+            inputFastaFileIDs = [toil.importFile(fasta) for fasta in options.fasta]
+            inputFastaNames = [os.path.basename(fasta) for fasta in options.fasta]
 
             inputVCFFileIDs = []
             inputVCFNames = []
@@ -608,7 +611,6 @@ def construct_main(context, options):
 
             # Automatically make and name a bunch of vcfs
             vcf_job = init_job.addFollowOnJobFn(run_generate_input_vcfs, context, options.control_sample,
-                                                inputFastaFileID, 
                                                 inputVCFFileIDs, inputVCFNames,
                                                 inputTBIFileIDs, 
                                                 options.regions,
@@ -617,14 +619,15 @@ def construct_main(context, options):
                                                 options.haplo_sample)
 
             # Unzip the fasta
-            if options.fasta.endswith('.gz'):
-                inputFastaFileID = vcf_job.addChildJobFn(run_unzip_fasta, context, inputFastaFileID, 
-                                                         os.path.basename(options.fasta)).rv()
-                inputFastaName = inputFastaName[:-3]
+            for i, fasta in enumerate(options.fasta):
+                if fasta.endswith('.gz'):
+                    inputFastaFileIDs[i] = vcf_job.addChildJobFn(run_unzip_fasta, context, inputFastaFileIDs[i], 
+                                                                 os.path.basename(fasta)).rv()
+                    inputFastaNames[i] = inputFastaNames[i][:-3]
                 
             # Cosntruct graphs
-            vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileID,
-                                     inputFastaName, vcf_job.rv(),
+            vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
+                                     inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
                                      options.flat_alts, options.regions, options.merge_graphs,
                                      True, True, options.gcsa_index, options.xg_index, options.haplo_sample)
