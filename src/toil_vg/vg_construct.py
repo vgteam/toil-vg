@@ -51,8 +51,8 @@ def construct_subparser(parser):
 
     parser.add_argument("--fasta", required=True, type=make_url,
                         help="Reference sequence in fasta format (gzipped ok with .gz)")
-    parser.add_argument("--vcf", default=None, type=make_url,
-                        help="Variants to make graph from")
+    parser.add_argument("--vcf", default=None, type=make_url, nargs='+',
+                        help="Variants to make graph from (single vcf or 1/region in same order as --regions)")
     parser.add_argument("--regions", nargs='+',
                         help="1-based inclusive VCF coordinates in the form SEQ:START-END")
     parser.add_argument("--max_node_size", type=int, default=32,
@@ -91,6 +91,10 @@ def validate_construct_options(options):
     """
     require(not options.haplo_sample or options.regions,
             '--regions required with --haplo_sample')
+    require(not options.vcf or len(options.vcf) == 1 or len(options.vcf) == len(options.regions),
+            'if many vcfs specified, must be same number as --regions')
+    require(not options.haplo_sample or not options.vcf or len(options.vcf) == 1,
+            'multiple input vcfs not supported with --haplo_sample')
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
     """
@@ -106,7 +110,7 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
 
     return context.write_intermediate_file(job, fasta_file[:-3])
         
-def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tbi_id,
+def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name, filter_samples = None, haplo_sample = None):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
@@ -118,21 +122,28 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
     """
     # our input vcf
     output = dict()
-    output['base'] = (vcf_id, vcf_name, tbi_id, output_name,
+    output['base'] = (vcf_ids, vcf_names, tbi_ids, output_name,
                       [c.replace(':','-') for c in regions] if regions else None)
     
     # our positive and negative controls
     if sample:
-        make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample,
-                                          cores=context.config.construct_cores,
-                                          memory=context.config.construct_mem,
-                                          disk=context.config.construct_disk)
-        pos_control_vcf_id, pos_control_tbi_id = make_controls.rv(0), make_controls.rv(1)
-        neg_control_vcf_id, neg_control_tbi_id = make_controls.rv(2), make_controls.rv(3)
+        pos_control_vcf_ids, pos_control_tbi_ids = [], []
+        neg_control_vcf_ids, neg_control_tbi_ids = [], []
+        pos_control_vcf_names, neg_control_vcf_names = [], []
+        
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample,
+                                              cores=context.config.construct_cores,
+                                              memory=context.config.construct_mem,
+                                              disk=context.config.construct_disk)
+            pos_control_vcf_ids.append(make_controls.rv(0))
+            pos_control_tbi_ids.append(make_controls.rv(1))
+            neg_control_vcf_ids.append(make_controls.rv(2))
+            neg_control_tbi_ids.append(make_controls.rv(3))
 
-        vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
-        pos_control_vcf_name = '{}_{}.vcf.gz'.format(vcf_base, sample)
-        neg_control_vcf_name = '{}_minus_{}.vcf.gz'.format(vcf_base, sample)
+            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+            pos_control_vcf_names.append('{}_{}.vcf.gz'.format(vcf_base, sample))
+            neg_control_vcf_names.append('{}_minus_{}.vcf.gz'.format(vcf_base, sample))
         if regions:
             pos_region_names = [output_name + '_' + c.replace(':','-') + '_{}'.format(sample) for c in regions]
             neg_region_names = [output_name + '_' + c.replace(':','-') + '_minus_{}'.format(sample) for c in regions]
@@ -142,10 +153,10 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
         pos_output_name = remove_ext(output_name, '.vg') + '_{}.vg'.format(sample)
         neg_output_name = remove_ext(output_name, '.vg') + '_minus_{}.vg'.format(sample)
 
-        output['pos-control'] = (pos_control_vcf_id, pos_control_vcf_name, pos_control_tbi_id,
+        output['pos-control'] = (pos_control_vcf_ids, pos_control_vcf_names, pos_control_tbi_ids,
                                  pos_output_name, pos_region_names)
 
-        output['neg-control'] = (neg_control_vcf_id, neg_control_vcf_name, neg_control_tbi_id,
+        output['neg-control'] = (neg_control_vcf_ids, neg_control_vcf_names, neg_control_tbi_ids,
                                  neg_output_name, neg_region_names)
 
         if haplo_sample and haplo_sample == sample:
@@ -153,43 +164,53 @@ def run_generate_input_vcfs(job, context, sample, fasta_id, vcf_id, vcf_name, tb
 
     # our family filter
     if filter_samples:
-        filter_job = job.addChildJobFn(run_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
-                                       filter_samples,
-                                       cores=context.config.construct_cores,
-                                       memory=context.config.construct_mem,
-                                       disk=context.config.construct_disk)
+        filter_vcf_ids, filter_tbi_ids = [], []
+        filter_vcf_names = []
 
-        filter_vcf_id, filter_tbi_id = filter_job.rv(0), filter_job.rv(1)
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            filter_job = job.addChildJobFn(run_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
+                                           filter_samples,
+                                           cores=context.config.construct_cores,
+                                           memory=context.config.construct_mem,
+                                           disk=context.config.construct_disk)
 
-        vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
-        filter_vcf_name = '{}_filter.vcf.gz'.format(vcf_base)
+            filter_vcf_ids.append(filter_job.rv(0))
+            filter_tbi_ids.append(filter_job.rv(1))
+
+            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+            filter_vcf_names.append('{}_filter.vcf.gz'.format(vcf_base))
         if regions:
             filter_region_names = [output_name + '_' + c.replace(':','-') + '_filter' for c in regions]
         else:
             filter_region_names = None
         filter_output_name = remove_ext(output_name, '.vg') + '_filter.vg'
 
-        output['filter'] = (filter_vcf_id, filter_vcf_name, filter_tbi_id,
+        output['filter'] = (filter_vcf_ids, filter_vcf_names, filter_tbi_ids,
                             filter_output_name, filter_region_names)
 
     # we want a vcf to make a gpbwt out of for making haplo graphs
     if haplo_sample and haplo_sample != sample:
-        make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
-                                          pos_only = True,
-                                          cores=context.config.construct_cores,
-                                          memory=context.config.construct_mem,
-                                          disk=context.config.construct_disk)
-        pos_control_vcf_id, pos_control_tbi_id = make_controls.rv(0), make_controls.rv(1)
+        pos_control_vcf_ids, pos_control_tbi_ids = [], []
+        pos_control_vcf_names = []
 
-        vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
-        pos_control_vcf_name = '{}_{}.vcf.gz'.format(vcf_base, haplo_sample)
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
+                                              pos_only = True,
+                                              cores=context.config.construct_cores,
+                                              memory=context.config.construct_mem,
+                                              disk=context.config.construct_disk)
+            pos_control_vcf_ids.append(make_controls.rv(0))
+            pos_control_tbi_ids.append(make_controls.rv(1))
+
+            vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
+            pos_control_vcf_names.append('{}_{}.vcf.gz'.format(vcf_base, haplo_sample))
         if regions:
             pos_region_names = [output_name + '_' + c.replace(':','-') + '_{}'.format(haplo_sample) for c in regions]
         else:
             pos_region_names = None
         pos_output_name = output_name.rstrip('.vg') + '_{}.vg'.format(sample)
         
-        output['haplo'] = (pos_control_vcf_id, pos_control_vcf_name, pos_control_tbi_id,
+        output['haplo'] = (pos_control_vcf_ids, pos_control_vcf_names, pos_control_tbi_ids,
                            pos_output_name, pos_region_names)
         
 
@@ -207,13 +228,13 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
 
     output = []
     
-    for name, (vcf_id, vcf_name, tbi_id, output_name, region_names) in vcf_inputs.items():
+    for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
         if name == 'haplo':
             continue
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
         gpbwt = name == 'base' and 'haplo' in vcf_inputs        
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_id,
-                                          fasta_name, vcf_id, vcf_name, tbi_id,
+                                          fasta_name, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gpbwt or alt_paths, flat_alts, regions,
                                           region_names, sort_ids, join_ids, merge_output_name)
         vg_ids = construct_job.rv()
@@ -235,8 +256,8 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
         if xg_index or gpbwt:
             # if we want to make our thread graphs, we make sure we have an xg
             # index of with a gpbwt for our haplo sample in it
-            phasing_id = vcf_inputs['haplo'][0] if gpbwt else None
-            phasing_tbi_id = vcf_inputs['haplo'][2] if gpbwt else None
+            phasing_id = vcf_inputs['haplo'][0][0] if gpbwt else None
+            phasing_tbi_id = vcf_inputs['haplo'][2][0] if gpbwt else None
             xg_job = job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
                                           vg_names, output_name, phasing_id, phasing_tbi_id,
                                           cores=context.config.xg_index_cores,
@@ -263,7 +284,7 @@ def run_construct_all(job, context, fasta_id, fasta_name, vcf_inputs,
     return output
                 
 
-def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
+def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_ids, vcf_names, tbi_ids,
                               max_node_size, alt_paths, flat_alts, regions, region_names,
                               sort_ids = True, join_ids = True, merge_output_name=None):
     """ construct graph(s) from several regions in parallel.  we could eventually generalize this
@@ -276,8 +297,12 @@ def run_construct_genome_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
     if not regions:
         regions, region_names = [None], ['genome']
         
+        
     region_graph_ids = []    
-    for region, region_name in zip(regions, region_names):
+    for i, (region, region_name) in enumerate(zip(regions, region_names)):
+        vcf_id = None if not vcf_ids else vcf_ids[0] if len(vcf_ids) == 1 else vcf_ids[i]
+        vcf_name = None if not vcf_names else vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
+        tbi_id = None if not tbi_ids else tbi_ids[0] if len(tbi_ids) == 1 else tbi_ids[i]
         region_graph_ids.append(job.addChildJobFn(run_construct_region_graph, context,
                                                   fasta_id, fasta_name,
                                                   vcf_id, vcf_name, tbi_id, region, region_name,
@@ -565,14 +590,15 @@ def construct_main(context, options):
             # Upload local files to the remote IO Store
             inputFastaFileID = toil.importFile(options.fasta)
             inputFastaName = os.path.basename(options.fasta)
+
+            inputVCFFileIDs = []
+            inputVCFNames = []
+            inputTBIFileIDs = []
             if options.vcf:
-                inputVCFFileID = toil.importFile(options.vcf)
-                inputVCFName = os.path.basename(options.vcf)
-                inputTBIFileID = toil.importFile(options.vcf + '.tbi')
-            else:
-                inputVCFFileID = None
-                inputVCFName = None
-                inputTBIFileID = None
+                for vcf in options.vcf:
+                    inputVCFFileIDs.append(toil.importFile(vcf))
+                    inputVCFNames.append(os.path.basename(vcf))
+                    inputTBIFileIDs.append(toil.importFile(vcf + '.tbi'))
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -583,8 +609,8 @@ def construct_main(context, options):
             # Automatically make and name a bunch of vcfs
             vcf_job = init_job.addFollowOnJobFn(run_generate_input_vcfs, context, options.control_sample,
                                                 inputFastaFileID, 
-                                                inputVCFFileID, inputVCFName,
-                                                inputTBIFileID, 
+                                                inputVCFFileIDs, inputVCFNames,
+                                                inputTBIFileIDs, 
                                                 options.regions,
                                                 options.out_name,
                                                 filter_samples,
