@@ -324,8 +324,15 @@ class IOStore(object):
         elif store_type == "aws":
             # Break out the AWS arguments
             region, bucket_name = store_arguments.split(":", 1)
-            return S3IOStore(region, bucket_name)
-            #raise NotImplementedError("AWS IO store not written")
+            
+            if "/" in bucket_name:
+                # Split the bucket from the path
+                bucket_name, path_prefix = bucket_name.split("/", 1)
+            else:
+                # No path prefix
+                path_prefix = ""
+            
+            return S3IOStore(region, bucket_name, path_prefix)
         elif store_type == "azure":
             # Break out the Azure arguments.
             account, container = store_arguments.split(":", 1)
@@ -617,7 +624,7 @@ class S3IOStore(IOStore):
     
     """
     
-    def __init__(self, region, bucket_name):
+    def __init__(self, region, bucket_name, name_prefix=""):
         """
         Make a new S3IOStore that reads from and writes to the given
         container in the given account, adding the given prefix to keys. All
@@ -630,6 +637,7 @@ class S3IOStore(IOStore):
         
         self.region = region
         self.bucket_name = bucket_name
+        self.name_prefix = name_prefix
         self.s3 = None
         
     def __connect(self):
@@ -661,7 +669,7 @@ class S3IOStore(IOStore):
             input_path))
         
         # Download the file contents.
-        self.s3.download_file(self.bucket_name, input_path, local_path)
+        self.s3.download_file(self.bucket_name, os.path.join(self.name_prefix, input_path), local_path)
             
     def list_input_directory(self, input_path, recursive=False,
         with_times=False):
@@ -694,7 +702,7 @@ class S3IOStore(IOStore):
             output_path))
 
         # Download the file contents.
-        self.s3.upload_file(local_path, self.bucket_name, output_path)
+        self.s3.upload_file(local_path, self.bucket_name, os.path.join(self.name_prefix, output_path))
     
     def exists(self, path):
         """
