@@ -9,6 +9,7 @@ import json, timeit, errno
 from uuid import uuid4
 import pkg_resources, tempfile, datetime
 import logging
+from distutils.spawn import find_executable
 
 from toil.common import Toil
 from toil.job import Job
@@ -99,6 +100,20 @@ to do: Should go somewhere more central """
         self.docker_tool_map = container_tool_map[0]
         self.container_support = container_tool_map[1]
 
+    def container_for_tool(self, name):
+        """
+        Return Docker, Singularity or None, which is how call() would be run
+        on the given tool
+        """
+        if self.container_support == 'Docker' and name in self.docker_tool_map and\
+           self.docker_tool_map[name] and self.docker_tool_map[name].lower() != 'none':
+            return 'Docker'
+        elif self.container_support == 'Singularity' and name in self.docker_tool_map and\
+           self.docker_tool_map[name] and self.docker_tool_map[name].lower() != 'none':
+            return 'Singularity'
+        else:
+            return 'None'
+
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
              check_output = False, tool_name=None):
         """ run a command.  decide to use docker based on whether
@@ -112,11 +127,10 @@ to do: Should go somewhere more central """
             args[i] = [str(x) for x in args[i]]
         name = tool_name if tool_name is not None else args[0][0]
 
-        if self.container_support == 'Docker' and name in self.docker_tool_map and\
-           self.docker_tool_map[name] and self.docker_tool_map[name].lower() != 'none':
+        container_type = self.container_for_tool(name)
+        if container_type == 'Docker':
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
-        elif self.container_support == 'Singularity' and name in self.docker_tool_map and\
-           self.docker_tool_map[name] and self.docker_tool_map[name].lower() != 'none':
+        elif container_type == 'Singularity':
             return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name)
         else:
             return self.call_directly(args, work_dir, outfile, errfile, check_output)
@@ -244,6 +258,24 @@ to do: Should go somewhere more central """
         if check_output:
             return output
 
+def get_vg_script(job, runner, script_name, work_dir):
+    """
+    getting the path to a script in vg/scripts is different depending on if we're
+    in docker or not.  wrap logic up here, where we get the script from wherever it
+    is then put it in the work_dir
+    """
+    vg_container_type = runner.container_for_tool('vg')
+
+    if vg_container_type != 'None':
+        # we copy the scripts out of the container, assuming vg is at /vg
+        cmd = ['cp', os.path.join('/vg', 'scripts', script_name), '.']
+        runner.call(job, cmd, work_dir = work_dir, tool_name='vg')
+    else:
+        # we copy the script from the vg directory in our PATH
+        scripts_path = os.path.join(os.path.dirname(find_executable('vg')), '..', 'scripts')
+        shutil.copy2(os.path.join(scripts_path, script_name), os.path.join(work_dir, script_name))
+    return os.path.join(work_dir, script_name)
+                            
 def get_files_by_file_size(dirname, reverse=False):
     """ Return list of file paths in directory sorted by file size """
 

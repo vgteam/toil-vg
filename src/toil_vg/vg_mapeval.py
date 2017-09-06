@@ -33,7 +33,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, \
-    add_common_vg_parse_args, add_container_tool_parse_args
+    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script
 from toil_vg.vg_map import map_parse_args, run_mapping
 from toil_vg.vg_index import run_indexing
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -1332,15 +1332,50 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
     (gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids) = (alignment_job.rv(0), 
         alignment_job.rv(1), alignment_job.rv(2), alignment_job.rv(3))
 
+    # We make a root for comparison here to encapsulate its follow-on chain
+    comparison_parent_job = Job()
+    alignment_job.addFollowOn(comparison_parent_job)
+    
     # Then do mapping evaluation comparison (the rest of the workflow)
-    comparison_job = alignment_job.addFollowOnJobFn(run_map_eval_comparison, context, xg_ids,
+    comparison_job = comparison_parent_job.addChildJobFn(run_map_eval_comparison, context, xg_ids,
                      gam_names, gam_file_ids, options.bam_names, bam_file_ids,
                      options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids,
                      true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores, reads_gam_file_id,
                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                      disk=context.config.misc_disk)
+
+    # Then do the R plotting
+    position_comparison_results = comparison_job.rv(0)
+    score_comparison_results= comparison_job.rv(1)
+    plot_job = comparison_parent_job.addFollowOnJobFn(run_map_eval_plot, context,  position_comparison_results, score_comparison_results)
                      
     return comparison_job.rv()
+
+def run_map_eval_plot(job, context, position_comp_results, score_comp_results):
+    """
+    Make the PR and QQ plots with R
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    position_stats_file_id = position_comp_results[1]
+    position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
+    job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
+
+    out_name_id_pairs = []
+    for rscript in ['pr', 'qq']:
+
+        plot_name = 'plot-{}.svg'.format(rscript)
+        script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
+        cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
+               plot_name]
+        try:
+            context.runner.call(job, cmd, work_dir = work_dir)
+            out_name_id_pairs.append(plot_name, context.write_output_file(os.path.join(work_dir, plot_name)))
+        except Exception as e:
+            # The R-scripts can still fail on certain (trivial?) inputs.  We call this a warning
+            job.fileStore.logToMaster("WARNING: Plot command: {} failed with Exception {}".format(str(cmd), str(e)))
+            
+    return out_name_id_pairs
     
 def make_mapeval_plan(toil, options):
     """
