@@ -1368,12 +1368,10 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results):
         script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
         cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
                plot_name]
-        try:
-            context.runner.call(job, cmd, work_dir = work_dir)
-            out_name_id_pairs.append(plot_name, context.write_output_file(os.path.join(work_dir, plot_name)))
-        except Exception as e:
-            # The R-scripts can still fail on certain (trivial?) inputs.  We call this a warning
-            job.fileStore.logToMaster("WARNING: Plot command: {} failed with Exception {}".format(str(cmd), str(e)))
+        # We insist that the R scripts execute successfully
+        context.runner.call(job, cmd, work_dir = work_dir)
+        out_name_id_pairs.append(plot_name, context.write_output_file(os.path.join(work_dir, plot_name)))
+        
             
     return out_name_id_pairs
     
