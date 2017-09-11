@@ -93,8 +93,6 @@ def validate_construct_options(options):
             '--regions required with --haplo_sample')
     require(not options.vcf or len(options.vcf) == 1 or len(options.vcf) == len(options.regions),
             'if many vcfs specified, must be same number as --regions')
-    require(not options.haplo_sample or not options.vcf or len(options.vcf) == 1,
-            'multiple input vcfs not supported with --haplo_sample')
     require(len(options.fasta) == 1 or len(options.fasta) == len(options.regions),
             'if many fastas specified, must be same number as --regions')
     
@@ -258,8 +256,20 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         if xg_index or gpbwt:
             # if we want to make our thread graphs, we make sure we have an xg
             # index of with a gpbwt for our haplo sample in it
-            phasing_id = vcf_inputs['haplo'][0][0] if gpbwt else None
-            phasing_tbi_id = vcf_inputs['haplo'][2][0] if gpbwt else None
+            if gpbwt:
+                if len(vcf_inputs['haplo'][0]) == 1:
+                    phasing_id, phasing_tbi_id = vcf_inputs['haplo'][0][0], vcf_inputs['haplo'][2][0]
+                else:
+                    concat_vcf_job = job.addChildJobFn(run_concat_vcfs, context, vcf_inputs['haplo'][0],
+                                                       vcf_inputs['haplo'][2],
+                                                       cores=context.config.construct_cores,
+                                                       memory=context.config.construct_mem,
+                                                       disk=context.config.construct_disk)
+                    phasing_id = concat_vcf_job.rv(0)
+                    phasing_tbi_id = concat_vcf_job.rv(1)
+            else:
+                phasing_id, phasing_tbi_id = None, None
+                
             xg_job = job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
                                           vg_names, output_name, phasing_id, phasing_tbi_id,
                                           cores=context.config.xg_index_cores,
@@ -497,7 +507,34 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
                                                    out_store_path = out_neg_name + '.tbi')
 
     return pos_control_vcf_id, pos_control_tbi_id, neg_control_vcf_id, neg_control_tbi_id
-    
+
+def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
+    """
+    concatenate a list of vcfs.  we do this because vg index -v only takes one vcf, and
+    we may be working with a set of chromosome vcfs. 
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    vcf_names = ['chrom_{}.vcf.gz'.format(i) for i in range(len(vcf_ids))]
+    out_name = 'genome.vcf.gz'
+
+    for vcf_id, tbi_id, vcf_name in zip(vcf_ids, tbi_ids, vcf_names):
+        job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, vcf_name))
+        job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name + '.tbi'))
+
+    cmd = ['bcftools', 'concat'] + [vcf_name for vcf_name in vcf_names] + ['-O', 'z']
+    with open(os.path.join(work_dir, out_name), 'w') as out_file:
+        context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
+
+    cmd = ['tabix', '-f', '-p', 'vcf', out_name]
+    context.runner.call(job, cmd, work_dir=work_dir)
+
+    out_vcf_id = context.write_intermediate_file(job, os.path.join(work_dir, out_name))
+    out_tbi_id = context.write_intermediate_file(job, os.path.join(work_dir, out_name + '.tbi'))
+
+    return out_vcf_id, out_tbi_id
+
 def run_make_haplo_graphs(job, context, vg_ids, vg_names, output_name, regions, xg_id,
                           sample, haplotypes):
     """
