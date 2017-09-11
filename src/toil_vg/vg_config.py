@@ -506,9 +506,12 @@ def config_subparser(parser):
 
     parser.add_argument("--whole_genome", action="store_true",
         help="Make config tuned to process a whole genome on 32-core instances")
+        
+    parser.add_argument("--config", type=argparse.FileType('w'), default=sys.stdout,
+        help="config file to write to")
 
 
 def config_main(args):
     """ config just prints out a file """
     
-    sys.stdout.write(generate_config(args.whole_genome))
+    options.config.write(generate_config(args.whole_genome))
