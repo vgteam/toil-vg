@@ -511,7 +511,7 @@ def config_subparser(parser):
         help="config file to write to")
 
 
-def config_main(args):
+def config_main(options):
     """ config just prints out a file """
     
-    options.config.write(generate_config(args.whole_genome))
+    options.config.write(generate_config(options.whole_genome))
