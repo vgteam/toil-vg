@@ -931,18 +931,18 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
                                              disk=context.config.misc_disk).rv())
 
-    stats_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
-                                         cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                         disk=context.config.misc_disk).rv()
+    position_comp_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
+                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                            disk=context.config.misc_disk).rv(1)
                                          
-    return compare_ids, stats_file_id
+    return compare_ids, position_comp_file_id
 
 def run_process_position_comparisons(job, context, names, compare_ids):
     """
     Write some raw tables of position comparisons to the output.  Compute some
     stats for each graph.
     
-    Returns the stats file's file ID.
+    Returns (the stats file's file ID, the position results file's ID)
     """
 
     work_dir = job.fileStore.getLocalTempDir()
@@ -982,9 +982,9 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                               job.addChildJobFn(run_max_f1, context, name, compare_id, cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()])
             
-    context.write_output_file(job, results_file)
+    position_results_id = context.write_output_file(job, results_file)
 
-    return job.addFollowOnJobFn(run_write_position_stats, context, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_position_stats, context, names, map_stats).rv(), position_results_id
 
 def run_write_position_stats(job, context, names, map_stats):
     """
@@ -1384,12 +1384,8 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results):
         script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
         cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
                plot_name]
-        try:
-            context.runner.call(job, cmd, work_dir = work_dir)
-            out_name_id_pairs.append(plot_name, context.write_output_file(os.path.join(work_dir, plot_name)))
-        except Exception as e:
-            # The R-scripts can still fail on certain (trivial?) inputs.  We call this a warning
-            job.fileStore.logToMaster("WARNING: Plot command: {} failed with Exception {}".format(str(cmd), str(e)))
+        context.runner.call(job, cmd, work_dir = work_dir)
+        out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
             
     return out_name_id_pairs
     
