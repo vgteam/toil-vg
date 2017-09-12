@@ -706,7 +706,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
-    # Do the (single-ended) multipath mapping
+    # Do the single-ended multipath mapping
     if do_vg_mapping and multipath:
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
@@ -721,7 +721,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             xg_ids.append(xg_ids[i])
             gam_names.append(gam_names[i] + '-mp')
 
-    if do_vg_mapping and do_vg_paired and not multipath:
+    if do_vg_mapping and do_vg_paired:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
@@ -735,7 +735,23 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         for i in range(len(xg_ids)):
             xg_ids.append(xg_ids[i])
             gam_names.append(gam_names[i] + '-pe')
+
+
+    # Do the paired-ended multipath mapping
+    if do_vg_mapping and do_vg_paired and multipath:
+        for i, index_id in enumerate(index_ids):
+            gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
+                                                  'input.gam', 'aligned-{}-mp-pe'.format(gam_names[i]),
+                                                  True, True, index_id[0], index_id[1],
+                                                  None, [reads_gam_file_id],
+                                                  cores=context.config.misc_cores,
+                                                  memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
         
+        # make sure associated lists are extended to fit new paired end mappings
+        for i in range(len(xg_ids)):
+            xg_ids.append(xg_ids[i])
+            gam_names.append(gam_names[i] + '-mp-pe')
+    
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
     if do_bwa or do_bwa_paired:
@@ -915,18 +931,18 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
                                              disk=context.config.misc_disk).rv())
 
-    stats_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
-                                         cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                         disk=context.config.misc_disk).rv()
+    position_comp_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
+                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                            disk=context.config.misc_disk).rv(1)
                                          
-    return compare_ids, stats_file_id
+    return compare_ids, position_comp_file_id
 
 def run_process_position_comparisons(job, context, names, compare_ids):
     """
     Write some raw tables of position comparisons to the output.  Compute some
     stats for each graph.
     
-    Returns the stats file's file ID.
+    Returns (the stats file's file ID, the position results file's ID)
     """
 
     work_dir = job.fileStore.getLocalTempDir()
@@ -966,9 +982,9 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                               job.addChildJobFn(run_max_f1, context, name, compare_id, cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()])
             
-    context.write_output_file(job, results_file)
+    position_results_id = context.write_output_file(job, results_file)
 
-    return job.addFollowOnJobFn(run_write_position_stats, context, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_position_stats, context, names, map_stats).rv(), position_results_id
 
 def run_write_position_stats(job, context, names, map_stats):
     """
@@ -1370,8 +1386,7 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results):
                plot_name]
         # We insist that the R scripts execute successfully
         context.runner.call(job, cmd, work_dir = work_dir)
-        out_name_id_pairs.append(plot_name, context.write_output_file(os.path.join(work_dir, plot_name)))
-        
+        out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
             
     return out_name_id_pairs
     
