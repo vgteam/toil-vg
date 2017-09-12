@@ -365,7 +365,10 @@ class VGCGLTest(TestCase):
             #self.assertTrue(auc > 0.9)
             #self.assertTrue(qqur > -10)
         self.assertTrue(headers == set(names))
-        
+        # make sure plots get drawn
+        self.assertTrue(os.path.getsize(os.path.join(outstore, 'plot-pr.svg')) > 0)
+        self.assertTrue(os.path.getsize(os.path.join(outstore, 'plot-qq.svg')) > 0)
+                
     def tearDown(self):
         shutil.rmtree(self.workdir)
         subprocess.check_call(['toil', 'clean', self.jobStoreLocal])
