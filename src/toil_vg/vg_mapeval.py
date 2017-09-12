@@ -1384,6 +1384,7 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results):
         script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
         cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
                plot_name]
+        # We insist that the R scripts execute successfully
         context.runner.call(job, cmd, work_dir = work_dir)
         out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
             
