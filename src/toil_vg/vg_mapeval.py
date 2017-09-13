@@ -555,47 +555,51 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
 
     out_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
 
-    with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test, \
-         open(out_file, 'w') as out:
-        line_no = 0
-        for baseline_fields, test_fields in itertools.izip(tsv.TsvReader(baseline), tsv.TsvReader(test)):
-            # Zip everything up and assume that the reads correspond
-            line_no += 1
-            
-            if len(baseline_fields) != 5 or len(test_fields) != 5:
-                raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
-                    line_no, name, baseline_fields, test_fields))
-            
-            if baseline_fields[0] != test_fields[0]:
-                # Read names must correspond or something has gone wrong
-                raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
-                    line_no, baseline_read_stats_file, test_read_stats_file, baseline_fields[0], test_fields[0]))
-            
-            # Order is: name, conting, pos, score, mapq
-            aligned_score = test_fields[3]
-            baseline_score = baseline_fields[3]
-            # Compute the score difference. Scores are integers.
-            score_diff = parse_int(aligned_score) - parse_int(baseline_score)
-            
-            # Report the score difference            
-            out.write('{}, {}, {}, {}\n'.format(baseline_fields[0], score_diff, aligned_score, baseline_score))
+    with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test:
+        with open(out_file, 'w') as out:
+            line_no = 0
+            for baseline_fields, test_fields in itertools.izip(tsv.TsvReader(baseline), tsv.TsvReader(test)):
+                # Zip everything up and assume that the reads correspond
+                line_no += 1
+                
+                if len(baseline_fields) != 5 or len(test_fields) != 5:
+                    raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
+                        line_no, name, baseline_fields, test_fields))
+                
+                if baseline_fields[0] != test_fields[0]:
+                    # Read names must correspond or something has gone wrong
+                    raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
+                        line_no, baseline_read_stats_file, test_read_stats_file, baseline_fields[0], test_fields[0]))
+                
+                # Order is: name, conting, pos, score, mapq
+                aligned_score = test_fields[3]
+                baseline_score = baseline_fields[3]
+                # Compute the score difference. Scores are integers.
+                score_diff = parse_int(aligned_score) - parse_int(baseline_score)
+                
+                # Report the score difference            
+                out.write('{}, {}, {}, {}\n'.format(baseline_fields[0], score_diff, aligned_score, baseline_score))
+        
+        # Save stats file for inspection
+        out_file_id = context.write_intermediate_file(job, out_file)
         
         # make sure same length
         has_next = False
+        found_line1 = None
+        found_line2 = None
         try:
-            iter(baseline).next()
+            found_line1 = iter(baseline).next().rstrip()
             has_next = True
         except:
             pass
         try:
-            iter(test).next()
+            found_line2 = iter(test).next().rstrip()
             has_next = True
         except:
             pass
         if has_next:
-            raise RuntimeError('read stats files have different lengths')
+            raise RuntimeError('read stats files have different lengths ({}, {})'.format(found_line1, found_line2))
         
-    out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
 
 def get_gam_scores(job, context, xg_file_id, name, gam_file_id):
