@@ -6,6 +6,7 @@ may eventually move to or be replaced by stuff in toil-lib.
 from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno
+import threading
 from uuid import uuid4
 import pkg_resources, tempfile, datetime
 import logging
@@ -19,6 +20,9 @@ from toil_vg.singularity import singularityCall, singularityCheckOutput
 from toil_vg.iostore import IOStore
 
 logger = logging.getLogger(__name__)
+
+# We need to fiddle with os.environ and we don't want to step on ourselves
+environment_lock = threading.lock()
 
 def test_docker():
     """
@@ -169,6 +173,9 @@ to do: Should go somewhere more central """
             # this is particularly important for gcsa, which makes massive files.
             # we will default to keeping these in our working directory
             docker_parameters += ['--env', 'TMPDIR=.']
+            
+        # Force all dockers to run sort in a consistent way
+        docker_parameters += ['--env', 'LC_ALL=C']
 
         # set our working directory map
         if work_dir is not None:
@@ -205,10 +212,22 @@ to do: Should go somewhere more central """
 
         parameters = args[0] if len(args) == 1 else args
         
-        if check_output is True:
-            ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
-        else:
-            ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
+        # Get a lock on the environment
+        global environment_lock
+        with environment_lock:
+            # TODO: We can't stop other threads using os.environ or subprocess or w/e on their own
+        
+            # Set the locale to C for consistent sorting
+            old_lc_all = os.environ.get('LC_ALL')
+            os.environ['LC_ALL'] = 'C'
+            
+            if check_output is True:
+                ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
+            else:
+                ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
+            
+            # Restore old locale
+            os.environ['LC_ALL'] = old_lc_all
         
         end_time = timeit.default_timer()
         run_time = end_time - start_time
@@ -223,11 +242,18 @@ to do: Should go somewhere more central """
         RealtimeLogger.info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
 
+        # Set up the child's environment
+        global environment_lock
+        with environment_lock:
+            my_env = os.environ.copy()
+            
         # vg uses TMPDIR for temporary files
         # this is particularly important for gcsa, which makes massive files.
         # we will default to keeping these in our working directory
-        my_env = os.environ.copy()
         my_env['TMPDIR'] = '.'
+        
+        # Set the locale to C for consistent sorting
+        my_env['LC_ALL'] = 'C'
 
         procs = []
         for i in range(len(args)):
