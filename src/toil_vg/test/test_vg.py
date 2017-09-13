@@ -132,6 +132,7 @@ class VGCGLTest(TestCase):
         '''
         self.test_vg_graph = self._ci_input_path('small.vg')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
+        self._download_input('NA12877.brca1.bam_1.fq.gz')
         
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
@@ -182,6 +183,12 @@ class VGCGLTest(TestCase):
         # check running mapeval on the vg graph
         
         os.remove(os.path.join(self.local_outstore, 'stats.tsv'))
+
+        self._run('toil-vg', 'sim', self.jobStoreLocal,
+                  os.path.join(self.local_outstore, 'small.xg'), '2000',
+                  self.local_outstore, '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                  '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '0',
+                  '--fastq', os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz'))
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,
                   self.local_outstore,
