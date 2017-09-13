@@ -240,7 +240,7 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos):
 
         
         merged_gam_id = context.write_output_file(job, merged_gam_file)
-        merged_gam_annot_id = context.write_output_file(job, merged_annot_gam_file)
+        merged_gam_annot_id = context.write_intermediate_file(job, merged_annot_gam_file)
         true_id = context.write_output_file(job, sorted_true_file)
 
         return merged_gam_id, merged_gam_annot_id, true_id
