@@ -22,7 +22,7 @@ from toil_vg.iostore import IOStore
 logger = logging.getLogger(__name__)
 
 # We need to fiddle with os.environ and we don't want to step on ourselves
-environment_lock = threading.lock()
+environment_lock = threading.Lock()
 
 def test_docker():
     """
