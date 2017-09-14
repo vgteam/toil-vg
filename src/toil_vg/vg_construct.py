@@ -78,7 +78,9 @@ def construct_subparser(parser):
     parser.add_argument("--xg_index", action="store_true",
                         help="Make an xg index for each output graph")
     parser.add_argument("--haplo_sample", type=str,
-                        help="Make haplotype thread graphs (for simulating from) for this sample")    
+                        help="Make haplotype thread graphs (for simulating from) for this sample")
+    parser.add_argument("--primary", action="store_true",
+                        help="Make the primary graph (no variants)")
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -111,12 +113,14 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
     return context.write_intermediate_file(job, fasta_file[:-3])
         
 def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
-                            regions, output_name, filter_samples = None, haplo_sample = None):
+                            regions, output_name, filter_samples = None, haplo_sample = None,
+                            do_primary = False):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
     - positive control
     - negative control
     - family filter
+    - primary
     returns a dictionary of name -> (vcf_id, vcf_name, tbi_id, merge_name, region_names) tuples
     where name can be used to, ex, tell the controls apart
     """
@@ -212,7 +216,15 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
         
         output['haplo'] = (hap_control_vcf_ids, hap_control_vcf_names, hap_control_tbi_ids,
                            hap_output_name, hap_region_names)
-        
+
+    if do_primary:
+        if regions:
+            primary_region_names = [output_name + '_' + c.replace(':','-') + '_primary' for c in regions]
+        else:
+            primary_region_names = None
+
+        primary_output_name = output_name.rstrip('.vg') + '_primary.vg'.format(sample)
+        output['primary'] = ([], [], [], primary_output_name, primary_region_names)        
 
     return output
 
@@ -651,7 +663,8 @@ def construct_main(context, options):
                                                 options.regions,
                                                 options.out_name,
                                                 filter_samples,
-                                                options.haplo_sample)
+                                                options.haplo_sample,
+                                                options.primary)
 
             # Unzip the fasta
             for i, fasta in enumerate(options.fasta):
