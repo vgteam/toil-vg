@@ -190,8 +190,8 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
 
     # we want a vcf to make a gpbwt out of for making haplo graphs
     if haplo_sample and haplo_sample != sample:
-        pos_control_vcf_ids, pos_control_tbi_ids = [], []
-        pos_control_vcf_names = []
+        hap_control_vcf_ids, hap_control_tbi_ids = [], []
+        hap_control_vcf_names = []
 
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
@@ -199,19 +199,19 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
                                               cores=context.config.construct_cores,
                                               memory=context.config.construct_mem,
                                               disk=context.config.construct_disk)
-            pos_control_vcf_ids.append(make_controls.rv(0))
-            pos_control_tbi_ids.append(make_controls.rv(1))
+            hap_control_vcf_ids.append(make_controls.rv(0))
+            hap_control_tbi_ids.append(make_controls.rv(1))
 
             vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
-            pos_control_vcf_names.append('{}_{}.vcf.gz'.format(vcf_base, haplo_sample))
+            hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
         if regions:
-            pos_region_names = [output_name + '_' + c.replace(':','-') + '_{}'.format(haplo_sample) for c in regions]
+            hap_region_names = [output_name + '_' + c.replace(':','-') + '_{}'.format(haplo_sample) for c in regions]
         else:
-            pos_region_names = None
-        pos_output_name = output_name.rstrip('.vg') + '_{}.vg'.format(sample)
+            hap_region_names = None
+        hap_output_name = output_name.rstrip('.vg') + '_{}_haplo.vg'.format(sample)
         
-        output['haplo'] = (pos_control_vcf_ids, pos_control_vcf_names, pos_control_tbi_ids,
-                           pos_output_name, pos_region_names)
+        output['haplo'] = (hap_control_vcf_ids, hap_control_vcf_names, hap_control_tbi_ids,
+                           hap_output_name, hap_region_names)
         
 
     return output
@@ -229,10 +229,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
     output = []
     
     for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
-        if name == 'haplo':
-            continue
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
-        gpbwt = name == 'base' and 'haplo' in vcf_inputs        
+        gpbwt = name == 'haplo'
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gpbwt or alt_paths, flat_alts, regions,
