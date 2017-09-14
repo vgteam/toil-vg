@@ -238,7 +238,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         vg_ids = construct_job.rv()
         vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
 
-        if gcsa_index:
+        if gcsa_index and not gpbwt:
             if not regions:
                 paths = []
             else:
