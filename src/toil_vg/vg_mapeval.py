@@ -685,7 +685,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     versions of existing entries.
     
     """
-    RealtimeLogger.info('Running map eval for GAMs '.format(",".join(gam_name for gam_name in gam_names)))
+    RealtimeLogger.info('Running map eval for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
 
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id[0] for index_id in index_ids]
@@ -711,7 +711,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     if do_vg_mapping and multipath:
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
-                                                  'input.gam', 'aligned-{}'.format(gam_names[i]),
+                                                  'input.gam', 'aligned-{}-mp'.format(gam_names[i]),
                                                   False, True, index_id[0], index_id[1],
                                                   None, [reads_gam_file_id],
                                                   cores=context.config.misc_cores,
@@ -720,7 +720,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # make sure associated lists are extended to fit new paired end mappings
         for i in range(len(xg_ids)):
             xg_ids.append(xg_ids[i])
-            gam_names.append(gam_names[i] + '-mp')
+            gam_names.append(gam_names[i])
 
     if do_vg_mapping and do_vg_paired:
         # run paired end version of all vg inputs if --pe-gams specified
@@ -751,7 +751,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # make sure associated lists are extended to fit new paired end mappings
         for i in range(len(xg_ids)):
             xg_ids.append(xg_ids[i])
-            gam_names.append(gam_names[i] + '-mp-pe')
+            gam_names.append(gam_names[i])
     
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
