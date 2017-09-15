@@ -449,6 +449,16 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
                  '-d', os.path.basename(gam_index_path), '-t', str(context.config.gam_index_cores)]
     context.runner.call(job, index_cmd, work_dir = work_dir)
 
+    # index on nodes in the alignments
+    aln_index_path = gam_path + '.node.index'
+    index_cmd = [['vg', 'index', '-A', '-d',  os.path.basename(gam_index_path)]]
+    index_cmd.append(['vg', 'index', '-N', '-', '-d', os.path.basename(aln_index_path),
+                      '-t', str(context.config.gam_index_cores)])
+    context.runner.call(job, index_cmd, work_dir = work_dir)
+
+    # get rid of sort index
+    shutil.rmtree(gam_index_path)
+
     # Write a list of paths
     path_list = os.path.join(work_dir, 'path_list.txt')
     offset_map = dict()
@@ -460,7 +470,7 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
     # Chunk the graph and gam, using the xg and rocksdb indexes
     output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_path),
-                 '-a', os.path.basename(gam_index_path), '-c', str(context.config.chunk_context),
+                 '-a', os.path.basename(aln_index_path), '-c', str(context.config.chunk_context),
                  '-P', os.path.basename(path_list),
                  '-g',
                  '-s', str(context.config.call_chunk_size),
@@ -468,7 +478,8 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
                  '-b', 'call_chunk_{}'.format(tag),
                  '-t', str(context.config.call_chunk_cores),
                  '-E', os.path.basename(output_bed_chunks_path),
-                 '-f']
+                 '-f',
+                 '-A']
     context.runner.call(job, chunk_cmd, work_dir=work_dir)
 
     # Scrape the BED into memory
