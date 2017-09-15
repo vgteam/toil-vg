@@ -685,7 +685,6 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     versions of existing entries.
     
     """
-    RealtimeLogger.info('Running map eval for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
 
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id[0] for index_id in index_ids]
@@ -720,7 +719,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # make sure associated lists are extended to fit new paired end mappings
         for i in range(len(xg_ids)):
             xg_ids.append(xg_ids[i])
-            gam_names.append(gam_names[i])
+            gam_names.append(gam_names[i] + '-mp')
 
     if do_vg_mapping and do_vg_paired:
         # run paired end version of all vg inputs if --pe-gams specified
@@ -751,7 +750,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # make sure associated lists are extended to fit new paired end mappings
         for i in range(len(xg_ids)):
             xg_ids.append(xg_ids[i])
-            gam_names.append(gam_names[i])
+            gam_names.append(gam_names[i] + '-mp-pe')
     
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
@@ -761,8 +760,10 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                              fasta_file_id, bwa_index_ids,
                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                              disk=context.config.alignment_disk).rv()
-    
-    return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids    
+
+    RealtimeLogger.info('Running map eval for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
+
+    return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids
     
 def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
@@ -787,7 +788,9 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     Each result set is itself a pair, consisting of a list of per-graph file IDs, and an overall statistics file ID.
     
     """
-
+    
+    RealtimeLogger.info('Running map eval comparison for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
+    
     # munge out the returned pair from run_bwa_index()
     if bwa_bam_file_ids[0] is not None:
         bam_file_ids.append(bwa_bam_file_ids[0])
@@ -843,6 +846,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         gam_stats_file_ids.append(gam_stats_jobs[-1].rv())
     
+    RealtimeLogger.info('Running position comparison for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
@@ -855,7 +859,8 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     for dependency in itertools.chain(gam_stats_jobs, bam_stats_jobs):
         dependency.addFollowOn(position_comparison_job)
     position_comparison_results = position_comparison_job.rv()
-    
+
+    RealtimeLogger.info('Running score comparison for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
     
     # This will map from baseline name to score comparison data against that
     # baseline
