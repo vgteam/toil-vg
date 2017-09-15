@@ -762,10 +762,6 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                              disk=context.config.alignment_disk).rv()
 
-    RealtimeLogger.info('Running map eval')
-    RealtimeLogger.info(gam_names)
-
-
     return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids
     
 def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
@@ -791,9 +787,6 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     Each result set is itself a pair, consisting of a list of per-graph file IDs, and an overall statistics file ID.
     
     """
-    
-    RealtimeLogger.info('Running map eval comparison')
-    RealtimeLogger.info(gam_names)
     
     # munge out the returned pair from run_bwa_index()
     if bwa_bam_file_ids[0] is not None:
@@ -849,9 +842,6 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                                                             disk=context.config.misc_disk))
         
         gam_stats_file_ids.append(gam_stats_jobs[-1].rv())
-    
-    RealtimeLogger.info('Running position comparison')
-    RealtimeLogger.info(gam_names)
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
@@ -864,9 +854,6 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     for dependency in itertools.chain(gam_stats_jobs, bam_stats_jobs):
         dependency.addFollowOn(position_comparison_job)
     position_comparison_results = position_comparison_job.rv()
-
-    RealtimeLogger.info('Running score comparison')
-    RealtimeLogger.info(gam_names)
     
     # This will map from baseline name to score comparison data against that
     # baseline
