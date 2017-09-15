@@ -689,6 +689,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id[0] for index_id in index_ids]
 
+    num_xgs = len(xg_ids)
     # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
     if '-A' not in context.config.mpmap_opts and '--no-qual-adjust' not in context.config.mpmap_opts:
         context.config.mpmap_opts.append('-A')
@@ -717,7 +718,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
         # make sure associated lists are extended to fit new paired end mappings
-        for i in range(len(xg_ids)):
+        for i in range(num_xgs):
             xg_ids.append(xg_ids[i])
             gam_names.append(gam_names[i] + '-mp')
 
@@ -732,7 +733,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
             
         # make sure associated lists are extended to fit new paired end mappings
-        for i in range(len(xg_ids)):
+        for i in range(num_xgs):
             xg_ids.append(xg_ids[i])
             gam_names.append(gam_names[i] + '-pe')
 
@@ -748,7 +749,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
         
         # make sure associated lists are extended to fit new paired end mappings
-        for i in range(len(xg_ids)):
+        for i in range(num_xgs):
             xg_ids.append(xg_ids[i])
             gam_names.append(gam_names[i] + '-mp-pe')
     
@@ -761,7 +762,9 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                              disk=context.config.alignment_disk).rv()
 
-    RealtimeLogger.info('Running map eval for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
+    RealtimeLogger.info('Running map eval')
+    RealtimeLogger.info(gam_names)
+
 
     return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids
     
@@ -789,7 +792,8 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     
     """
     
-    RealtimeLogger.info('Running map eval comparison for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
+    RealtimeLogger.info('Running map eval comparison')
+    RealtimeLogger.info(gam_names)
     
     # munge out the returned pair from run_bwa_index()
     if bwa_bam_file_ids[0] is not None:
@@ -846,7 +850,8 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         gam_stats_file_ids.append(gam_stats_jobs[-1].rv())
     
-    RealtimeLogger.info('Running position comparison for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
+    RealtimeLogger.info('Running position comparison')
+    RealtimeLogger.info(gam_names)
 
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
@@ -860,7 +865,8 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         dependency.addFollowOn(position_comparison_job)
     position_comparison_results = position_comparison_job.rv()
 
-    RealtimeLogger.info('Running score comparison for GAMs '.format(", ".join(gam_name for gam_name in gam_names)))
+    RealtimeLogger.info('Running score comparison')
+    RealtimeLogger.info(gam_names)
     
     # This will map from baseline name to score comparison data against that
     # baseline
