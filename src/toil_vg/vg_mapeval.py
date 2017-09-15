@@ -685,6 +685,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     versions of existing entries.
     
     """
+    RealtimeLogger.info('Running map eval for GAMs '.format(",".join(gam_name for gam_name in gam_names)))
 
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id[0] for index_id in index_ids]
