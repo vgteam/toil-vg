@@ -364,21 +364,11 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
             if len(toks) == 3:
                 ranges.write('{}:{}\n'.format(toks[1], toks[2]))
  
-    # index on coordinates (sort)
+    # index on node positions
     output_index = gam_file + '.index'    
     index_cmd = ['vg', 'index', '-a', os.path.basename(gam_file),
                  '-d', os.path.basename(output_index), '-t', str(context.config.gam_index_cores)]
     context.runner.call(job, index_cmd, work_dir = work_dir)
-
-    # index on nodes in the alignments
-    aln_index = gam_file + '.node.index'
-    index_cmd = [['vg', 'index', '-A', '-d',  os.path.basename(output_index)]]
-    index_cmd.append(['vg', 'index', '-N', '-', '-d', os.path.basename(aln_index),
-                      '-t', str(context.config.gam_index_cores)])
-    context.runner.call(job, index_cmd, work_dir = work_dir)
-
-    # get rid of sort index
-    shutil.rmtree(output_index)
         
     # Chunk the alignment into chromosomes using the id ranges
     # (note by using id ranges and 0 context and -a we avoid costly subgraph extraction)
@@ -389,7 +379,7 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
     # Note: using -a -c 0 -R bypasses subgraph extraction, which is important
     # as it saves a ton of time and memory
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_file),
-                 '-a', os.path.basename(aln_index), '-c', '0',
+                 '-a', os.path.basename(output_index), '-c', '0',
                  '-R', os.path.basename(cid_ranges_file),
                  '-b', os.path.splitext(os.path.basename(gam_file))[0],
                  '-t', str(context.config.alignment_cores),
