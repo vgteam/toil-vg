@@ -104,7 +104,7 @@ def run_mapping(job, context, fastq, gam_input_reads, sample_name, interleaved, 
                                             disk=context.config.misc_disk).rv()
     else:
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
-        reads_chunk_ids = [reads_file_ids]
+        reads_chunk_ids = [[r] for r in reads_file_ids]
     
     return job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, sample_name, interleaved,
                                 multipath, xg_file_id, gcsa_and_lcp_ids,
