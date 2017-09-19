@@ -193,19 +193,26 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
                             filter_output_name, filter_region_names)
 
     # we want a vcf to make a gpbwt out of for making haplo graphs
-    if haplo_sample and haplo_sample != sample:
+    # we re-use the vcf from the positive control if available, but we give it a
+    # different name and construct different .vg graphs going forward to allow for
+    # different construction (ie the haplo graph will always get alt paths that we don't
+    # necessarily want in the control)
+    if haplo_sample:
         hap_control_vcf_ids, hap_control_tbi_ids = [], []
         hap_control_vcf_names = []
 
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
-            make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
-                                              pos_only = True,
-                                              cores=context.config.construct_cores,
-                                              memory=context.config.construct_mem,
-                                              disk=context.config.construct_disk)
-            hap_control_vcf_ids.append(make_controls.rv(0))
-            hap_control_tbi_ids.append(make_controls.rv(1))
-
+            if haplo_sample != sample:
+                make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
+                                                  pos_only = True,
+                                                  cores=context.config.construct_cores,
+                                                  memory=context.config.construct_mem,
+                                                  disk=context.config.construct_disk)
+                hap_control_vcf_ids.append(make_controls.rv(0))
+                hap_control_tbi_ids.append(make_controls.rv(1))
+            else:
+                hap_control_vcf_ids = pos_control_vcf_ids
+                hap_control_tbi_ids = pos_control_tbi_ids
             vcf_base = os.path.basename(vcf_name.rstrip('.gz').rstrip('.vcf'))
             hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
         if regions:
