@@ -263,8 +263,14 @@ to do: Should go somewhere more central """
             else:
                 stdout = subprocess.PIPE
 
-            procs.append(subprocess.Popen(args[i], stdout=stdout, stderr=errfile,
-                                          stdin=stdin, cwd=work_dir, env=my_env))
+            try:
+                procs.append(subprocess.Popen(args[i], stdout=stdout, stderr=errfile,
+                                              stdin=stdin, cwd=work_dir, env=my_env))
+            except OSError as e:
+                # the default message: OSError: [Errno 13] Permission denied is a bit cryptic
+                # so we print something a bit more explicit if a command isn't found
+                if e.errno == 13 and not find_executable(args[i][0]):
+                    raise RuntimeError('Command not found: {}'.format(args[i][0]))
             
         for p in procs[:-1]:
             p.stdout.close()
@@ -272,7 +278,7 @@ to do: Should go somewhere more central """
         output, errors = procs[-1].communicate()
         for i, proc in enumerate(procs):
             sts = proc.wait()
-            if sts != 0:            
+            if sts != 0:
                 raise Exception("Command {} returned with non-zero exit status {}".format(
                     " ".join(args[i]), sts))
 
