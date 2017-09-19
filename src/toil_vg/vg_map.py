@@ -317,7 +317,17 @@ def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved,
         # Mark when we start the alignment
         start_time = timeit.default_timer()
         command = vg_parts
-        context.runner.call(job, command, work_dir = work_dir, outfile=alignment_file)
+        try:
+            context.runner.call(job, command, work_dir = work_dir, outfile=alignment_file)
+        except:
+            # Dump everything we need to replicate the alignment
+            context.write_output_file(job, xg_file)
+            context.write_output_file(job, gcsa_file)
+            context.write_output_file(job, gcsa_file + '.lcp')
+            for reads_file in reads_files:
+                context.write_output_file(job, reads_file)
+            
+            raise
         
         # Mark when it's done
         end_time = timeit.default_timer()
