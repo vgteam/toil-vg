@@ -54,6 +54,8 @@ def sim_subparser(parser):
                         help="random seed")
     parser.add_argument("--fastq", type=make_url,
                         help="use error profile derived from given reads (ignores -l, -N, -f from sim_opts)")
+    parser.add_argument("--out_name", type=str,
+                        help="prefix for output file names")
                         
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -66,7 +68,8 @@ def validate_sim_options(options):
             ' sim-opts cannot contain -x, -n, -s or -a')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     
-def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id, fastq_id = None):
+def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id,
+            fastq_id = None, out_name = None):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
@@ -99,7 +102,7 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
                                                 disk=context.config.sim_disk).rv()
             sim_out_id_infos.append(sim_out_id_info)
 
-    return job.addFollowOnJobFn(run_merge_sim_chunks, context, gam, sim_out_id_infos,
+    return job.addFollowOnJobFn(run_merge_sim_chunks, context, gam, sim_out_id_infos, out_name,
                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                 disk=context.config.sim_disk).rv()
 
@@ -186,7 +189,7 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
         return gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id
         
 
-def run_merge_sim_chunks(job, context, gam, sim_out_id_infos):
+def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
     """
     merge the sim output
     """
@@ -194,9 +197,11 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos):
 
     work_dir = job.fileStore.getLocalTempDir()
 
+    name_pre = '' if not out_name else '{}_'.format(out_name)
+
     if not gam:
         # merge up the reads files
-        merged_reads_file = os.path.join('sim_reads')
+        merged_reads_file = os.path.join('{}sim_reads'.format(name_pre))
         with open(merged_reads_file, 'a') as out_reads:
             for i, reads_file_id in enumerate(sim_out_id_infos):
                 reads_file = os.path.join(work_dir, 'sim_reads_{}'.format(i))
@@ -208,8 +213,8 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos):
     
     else:
         # merge up the gam files
-        merged_gam_file = os.path.join(work_dir, 'sim.gam')
-        merged_annot_gam_file = os.path.join(work_dir, 'sim_annot.gam')
+        merged_gam_file = os.path.join(work_dir, '{}sim.gam'.format(name_pre))
+        merged_annot_gam_file = os.path.join(work_dir, '{}sim_annot.gam'.format(name_pre))
         merged_true_file = os.path.join(work_dir, 'true.pos.unsorted')
         
         with open(merged_gam_file, 'a') as out_gam, \
@@ -233,7 +238,7 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos):
                     shutil.copyfileobj(rf, out_true)
 
         # sort the positions file
-        sorted_true_file = os.path.join(work_dir, 'true.pos')
+        sorted_true_file = os.path.join(work_dir, '{}true.pos'.format(name_pre))
         sort_cmd = ['sort', os.path.basename(merged_true_file)]
         with open(sorted_true_file, 'w') as out_true:
             context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_true)
@@ -293,6 +298,7 @@ def sim_main(context, options):
                                      inputXGFileIDs,
                                      inputAnnotXGFileID,
                                      inputFastqFileID,
+                                     options.out_name,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
