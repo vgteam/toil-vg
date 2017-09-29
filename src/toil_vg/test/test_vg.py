@@ -307,15 +307,15 @@ class VGCGLTest(TestCase):
                   '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                   '--out_name', 'snp1kg-BRCA1', '--control_sample', 'HG00096',
                   '--filter_ceph', '--realTimeLogging', '--logInfo',
-                  '--haplo_sample', 'HG00096')
+                  '--haplo_sample', 'HG00096', '--min_af', '0.6')
 
         # This is a fairly superficial check without adding machinery to read vg files
         # Make sure output files exist and that they have expected relative sizes.
         # Todo: better correctness checks (maybe compare to hand-generated data?
         prev_vg_size = None
         prev_vcf_size = None
-        for ext in ['', '_filter', '_minus_HG00096', '_HG00096_haplo', '_HG00096']:
-            if ext and ext != '_HG00096_haplo':
+        for ext in ['', '_filter', '_minus_HG00096', '_HG00096_haplo', '_HG00096', '_minaf_0.6']:
+            if ext and ext not in ['_HG00096_haplo', '_minaf_0.6']:
                 vcf_file = os.path.join(self.local_outstore, '1kg_hg38-BRCA1{}.vcf.gz'.format(ext))
 
                 assert os.path.isfile(vcf_file)

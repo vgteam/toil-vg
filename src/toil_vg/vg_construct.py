@@ -81,6 +81,11 @@ def construct_subparser(parser):
                         help="Make haplotype thread graphs (for simulating from) for this sample")
     parser.add_argument("--primary", action="store_true",
                         help="Make the primary graph (no variants)")
+    parser.add_argument("--no_base", action="store_true",
+                        help="Do not construct base graph from input vcf.  Only make optional controls")
+    parser.add_argument("--min_af", type=float, default=None,
+                        help="Create a control using the given minium allele frequency") 
+    
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -114,20 +119,22 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
         
 def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name, filter_samples = None, haplo_sample = None,
-                            do_primary = False):
+                            do_primary = False, min_af = None, make_base_graph = True):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
     - positive control
     - negative control
     - family filter
     - primary
+    - thresholded by a given minimum allele frequency
     returns a dictionary of name -> (vcf_id, vcf_name, tbi_id, merge_name, region_names) tuples
     where name can be used to, ex, tell the controls apart
     """
     # our input vcf
     output = dict()
-    output['base'] = (vcf_ids, vcf_names, tbi_ids, output_name,
-                      [c.replace(':','-') for c in regions] if regions else None)
+    if make_base_graph:
+        output['base'] = (vcf_ids, vcf_names, tbi_ids, output_name,
+                          [c.replace(':','-') for c in regions] if regions else None)
     
     # our positive and negative controls
     if sample:
@@ -231,7 +238,32 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             primary_region_names = None
 
         primary_output_name = output_name.rstrip('.vg') + '_primary.vg'.format(sample)
-        output['primary'] = ([], [], [], primary_output_name, primary_region_names)        
+        output['primary'] = ([], [], [], primary_output_name, primary_region_names)
+
+    if min_af is not None:
+        af_vcf_ids, af_tbi_ids = [], []
+        af_vcf_names = []
+
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            af_job = job.addChildJobFn(run_min_allele_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
+                                       min_af,
+                                       cores=context.config.construct_cores,
+                                       memory=context.config.construct_mem,
+                                       disk=context.config.construct_disk)
+
+            af_vcf_ids.append(af_job.rv(0))
+            af_tbi_ids.append(af_job.rv(1))
+
+            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+            af_vcf_names.append('{}_minaf_{}.vcf.gz'.format(vcf_base, min_af))
+        if regions:
+            af_region_names = [output_name + '_' + c.replace(':','-') + '_af' for c in regions]
+        else:
+            af_region_names = None
+        af_output_name = remove_ext(output_name, '.vg') + '_minaf_{}.vg'.format(min_af)
+
+        output['minaf'] = (af_vcf_ids, af_vcf_names, af_tbi_ids,
+                           af_output_name, af_region_names)
 
     return output
 
@@ -525,6 +557,35 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
 
     return pos_control_vcf_id, pos_control_tbi_id, neg_control_vcf_id, neg_control_tbi_id
 
+def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, min_af):
+    """
+    filter a vcf by allele frequency using bcftools --min-af
+    """
+    if not min_af:
+        return vcf_id, tbi_id
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
+    job.fileStore.readGlobalFile(vcf_id, vcf_file)
+    job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
+
+    vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+    af_vcf_name = '{}_minaf_{}.vcf.gz'.format(vcf_base, min_af)
+
+    cmd = ['bcftools', 'view', '--min-af', min_af, '-O', 'z', os.path.basename(vcf_file)]
+    with open(os.path.join(work_dir, af_vcf_name), 'w') as out_file:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile=out_file)
+
+    out_vcf_id = context.write_output_file(job, os.path.join(work_dir, af_vcf_name))
+
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', af_vcf_name],
+                        work_dir=work_dir)
+                                        
+    out_tbi_id = context.write_output_file(job, os.path.join(work_dir, af_vcf_name) + '.tbi')
+    
+    return out_vcf_id, out_tbi_id
+
 def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
     """
     concatenate a list of vcfs.  we do this because vg index -v only takes one vcf, and
@@ -671,7 +732,9 @@ def construct_main(context, options):
                                                 options.out_name,
                                                 filter_samples,
                                                 options.haplo_sample,
-                                                options.primary)
+                                                options.primary,
+                                                options.min_af,
+                                                not options.no_base)
 
             # Unzip the fasta
             for i, fasta in enumerate(options.fasta):
