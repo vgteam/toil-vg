@@ -97,7 +97,7 @@ def add_mapeval_options(parser):
     parser.add_argument('--bwa-paired', action='store_true',
                         help='run bwa mem paired end as well')
     parser.add_argument('--fasta', type=make_url, default=None,
-                        help='fasta sequence file (required for bwa)')
+                        help='fasta sequence file (required for bwa. if a bwa index exists for this file, it will be used)')
     parser.add_argument('--gam-reads', type=make_url, default=None,
                         help='reads in GAM format (required for bwa)')
 
@@ -215,20 +215,7 @@ def run_bwa_index(job, context, do_bwa, do_bwa_paired, gam_file_id, fasta_file_i
             # Upload all the index files created, and store their IDs under their extensions
             bwa_index_ids[idx_file[len(fasta_file):]] = context.write_intermediate_file(job, idx_file)
 
-    bwa_stats_file_id = None
-    bwa_pair_stats_file_id = None
-                    
-    if do_bwa:
-        bwa_stats_file_id = job.addChildJobFn(run_bwa_mem, context, gam_file_id, bwa_index_ids, False,
-                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                            disk=context.config.alignment_disk).rv()
-    if do_bwa_paired:
-        bwa_pair_stats_file_id = job.addChildJobFn(run_bwa_mem, context, gam_file_id, bwa_index_ids, True,
-                                                 cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                 disk=context.config.alignment_disk).rv()
-
-    return bwa_stats_file_id, bwa_pair_stats_file_id
-
+    return bwa_index_ids
     
 def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a gam.  optionally run in paired mode
@@ -760,11 +747,20 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
     if do_bwa or do_bwa_paired:
-        bwa_bam_file_ids = job.addChildJobFn(run_bwa_index, context,
-                                             do_bwa, do_bwa_paired, reads_gam_file_id,
-                                             fasta_file_id, bwa_index_ids,
-                                             cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                             disk=context.config.alignment_disk).rv()
+        bwa_index_job = job.addChildJobFn(run_bwa_index, context,
+                                          do_bwa, do_bwa_paired, reads_gam_file_id,
+                                          fasta_file_id, bwa_index_ids,
+                                          cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                          disk=context.config.alignment_disk)
+        bwa_index_ids = bwa_index_job.rv()
+        if do_bwa:
+            bwa_bam_file_ids[0] = bwa_index_job.addChildJobFn(run_bwa_mem, context, reads_gam_file_id, bwa_index_ids, False,
+                                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                              disk=context.config.alignment_disk).rv()
+        if do_bwa_paired:
+            bwa_bam_file_ids[1] = bwa_index_job.addChildJobFn(run_bwa_mem, context, reads_gam_file_id, bwa_index_ids, True,
+                                                               cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                               disk=context.config.alignment_disk).rv()
 
     return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids
     
@@ -1452,21 +1448,22 @@ def make_mapeval_plan(toil, options):
     if options.pe_bams:
         for bam in options.pe_bams:
             plan.pe_bam_file_ids.append(toil.importFile(bam))
-
+            
+    plan.fasta_file_id = None
+    plan.bwa_index_ids = None
     if options.fasta:
         plan.bwa_index_ids = dict()
         for suf in ['.amb', '.ann', '.bwt', '.pac', '.sa']:
             fidx = '{}{}'.format(options.fasta, suf)
-            if os.path.exists(fidx):
+            try:
                 plan.bwa_index_ids[suf] = toil.importFile(fidx)
-            else:
+            except:
+                logger.info('No bwa index found for {}, will regenerate'.format(options.fasta))
                 plan.bwa_index_ids = None
                 break
         if not plan.bwa_index_ids:
             plan.fasta_file_id = toil.importFile(options.fasta)
-    else:
-        plan.fasta_file_id = None
-        plan.bwa_index_ids = None
+            
     plan.true_read_stats_file_id = toil.importFile(options.truth)
 
     end_time = timeit.default_timer()
