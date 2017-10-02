@@ -271,6 +271,8 @@ to do: Should go somewhere more central """
                 # so we print something a bit more explicit if a command isn't found
                 if e.errno == 13 and not find_executable(args[i][0]):
                     raise RuntimeError('Command not found: {}'.format(args[i][0]))
+                else:
+                    raise e
             
         for p in procs[:-1]:
             p.stdout.close()
