@@ -1448,21 +1448,22 @@ def make_mapeval_plan(toil, options):
     if options.pe_bams:
         for bam in options.pe_bams:
             plan.pe_bam_file_ids.append(toil.importFile(bam))
-
+            
+    plan.fasta_file_id = None
+    plan.bwa_index_ids = None
     if options.fasta:
         plan.bwa_index_ids = dict()
         for suf in ['.amb', '.ann', '.bwt', '.pac', '.sa']:
             fidx = '{}{}'.format(options.fasta, suf)
-            if os.path.exists(fidx):
+            try:
                 plan.bwa_index_ids[suf] = toil.importFile(fidx)
-            else:
+            except:
+                logger.info('No bwa index found for {}, will regenerate'.format(options.fasta))
                 plan.bwa_index_ids = None
                 break
         if not plan.bwa_index_ids:
             plan.fasta_file_id = toil.importFile(options.fasta)
-    else:
-        plan.fasta_file_id = None
-        plan.bwa_index_ids = None
+            
     plan.true_read_stats_file_id = toil.importFile(options.truth)
 
     end_time = timeit.default_timer()
