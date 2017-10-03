@@ -160,10 +160,10 @@ class VGCGLTest(TestCase):
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gams', os.path.join(self.local_outstore, 'sample_default.gam'),
-                  '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                  '--maxCores', '8', '--bwa', '--bwa-paired', '--fasta', self.chrom_fa)
+                  '--gam-names', 'vg-pe', '--realTimeLogging', '--logInfo',
+                  '--maxCores', '8', '--bwa', '--paired-only', '--fasta', self.chrom_fa)
 
-        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'bwa-mem', 'bwa-mem-pe'], 0.9)
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'bwa-mem-pe'], 0.9)
 
         # check running mapeval on the indexes
 
@@ -175,10 +175,10 @@ class VGCGLTest(TestCase):
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                  '--alignment_cores', '8', '--vg-paired',
+                  '--alignment_cores', '8',
                   '--maxCores', '8', '--bwa', '--fasta', self.chrom_fa)
         
-        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem'], 0.8)
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.8)
 
         # check running mapeval on the vg graph
         
@@ -196,7 +196,7 @@ class VGCGLTest(TestCase):
                   '--vg-graphs', self.test_vg_graph,
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                  '--alignment_cores', '8',                  
+                  '--alignment_cores', '8', '--single-only',                  
                   '--maxCores', '8', '--fasta', self.chrom_fa)
         
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg'], 0.9)
@@ -355,27 +355,27 @@ class VGCGLTest(TestCase):
         with open(local_f1) as f1_file:
             f1_score = float(f1_file.readline().strip())
         print f1_score
-        self.assertTrue(f1_score >= f1_threshold)
+        self.assertGreaterEqual(f1_score, f1_threshold)
 
-    def _assertMapEvalOutput(self, outstore, count, names, acc_threshold):
+    def _assertMapEvalOutput(self, outstore, test_count, names, acc_threshold):
         with open(os.path.join(outstore, 'stats.tsv')) as stats:
             table = [line for line in stats]
         headers = set()
         for row in table[1:]:
             toks = row.split()
-            self.assertTrue(len(toks) == 6)
+            self.assertEqual(len(toks), 6)
             name, count, acc, auc, qqr, maxf1 = \
                 toks[0], int(toks[1]), float(toks[2]), float(toks[3]), float(toks[4]), float(toks[5])
             headers.add(name)
-            self.assertTrue(count == count)
-            self.assertTrue(acc > acc_threshold)
+            self.assertEqual(count, test_count)
+            self.assertGreater(acc, acc_threshold)
             # todo: look into this more. 
             #self.assertTrue(auc > 0.9)
             #self.assertTrue(qqur > -10)
-        self.assertTrue(headers == set(names))
+        self.assertEqual(headers, set(names))
         # make sure plots get drawn
-        self.assertTrue(os.path.getsize(os.path.join(outstore, 'plot-pr.svg')) > 0)
-        self.assertTrue(os.path.getsize(os.path.join(outstore, 'plot-qq.svg')) > 0)
+        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plot-pr.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plot-qq.svg')), 0)
                 
     def tearDown(self):
         shutil.rmtree(self.workdir)

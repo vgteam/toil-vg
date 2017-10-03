@@ -86,16 +86,16 @@ def add_mapeval_options(parser):
                         help='paired end aligned reads t compare to truth in BAM format')
     parser.add_argument('--pe-bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --pe-bams')
-    parser.add_argument('--vg-paired', action='store_true',
-                        help='if running vg map, do vg map -i as well')
+    parser.add_argument('--paired-only', action='store_true',
+                        help='only do paired-end alignment (default is to do single and paired)')
+    parser.add_argument('--single-only', action='store_true',
+                        help='only do single-end alignment (default is to do single and paired)')
     
     parser.add_argument('--mapeval-threshold', type=int, default=100,
                         help='distance between alignment and true position to be called correct')
 
     parser.add_argument('--bwa', action='store_true',
                         help='run bwa mem on the reads, and add to comparison')
-    parser.add_argument('--bwa-paired', action='store_true',
-                        help='run bwa mem paired end as well')
     parser.add_argument('--fasta', type=make_url, default=None,
                         help='fasta sequence file (required for bwa. if a bwa index exists for this file, it will be used)')
     parser.add_argument('--gam-reads', type=make_url, default=None,
@@ -142,7 +142,7 @@ def validate_options(options):
     """
     
     # check bwa / bam input parameters.  
-    if options.bwa or options.bwa_paired:
+    if options.bwa:
         require(options.gam_input_reads, '--gam_input_reads required for bwa')
         require(options.fasta, '--fasta required for bwa')
     if options.bams:
@@ -196,7 +196,7 @@ def parse_int(value):
     
     return int(value) if value.strip() != '' else 0
 
-def run_bwa_index(job, context, do_bwa, do_bwa_paired, gam_file_id, fasta_file_id, bwa_index_ids):
+def run_bwa_index(job, context, gam_file_id, fasta_file_id, bwa_index_ids):
     """
     Make a bwa index for a fast sequence if not given in input. then run bwa mem
     
@@ -664,7 +664,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_bwa_paired, do_vg_paired, multipath):
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, multipath):
     """
     Run alignments, if alignment files have not already been provided.
     
@@ -680,14 +680,17 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id[0] for index_id in index_ids]
 
-    num_xgs = len(xg_ids)
+    # the ids and names we pass forward
+    out_xg_ids = xg_ids if gam_file_ids else []
+    out_gam_names = gam_names if gam_file_ids else []
+
     # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
     if '-A' not in context.config.mpmap_opts and '--no-qual-adjust' not in context.config.mpmap_opts:
         context.config.mpmap_opts.append('-A')
     context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
     do_vg_mapping = not gam_file_ids
-    if do_vg_mapping:
+    if do_vg_mapping and do_single:
         gam_file_ids = []
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
@@ -698,8 +701,12 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
+        # make sure associated lists are extended
+        out_xg_ids += xg_ids
+        out_gam_names += gam_names
+
     # Do the single-ended multipath mapping
-    if do_vg_mapping and multipath:
+    if do_vg_mapping and multipath and do_single:
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
                                                   'input.gam', 'aligned-{}-mp'.format(gam_names[i]),
@@ -709,11 +716,10 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
 
         # make sure associated lists are extended to fit new paired end mappings
-        for i in range(num_xgs):
-            xg_ids.append(xg_ids[i])
-            gam_names.append(gam_names[i] + '-mp')
+        out_xg_ids += xg_ids
+        out_gam_names += [n + '-mp' for n in gam_names]
 
-    if do_vg_mapping and do_vg_paired:
+    if do_vg_mapping and do_paired:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
@@ -724,13 +730,11 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
             
         # make sure associated lists are extended to fit new paired end mappings
-        for i in range(num_xgs):
-            xg_ids.append(xg_ids[i])
-            gam_names.append(gam_names[i] + '-pe')
-
+        out_xg_ids += xg_ids
+        out_gam_names += [n + '-pe' for n in gam_names]
 
     # Do the paired-ended multipath mapping
-    if do_vg_mapping and do_vg_paired and multipath:
+    if do_vg_mapping and do_paired and multipath:
         for i, index_id in enumerate(index_ids):
             gam_file_ids.append(job.addChildJobFn(run_mapping, context, False,
                                                   'input.gam', 'aligned-{}-mp-pe'.format(gam_names[i]),
@@ -740,29 +744,28 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                   memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
         
         # make sure associated lists are extended to fit new paired end mappings
-        for i in range(num_xgs):
-            xg_ids.append(xg_ids[i])
-            gam_names.append(gam_names[i] + '-mp-pe')
+        out_xg_ids += xg_ids
+        out_gam_names += [n + '-mp-pe' for n in gam_names]
     
     # run bwa if requested
     bwa_bam_file_ids = [None, None]
-    if do_bwa or do_bwa_paired:
+    if do_bwa:
         bwa_index_job = job.addChildJobFn(run_bwa_index, context,
-                                          do_bwa, do_bwa_paired, reads_gam_file_id,
+                                          reads_gam_file_id,
                                           fasta_file_id, bwa_index_ids,
                                           cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                           disk=context.config.alignment_disk)
         bwa_index_ids = bwa_index_job.rv()
-        if do_bwa:
+        if do_single:
             bwa_bam_file_ids[0] = bwa_index_job.addChildJobFn(run_bwa_mem, context, reads_gam_file_id, bwa_index_ids, False,
                                                               cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                               disk=context.config.alignment_disk).rv()
-        if do_bwa_paired:
+        if do_paired:
             bwa_bam_file_ids[1] = bwa_index_job.addChildJobFn(run_bwa_mem, context, reads_gam_file_id, bwa_index_ids, True,
                                                                cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                                disk=context.config.alignment_disk).rv()
 
-    return gam_names, gam_file_ids, xg_ids, bwa_bam_file_ids
+    return out_gam_names, gam_file_ids, out_xg_ids, bwa_bam_file_ids
     
 def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
@@ -1340,7 +1343,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids, reads_gam_file_id,
                                                fasta_file_id, bwa_index_ids, options.bwa,
-                                               options.bwa_paired, options.vg_paired, options.multipath)
+                                               not options.paired_only, not options.single_only, options.multipath)
                                                
     # Unpack the alignment job's return values
     # TODO: we're clobbering input values...
