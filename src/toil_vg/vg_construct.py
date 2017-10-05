@@ -54,7 +54,9 @@ def construct_subparser(parser):
     parser.add_argument("--vcf", default=None, type=make_url, nargs='+',
                         help="Variants to make graph from (single vcf or 1/region in same order as --regions)")
     parser.add_argument("--regions", nargs='+',
-                        help="1-based inclusive VCF coordinates in the form SEQ:START-END")
+                        help="1-based inclusive VCF coordinates in the form of SEQ or SEQ:START-END")
+    parser.add_argument("--fasta_regions", action="store_true",
+                        help="Infer regions from fasta file.  If multiple vcfs specified, any regions found that are not in --regions will be added without variants (useful for decoy sequences)")    
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
@@ -84,7 +86,7 @@ def construct_subparser(parser):
     parser.add_argument("--no_base", action="store_true",
                         help="Do not construct base graph from input vcf.  Only make optional controls")
     parser.add_argument("--min_af", type=float, default=None,
-                        help="Create a control using the given minium allele frequency") 
+                        help="Create a control using the given minium allele frequency")
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -98,10 +100,12 @@ def validate_construct_options(options):
     """
     require(not options.haplo_sample or options.regions,
             '--regions required with --haplo_sample')
-    require(not options.vcf or len(options.vcf) == 1 or len(options.vcf) == len(options.regions),
-            'if many vcfs specified, must be same number as --regions')
+    require(not options.vcf or len(options.vcf) == 1 or len(options.vcf) <= len(options.regions),
+            'if many vcfs specified, cannot have more vcfs than --regions')
     require(len(options.fasta) == 1 or len(options.fasta) == len(options.regions),
             'if many fastas specified, must be same number as --regions')
+    require(len(options.fasta) == 1 or not options.fasta_regions,
+            '--fasta_regions currently only works when single fasta specified with --fasta')
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
     """
@@ -116,6 +120,32 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
     context.runner.call(job, ['bgzip', '-d', os.path.basename(fasta_file)], work_dir=work_dir)
 
     return context.write_intermediate_file(job, fasta_file[:-3])
+
+def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None):
+    """
+    if no regions specified, scrape them out of the (uncompressed) fasta
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Download input files
+    fasta_file = os.path.join(work_dir, os.path.basename(fasta_name))
+    job.fileStore.readGlobalFile(fasta_id, fasta_file)
+    
+    # reluctant to use slow python library, so just running grep instead
+    cmd = ['grep', '>', os.path.basename(fasta_file)]
+    grep_output = context.runner.call(job, cmd, work_dir = work_dir,
+                                      check_output = True, tool_name='bgzip')
+
+    # just taking first whitespace-separated token.  that's what corresponds to hs37d5 vcf
+    seq_names = [] if not regions else regions
+    for line in grep_output.split('\n'):
+        if len(line) > 1:
+            name = line.split()[0]
+            if name.startswith('>'):
+                seq_names.append(name[1:])
+    
+    return seq_names    
         
 def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name, filter_samples = None, haplo_sample = None,
@@ -133,8 +163,8 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
     # our input vcf
     output = dict()
     if make_base_graph:
-        output['base'] = (vcf_ids, vcf_names, tbi_ids, output_name,
-                          [c.replace(':','-') for c in regions] if regions else None)
+        output['base'] = [vcf_ids, vcf_names, tbi_ids, output_name,
+                          [output_name + '_' + c.replace(':','-') for c in regions] if regions else None]
     
     # our positive and negative controls
     if sample:
@@ -164,11 +194,11 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
         pos_output_name = remove_ext(output_name, '.vg') + '_{}.vg'.format(sample)
         neg_output_name = remove_ext(output_name, '.vg') + '_minus_{}.vg'.format(sample)
 
-        output['pos-control'] = (pos_control_vcf_ids, pos_control_vcf_names, pos_control_tbi_ids,
-                                 pos_output_name, pos_region_names)
+        output['pos-control'] = [pos_control_vcf_ids, pos_control_vcf_names, pos_control_tbi_ids,
+                                 pos_output_name, pos_region_names]
 
-        output['neg-control'] = (neg_control_vcf_ids, neg_control_vcf_names, neg_control_tbi_ids,
-                                 neg_output_name, neg_region_names)
+        output['neg-control'] = [neg_control_vcf_ids, neg_control_vcf_names, neg_control_tbi_ids,
+                                 neg_output_name, neg_region_names]
 
         if haplo_sample and haplo_sample == sample:
             output['haplo'] = output['pos-control']
@@ -196,8 +226,8 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             filter_region_names = None
         filter_output_name = remove_ext(output_name, '.vg') + '_filter.vg'
 
-        output['filter'] = (filter_vcf_ids, filter_vcf_names, filter_tbi_ids,
-                            filter_output_name, filter_region_names)
+        output['filter'] = [filter_vcf_ids, filter_vcf_names, filter_tbi_ids,
+                            filter_output_name, filter_region_names]
 
     # we want a vcf to make a gpbwt out of for making haplo graphs
     # we re-use the vcf from the positive control if available, but we give it a
@@ -228,8 +258,8 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             hap_region_names = None
         hap_output_name = output_name.rstrip('.vg') + '_{}_haplo.vg'.format(sample)
         
-        output['haplo'] = (hap_control_vcf_ids, hap_control_vcf_names, hap_control_tbi_ids,
-                           hap_output_name, hap_region_names)
+        output['haplo'] = [hap_control_vcf_ids, hap_control_vcf_names, hap_control_tbi_ids,
+                           hap_output_name, hap_region_names]
 
     if do_primary:
         if regions:
@@ -238,7 +268,7 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             primary_region_names = None
 
         primary_output_name = output_name.rstrip('.vg') + '_primary.vg'.format(sample)
-        output['primary'] = ([], [], [], primary_output_name, primary_region_names)
+        output['primary'] = [[], [], [], primary_output_name, primary_region_names]
 
     if min_af is not None:
         af_vcf_ids, af_tbi_ids = [], []
@@ -262,8 +292,17 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             af_region_names = None
         af_output_name = remove_ext(output_name, '.vg') + '_minaf_{}.vg'.format(min_af)
 
-        output['minaf'] = (af_vcf_ids, af_vcf_names, af_tbi_ids,
-                           af_output_name, af_region_names)
+        output['minaf'] = [af_vcf_ids, af_vcf_names, af_tbi_ids,
+                           af_output_name, af_region_names]
+
+    # pad out vcf lists with nones so they are the same size as regions
+    # since we allow fasta regions that dont have corresponding vcf
+    if regions and len(regions) > len(vcf_ids):
+        padding = [None] * (len(regions) - len(vcf_ids))
+        for key, val in output.items():
+            val[0] += padding
+            val[1] += padding
+            val[2] += padding
 
     return output
 
@@ -443,8 +482,8 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         cmd += ['-v', os.path.basename(vcf_file)]
     if region:
         cmd += ['-R', region]
-    if is_chrom:
-        cmd += ['-C']
+        if is_chrom:
+            cmd += ['-C']
     if max_node_size:
         cmd += ['-m', max_node_size]
     if alt_paths:
@@ -724,30 +763,42 @@ def construct_main(context, options):
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
 
-            # Automatically make and name a bunch of vcfs
-            vcf_job = init_job.addFollowOnJobFn(run_generate_input_vcfs, context, options.control_sample,
-                                                inputVCFFileIDs, inputVCFNames,
-                                                inputTBIFileIDs, 
-                                                options.regions,
-                                                options.out_name,
-                                                filter_samples,
-                                                options.haplo_sample,
-                                                options.primary,
-                                                options.min_af,
-                                                not options.no_base)
-
             # Unzip the fasta
             for i, fasta in enumerate(options.fasta):
                 if fasta.endswith('.gz'):
-                    inputFastaFileIDs[i] = vcf_job.addChildJobFn(run_unzip_fasta, context, inputFastaFileIDs[i], 
-                                                                 os.path.basename(fasta)).rv()
+                    inputFastaFileIDs[i] = init_job.addChildJobFn(run_unzip_fasta, context, inputFastaFileIDs[i], 
+                                                                  os.path.basename(fasta)).rv()
                     inputFastaNames[i] = inputFastaNames[i][:-3]
+
+            # Extract fasta sequence names and append them to regions
+            if options.fasta_regions:
+                scrape_fasta_job = init_job.addFollowOnJobFn(run_scan_fasta_sequence_names, context,
+                                                             inputFastaFileIDs[0],
+                                                             inputFastaNames[0],
+                                                             options.regions)
+                cur_job = scrape_fasta_job
+                regions = scrape_fasta_job.rv()
+            else:
+                cur_job = init_job
+                regions = options.regions
+
+            # Automatically make and name a bunch of vcfs
+            vcf_job = cur_job.addFollowOnJobFn(run_generate_input_vcfs, context, options.control_sample,
+                                               inputVCFFileIDs, inputVCFNames,
+                                               inputTBIFileIDs, 
+                                               regions,
+                                               options.out_name,
+                                               filter_samples,
+                                               options.haplo_sample,
+                                               options.primary,
+                                               options.min_af,
+                                               not options.no_base)
                 
             # Cosntruct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
-                                     options.flat_alts, options.regions, options.merge_graphs,
+                                     options.flat_alts, regions, options.merge_graphs,
                                      True, True, options.gcsa_index, options.xg_index, options.haplo_sample)
             
             # Run the workflow
