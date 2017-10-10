@@ -227,7 +227,7 @@ vcfeval-opts: []
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '100', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
+sim-opts: ['-l', '150', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []
@@ -446,7 +446,7 @@ vcfeval-opts: []
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '100', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
+sim-opts: ['-l', '150', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []

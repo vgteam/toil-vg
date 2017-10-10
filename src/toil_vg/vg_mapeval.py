@@ -480,10 +480,16 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
             line_no += 1
             # every input has a true position
             true_read_name = true_fields[0]
-            if len(true_fields) != 3 or len(test_fields) != 5:
+            if len(true_fields) != 3:
+                # This seems to come up about one-in-a-million times from vg annotate as called
+                # by toil-vg sim.  Once it is fixed, we can turn this back into an error
+                logger.warning('Incorrect (!=3) true field counts on line {} for {}: {} and {}'.format(
+                    line_no, name, true_fields, test_fields))
+                continue
+            if len(test_fields) != 5:
                 # With the new TSV reader, the files should always have the
                 # correct field counts. Some fields just might be empty.
-                raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
+                raise RuntimeError('Incorrect (!=5) test field counts on line {} for {}: {} and {}'.format(
                     line_no, name, true_fields, test_fields))
             
             true_chr = true_fields[1]
