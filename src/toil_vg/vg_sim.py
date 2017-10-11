@@ -97,7 +97,7 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
             sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, file_seed, xg_file_id,
                                                 xg_annot_file_id,
                                                 chunk_i, chunk_reads,
-                                                fastq_id,
+                                                fastq_id, xg_i,
                                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                                 disk=context.config.sim_disk).rv()
             sim_out_id_infos.append(sim_out_id_info)
@@ -106,7 +106,7 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                 disk=context.config.sim_disk).rv()
 
-def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i, num_reads, fastq_id):
+def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i, num_reads, fastq_id, xg_i):
     """
     simulate some reads (and optionally gam),
     return either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
@@ -141,7 +141,7 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
 
     if not gam:
         # output reads
-        reads_file = os.path.join(work_dir, 'sim_reads_{}'.format(chunk_i))
+        reads_file = os.path.join(work_dir, 'sim_reads_{}_{}'.format(xg_i, chunk_i))
 
         # run vg sim
         with open(reads_file, 'w') as output_reads:
@@ -151,9 +151,9 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
         return context.write_intermediate_file(job, reads_file)
     else:
         # output gam
-        gam_file = os.path.join(work_dir, 'sim_{}.gam'.format(chunk_i))
-        gam_annot_file = os.path.join(work_dir, 'sim_{}_annot.gam'.format(chunk_i))
-        gam_annot_json = os.path.join(work_dir, 'sim_{}_annot.json'.format(chunk_i))
+        gam_file = os.path.join(work_dir, 'sim_{}_{}.gam'.format(xg_i, chunk_i))
+        gam_annot_file = os.path.join(work_dir, 'sim_{}_{}_annot.gam'.format(xg_i, chunk_i))
+        gam_annot_json = os.path.join(work_dir, 'sim_{}_{}_annot.json'.format(xg_i, chunk_i))
 
         # run vg sim, write output gam, annotated gam, annotaged gam json
         # (from vg/scripts/map-sim)
@@ -172,7 +172,7 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
                   os.path.basename(gam_annot_json)]
 
         # output truth positions
-        true_pos_file = os.path.join(work_dir, 'true_{}.pos'.format(chunk_i))
+        true_pos_file = os.path.join(work_dir, 'true_{}_{}.pos'.format(xg_i, chunk_i))
         with open(true_pos_file, 'w') as out_true_pos:
             context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_true_pos)
 
