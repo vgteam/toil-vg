@@ -485,7 +485,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 # by toil-vg sim.  Once it is fixed, we can turn this back into an error
                 logger.warning('Incorrect (!=3) true field counts on line {} for {}: {} and {}'.format(
                     line_no, name, true_fields, test_fields))
-                true_fields = [true_read_name, 0, 0]
+                true_fields = [true_read_name, '0', '0']
             if len(test_fields) != 5:
                 # With the new TSV reader, the files should always have the
                 # correct field counts. Some fields just might be empty.
