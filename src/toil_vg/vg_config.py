@@ -474,9 +474,12 @@ def apply_config_file_args(args):
                     del args.__dict__[x_opts][pos:pos+2]
 
     # If no config file given, we generate a default one
+    wg_config = args.__dict__.has_key('whole_genome_config') and args.whole_genome_config
     if not args.__dict__.has_key('config') or args.config is None:
-        config = generate_config()
+        config = generate_config(whole_genome = wg_config)
     else:
+        if wg_config:
+            raise RuntimeError('--config and --whole_genome_config cannot be used together')
         require(os.path.exists(args.config), 'Config, {}, not found. Please run '
             '"toil-vg generate-config > {}" to create.'.format(args.config, args.config))    
         with open(args.config) as conf:
