@@ -46,8 +46,10 @@ def sim_subparser(parser):
                         help="Output GAM file, annotated gam file and truth positions")
     parser.add_argument("--annotate_xg", type=make_url,
                         help="xg index used for gam annotation (if different from input indexes)")
+    parser.add_argument("--path", default=[], action='append',
+                        help="simulate reads from the given path name in each XG file")
     parser.add_argument("--sim_opts", type=str,
-                        help="arguments for vg sim (wrapped in \"\"). Do not include -x, -n, -s, or -a")
+                        help="arguments for vg sim (wrapped in \"\"). Do not include -x, -n, -s, -a, or -P")
     parser.add_argument("--sim_chunks", type=int, default=1,
                         help="split simulation into this many chunks, run in parallel when possible")
     parser.add_argument("--seed", type=int, default=None,
@@ -64,11 +66,12 @@ def sim_subparser(parser):
     add_container_tool_parse_args(parser)
 
 def validate_sim_options(options):
-    require(not options.sim_opts or all([i not in options.sim_opts for i in ['-x', '-n', '-a', '-s']]),
-            ' sim-opts cannot contain -x, -n, -s or -a')
+    require(not options.sim_opts or all([i not in options.sim_opts for i in ['-x', '--xg-name',
+        '-n', '--num-reads', '-a', '--align-out', '-s', '--random-seed', '-P', '--path']]),
+        'sim-opts cannot contain -x, -n, -s, -a, or -P')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     
-def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id,
+def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id, paths = [],
             fastq_id = None, out_name = None):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
@@ -80,33 +83,47 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
         seed = random.randint(0, 2147483647)
         RealtimeLogger.info('No seed specifed, choosing random value = {}'.format(seed))
 
+    if len(paths) == 0:
+        # No paths specified, so do a None path.
+        paths = [None]
+
     # we can have more than one xg file if we've split our input graphs up
     # into haplotypes
     for xg_i, xg_file_id in enumerate(xg_file_ids):
         file_reads = num_reads / len(xg_file_ids)
         if xg_file_id == xg_file_ids[-1]:
             file_reads += num_reads % len(xg_file_ids)
-        file_seed = seed + xg_i * sim_chunks
         
-        # each element is either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
-        # if --gam not specified
-        for chunk_i in range(sim_chunks):
-            chunk_reads = file_reads / sim_chunks
-            if chunk_i == sim_chunks - 1:
-                chunk_reads += file_reads % sim_chunks
-            sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, file_seed, xg_file_id,
-                                                xg_annot_file_id,
-                                                chunk_i, chunk_reads,
-                                                fastq_id, xg_i,
-                                                cores=context.config.sim_cores, memory=context.config.sim_mem,
-                                                disk=context.config.sim_disk).rv()
-            sim_out_id_infos.append(sim_out_id_info)
+        for path_i, path in enumerate(paths):
+            # For each path we want to simulate from, within each XG we have
+            
+            # Work out how many reads to alot to this path from this xg file.
+            path_reads = file_reads / len(paths)
+            if path_i == len(paths) - 1:
+                path_reads += file_reads % len(paths)
+            
+            # Define a seed base for this set of chunks, leaving space for each chunk before the next seed base
+            seed_base = seed + xg_i * sim_chunks * len(paths) + path_i * sim_chunks
+            
+            # each element is either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
+            # if --gam not specified
+            for chunk_i in range(sim_chunks):
+                chunk_reads = path_reads / sim_chunks
+                if chunk_i == sim_chunks - 1:
+                    chunk_reads += path_reads % sim_chunks
+                sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, seed_base, xg_file_id,
+                                                    xg_annot_file_id, path,
+                                                    chunk_i, chunk_reads,
+                                                    fastq_id, xg_i, path_i,
+                                                    cores=context.config.sim_cores, memory=context.config.sim_mem,
+                                                    disk=context.config.sim_disk).rv()
+                sim_out_id_infos.append(sim_out_id_info)
 
     return job.addFollowOnJobFn(run_merge_sim_chunks, context, gam, sim_out_id_infos, out_name,
                                 cores=context.config.sim_cores, memory=context.config.sim_mem,
                                 disk=context.config.sim_disk).rv()
 
-def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i, num_reads, fastq_id, xg_i):
+def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, path, chunk_i, num_reads, fastq_id, xg_i, path_i):
     """
     simulate some reads (and optionally gam),
     return either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
@@ -134,14 +151,18 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
 
     # run vg sim
     sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + context.config.sim_opts
-    if seed is not None:
-        sim_cmd += ['-s', seed + chunk_i]
+    if seed_base is not None:
+        sim_cmd += ['-s', seed_base + chunk_i]
     if fastq_id:
         sim_cmd += ['-F', os.path.basename(fastq_file)]
+    if path is not None:
+        # Restrict to just this path
+        sim_cmd += ['-P', path]
+        
 
     if not gam:
         # output reads
-        reads_file = os.path.join(work_dir, 'sim_reads_{}_{}'.format(xg_i, chunk_i))
+        reads_file = os.path.join(work_dir, 'sim_reads_{}_{}_{}'.format(xg_i, path_i, chunk_i))
 
         # run vg sim
         with open(reads_file, 'w') as output_reads:
@@ -151,9 +172,9 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
         return context.write_intermediate_file(job, reads_file)
     else:
         # output gam
-        gam_file = os.path.join(work_dir, 'sim_{}_{}.gam'.format(xg_i, chunk_i))
-        gam_annot_file = os.path.join(work_dir, 'sim_{}_{}_annot.gam'.format(xg_i, chunk_i))
-        gam_annot_json = os.path.join(work_dir, 'sim_{}_{}_annot.json'.format(xg_i, chunk_i))
+        gam_file = os.path.join(work_dir, 'sim_{}_{}_{}.gam'.format(xg_i, path_i, chunk_i))
+        gam_annot_file = os.path.join(work_dir, 'sim_{}_{}_{}_annot.gam'.format(xg_i, path_i, chunk_i))
+        gam_annot_json = os.path.join(work_dir, 'sim_{}_{}_{}_annot.json'.format(xg_i, path_i, chunk_i))
 
         # run vg sim, write output gam, annotated gam, annotaged gam json
         # (from vg/scripts/map-sim)
@@ -172,7 +193,7 @@ def run_sim_chunk(job, context, gam, seed, xg_file_id, xg_annot_file_id, chunk_i
                   os.path.basename(gam_annot_json)]
 
         # output truth positions
-        true_pos_file = os.path.join(work_dir, 'true_{}_{}.pos'.format(xg_i, chunk_i))
+        true_pos_file = os.path.join(work_dir, 'true_{}_{}_{}.pos'.format(xg_i, path_i, chunk_i))
         with open(true_pos_file, 'w') as out_true_pos:
             context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_true_pos)
 
@@ -297,6 +318,7 @@ def sim_main(context, options):
                                      options.seed, options.sim_chunks,
                                      inputXGFileIDs,
                                      inputAnnotXGFileID,
+                                     options.path,
                                      inputFastqFileID,
                                      options.out_name,
                                      cores=context.config.misc_cores,
