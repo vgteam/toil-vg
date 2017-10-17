@@ -166,7 +166,12 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, pa
 
         # run vg sim
         with open(reads_file, 'w') as output_reads:
-            context.runner.call(job, sim_cmd, work_dir = work_dir, outfile=output_reads)
+            try:
+                context.runner.call(job, sim_cmd, work_dir = work_dir, outfile=output_reads)
+            except:
+                # Dump everything we need to replicate the problem
+                context.write_output_file(job, xg_file)
+                raise
 
         # write to the store
         return context.write_intermediate_file(job, reads_file)
@@ -184,7 +189,15 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, pa
         cmd.append(['tee', os.path.basename(gam_annot_file)])
         cmd.append(['vg', 'view', '-aj', '-'])
         with open(gam_annot_json, 'w') as output_annot_json:
-            context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+            try:
+                context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+            except:
+                # Dump everything we need to replicate the problem
+                context.write_output_file(job, xg_file)
+                context.write_output_file(job, xg_annot_file)
+                context.write_output_file(job, gam_file)
+                context.write_output_file(job, gam_annot_file)
+                raise
 
         # turn the annotated gam json into truth positions, as separate command since
         # we're going to use a different docker container.  (Note, would be nice to
