@@ -595,54 +595,6 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
         
     return out_file_id
 
-def get_gam_scores(job, context, xg_file_id, name, gam_file_id):
-    """
-    extract read stats from gam, return id of scores file
-    
-    Read stats file is a TSV of read name, contig name, contig offset, score, mapping quality
-
-    """
-
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # download input
-    xg_file = os.path.join(work_dir, '{}.xg'.format(name))
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
-    gam_file = os.path.join(work_dir, name)
-    job.fileStore.readGlobalFile(gam_file_id, gam_file)
-
-    out_pos_file = gam_file + '.tsv'
-                           
-    # go through intermediate json file until docker worked out
-    gam_annot_json = gam_file + '.json'
-    cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
-    cmd.append(['vg', 'view', '-aj', '-'])
-    with open(gam_annot_json, 'w') as output_annot_json:
-        context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
-
-    # turn the annotated gam json into truth positions, as separate command since
-    # we're going to use a different docker container.  (Note, would be nice to
-    # avoid writing the json to disk)        
-    jq_cmd = [['jq', '-c', '-r', '[.name, .refpos[0].name, .refpos[0].offset,'
-               'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
-               os.path.basename(gam_annot_json)]]
-    jq_cmd.append(['sed', 's/null/0/g'])
-
-    with open(out_pos_file + '.unsorted', 'w') as out_pos:
-        context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
-
-    # get rid of that big json asap
-    os.remove(gam_annot_json)
-
-    # sort the positions file (not piping due to memory fears)
-    sort_cmd = ['sort', os.path.basename(out_pos_file) + '.unsorted']
-    with open(out_pos_file, 'w') as out_pos:
-        context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
-
-    out_stats_file_id = context.write_intermediate_file(job, out_pos_file)
-    return out_stats_file_id
-
-
 def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_ids, vg_file_ids):
     """ 
     Index the given vg files.
