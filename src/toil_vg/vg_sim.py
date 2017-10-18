@@ -201,8 +201,10 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, pa
 
         # turn the annotated gam json into truth positions, as separate command since
         # we're going to use a different docker container.  (Note, would be nice to
-        # avoid writing the json to disk)        
-        jq_cmd = ['jq', '-c', '-r', '[ .name, .refpos[0].name, .refpos[0].offset ] | @tsv',
+        # avoid writing the json to disk)
+        # note: in the following, we are writing the read name as the first column,
+        # then a path-name, path-offset in each successive pair of columns
+        jq_cmd = ['jq', '-c', '-r', '[ .name, (.refpos[] | .name, .offset) ] | @tsv',
                   os.path.basename(gam_annot_json)]
 
         # output truth positions

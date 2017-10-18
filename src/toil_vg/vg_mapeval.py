@@ -422,13 +422,16 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
     # avoid writing the json to disk)        
-    jq_cmd = [['jq', '-c', '-r', '[.name, .refpos[0].name, .refpos[0].offset, .score,'
+    jq_cmd = [['jq', '-c', '-r', '[.name, '
+               'if .refpos != null then (.refpos[] | .name, .offset) else (null, null) end, '
+               '.score, '
                'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
                os.path.basename(gam_annot_json)]]
     jq_cmd.append(['sed', 's/null/0/g'])
 
     with open(out_pos_file + '.unsorted', 'w') as out_pos:
         context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
+
 
     # get rid of that big json asap
     os.remove(gam_annot_json)
@@ -480,29 +483,32 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
             line_no += 1
             # every input has a true position
             true_read_name = true_fields[0]
-            if len(true_fields) != 3:
+            if len(true_fields) < 3:
                 # This seems to come up about one-in-a-million times from vg annotate as called
                 # by toil-vg sim.  Once it is fixed, we can turn this back into an error
-                logger.warning('Incorrect (!=3) true field counts on line {} for {}: {} and {}'.format(
+                logger.warning('Incorrect (< 3) true field counts on line {} for {}: {} and {}'.format(
                     line_no, name, true_fields, test_fields))
                 true_fields = [true_read_name, '0', '0']
-            if len(test_fields) != 5:
+            if len(test_fields) < 5:
                 # With the new TSV reader, the files should always have the
                 # correct field counts. Some fields just might be empty.
-                raise RuntimeError('Incorrect (!=5) test field counts on line {} for {}: {} and {}'.format(
+                raise RuntimeError('Incorrect (<5) test field counts on line {} for {}: {} and {}'.format(
                     line_no, name, true_fields, test_fields))
-            
-            true_chr = true_fields[1]
-            true_pos = parse_int(true_fields[2])
+
+            # map seq name->position
+            true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
             aln_read_name = test_fields[0]
             if aln_read_name != true_read_name:
                 raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
                     line_no, true_read_stats_file, test_read_stats_file, true_read_name, aln_read_name))
-            aln_chr = test_fields[1]
-            aln_pos = parse_int(test_fields[2])
+            aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
             # Skip over score field
-            aln_mapq = parse_int(test_fields[4])
-            aln_correct = 1 if aln_chr == true_chr and abs(true_pos - aln_pos) < mapeval_threshold else 0
+            aln_mapq = parse_int(test_fields[-1])
+            aln_correct = 0
+            for aln_chr, aln_pos in aln_pos_dict.items():
+                if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
+                    aln_correct = 1
+                    break
 
             out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
         
@@ -555,7 +561,7 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
                 # Zip everything up and assume that the reads correspond
                 line_no += 1
                 
-                if len(baseline_fields) != 5 or len(test_fields) != 5:
+                if len(baseline_fields) < 5 or len(test_fields) < 5:
                     raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
                         line_no, name, baseline_fields, test_fields))
                 
@@ -565,8 +571,8 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
                         line_no, baseline_read_stats_file, test_read_stats_file, baseline_fields[0], test_fields[0]))
                 
                 # Order is: name, conting, pos, score, mapq
-                aligned_score = test_fields[3]
-                baseline_score = baseline_fields[3]
+                aligned_score = test_fields[-2]
+                baseline_score = baseline_fields[-2]
                 # Compute the score difference. Scores are integers.
                 score_diff = parse_int(aligned_score) - parse_int(baseline_score)
                 
@@ -594,54 +600,6 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
             raise RuntimeError('read stats files have different lengths ({}, {})'.format(found_line1, found_line2))
         
     return out_file_id
-
-def get_gam_scores(job, context, xg_file_id, name, gam_file_id):
-    """
-    extract read stats from gam, return id of scores file
-    
-    Read stats file is a TSV of read name, contig name, contig offset, score, mapping quality
-
-    """
-
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # download input
-    xg_file = os.path.join(work_dir, '{}.xg'.format(name))
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
-    gam_file = os.path.join(work_dir, name)
-    job.fileStore.readGlobalFile(gam_file_id, gam_file)
-
-    out_pos_file = gam_file + '.tsv'
-                           
-    # go through intermediate json file until docker worked out
-    gam_annot_json = gam_file + '.json'
-    cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
-    cmd.append(['vg', 'view', '-aj', '-'])
-    with open(gam_annot_json, 'w') as output_annot_json:
-        context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
-
-    # turn the annotated gam json into truth positions, as separate command since
-    # we're going to use a different docker container.  (Note, would be nice to
-    # avoid writing the json to disk)        
-    jq_cmd = [['jq', '-c', '-r', '[.name, .refpos[0].name, .refpos[0].offset,'
-               'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
-               os.path.basename(gam_annot_json)]]
-    jq_cmd.append(['sed', 's/null/0/g'])
-
-    with open(out_pos_file + '.unsorted', 'w') as out_pos:
-        context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
-
-    # get rid of that big json asap
-    os.remove(gam_annot_json)
-
-    # sort the positions file (not piping due to memory fears)
-    sort_cmd = ['sort', os.path.basename(out_pos_file) + '.unsorted']
-    with open(out_pos_file, 'w') as out_pos:
-        context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
-
-    out_stats_file_id = context.write_intermediate_file(job, out_pos_file)
-    return out_stats_file_id
-
 
 def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_ids, vg_file_ids):
     """ 
