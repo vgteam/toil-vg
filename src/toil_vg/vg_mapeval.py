@@ -1344,15 +1344,21 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results):
     job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
 
     out_name_id_pairs = []
-    for rscript in ['pr', 'qq']:
+    for rscript in ['pr', 'qq', 'roc']:
 
         plot_name = 'plot-{}.svg'.format(rscript)
         script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
         cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
                plot_name]
-        # We insist that the R scripts execute successfully
-        context.runner.call(job, cmd, work_dir = work_dir)
-        out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
+        try:
+            context.runner.call(job, cmd, work_dir = work_dir)
+            out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
+        except Exception as e:
+            if rscript == 'roc':
+                logger.warning('plot-roc.R failed: '.format(str(e)))
+            else:
+                # We insist that the R scripts execute successfully (except plot-roc)
+                raise e
             
     return out_name_id_pairs
     
