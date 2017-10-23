@@ -142,7 +142,7 @@ class VGCGLTest(TestCase):
         self._run('toil-vg', 'sim', self.jobStoreLocal,
                  os.path.join(self.local_outstore, 'small.xg'), '2000',
                   self.local_outstore, '--gam', '--sim_chunks', '5', '--maxCores', '8',
-                  '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '0')
+                  '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1')
 
         self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
                   os.path.join(self.local_outstore, 'small.xg'),
@@ -187,7 +187,7 @@ class VGCGLTest(TestCase):
         self._run('toil-vg', 'sim', self.jobStoreLocal,
                   os.path.join(self.local_outstore, 'small.xg'), '2000',
                   self.local_outstore, '--gam', '--sim_chunks', '5', '--maxCores', '8',
-                  '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '0',
+                  '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '1',
                   '--fastq', os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz'))
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,

@@ -70,6 +70,8 @@ def validate_sim_options(options):
         '-n', '--num-reads', '-a', '--align-out', '-s', '--random-seed', '-P', '--path']]),
         'sim-opts cannot contain -x, -n, -s, -a, or -P')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
+    require(options.seed is None or options.seed > 0,
+            'random seed must be greater than 0 (vg sim ignores seed 0)')
     
 def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id, paths = [],
             fastq_id = None, out_name = None):
