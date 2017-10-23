@@ -228,7 +228,10 @@ to do: Should go somewhere more central """
                 ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
             
             # Restore old locale
-            os.environ['LC_ALL'] = old_lc_all
+            if old_lc_all is not None:
+                os.environ['LC_ALL'] = old_lc_all
+            else:
+                del os.environ['LC_ALL']
         
         end_time = timeit.default_timer()
         run_time = end_time - start_time
