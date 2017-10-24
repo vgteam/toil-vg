@@ -107,6 +107,10 @@ def add_mapeval_options(parser):
     # We can compare all the scores against those from a particular GAM, if asked.
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
+
+    parser.add_argument('--ignore-quals', action='store_true',
+                        help='never use quality adjusted alignment. ' 
+                        'necessary if using --multipath on reads not from trained simulator')
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -630,7 +634,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, multipath):
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, multipath, ignore_quals):
     """
     Run alignments, if alignment files have not already been provided.
     
@@ -653,10 +657,11 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     # the map times
     map_times = [None] * len(gam_file_ids) if gam_file_ids else []
 
-    # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
-    if '-A' not in context.config.mpmap_opts and '--no-qual-adjust' not in context.config.mpmap_opts:
-        context.config.mpmap_opts.append('-A')
-    context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
+    if ignore_quals:
+        # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
+        if '-A' not in context.config.mpmap_opts and '--no-qual-adjust' not in context.config.mpmap_opts:
+            context.config.mpmap_opts.append('-A')
+        context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
     do_vg_mapping = not gam_file_ids
     if do_vg_mapping and do_single:
@@ -1324,7 +1329,8 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids, reads_gam_file_id,
                                                fasta_file_id, bwa_index_ids, options.bwa,
-                                               not options.paired_only, not options.single_only, options.multipath)
+                                               not options.paired_only, not options.single_only, options.multipath,
+                                               options.ignore_quals)
                                                
     # Unpack the alignment job's return values
     # TODO: we're clobbering input values...
