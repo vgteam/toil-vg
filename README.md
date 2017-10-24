@@ -4,7 +4,7 @@
 
 [vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [toil](https://github.com/BD2KGenomics/toil)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
 
-`toil-vg constrct`: Create vg graph from FASTA and VCF, constructing contigs in parallel.
+`toil-vg construct`: Create vg graph from FASTA and VCF, constructing contigs in parallel.
 
 `toil-vg run`: Given input vg graph(s), create indexes, map reads, then produce VCF variant calls.
 
