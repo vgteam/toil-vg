@@ -96,7 +96,8 @@ def validate_map_options(context, options):
     
 def run_mapping(job, context, fastq, gam_input_reads, sample_name, interleaved, multipath,
                 xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_file_ids):
-    """ split the fastq, then align each chunk """
+    """ split the fastq, then align each chunk.  returns outputgams, paired with total map time
+    (excluding toil-vg overhead such as transferring and splitting files )"""
 
     if not context.config.single_reads_chunk:
         reads_chunk_ids = job.addChildJobFn(run_split_reads, context, fastq, gam_input_reads, reads_file_ids,
@@ -229,17 +230,20 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, inter
     # gam_chunk_file_ids[i][j], will correspond to the jth path (from id_ranges)
     # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
+    gam_chunk_running_times = []
 
     for chunk_id, chunk_filename_ids in enumerate(zip(*reads_chunk_ids)):
         #Run graph alignment on each fastq chunk
-        gam_chunk_ids = job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, sample_name,
-                                          interleaved, multipath, chunk_filename_ids, chunk_id,
-                                          xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
-                                          cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                          disk=context.config.alignment_disk).rv()
-        gam_chunk_file_ids.append(gam_chunk_ids)
+        chunk_alignment_job = job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, sample_name,
+                                                interleaved, multipath, chunk_filename_ids, chunk_id,
+                                                xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
+                                                cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                disk=context.config.alignment_disk)
+        gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
+        gam_chunk_running_times.append(chunk_alignment_job.rv(1))
 
     return job.addFollowOnJobFn(run_merge_gams, context, sample_name, id_ranges_file_id, gam_chunk_file_ids,
+                                gam_chunk_running_times,
                                 cores=context.config.misc_cores,
                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
@@ -352,11 +356,11 @@ def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved,
         for gam_chunk in gam_chunks:
             gam_chunk_ids.append(context.write_intermediate_file(job, gam_chunk))
 
-        return gam_chunk_ids
+        return gam_chunk_ids, run_time
         
     else:
         # We can just report one chunk of everything
-        return [context.write_intermediate_file(job, output_file)]
+        return [context.write_intermediate_file(job, output_file)], run_time
 
 def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_file):
     """
@@ -411,7 +415,7 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
     return gam_chunks
 
 
-def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_ids):
+def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_ids, gam_chunk_running_times):
     """
     Merge together gams, doing each chromosome in parallel
     """
@@ -434,8 +438,16 @@ def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_
                                        memory=context.config.fq_split_mem,
                                        disk=context.config.fq_split_disk).rv()
         chr_gam_ids.append(chr_gam_id)
+
+    total_running_time = 0
+    for running_time in gam_chunk_running_times:
+        if running_time is None:
+            total_running_time = None
+            break
+        else:
+            total_running_time += float(running_time)
     
-    return chr_gam_ids
+    return chr_gam_ids, total_running_time
 
 
 def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
