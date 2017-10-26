@@ -16,11 +16,11 @@
 
 ## Installation
 
-### TOIL-VG Pip Installation
+### Local TOIL-VG Pip Installation
 
 Installation requires Python and Toil.  We recommend installing within virtualenv as follows
 
-    virtualenv --system-site-packages toilvenv
+    virtualenv toilvenv
     source toilvenv/bin/activate
     pip install -I -U toil[aws,mesos] toil-vg
 
@@ -80,31 +80,14 @@ Install Toil locally.  This can be done with virtualenv as follows:
 
 ### Create a leader node
 
-Please read Toil's cloud documentation [here](http://toil.readthedocs.io/en/latest/install/cloud.html) and [here](http://toil.readthedocs.io/en/latest/running/cloud.html)
+    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/create-leader.sh
+    ./create-leader.sh <leader-name> <keypair-name>
 
-Set your region:
+Log into the leader with
 
-	 export TOIL_AWS_ZONE="us-west-2a"	
-
-Create an instance for the toil leader node.  For UCSC CGL members, the keypair name is typically the email address you use to log into AWS:
-
-    toil launch-cluster myleader --nodeType=t2.micro --keyPairName <your AWS keypair name>
-
-Log into the leader:
-
-    toil ssh-cluster myleader
-
-In order to use `screen` (recommended for long jobs), you need to run `script` first.
+    toil ssh-cluster <leader-name> --zone usa-west-2a
 
 In order to log onto a worker node instead of the leader, find its public IP from the EC2 Management Console or command line, and log in using the core username: `ssh core@public-ip`
-
-Install the latest prelease toil-vg on the leader following [Toil's Hot-deployment instructions](http://toil.readthedocs.io/en/latest/deploying.html#hot-deploying-toil)
-
-    mkdir work
-    cd work
-    virtualenv --system-site-packages venv
-    . venv/bin/activate
-    pip install --pre toil-vg
 
 Destroy the leader when finished with it.  After logging out with `exit`:
 
@@ -129,14 +112,14 @@ Toil-vg can be used to construct vg graphs as, for example, [described here](htt
     REF=ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz
     VCF=ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.wgs.phase3_shapeit2_mvncall_integrated_v5b.20130502.sites.vcf.gz
     MASTER_IP=`ifconfig eth0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}'`
-    toil-vg construct  aws:us-west-2:JOB_STORE aws:us-west-2:OUT_STORE --fasta $REF  --vcf $VCF --config wg.yaml --out_name hs37d5  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --preemptableNodeType r3.8xlarge:0.85 --maxPreemptableNodes 8 --provisioner aws --realTimeLogging --logInfo --nodeType r3.8xlarge --defaultPreemptable --logFile construct.log --retryCount 3 --regions $(for i in $(seq 1 22; echo X; echo Y); do echo $i; done)
+    toil-vg construct  aws:us-west-2:JOB_STORE aws:us-west-2:OUT_STORE --fasta $REF  --vcf $VCF --config wg.yaml --out_name hs37d5  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --nodeTypes r3.8xlarge:0.85 --maxNodes 8 --provisioner aws --realTimeLogging --logInfo  --defaultPreemptable --logFile construct.log --retryCount 3 --regions $(for i in $(seq 1 22; echo X; echo Y); do echo $i; done)
 
-Indexes can be created above using the `--xg_index` and `--gcsa_index` options (and switching to i3.8xlarge nodes), or by running `toil-vg index` below. :
+Indexes can be created above using the `--xg_index` and `--gcsa_index` options (and switching to i2.8xlarge nodes), or by running `toil-vg index` below. :
 
     MASTER_IP=`ifconfig eth0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}'`
-    toil-vg index aws:us-west-2:JOB_STORE aws:us-west-2:OUT_STORE  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo s3://OUT_STORE/hs37d5-${i}; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index --defaultPreemptable --preemptableNodeType i3.8xlarge:1.00 --maxPreemptableNodes 5 --nodeType i3.8xlarge --provisioner aws 2> index.log
+    toil-vg index aws:us-west-2:JOB_STORE aws:us-west-2:OUT_STORE  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050  --graphs $(for i in $(seq 22; echo X; echo Y); do echo s3://OUT_STORE/hs37d5-${i}; done) --chroms $(for i in $(seq 22; echo X; echo Y); do echo $i; done) --realTimeLogging --logInfo --config wg.yaml --index_name my_index --defaultPreemptable --nodeTypes i2.8xlarge:1.00 --maxNodes 5 --provisioner aws 2> index.log
 
-Note that the spot request node type (i3.8xlarge) and amount ($1.00) can be adjusted in the above command.  Keep in mind that indexing is very memory and disk intensive.
+Note that the spot request node type (i2.8xlarge) and amount ($1.00) can be adjusted in the above command.  Keep in mind that indexing is very memory and disk intensive.
 
 If successful, this will produce for files in s3://OUT_STORE/
 
@@ -147,7 +130,7 @@ If successful, this will produce for files in s3://OUT_STORE/
 
 We can now align reads and produce a VCF in a single call to `toil-vg run`. (see `toil-vg map` and `toil-vg call` to do separately).  The invocation is similar to the above, except we use r3.8xlarge instances as we do not need as much disk and memory.
 
-    toil-vg run aws:us-west-2:JOB_STORE READ_LOCATION/reads.fastq.gz SAMPLE_NAME aws:us-west-2:OUT_STORE  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --gcsa_index s3://OUT_STORE/my_index.gcsa --xg_index s3://OUT_STORE/my_index.xg --id_ranges s3://${OUT_STORE}/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved --defaultPreemptable --preemptableNodeType r3.8xlarge:0.85 --maxPreemptableNodes 25 --nodeType r3.8xlarge --provisioner aws 2> map_call.log
+    toil-vg run aws:us-west-2:JOB_STORE READ_LOCATION/reads.fastq.gz SAMPLE_NAME aws:us-west-2:OUT_STORE  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --gcsa_index s3://OUT_STORE/my_index.gcsa --xg_index s3://OUT_STORE/my_index.xg --id_ranges s3://${OUT_STORE}/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved --defaultPreemptable --nodeTypes r3.8xlarge:0.85 --maxNodes 10  --provisioner aws 2> map_call.log
 
 If successful, this command will create a VCF file as well as a GAM for each input chromosome in s3://OUT_STORE/
 

@@ -223,11 +223,16 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
 
     work_dir = job.fileStore.getLocalTempDir()
 
-    name_pre = '' if not out_name else '{}_'.format(out_name)
+    if out_name:
+        reads_name = out_name
+        pos_name = out_name
+    else:
+        reads_name = 'sim'
+        pos_name = 'true'
 
     if not gam:
         # merge up the reads files
-        merged_reads_file = os.path.join('{}sim_reads'.format(name_pre))
+        merged_reads_file = os.path.join('{}.reads'.format(reads_name))
         with open(merged_reads_file, 'a') as out_reads:
             for i, reads_file_id in enumerate(sim_out_id_infos):
                 reads_file = os.path.join(work_dir, 'sim_reads_{}'.format(i))
@@ -239,9 +244,9 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
     
     else:
         # merge up the gam files
-        merged_gam_file = os.path.join(work_dir, '{}sim.gam'.format(name_pre))
-        merged_annot_gam_file = os.path.join(work_dir, '{}sim_annot.gam'.format(name_pre))
-        merged_true_file = os.path.join(work_dir, 'true.pos.unsorted')
+        merged_gam_file = os.path.join(work_dir, '{}.gam'.format(reads_name))
+        merged_annot_gam_file = os.path.join(work_dir, '{}_annot.gam'.format(reads_name))
+        merged_true_file = os.path.join(work_dir, '{}.pos.unsorted'.format(pos_name))
         
         with open(merged_gam_file, 'a') as out_gam, \
              open(merged_annot_gam_file, 'a') as out_annot_gam, \
@@ -264,7 +269,7 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
                     shutil.copyfileobj(rf, out_true)
 
         # sort the positions file
-        sorted_true_file = os.path.join(work_dir, '{}true.pos'.format(name_pre))
+        sorted_true_file = os.path.join(work_dir, '{}.pos'.format(pos_name))
         sort_cmd = ['sort', os.path.basename(merged_true_file)]
         with open(sorted_true_file, 'w') as out_true:
             context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_true)
