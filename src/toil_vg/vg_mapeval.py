@@ -749,7 +749,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
             bwa_bam_file_ids[1] = bwa_mem_job.rv(0)
-            bwa_mem_times[0] = bwa_mem_job.rv(1)
+            bwa_mem_times[1] = bwa_mem_job.rv(1)
 
     return out_gam_names, gam_file_ids, out_xg_ids, map_times, bwa_bam_file_ids, bwa_mem_times
     
