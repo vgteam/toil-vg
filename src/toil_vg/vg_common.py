@@ -194,6 +194,10 @@ to do: Should go somewhere more central """
         run_time = end_time - start_time
         RealtimeLogger.info("Successfully docker ran {} in {} seconds.".format(
             " | ".join(" ".join(x) for x in args), run_time))
+        
+        if outfile:
+            outfile.flush()
+            os.fsync(outfile.fileno())
 
         return ret
     
@@ -238,6 +242,10 @@ to do: Should go somewhere more central """
         RealtimeLogger.info("Successfully singularity ran {} in {} seconds.".format(
             " | ".join(" ".join(x) for x in args), run_time))
 
+        if outfile:
+            outfile.flush()
+            os.fsync(outfile.fileno())
+        
         return ret
 
     def call_directly(self, args, work_dir, outfile, errfile, check_output):
@@ -292,6 +300,10 @@ to do: Should go somewhere more central """
         run_time = end_time - start_time
         RealtimeLogger.info("Successfully ran {} in {} seconds.".format(
             " | ".join(" ".join(x) for x in args), run_time))            
+        
+        if outfile:
+            outfile.flush()
+            os.fsync(outfile.fileno())
 
         if check_output:
             return output
