@@ -92,7 +92,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, pileup_id = None, xg_i
                 path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
                 filter_opts = [], pu_opts = [], call_opts = [],
                 keep_pileup = False, keep_xg = False, keep_gam = False,
-                keep_augmented = False, name = 'call'):
+                keep_augmented = False, chunk_name = 'call'):
     """ Run vg call on a single graph.
 
     Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id).  pileup_id and xg_id
@@ -105,22 +105,22 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, pileup_id = None, xg_i
 
     gam filtering is only done if filter_opts are passed in. 
 
-    name option is only for working filenames (to make more readable)
+    chunk_name option is only for working filenames (to make more readable)
 
     """
 
     work_dir = job.fileStore.getLocalTempDir()
 
     # Read our input files from the store
-    vg_path = os.path.join(work_dir, '{}.vg'.format(name))
+    vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
     job.fileStore.readGlobalFile(vg_id, vg_path)
-    gam_path = os.path.join(work_dir, '{}.gam'.format(name))
+    gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
     job.fileStore.readGlobalFile(gam_id, gam_path)
-    xg_path = os.path.join(work_dir, '{}.xg'.format(name))
+    xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
     defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
     if xg_id and defray:
         job.fileStore.readGlobalFile(xg_id, xg_path)
-    pu_path = os.path.join(work_dir, '{}.pu'.format(name))
+    pu_path = os.path.join(work_dir, '{}.pu'.format(chunk_name))
     if pileup_id:
         job.fileStore.readGlobalFile(pileup_id, pu_path)
         
@@ -154,8 +154,8 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, pileup_id = None, xg_i
         
     # call
     try:
-        vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(name))
-        vcf_log_path = os.path.join(work_dir, '{}_call_log.txt'.format(name))
+        vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
+        vcf_log_path = os.path.join(work_dir, '{}_call_log.txt'.format(chunk_name))
         aug_graph_id = None
         
         with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
@@ -171,7 +171,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, pileup_id = None, xg_i
                 command += ['-l', seq_length]
             for seq_offset in seq_offsets:
                 command += ['-o', seq_offset]
-            aug_path = os.path.join(work_dir, '{}_aug.vg'.format(name))
+            aug_path = os.path.join(work_dir, '{}_aug.vg'.format(chunk_name))
             if keep_augmented:
                 command.append(['-A', os.path.basename(aug_path)])
             context.runner.call(job, command, work_dir=work_dir,
@@ -205,7 +205,7 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
                     path_names = [], seq_names = [], seq_offsets = [],
                     seq_lengths = [], genotype_opts = [], filter_opts = [],
                     keep_xg = False, keep_gam = False, keep_augmented = False,
-                    name = 'genotype'):
+                    chunk_name = 'genotype'):
     """ Run vg genotype on a single graph.
 
     Returns (vcf_id, xg_id, gam_id, augmented_graph_id).  xg_id
@@ -218,17 +218,17 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     gam filtering is only done if filter_opts are passed in. 
 
-    name option is only for working filenames (to make more readable)
+    chunk_name option is only for working filenames (to make more readable)
     """
 
     work_dir = job.fileStore.getLocalTempDir()
 
     # Read our input files from the store
-    vg_path = os.path.join(work_dir, '{}.vg'.format(name))
+    vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
     job.fileStore.readGlobalFile(vg_id, vg_path)
-    gam_path = os.path.join(work_dir, '{}.gam'.format(name))
+    gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
     job.fileStore.readGlobalFile(gam_id, gam_path)
-    xg_path = os.path.join(work_dir, '{}.xg'.format(name))
+    xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
     defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
     if xg_id and defray:
         job.fileStore.readGlobalFile(xg_id, xg_path)
@@ -262,8 +262,8 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     # genotype
     try:
-        vcf_path = os.path.join(work_dir, '{}_genotype.vcf'.format(name))
-        vcf_log_path = os.path.join(work_dir, '{}_genotype_log.txt'.format(name))
+        vcf_path = os.path.join(work_dir, '{}_genotype.vcf'.format(chunk_name))
+        vcf_log_path = os.path.join(work_dir, '{}_genotype_log.txt'.format(chunk_name))
         aug_graph_id = None
         
         with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
@@ -278,7 +278,7 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 command += ['-l', seq_length]
             for seq_offset in seq_offsets:
                 command += ['-o', seq_offset]
-            aug_path = os.path.join(work_dir, '{}_aug.vg'.format(name))
+            aug_path = os.path.join(work_dir, '{}_aug.vg'.format(chunk_name))
             if keep_augmented:
                 command.append(['-a', os.path.basename(aug_path)])
             context.runner.call(job, command, work_dir=work_dir,
@@ -297,7 +297,7 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
     return vcf_id, xg_id, gam_id, aug_graph_id
         
 
-def call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
+def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
                xg_file_id, vg_chunk_file_id, gam_chunk_file_id, path_size, vcf_offset, sample_name):
     """ create VCF from a given chunk """
    
@@ -306,23 +306,25 @@ def call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipp
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
-    # output vcf path
-    vcf_path = os.path.join(work_dir, 'chunk_{}_{}.vcf'.format(path_name, chunk_offset))
-
     # Run vg call
     if context.config.genotype:
-        vcf_id, xg_id, gam_id, aug_graph_id = run_vg_genotype(
-            job, context, sample_name, vg_chunk_file_id, gam_chunk_file_id, xg_id=xg_file_id,
+        genotype_job = job.addChildJobFn(
+            run_vg_genotype,
+            context, sample_name, vg_chunk_file_id, gam_chunk_file_id, xg_id=xg_file_id,
             path_names = [path_name],
             seq_names = [path_name],
             seq_offsets = [chunk_offset + vcf_offset],
             seq_lengths = [path_size],
             filter_opts = context.config.filter_opts,
             genotype_opts = context.config.genotype_opts,
-            name = 'chunk_{}_{}'.format(path_name, chunk_offset))
+            chunk_name = 'chunk_{}_{}'.format(path_name, chunk_offset),
+            cores=context.config.calling_cores,
+            memory=context.config.calling_mem, disk=context.config.calling_disk)
+        vcf_id, xg_id, gam_id, aug_graph_id = [genotype_job.rv(i) for i in range(4)]
     else:
-        vcf_id, pu_id, xg_id, gam_id, aug_graph_id = run_vg_call(
-            job, context, sample_name, vg_chunk_file_id, gam_chunk_file_id,
+        call_job = job.addChildJobFn(
+            run_vg_call,
+            context, sample_name, vg_chunk_file_id, gam_chunk_file_id,
             pileup_id = None, xg_id = xg_file_id,
             path_names = [path_name], 
             seq_names = [path_name],
@@ -330,11 +332,26 @@ def call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipp
             seq_lengths = [path_size],
             filter_opts = context.config.filter_opts, pu_opts = context.config.pileup_opts,
             call_opts = context.config.call_opts,
-            name = 'chunk_{}_{}'.format(path_name, chunk_offset))
-        
-    # is this an unecessary copy or does toil cache handle it?
-    job.fileStore.readGlobalFile(vcf_id, vcf_path + '.us')
+            chunk_name = 'chunk_{}_{}'.format(path_name, chunk_offset),
+            cores=context.config.calling_cores,
+            memory=context.config.calling_mem, disk=context.config.calling_disk)
+        vcf_id, pu_id, xg_id, gam_id, aug_graph_id = [call_job.rv(i) for i in range(5)]
 
+    return job.addFollowOnJobFn(run_clip_vcf, context, path_name, chunk_i, num_chunks, chunk_offset,
+                                clipped_chunk_offset, vcf_offset, vcf_id,
+                                cores=context.config.calling_cores,
+                                memory=context.config.calling_mem, disk=context.config.calling_disk).rv()
+
+def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset, vcf_offset, vcf_id):
+    """ clip the vcf to respect chunk """
+
+     # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # output vcf name
+    vcf_path = os.path.join(work_dir, 'chunk_{}_{}.vcf'.format(path_name, chunk_offset))
+    job.fileStore.readGlobalFile(vcf_id, vcf_path + '.us')
+    
     # Sort the output
     sort_vcf(job, context.runner, vcf_path + '.us', vcf_path)
     command=['bgzip', '{}'.format(os.path.basename(vcf_path))]
@@ -513,18 +530,18 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
         clipped_chunk_offset = chunk_i * context.config.call_chunk_size - chunk_i * context.config.overlap
         cur_path_offset[chunk_bed_chrom] += 1
         
-        clip_file_id = job.addChildJobFn(call_chunk, context, chunk_bed_chrom, chunk_i,
+        clip_file_id = job.addChildJobFn(run_call_chunk, context, chunk_bed_chrom, chunk_i,
                                          len(bed_lines),
                                          chunk_bed_start, clipped_chunk_offset,
                                          None, vg_chunk_file_id, gam_chunk_file_id,
                                          path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
                                          sample_name,
-                                         cores=context.config.calling_cores,
-                                         memory=context.config.calling_mem, disk=context.config.calling_disk).rv()
+                                         cores=context.config.misc_cores,
+                                         memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
         clip_file_ids.append(clip_file_id)
 
 
-    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(merge_vcf_chunks, context, tag,
+    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(run_merge_vcf_chunks, context, tag,
                                                    clip_file_ids,
                                                    cores=context.config.call_chunk_cores,
                                                    memory=context.config.call_chunk_mem,
@@ -533,7 +550,7 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
     return vcf_gz_tbi_file_id_pair
 
 
-def merge_vcf_chunks(job, context, path_name, clip_file_ids):
+def run_merge_vcf_chunks(job, context, path_name, clip_file_ids):
     """ merge a bunch of clipped vcfs created above, taking care to 
     fix up the headers.  everything expected to be sorted already """
     
