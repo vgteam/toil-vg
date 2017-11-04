@@ -281,6 +281,12 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
             aug_path = os.path.join(work_dir, '{}_aug.vg'.format(chunk_name))
             if keep_augmented:
                 command.append(['-a', os.path.basename(aug_path)])
+
+            # Temporary patch until vg genotype fixed to make correct header
+            # (when data type doesn't match header type, bcftools view aborts
+            # but still seems to exit 0, leaving sort_vcf to silently delete all
+            # variants)
+            command = [command, ['sed', '-e', 's/Integer/String/g']]
             context.runner.call(job, command, work_dir=work_dir,
                                  outfile=vgcall_stdout, errfile=vgcall_stderr)
             if keep_augmented:
