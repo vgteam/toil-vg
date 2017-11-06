@@ -353,7 +353,7 @@ class VGCGLTest(TestCase):
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
                   '--genotype')
 
-        self._assertOutput('sample', self.local_outstore, f1_threshold=0.55)
+        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
     def _run(self, *args):
         args = list(concat(*args))

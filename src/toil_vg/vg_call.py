@@ -205,7 +205,7 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
                     path_names = [], seq_names = [], seq_offsets = [],
                     seq_lengths = [], genotype_opts = [], filter_opts = [],
                     keep_xg = False, keep_gam = False, keep_augmented = False,
-                    chunk_name = 'genotype'):
+                    index_gam = True, chunk_name = 'genotype'):
     """ Run vg genotype on a single graph.
 
     Returns (vcf_id, xg_id, gam_id, augmented_graph_id).  xg_id
@@ -255,11 +255,20 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
         gam_filter_path = gam_path    
 
     # index the gam
-    gam_index_path = os.path.join(work_dir, gam_filter_path + '.index')
-    command = ['vg', 'index', '-N', os.path.basename(gam_filter_path),
-               '-d', os.path.basename(gam_index_path)]
-    context.runner.call(job, command, work_dir=work_dir)
+    if index_gam:
+        # Make a -a index first
+        gam_node_index_path = os.path.join(work_dir, gam_filter_path + '.nidx')
+        command = ['vg', 'index', '-a', os.path.basename(gam_filter_path),
+                   '-d', os.path.basename(gam_node_index_path)]
+        context.runner.call(job, command, work_dir=work_dir)
 
+        # Sort the gam
+        command = [['vg', 'index', '-A', '-d', os.path.basename(gam_node_index_path)]]        
+        # Then make the -N index on the sorted input
+        gam_index_path = os.path.join(work_dir, gam_filter_path + '.index')        
+        command.append(['vg', 'index', '-N', '-',
+                        '-d', os.path.basename(gam_index_path)])
+        context.runner.call(job, command, work_dir=work_dir)
     # genotype
     try:
         vcf_path = os.path.join(work_dir, '{}_genotype.vcf'.format(chunk_name))
@@ -267,9 +276,12 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
         aug_graph_id = None
         
         with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
-            command = ['vg', 'genotype', os.path.basename(vg_path),
-                       os.path.basename(gam_index_path), '-t',
-                       str(context.config.calling_cores)] + genotype_opts + ['-s', sample_name, '-v']
+            command = ['vg', 'genotype', os.path.basename(vg_path)]
+            if index_gam:
+                command += [os.path.basename(gam_index_path)]
+            else:
+                command += ['-G', os.path.basename(gam_filter_path)]
+            command += ['-t', str(context.config.calling_cores)] + genotype_opts + ['-s', sample_name, '-v']
             for path_name in path_names:
                 command += ['-r', path_name]
             for seq_name in seq_names:
@@ -281,12 +293,6 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
             aug_path = os.path.join(work_dir, '{}_aug.vg'.format(chunk_name))
             if keep_augmented:
                 command.append(['-a', os.path.basename(aug_path)])
-
-            # Temporary patch until vg genotype fixed to make correct header
-            # (when data type doesn't match header type, bcftools view aborts
-            # but still seems to exit 0, leaving sort_vcf to silently delete all
-            # variants)
-            command = [command, ['sed', '-e', 's/Integer/String/g']]
             context.runner.call(job, command, work_dir=work_dir,
                                  outfile=vgcall_stdout, errfile=vgcall_stderr)
             if keep_augmented:
@@ -323,6 +329,7 @@ def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, c
             seq_lengths = [path_size],
             filter_opts = context.config.filter_opts,
             genotype_opts = context.config.genotype_opts,
+            index_gam = False,
             chunk_name = 'chunk_{}_{}'.format(path_name, chunk_offset),
             cores=context.config.calling_cores,
             memory=context.config.calling_mem, disk=context.config.calling_disk)
