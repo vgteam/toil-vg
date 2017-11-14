@@ -303,7 +303,9 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
     except Exception as e:
         logging.error("Failed. Dumping files.")
         context.write_output_file(job, vg_path)
-        context.write_output_file(job, vcf_path + ".genotype_log.txt")
+        if not index_gam:
+            context.write_output_file(job, gam_filter_path)        
+        context.write_output_file(job, vcf_log_path)
         raise e
         
     return vcf_id, xg_id, gam_id, aug_graph_id
