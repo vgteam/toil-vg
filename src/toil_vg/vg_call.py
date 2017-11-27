@@ -138,23 +138,37 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         if keep_xg:
             xg_id = context.write_intermediate_file(job, xg_path)
 
-    # augment and filter together
-    gam_filter_path = gam_path + '.filter'            
+    # optional gam filtering
+    gam_filter_path = gam_path + '.filter'
+    filter_command = None
     if filter_opts:
-        command = [['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts]
+        filter_command = ['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts
         if defray:
-            command[0] += ['-x', os.path.basename(xg_path)]
-        if keep_gam:
-            command.append(['tee', os.path.basename(gam_filter_path)])
-    else:
-        command = [['cat', os.path.basename(gam_path)]]
+            filter_command += ['-x', os.path.basename(xg_path)]
+
+    # we filter separated when running genotype (due to augment -A)
+    if filter_command and context.config.genotype:
+        with open(gam_filter_path, 'w') as gam_filter_stream:
+            context.runner.call(job, filter_command, work_dir=work_dir, outfile=gam_filter_stream)
+        gam_path = gam_filter_path
+        filter_command = None
+        
+    # augment command with optional filter piped at beginning
     augment_io_opts = ['-Z', os.path.basename(trans_path),
                        '-S', os.path.basename(support_path)]
     if keep_pileup:
         augment_io_opts += ['-P', os.path.basename(pu_path)]
     if context.config.genotype:
         augment_io_opts += ['-A', os.path.basename(aug_gam_path)]
-    command.append(['vg', 'augment', os.path.basename(vg_path), '-',
+    augment_command = []
+    if filter_command is not None:
+        aug_gam_input = '-'
+        augment_command.append(filter_command)
+        if keep_gam:
+            augment.append(['tee', os.path.basename(gam_filter_path)])
+    else:
+        aug_gam_input = os.path.basename(gam_path)
+    augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
                     '-t', str(context.config.calling_cores)] + augment_opts + augment_io_opts)
 
     vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
@@ -163,7 +177,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     # call
     try:
         with open(aug_path, 'w') as aug_stream:
-            context.runner.call(job, command, work_dir=work_dir, outfile=aug_stream)
+            context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
         gam_id, pileup_id, aug_graph_id = None, None, None
         if keep_gam and filter_opts:
             gam_id = context.write_intermediate_file(job, gam_filter_path)
@@ -180,8 +194,9 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                            '-s', os.path.basename(support_path),
                            '-b', os.path.basename(vg_path)]
             else:
-                command = ['vg', 'genotype', os.path.basename(aug_path), '-s', sample_name,
-                           '-E', '-G', os.path.basename(aug_gam_path)]
+                command = ['vg', 'genotype', os.path.basename(aug_path), '-t',
+                           str(context.config.calling_cores), '-s', sample_name,
+                           '-v', '-E', '-G', os.path.basename(aug_gam_path)]
             if call_opts:
                 command += call_opts
             for path_name in path_names:
