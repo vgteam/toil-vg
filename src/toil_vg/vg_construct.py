@@ -297,7 +297,9 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
 
     # pad out vcf lists with nones so they are the same size as regions
     # since we allow fasta regions that dont have corresponding vcf
-    if regions and len(regions) > len(vcf_ids):
+    # note: single vcf , multiple regions case not handled here as it's
+    # treated below (the same vcf is given to each region)
+    if regions and len(regions) > len(vcf_ids) and len(vcf_ids) != 1:
         padding = [None] * (len(regions) - len(vcf_ids))
         for key, val in output.items():
             val[0] += padding
