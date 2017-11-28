@@ -95,7 +95,7 @@ call-chunk-cores: 1
 call-chunk-mem: '4G'
 call-chunk-disk: '2G'
 
-# Resources for calling each chunk (currently includes pileup/call/genotype)
+# Resources for calling each chunk (currently includes augment/call/genotype)
 calling-cores: 1
 calling-mem: '4G'
 calling-disk: '2G'
@@ -128,7 +128,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-1766-gff48401d-t110-run'
+vg-docker: 'quay.io/vgteam/vg:v1.5.0-2018-g71f96239-t119-run'
 
 # Docker container to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
@@ -207,8 +207,8 @@ chunk_context: 50
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
-# Options to pass to vg pileup. (do not include file names or -t/--threads)
-pileup-opts: ['-q', '10']
+# Options to pass to vg augment. (do not include any file names or -t/--threads)
+augment-opts: ['-q', '10', '-a', 'pileup']
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
 call-opts: []
@@ -313,7 +313,7 @@ call-chunk-cores: 8
 call-chunk-mem: '100G'
 call-chunk-disk: '100G'
 
-# Resources for calling each chunk (currently includes pileup/call/genotype)
+# Resources for calling each chunk (currently includes augment/call/genotype)
 calling-cores: 1
 calling-mem: '8G'
 calling-disk: '8G'
@@ -346,7 +346,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker container to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-1766-gff48401d-t110-run'
+vg-docker: 'quay.io/vgteam/vg:v1.5.0-2018-g71f96239-t119-run'
 
 # Docker container to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
@@ -426,8 +426,8 @@ chunk_context: 50
 # Options to pass to chunk_gam. (do not include file names or -t/--threads)
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
-# Options to pass to vg pileup. (do not include file names or -t/--threads)
-pileup-opts: ['-q', '10']
+# Options to pass to vg augment. (do not include any file names or -t/--threads)
+augment-opts: ['-q', '10', '-a', 'pileup']
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
 call-opts: []
@@ -464,7 +464,7 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'kmers_opts', 'gcsa_opts', 'mpmap_opts']:
+                   'bwa_opts', 'kmers_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
             # get rid of any -t or --threads while we're at it
