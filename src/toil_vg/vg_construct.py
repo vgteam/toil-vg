@@ -333,12 +333,11 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gpbwt or alt_paths, flat_alts, regions,
                                           region_names, sort_ids, join_ids, merge_output_name)
+
         vg_ids = construct_job.rv()
         vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
-        for i in range(len(vg_names)):
-            if not vg_names[i].endswith('.vg'):
-                vg_names[i] += '.vg'
 
+        vg_names = [i + '.vg' if not i.endswith('.vg') else i for i in vg_names]
         if gcsa_index and not gpbwt:
             if not regions:
                 paths = []
@@ -384,7 +383,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
                               max_node_size, alt_paths, flat_alts, regions, region_names,
-                              sort_ids = True, join_ids = True, merge_output_name=None):
+                              sort_ids, join_ids, merge_output_name):
     """ construct graph(s) from several regions in parallel.  we could eventually generalize this
     to accept multiple vcfs and/or fastas if needed, as well as to determine regions from file,
     but for now we only accept single files, and require region list.
@@ -394,7 +393,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
 
     if not regions:
         regions, region_names = [None], ['genome']        
-        
+
     region_graph_ids = []    
     for i, (region, region_name) in enumerate(zip(regions, region_names)):
         vcf_id = None if not vcf_ids else vcf_ids[0] if len(vcf_ids) == 1 else vcf_ids[i]
