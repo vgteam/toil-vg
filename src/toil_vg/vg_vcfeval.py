@@ -201,7 +201,7 @@ def vcfeval_main(context, options):
                                      disk=context.config.vcfeval_disk)
 
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
             init_job.addFollowOn(root_job)            
 
             # Run the job
