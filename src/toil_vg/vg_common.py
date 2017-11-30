@@ -373,4 +373,10 @@ def parse_id_ranges_file(id_ranges_filename):
                 id_ranges.append((toks[0], int(toks[1]), int(toks[2])))
     return id_ranges
                                  
-                
+def strip_ext(path, ext):
+    """Strip an extension if it's there
+    """
+    if path.endswith(ext):
+        return path[:-len(ext)]
+    else:
+        return path
