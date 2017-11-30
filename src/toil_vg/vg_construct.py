@@ -333,8 +333,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 paths = []
             else:
                 paths = [p.split(':')[0] for p in regions]
-            gcsa_job = job.addFollowOnJobFn(run_gcsa_prep, context, vg_ids,
-                                            vg_names, output_name_base, paths)
+            gcsa_job = construct_job.addFollowOnJobFn(run_gcsa_prep, context, vg_ids,
+                                                      vg_names, output_name_base, paths)
             gcsa_id = gcsa_job.rv(0)
             lcp_id = gcsa_job.rv(1)
         else:
@@ -342,28 +342,28 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             lcp_id = None
             
         if xg_index:                
-            xg_job = job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
-                                          vg_names, output_name_base,
-                                          cores=context.config.xg_index_cores,
-                                          memory=context.config.xg_index_mem,
-                                          disk=context.config.xg_index_disk)
+            xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
+                                                    vg_names, output_name_base,
+                                                    cores=context.config.xg_index_cores,
+                                                    memory=context.config.xg_index_mem,
+                                                    disk=context.config.xg_index_disk)
             xg_id = xg_job.rv()
         else:
             xg_id = None
 
         if gpbwt:
-            haplo_job = job.addFollowOnJobFn(run_make_haplo_graphs, context, vcf_ids, tbi_ids,
-                                             vcf_names, vg_ids, vg_names, output_name_base, regions,
-                                             haplo_sample, haplotypes)
+            haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context, vcf_ids, tbi_ids,
+                                                       vcf_names, vg_ids, vg_names, output_name_base, regions,
+                                                       haplo_sample, haplotypes)
 
             # we want an xg index from our thread graphs to pass to vg sim for each haplotype
             for haplotype in haplotypes:
                 haplo_xg_job = haplo_job.addFollowOnJobFn(run_xg_indexing, context, haplo_job.rv(haplotype),
-                                                          vg_names,
-                                                          output_name_base + '_thread_{}'.format(haplotype),
-                                                          cores=context.config.xg_index_cores,
-                                                          memory=context.config.xg_index_mem,
-                                                          disk=context.config.xg_index_disk)
+                                                                    vg_names,
+                                                                    output_name_base + '_thread_{}'.format(haplotype),
+                                                                    cores=context.config.xg_index_cores,
+                                                                    memory=context.config.xg_index_mem,
+                                                                    disk=context.config.xg_index_disk)
         else:
             xg_id = None
 
