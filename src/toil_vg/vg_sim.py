@@ -316,7 +316,7 @@ def sim_main(context, options):
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
 
             # Unzip the fastq
             if options.fastq and options.fastq.endswith('.gz'):

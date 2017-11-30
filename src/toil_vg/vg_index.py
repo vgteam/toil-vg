@@ -462,7 +462,7 @@ def index_main(context, options):
                                      disk=context.config.misc_disk)
 
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
             init_job.addFollowOn(root_job)            
             
             # Run the job and store the returned list of output files to download

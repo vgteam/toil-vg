@@ -1530,7 +1530,7 @@ def mapeval_main(context, options):
             # Output files all live in the out_store, but if we wanted to we could export them also/instead.
 
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
             init_job.addFollowOn(main_job)
 
             # Run the root job

@@ -25,7 +25,7 @@ from toil_vg.vg_config import apply_config_file_args
 from toil_vg.vg_common import ContainerRunner, get_container_tool_map
 from toil_vg.iostore import IOStore
 
-def run_write_info_to_outstore(job, context):
+def run_write_info_to_outstore(job, context, argv):
     """ Writing to the output is still problematic, especially from within jobs.  So 
     we write some options info into the output store first-thing to trigger errors
     before doing all the compute if possible.  To do this, this job needs to be passed
@@ -33,7 +33,9 @@ def run_write_info_to_outstore(job, context):
     
     f = tempfile.NamedTemporaryFile(delete=True)
     now = datetime.datetime.now()
-    f.write('{}\ntoil-vg version {}\nConfiguration:'.format(now,
+    if argv:
+        f.write('{}\n\n'.format(' '.join(argv)))
+    f.write('{}\ntoil-vg version {}\nConfiguration:\n'.format(now,
         pkg_resources.get_distribution('toil-vg').version))
 
     for key, val in context.config.__dict__.items():
