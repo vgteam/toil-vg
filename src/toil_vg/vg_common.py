@@ -372,11 +372,13 @@ def parse_id_ranges_file(id_ranges_filename):
             if len(toks) == 3:
                 id_ranges.append((toks[0], int(toks[1]), int(toks[2])))
     return id_ranges
-                                 
-def strip_ext(path, ext):
-    """Strip an extension if it's there
+
+def remove_ext(string, ext):
     """
-    if path.endswith(ext):
-        return path[:-len(ext)]
+    Strip a suffix from a string. Case insensitive.
+    """
+    # See <https://stackoverflow.com/a/18723694>
+    if string.lower().endswith(ext.lower()):
+        return string[:-len(ext)]
     else:
-        return path
+        return string
