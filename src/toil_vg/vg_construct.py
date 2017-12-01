@@ -27,16 +27,6 @@ logger = logging.getLogger(__name__)
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
 CEPH_SAMPLES="NA12889 NA12890 NA12891 NA12892 NA12877 NA12878 NA12879 NA12880 NA12881 NA12882 NA12883 NA12884 NA12885 NA12886 NA12887 NA12888 NA12893".split()
 
-def remove_ext(string, ext):
-    """
-    Strip a suffix from a string. Case insensitive.
-    """
-    # See <https://stackoverflow.com/a/18723694>
-    if string.lower().endswith(ext.lower()):
-        return string[:-len(ext)]
-    else:
-        return string
-
 def construct_subparser(parser):
     """
     Create a subparser for construction.  Should pass in results of subparsers.add_parser()
@@ -255,13 +245,13 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             else:
                 hap_control_vcf_ids = pos_control_vcf_ids
                 hap_control_tbi_ids = pos_control_tbi_ids
-            vcf_base = os.path.basename(strip_ext(strip_ext(vcf_name, '.gz'), 'vcf'))
+            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
             hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
         if regions:
             hap_region_names = [output_name + '_{}'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
         else:
             hap_region_names = None
-        hap_output_name = strip_ext(output_name, '.vg') + '_{}_haplo.vg'.format(haplo_sample)
+        hap_output_name = remove_ext(output_name, '.vg') + '_{}_haplo.vg'.format(haplo_sample)
         
         output['haplo'] = [hap_control_vcf_ids, hap_control_vcf_names, hap_control_tbi_ids,
                            hap_output_name, hap_region_names]
@@ -272,7 +262,7 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
         else:
             primary_region_names = None
 
-        primary_output_name = strip_ext(output_name, '.vg') + '_primary.vg'.format(sample)
+        primary_output_name = remove_ext(output_name, '.vg') + '_primary.vg'.format(sample)
         output['primary'] = [[], [], [], primary_output_name, primary_region_names]
 
     if min_af is not None:
@@ -327,7 +317,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
     
     for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
-        output_name_base = strip_ext(output_name, '.vg')
+        output_name_base = remove_ext(output_name, '.vg')
         gpbwt = name == 'haplo'
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
@@ -337,14 +327,14 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         vg_ids = construct_job.rv()
         vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
 
-        vg_names = [strip_ext(i, '.vg') + '.vg' for i in vg_names]
+        vg_names = [remove_ext(i, '.vg') + '.vg' for i in vg_names]
         if gcsa_index and not gpbwt:
             if not regions:
                 paths = []
             else:
                 paths = [p.split(':')[0] for p in regions]
-            gcsa_job = job.addFollowOnJobFn(run_gcsa_prep, context, vg_ids,
-                                            vg_names, output_name_base, paths)
+            gcsa_job = construct_job.addFollowOnJobFn(run_gcsa_prep, context, vg_ids,
+                                                      vg_names, output_name_base, paths)
             gcsa_id = gcsa_job.rv(0)
             lcp_id = gcsa_job.rv(1)
         else:
@@ -352,28 +342,28 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             lcp_id = None
             
         if xg_index:                
-            xg_job = job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
-                                          vg_names, output_name_base,
-                                          cores=context.config.xg_index_cores,
-                                          memory=context.config.xg_index_mem,
-                                          disk=context.config.xg_index_disk)
+            xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
+                                                    vg_names, output_name_base,
+                                                    cores=context.config.xg_index_cores,
+                                                    memory=context.config.xg_index_mem,
+                                                    disk=context.config.xg_index_disk)
             xg_id = xg_job.rv()
         else:
             xg_id = None
 
         if gpbwt:
-            haplo_job = job.addFollowOnJobFn(run_make_haplo_graphs, context, vcf_ids, tbi_ids,
-                                             vcf_names, vg_ids, vg_names, output_name_base, regions,
-                                             haplo_sample, haplotypes)
+            haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context, vcf_ids, tbi_ids,
+                                                       vcf_names, vg_ids, vg_names, output_name_base, regions,
+                                                       haplo_sample, haplotypes)
 
             # we want an xg index from our thread graphs to pass to vg sim for each haplotype
             for haplotype in haplotypes:
                 haplo_xg_job = haplo_job.addFollowOnJobFn(run_xg_indexing, context, haplo_job.rv(haplotype),
-                                                          vg_names,
-                                                          output_name_base + '_thread_{}'.format(haplotype),
-                                                          cores=context.config.xg_index_cores,
-                                                          memory=context.config.xg_index_mem,
-                                                          disk=context.config.xg_index_disk)
+                                                                    vg_names,
+                                                                    output_name_base + '_thread_{}'.format(haplotype),
+                                                                    cores=context.config.xg_index_cores,
+                                                                    memory=context.config.xg_index_mem,
+                                                                    disk=context.config.xg_index_disk)
         else:
             xg_id = None
 
@@ -433,7 +423,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
         region_files.append(region_file)
 
     if merge_output_name:
-        merge_output_name = strip_ext(merge_output_name, '.vg') + '.vg'
+        merge_output_name = remove_ext(merge_output_name, '.vg') + '.vg'
 
     # if there's nothing to do, just write the files and return
     if len(region_graph_ids) == 1 or not (join_ids or merge_output_name):
@@ -561,7 +551,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     
     cmd.append(['bcftools', 'view', '-', '-O', 'z', '-e', gfilter])
 
-    out_pos_name = strip_ext(strip_ext(os.path.basename(vcf_name), '.gz'), '.vcf')
+    out_pos_name = remove_ext(remove_ext(os.path.basename(vcf_name), '.gz'), '.vcf')
     out_neg_name = out_pos_name + '_minus_{}.vcf.gz'.format(sample)
     out_pos_name += '_{}.vcf.gz'.format(sample)
 
@@ -671,7 +661,7 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
         tbi_id = tbi_ids[0] if len(vcf_names) == 1 else tbi_ids[i]
             
         # index the graph and vcf to make the gpbwt
-        gpbwt_name = '{}-gpbwt'.format(strip_ext(vg_name, '.vg'))
+        gpbwt_name = '{}-gpbwt'.format(remove_ext(vg_name, '.vg'))
         gpbwt_job = job.addChildJobFn(run_xg_indexing, context, [vg_id], [vg_name],
                                       gpbwt_name, vcf_id, tbi_id,
                                       cores=context.config.xg_index_cores,
