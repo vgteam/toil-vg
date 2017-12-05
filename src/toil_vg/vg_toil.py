@@ -33,6 +33,8 @@ from toil_vg.vg_vcfeval import *
 from toil_vg.vg_config import *
 from toil_vg.vg_sim import *
 from toil_vg.vg_mapeval import *
+from toil_vg.vg_calleval import *
+from toil_vg.vg_call import *
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import *
 
@@ -91,6 +93,10 @@ def parse_args(args=None):
     parser_mapeval = subparsers.add_parser('mapeval', help='Compare mapping results')
     mapeval_subparser(parser_mapeval)
 
+    # calleval subparser
+    parser_calleval = subparsers.add_parser('calleval', help='Compare calling results')
+    calleval_subparser(parser_calleval)
+
     # construct subparser
     parser_construct = subparsers.add_parser('construct', help="Construct graphs from VCF")
     construct_subparser(parser_construct)
@@ -115,10 +121,6 @@ def pipeline_subparser(parser_run):
     parser_run.add_argument("--id_ranges", type=make_url,
         help="Path to file with node id ranges for each chromosome in BED format.  If not"
                             " supplied, will be generated from --graphs)")
-    parser_run.add_argument("--vcfeval_baseline", type=make_url,
-        help="Path to baseline VCF file for comparison (must be bgzipped and have .tbi)")
-    parser_run.add_argument("--vcfeval_fasta", type=make_url,
-        help="Path to DNA sequence file, required for vcfeval. Maybe be gzipped")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser_run)
@@ -333,6 +335,8 @@ def main():
         sim_main(context, args)
     elif args.command == 'mapeval':
         mapeval_main(context, args)
+    elif args.command == 'calleval':
+        calleval_main(context, args)
     elif args.command == 'construct':
         construct_main(context, args)
         

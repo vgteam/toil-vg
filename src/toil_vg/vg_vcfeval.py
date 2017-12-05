@@ -11,6 +11,7 @@ import logging
 
 from toil.common import Toil
 from toil.job import Job
+from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
 
@@ -25,16 +26,10 @@ def vcfeval_subparser(parser):
     Job.Runner.addToilOptions(parser)
 
     # General options
-    parser.add_argument("call_vcf", type=make_url,
+    parser.add_argument("--call_vcf", type=make_url, required=True,
                         help="input vcf (must be bgzipped and have .tbi")
-    parser.add_argument("vcfeval_baseline", type=make_url,
-                        help="truth vcf (must be bgzipped and have .tbi")
-    parser.add_argument("vcfeval_fasta", type=make_url,
-                        help="fasta file containing the DNA sequence.  Can be"
-                        " gzipped with .gz extension")
     parser.add_argument("out_store",
                             help="output store.  All output written here. Path specified using same syntax as toil jobStore")
-
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -45,7 +40,13 @@ def vcfeval_subparser(parser):
     add_container_tool_parse_args(parser)
 
 def vcfeval_parse_args(parser):
-    """ centralize calling parameters here """
+    """ centralize reusable vcfevaling parameters here """
+
+    parser.add_argument("--vcfeval_baseline", type=make_url,
+                        help="Path to baseline VCF file for comparison (must be bgzipped and have .tbi)")
+
+    parser.add_argument("--vcfeval_fasta", type=make_url,
+                        help="Path to DNA sequence file, required for vcfeval. Maybe be gzipped")
 
     parser.add_argument("--vcfeval_bed_regions", type=make_url,
                         help="BED file of regions to consider")
@@ -62,25 +63,11 @@ def validate_vcfeval_options(options):
     assert options.vcfeval_baseline.endswith(".vcf.gz")
     assert options.call_vcf.endswith(".vcf.gz")
 
+    assert options.vcfeval_fasta
+
     
-def vcfeval(job, context, work_dir, call_vcf_name, vcfeval_baseline_name,
-            sdf_name, outdir_name, bed_name):
-
-    """ create and run the vcfeval command """
-
-    cmd = ['rtg', 'vcfeval', '--calls', call_vcf_name,
-           '--baseline', vcfeval_baseline_name,
-           '--template', sdf_name, '--output', outdir_name,
-           '--threads', str(context.config.vcfeval_cores),
-           '--vcf-score-field', 'QUAL']
-
-    if bed_name is not None:
-        cmd += ['--evaluation-regions', bed_name]
-
-    if context.config.vcfeval_opts:
-        cmd += context.config.vcfeval_opts
-
-    context.runner.call(job, cmd, work_dir=work_dir)
+def parse_f1(summary_path):
+    """ grab the best f1 out of vcfeval's summary.txt """
 
     # get the F1 out of summary.txt
     # expect header on 1st line and data on 3rd and below
@@ -88,7 +75,7 @@ def vcfeval(job, context, work_dir, call_vcf_name, vcfeval_baseline_name,
     # point on quality ROC curve)
     # todo: be more robust
     f1 = None
-    with open(os.path.join(work_dir, os.path.basename(outdir_name), "summary.txt")) as sum_file:
+    with open(summary_path) as sum_file:
         header = sum_file.readline().split()
         assert header[-1] == 'F-measure'        
         line = sum_file.readline()
@@ -99,9 +86,10 @@ def vcfeval(job, context, work_dir, call_vcf_name, vcfeval_baseline_name,
             if f1 is None or line_f1 > f1:
                 f1 = line_f1
     return f1
-    
+
+
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
-                fasta_path, fasta_id, bed_id):                
+                fasta_path, fasta_id, bed_id, out_name = None):                
     """ run vcf_eval, return f1 score """
 
     # make a local work directory
@@ -127,9 +115,11 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     if bed_id:
         job.fileStore.readGlobalFile(bed_id, os.path.join(work_dir, bed_name))
 
-    # sample name is optional
-    if sample:
-        out_tag = '{}_vcfeval_output'.format(sample)
+    # use out_name if specified, otherwise sample
+    if sample and not out_name:
+        out_name = sample        
+    if out_name:
+        out_tag = '{}_vcfeval_output'.format(out_name)
     else:
         out_tag = 'vcfeval_output'
         
@@ -142,8 +132,21 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     context.runner.call(job, ['rtg', 'format',  fasta_name, '-o', sdf_name], work_dir=work_dir)    
 
     # run the vcf_eval command
-    f1 = vcfeval(job, context, work_dir, call_vcf_name, vcfeval_baseline_name,
-                 sdf_name, out_name, bed_name)
+    cmd = ['rtg', 'vcfeval', '--calls', call_vcf_name,
+           '--baseline', vcfeval_baseline_name,
+           '--template', sdf_name, '--output', out_name,
+           '--threads', str(context.config.vcfeval_cores),
+           '--vcf-score-field', 'QUAL']
+
+    if bed_name is not None:
+        cmd += ['--evaluation-regions', bed_name]
+
+    if context.config.vcfeval_opts:
+        cmd += context.config.vcfeval_opts
+
+    context.runner.call(job, cmd, work_dir=work_dir)
+
+    f1 = parse_f1(os.path.join(work_dir, os.path.basename(out_name), "summary.txt"))
 
     # copy results to the output store
     # 1) vcfeval_output_f1.txt (used currently by tests script)

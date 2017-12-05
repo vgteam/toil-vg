@@ -329,7 +329,7 @@ def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
 
 
     # return our id for the output bam file
-    bam_file_id = context.write_intermediate_file(job, bam_file)
+    bam_file_id = context.write_output_file(job, bam_file)
 
     return bam_file_id, run_time
 

@@ -119,8 +119,9 @@ class VGCGLTest(TestCase):
                   '--realTimeLogging', '--logInfo')
 
         self._run('toil-vg', 'vcfeval', self.jobStoreLocal,
-                  os.path.join(self.local_outstore, 'sample.vcf.gz'), self.baseline,
-                  self.chrom_fa, self.local_outstore,
+                  '--call_vcf', os.path.join(self.local_outstore, 'sample.vcf.gz'),
+                  '--vcfeval_baseline', self.baseline,
+                  '--vcfeval_fasta', self.chrom_fa, self.local_outstore,
                   '--vcfeval_opts', ' --squash-ploidy',
                   '--realTimeLogging', '--logInfo')
 
@@ -132,8 +133,10 @@ class VGCGLTest(TestCase):
         '''
         self.test_vg_graph = self._ci_input_path('small.vg')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
+        self.chrom_fa_nz = self._ci_input_path('small.fa')
         self._download_input('NA12877.brca1.bam_1.fq.gz')
-        
+        self.baseline = self._ci_input_path('small.vcf.gz')
+
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8', '--kmers_cores', '8',
@@ -180,6 +183,27 @@ class VGCGLTest(TestCase):
         
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.8)
 
+        # check running calleval on the mapeval output
+        self._run('toil-vg', 'calleval', self.jobStoreLocal,
+                  self.local_outstore,
+                  '--chroms', 'x',
+                  '--xg_paths', os.path.join(self.local_outstore, 'small.xg'),
+                  os.path.join(self.local_outstore, 'small.xg'),
+                  '--gams', os.path.join(self.local_outstore, 'aligned-vg_default.gam'),
+                   os.path.join(self.local_outstore, 'aligned-vg-pe_default.gam'),
+                  '--gam_names', 'vg', 'vg-pe',
+                  '--vcfeval_fasta', self.chrom_fa_nz,
+                  '--vcfeval_baseline', self.baseline,
+                  '--sample_name', 'x',
+                  '--calling_cores', '2',
+                  '--genotype', '--genotype_opts', '-P 0', 
+                  '--freebayes',
+                  '--bams', os.path.join(self.local_outstore, 'bwa-mem.bam'),
+                  os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),
+                  '--bam_names', 'bwa-mem', 'bwa-mem-pe')
+
+        self._assertCallEvalOutput(self.local_outstore, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.05)
+
         # check running mapeval on the vg graph
         
         os.remove(os.path.join(self.local_outstore, 'stats.tsv'))
@@ -198,8 +222,9 @@ class VGCGLTest(TestCase):
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
                   '--alignment_cores', '8', '--single-only',                  
                   '--maxCores', '8', '--fasta', self.chrom_fa)
-        
+
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg'], 0.9)
+
         
     def test_4_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
@@ -270,8 +295,9 @@ class VGCGLTest(TestCase):
                   '--realTimeLogging', '--logInfo', '--call_opts', '-E 0')
 
         self._run('toil-vg', 'vcfeval', self.jobStoreLocal,
-                  os.path.join(outstore, 'NA12877.vcf.gz'), self.baseline,
-                  self.chrom_fa, outstore,
+                  '--call_vcf', os.path.join(outstore, 'NA12877.vcf.gz'),
+                  '--vcfeval_baseline', self.baseline,
+                  '--vcfeval_fasta', self.chrom_fa, outstore,
                   '--realTimeLogging', '--logInfo',
                   '--vcfeval_opts', ' --ref-overlap')
 
@@ -412,7 +438,19 @@ class VGCGLTest(TestCase):
         # make sure plots get drawn
         self.assertGreater(os.path.getsize(os.path.join(outstore, 'plot-pr.svg')), 0)
         self.assertGreater(os.path.getsize(os.path.join(outstore, 'plot-qq.svg')), 0)
-                
+
+    def _assertCallEvalOutput(self, outstore, names, f1_threshold):
+        with open(os.path.join(outstore, 'calleval_stats.tsv')) as stats:
+            table = [line for line in stats]
+        headers = set()
+        for row in table:
+            toks = row.split()
+            self.assertEqual(len(toks), 2)
+            name, f1 = toks[0], toks[1]
+            headers.add(name)
+            self.assertGreater(float(f1), f1_threshold)
+        self.assertEqual(headers, set(names))        
+
     def tearDown(self):
         shutil.rmtree(self.workdir)
         subprocess.check_call(['toil', 'clean', self.jobStoreLocal])
