@@ -146,7 +146,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
 
 # Docker image to use for rtg
-rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
+rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
 # Docker image to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
@@ -367,7 +367,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
 
 # Docker image to use for rtg
-rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
+rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
 # Docker image to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
