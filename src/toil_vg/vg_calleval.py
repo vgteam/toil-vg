@@ -131,16 +131,27 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, sample_name, region,
     index_cmd = ['samtools', 'faidx', os.path.basename(fasta_path)]
     context.runner.call(job, index_cmd, work_dir=work_dir)
 
+    # index the bam (this should probably get moved upstream and into its own job)
+    sort_bam_path = os.path.join(work_dir, 'sort.bam')
+    sort_cmd = ['samtools', 'sort', os.path.basename(bam_path), '-o',
+                os.path.basename(sort_bam_path), '-O', 'BAM']
+    context.runner.call(job, sort_cmd, work_dir=work_dir)
+    bam_index_cmd = ['samtools', 'index', os.path.basename(sort_bam_path)]
+    context.runner.call(job, bam_index_cmd, work_dir=work_dir)
+
     # run freebayes
-    fb_cmd = ['freebayes', '-f', os.path.basename(fasta_path), os.path.basename(bam_path)]
+    fb_cmd = ['freebayes', '-f', os.path.basename(fasta_path), os.path.basename(sort_bam_path)]
     if freebayes_opts:
         fb_cmd += freebayes_opts
+
     if region:
         fb_cmd += ['-r', region]
 
     vcf_path = os.path.join(work_dir, '{}-raw.vcf'.format(out_name))
     with open(vcf_path, 'w') as out_vcf:
         context.runner.call(job, fb_cmd, work_dir=work_dir, outfile=out_vcf)
+
+    context.write_output_file(job, vcf_path)
 
     vcf_fix_path = os.path.join(work_dir, '{}.vcf'.format(out_name))
     
@@ -153,6 +164,8 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, sample_name, region,
         if sample_name:
             pass
         vcf_writer.write_record(record)
+    vcf_writer.flush()
+    vcf_writer.close()
 
     context.runner.call(job, ['bgzip', os.path.basename(vcf_fix_path)], work_dir = work_dir)
     context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_fix_path) + '.gz'], work_dir = work_dir)
