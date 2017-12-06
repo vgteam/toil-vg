@@ -18,6 +18,7 @@ required_versions = {'pyyaml': '>=3.11',
                      'boto3': '>=1.4.5',
                      'awscli': '>=1.10.1',
                      'tsv': '==1.2',
-                     'scikit-learn': '==0.18.2'}
+                     'scikit-learn': '==0.18.2',
+                     'pyvcf': '==0.6.8'}
 
 dependency_links = []

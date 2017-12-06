@@ -425,10 +425,13 @@ def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, cli
     return clip_file_id
 
 def run_all_calling(job, context, xg_file_id, chr_gam_ids, chroms, vcf_offsets, sample_name,
-                    genotype=False, augment=True):
+                    genotype=False, augment=True, out_name=None):
     """
     Call all the chromosomes and return a merged up vcf/tbi pair
     """
+    # we make a child job so that all calling is encapsulated in a top-level job
+    child_job = Job()
+    job.addChild(child_job)
     vcf_tbi_file_id_pair_list = []
     assert len(chr_gam_ids) > 0
     for i in range(len(chr_gam_ids)):
@@ -441,20 +444,22 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chroms, vcf_offsets, 
             # single gam with one or more chromosomes
             chr_label = chroms
             chr_offset = vcf_offsets if vcf_offsets else [0] * len(chroms)
-        vcf_tbi_file_id_pair = job.addChildJobFn(run_calling, context, xg_file_id,
-                                                 alignment_file_id, chr_label, chr_offset,
-                                                 sample_name, genotype, augment,
-                                                 cores=context.config.call_chunk_cores,
-                                                 memory=context.config.call_chunk_mem,
-                                                 disk=context.config.call_chunk_disk).rv()
+        vcf_tbi_file_id_pair = child_job.addChildJobFn(run_calling, context, xg_file_id,
+                                                       alignment_file_id, chr_label, chr_offset,
+                                                       sample_name, genotype, augment,
+                                                       cores=context.config.call_chunk_cores,
+                                                       memory=context.config.call_chunk_mem,
+                                                       disk=context.config.call_chunk_disk).rv()
         vcf_tbi_file_id_pair_list.append(vcf_tbi_file_id_pair)
 
-    return job.addFollowOnJobFn(run_merge_vcf, context, sample_name, vcf_tbi_file_id_pair_list,
-                                cores=context.config.call_chunk_cores,
-                                memory=context.config.call_chunk_mem,
-                                disk=context.config.call_chunk_disk).rv()
+    if not out_name:
+        out_name = sample_name
+    return child_job.addFollowOnJobFn(run_merge_vcf, context, out_name, vcf_tbi_file_id_pair_list,
+                                      cores=context.config.call_chunk_cores,
+                                      memory=context.config.call_chunk_mem,
+                                      disk=context.config.call_chunk_disk).rv()
 
-def run_merge_vcf(job, context, sample_name, vcf_tbi_file_id_pair_list):
+def run_merge_vcf(job, context, out_name, vcf_tbi_file_id_pair_list):
     """ Merge up a bunch of chromosome VCFs """
 
     RealtimeLogger.info("Completed gam merging and gam path variant calling.")
@@ -474,7 +479,7 @@ def run_merge_vcf(job, context, sample_name, vcf_tbi_file_id_pair_list):
     vcf_merged_file_key = "" 
     if len(vcf_merging_file_key_list) > 1:
         # merge vcf files
-        vcf_merged_file_key = "{}.vcf.gz".format(sample_name)
+        vcf_merged_file_key = "{}.vcf.gz".format(out_name)
         command = ['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key)]
         command +=  vcf_merging_file_key_list
         context.runner.call(job, command, work_dir=work_dir)
@@ -484,7 +489,7 @@ def run_merge_vcf(job, context, sample_name, vcf_tbi_file_id_pair_list):
         vcf_merged_file_key = vcf_merging_file_key_list[0]
 
     # save variant calling results to the output store
-    out_store_key = "{}.vcf.gz".format(sample_name)
+    out_store_key = "{}.vcf.gz".format(out_name)
     vcf_file = os.path.join(work_dir, vcf_merged_file_key)
     vcf_file_idx = vcf_file + ".tbi"
     

@@ -76,6 +76,7 @@ def get_container_tool_map(options):
     cmap[0]["bwa"] = options.bwa_docker
     cmap[0]["Rscript"] = options.r_docker
     cmap[0]["vcfremovesamples"] = options.vcflib_docker
+    cmap[0]["freebayes"] = options.freebayes_docker
      
     # to do: could be a good place to do an existence check on these tools
 

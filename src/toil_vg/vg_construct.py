@@ -379,6 +379,10 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
     but for now we only accept single files, and require region list.
     """
 
+    # encapsulate follow-on
+    child_job = Job()
+    job.addChild(child_job)
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     if not regions:
@@ -391,7 +395,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
         tbi_id = None if not tbi_ids else tbi_ids[0] if len(tbi_ids) == 1 else tbi_ids[i]
         fasta_id = fasta_ids[0] if len(fasta_ids) == 1 else fasta_ids[i]
         fasta_name = fasta_names[0] if len(fasta_names) == 1 else fasta_names[i]
-        region_graph_ids.append(job.addChildJobFn(run_construct_region_graph, context,
+        region_graph_ids.append(child_job.addChildJobFn(run_construct_region_graph, context,
                                                   fasta_id, fasta_name,
                                                   vcf_id, vcf_name, tbi_id, region, region_name,
                                                   max_node_size, alt_paths, flat_alts,
@@ -403,8 +407,8 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
                                                   memory=context.config.construct_mem,
                                                   disk=context.config.construct_disk).rv())
 
-    return job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
-                                region_names, merge_output_name).rv()
+    return child_job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
+                                      region_names, merge_output_name).rv()
 
 
 def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merge_output_name = None):

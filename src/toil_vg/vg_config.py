@@ -127,35 +127,38 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   If empty or commented, then the tool will be run directly from the command line instead
 ##   of through docker. 
 
-# Docker container to use for vg
+# Docker image to use for vg
 vg-docker: 'quay.io/vgteam/vg:v1.5.0-2018-g71f96239-t119-run'
 
-# Docker container to use for bcftools
+# Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
 
-# Docker container to use for tabix
+# Docker image to use for tabix
 tabix-docker: 'vandhanak/bcftools:1.3.1'
 
-# Docker container to use for samtools
+# Docker image to use for samtools
 samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 
-# Docker container to use for bwa
+# Docker image to use for bwa
 bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 
-# Docker container to use for jq
+# Docker image to use for jq
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
 
-# Docker container to use for rtg
-rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
+# Docker image to use for rtg
+rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
-# Docker container to use for pigz
+# Docker image to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
-# Docker container to use to run R scripts
-r-docker: 'rocker/tidyverse:3.4.2'
+# Docker image to use to run R scripts
+r-docker: 'rocker/tidyverse:latest'
 
-# Docker container to use for vcflib
+# Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
+
+# Docker image to use for Freebayes
+freebayes-docker: 'maxulysse/freebayes:1.2.5'
 
 ##########################
 ### vg_index Arguments ###
@@ -345,35 +348,38 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   If empty or commented, then the tool will be run directly from the command line instead
 ##   of through docker. 
 
-# Docker container to use for vg
+# Docker image to use for vg
 vg-docker: 'quay.io/vgteam/vg:v1.5.0-2018-g71f96239-t119-run'
 
-# Docker container to use for bcftools
+# Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
 
-# Docker container to use for tabix
+# Docker image to use for tabix
 tabix-docker: 'vandhanak/bcftools:1.3.1'
 
-# Docker container to use for samtools
+# Docker image to use for samtools
 samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 
-# Docker container to use for bwa
+# Docker image to use for bwa
 bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 
-# Docker container to use for jq
+# Docker image to use for jq
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
 
-# Docker container to use for rtg
-rtg-docker: 'realtimegenomics/rtg-tools:3.7.1'
+# Docker image to use for rtg
+rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
-# Docker container to use for pigz
+# Docker image to use for pigz
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
-# Docker container to use to run R scripts
-r-docker: 'rocker/tidyverse:3.4.2'
+# Docker image to use to run R scripts
+r-docker: 'rocker/tidyverse:latest'
 
-# Docker container to use for vcflib
+# Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
+
+# Docker image to use for Freebayes
+freebayes-docker: 'maxulysse/freebayes:1.2.5'
 
 ##########################
 ### vg_index Arguments ###
