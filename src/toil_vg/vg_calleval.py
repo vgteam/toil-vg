@@ -36,6 +36,7 @@ from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling
 from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_construct import run_unzip_fasta
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,6 @@ def validate_calleval_options(options):
             'one sequence must be specified with --chroms')
     require(options.vcfeval_baseline, '--vcfeval_baseline required')
     require(options.vcfeval_fasta, '--vcfeval_fasta required')
-    require(not options.vcfeval_fasta.endswith('.gz'), 'gzipped fasta not currently supported')
 
 def run_bam_index(job, context, bam_file_id, bam_name):
     """
@@ -314,7 +314,15 @@ def calleval_main(context, options):
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
-            
+
+            # Init the outstore
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
+
+            if options.vcfeval_fasta.endswith('.gz'):
+                # unzip the fasta
+                fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, fasta_id,
+                                                  os.path.basename(options.vcfeval_fasta)).rv()
+
             # Make a root job
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
                                      inputBamIdxIds,
@@ -327,8 +335,6 @@ def calleval_main(context, options):
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
 
-            # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
             init_job.addFollowOn(root_job)            
             
             # Run the job and store the returned list of output files to download
