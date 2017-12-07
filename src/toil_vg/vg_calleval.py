@@ -235,7 +235,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
 
             eval_job = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_job.rv(),
                                                vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                               fasta_id, None, out_name=bam_name)
+                                               fasta_id, bed_id, out_name=bam_name)
             vcf_tbi_id_pairs.append(fb_job.rv())            
             names.append(bam_name)            
             eval_results.append(eval_job.rv())
@@ -251,7 +251,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
             
             eval_job = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
                                                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                 fasta_id, None, out_name=gam_name)
+                                                 fasta_id, bed_id, out_name=gam_name)
             names.append(gam_name)            
             vcf_tbi_id_pairs.append(call_job.rv())
             eval_results.append(eval_job.rv())
