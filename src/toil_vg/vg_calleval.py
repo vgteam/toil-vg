@@ -111,8 +111,30 @@ def validate_calleval_options(options):
     require(options.vcfeval_fasta, '--vcfeval_fasta required')
     require(not options.vcfeval_fasta.endswith('.gz'), 'gzipped fasta not currently supported')
 
+def run_bam_index(job, context, bam_file_id, bam_name):
+    """
+    sort and index a bam.  return the sorted bam and its idx
+    """
+    # make a local work directory
+    work_dir = job.fileStore.getLocalTempDir()
 
-def run_freebayes(job, context, fasta_file_id, bam_file_id, sample_name, region, offset, freebayes_opts,
+    # download the input
+    bam_path = os.path.join(work_dir, bam_name + '.bam')
+    job.fileStore.readGlobalFile(bam_file_id, bam_path)
+
+    sort_bam_path = os.path.join(work_dir, 'sort.bam')
+    sort_cmd = ['samtools', 'sort', os.path.basename(bam_path), '-o',
+                os.path.basename(sort_bam_path), '-O', 'BAM', '-@', max(0, job.cores - 1)]
+    context.runner.call(job, sort_cmd, work_dir=work_dir)
+    bam_index_cmd = ['samtools', 'index', os.path.basename(sort_bam_path)]
+    context.runner.call(job, bam_index_cmd, work_dir=work_dir)
+
+    out_bam_id = context.write_intermediate_file(job, sort_bam_path)
+    out_idx_id = context.write_intermediate_file(job, sort_bam_path + '.bai')
+    return out_bam_id, out_idx_id
+    
+    
+def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id, sample_name, region, offset, freebayes_opts,
                   out_name):
     """
     run freebayes to make a vcf
@@ -124,23 +146,13 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, sample_name, region,
     # download the input
     fasta_path = os.path.join(work_dir, 'ref.fa')
     bam_path = os.path.join(work_dir, 'alignment.bam')
+    bam_idx_path = bam_path + '.bai'
     job.fileStore.readGlobalFile(fasta_file_id, fasta_path)
     job.fileStore.readGlobalFile(bam_file_id, bam_path)
-
-    # index the fasta
-    index_cmd = ['samtools', 'faidx', os.path.basename(fasta_path)]
-    context.runner.call(job, index_cmd, work_dir=work_dir)
-
-    # index the bam (this should probably get moved upstream and into its own job)
-    sort_bam_path = os.path.join(work_dir, 'sort.bam')
-    sort_cmd = ['samtools', 'sort', os.path.basename(bam_path), '-o',
-                os.path.basename(sort_bam_path), '-O', 'BAM']
-    context.runner.call(job, sort_cmd, work_dir=work_dir)
-    bam_index_cmd = ['samtools', 'index', os.path.basename(sort_bam_path)]
-    context.runner.call(job, bam_index_cmd, work_dir=work_dir)
+    job.fileStore.readGlobalFile(bam_idx_id, bam_idx_path)
 
     # run freebayes
-    fb_cmd = ['freebayes', '-f', os.path.basename(fasta_path), os.path.basename(sort_bam_path)]
+    fb_cmd = ['freebayes', '-f', os.path.basename(fasta_path), os.path.basename(bam_path)]
     if freebayes_opts:
         fb_cmd += freebayes_opts
 
@@ -188,7 +200,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
     return context.write_output_file(job, stats_path)
                              
         
-def run_calleval(job, context, xg_ids, gam_ids, bam_ids, gam_names, bam_names,
+def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
                  genotype, sample_name, chrom, vcf_offset):
     """ top-level call-eval function.  runs the caller and genotype on every gam,
@@ -199,12 +211,27 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, gam_names, bam_names,
     names = []
     eval_results = []
     if bam_ids:
-        for bam_id, bam_name in zip(bam_ids, bam_names):
-            fb_job = job.addChildJobFn(run_freebayes, context, fasta_id, bam_id, sample_name, chrom, vcf_offset,
-                                       None, out_name = bam_name,
-                                       cores=context.config.calling_cores,
-                                       memory=context.config.calling_mem,
-                                       disk=context.config.calling_disk)
+        for bam_id, bam_idx_id, bam_name in zip(bam_ids, bam_idx_ids, bam_names):
+            if not bam_idx_id:
+                child_job = job.addChildJobFn(run_bam_index, context, bam_id, bam_name,
+                                              cores=context.config.calling_cores,
+                                              memory=context.config.calling_mem,
+                                              disk=context.config.calling_disk)
+                sorted_bam_id = child_job.rv(0)
+                sorted_bam_idx_id = child_job.rv(1)
+            else:
+                child_job = Job()
+                job.addChild(child_job)
+                sorted_bam_id = bam_id
+                sorted_bam_idx_id = bam_idx_id                
+                
+            fb_job = child_job.addFollowOnJobFn(run_freebayes, context, fasta_id,
+                                                sorted_bam_id, sorted_bam_idx_id, sample_name,
+                                                chrom, vcf_offset,
+                                                None, out_name = bam_name,
+                                                cores=context.config.calling_cores,
+                                                memory=context.config.calling_mem,
+                                                disk=context.config.calling_disk)
 
             eval_job = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_job.rv(),
                                                vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
@@ -270,9 +297,15 @@ def calleval_main(context, options):
                     inputGamFileIDs.append(gamToID[gam])
                         
             inputBamFileIDs = []
+            inputBamIdxIds = []
             if options.bams:
-                for inputBamFileID in options.bams:
-                    inputBamFileIDs.append(toil.importFile(inputBamFileID))
+                for bam in options.bams:
+                    inputBamFileIDs.append(toil.importFile(bam))
+                    try:
+                        bamIdxId = toil.importFile(bam + '.bai')
+                    except:
+                        bamIdxId = None
+                    inputBamIdxIds.append(bamIdxId)
 
             vcfeval_baseline_id = toil.importFile(options.vcfeval_baseline)
             vcfeval_baseline_tbi_id = toil.importFile(options.vcfeval_baseline + '.tbi')
@@ -284,6 +317,7 @@ def calleval_main(context, options):
             
             # Make a root job
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
+                                     inputBamIdxIds,
                                      options.gam_names, options.bam_names, 
                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
                                      options.genotype, 
