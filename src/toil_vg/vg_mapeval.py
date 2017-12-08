@@ -111,6 +111,9 @@ def add_mapeval_options(parser):
     parser.add_argument('--ignore-quals', action='store_true',
                         help='never use quality adjusted alignment. ' 
                         'necessary if using --multipath on reads not from trained simulator')
+
+    parser.add_argument('--multipath-only', action='store_true',
+                        help='run only mpmap and not map (--multipath will run both and neith will just run map)')
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -634,7 +637,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, multipath, ignore_quals):
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, singlepath, multipath, ignore_quals):
     """
     Run alignments, if alignment files have not already been provided.
     
@@ -663,8 +666,8 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             context.config.mpmap_opts.append('-A')
         context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
-    do_vg_mapping = not gam_file_ids
-    if do_vg_mapping and do_single:
+    do_vg_mapping = not gam_file_ids and (singlepath or multipath)
+    if do_vg_mapping and singlepath and do_single:
         gam_file_ids = []
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
@@ -697,7 +700,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         out_xg_ids += xg_ids
         out_gam_names += [n + '-mp' for n in gam_names]
 
-    if do_vg_mapping and do_paired:
+    if do_vg_mapping and do_paired and singlepath:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, False,
@@ -1324,12 +1327,16 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
                                   cores=context.config.misc_cores,
                                   memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
+
+    do_single_path = not options.multipath_only
+    do_multi_path = options.multipath or options.multipath_only
                               
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids, reads_gam_file_id,
                                                fasta_file_id, bwa_index_ids, options.bwa,
-                                               not options.paired_only, not options.single_only, options.multipath,
+                                               not options.paired_only, not options.single_only,
+                                               do_single_path, do_multi_path, 
                                                options.ignore_quals)
                                                
     # Unpack the alignment job's return values
