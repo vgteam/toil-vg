@@ -463,6 +463,16 @@ bwa-opts: []
 def generate_config(whole_genome = False):
     return whole_genome_config if whole_genome is True else default_config
 
+def make_opts_list(x_opts):
+    opts_list = filter(lambda a : len(a), x_opts.split(' '))
+    # get rid of any -t or --threads while we're at it    
+    for t in ['-t', '--threads']:
+        if t in opts_list:
+            pos = opts_list.index(t)
+            del opts_list[pos:pos+2]
+    return opts_list
+    
+
 def apply_config_file_args(args):
     """
     Merge args from the config file and the parser, giving priority to the parser.
@@ -472,12 +482,13 @@ def apply_config_file_args(args):
     for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
                    'bwa_opts', 'kmers_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
-            args.__dict__[x_opts] = filter(lambda a : len(a), args.__dict__[x_opts].split(' '))
-            # get rid of any -t or --threads while we're at it
-            for t in ['-t', '--threads']:
-                if t in args.__dict__[x_opts]:
-                    pos = args.__dict__[x_opts].index(t)
-                    del args.__dict__[x_opts][pos:pos+2]
+            args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
+
+    # do the same thing for more_mpmap_opts which is a list of strings
+    if 'more_mpmap_opts' in args.__dict__.keys() and args.__dict__['more_mpmap_opts']:
+        for i, m_opts in enumerate(args.__dict__['more_mpmap_opts']):
+            if type(m_opts) is str:
+                args.__dict__['more_mpmap_opts'][i] = make_opts_list(m_opts)
 
     # If no config file given, we generate a default one
     wg_config = args.__dict__.has_key('whole_genome_config') and args.whole_genome_config

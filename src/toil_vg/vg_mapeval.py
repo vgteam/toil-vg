@@ -670,8 +670,9 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
 
     if ignore_quals:
         # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
-        if '-A' not in context.config.mpmap_opts and '--no-qual-adjust' not in context.config.mpmap_opts:
-            context.config.mpmap_opts.append('-A')
+        for mpmap_opts in mpmap_opts_list:
+            if '-A' not in mpmap_opts and '--no-qual-adjust' not in mpmap_opts:
+                mpmap_opts.append('-A')
         context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
     do_vg_mapping = not gam_file_ids and (singlepath or multipath)
@@ -696,7 +697,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     if do_vg_mapping and multipath and do_single:
         for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
             mp_context = copy.deepcopy(context)
-            context.mpmap_opts = mpmap_opts
+            mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, False,
                                             'input.gam', 'aligned-{}-mp'.format(gam_names[i]),
@@ -731,7 +732,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     if do_vg_mapping and do_paired and multipath:
         for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
             mp_context = copy.deepcopy(context)
-            context.mpmap_opts = mpmap_opts        
+            mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, False,
                                             'input.gam', 'aligned-{}-mp-pe'.format(gam_names[i]),
