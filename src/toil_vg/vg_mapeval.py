@@ -111,6 +111,12 @@ def add_mapeval_options(parser):
     parser.add_argument('--ignore-quals', action='store_true',
                         help='never use quality adjusted alignment. ' 
                         'necessary if using --multipath on reads not from trained simulator')
+
+    parser.add_argument('--multipath-only', action='store_true',
+                        help='run only mpmap and not map (--multipath will run both and neith will just run map)')
+
+    parser.add_argument('--more-mpmap-opts', nargs='+', default=[],
+                        help='additional batches of mpmap options to try')
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -634,7 +640,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, multipath, ignore_quals):
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, singlepath, multipath, ignore_quals):
     """
     Run alignments, if alignment files have not already been provided.
     
@@ -657,14 +663,20 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     # the map times
     map_times = [None] * len(gam_file_ids) if gam_file_ids else []
 
+    # we use this hack to run multiple batches of mpmap opts
+    mpmap_opts_list = [context.config.mpmap_opts]
+    if context.config.more_mpmap_opts:
+        mpmap_opts_list += context.config.more_mpmap_opts
+
     if ignore_quals:
         # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
-        if '-A' not in context.config.mpmap_opts and '--no-qual-adjust' not in context.config.mpmap_opts:
-            context.config.mpmap_opts.append('-A')
+        for mpmap_opts in mpmap_opts_list:
+            if '-A' not in mpmap_opts and '--no-qual-adjust' not in mpmap_opts:
+                mpmap_opts.append('-A')
         context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
-    do_vg_mapping = not gam_file_ids
-    if do_vg_mapping and do_single:
+    do_vg_mapping = not gam_file_ids and (singlepath or multipath)
+    if do_vg_mapping and singlepath and do_single:
         gam_file_ids = []
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
@@ -683,21 +695,24 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
 
     # Do the single-ended multipath mapping
     if do_vg_mapping and multipath and do_single:
-        for i, index_id in enumerate(index_ids):
-            map_job = job.addChildJobFn(run_mapping, context, False,
-                                        'input.gam', 'aligned-{}-mp'.format(gam_names[i]),
-                                        False, True, index_id[0], index_id[1],
-                                        None, [reads_gam_file_id],
-                                        cores=context.config.misc_cores,
-                                        memory=context.config.misc_mem, disk=context.config.misc_disk)
-            gam_file_ids.append(map_job.rv(0))
-            map_times.append(map_job.rv(1))
-            
-        # make sure associated lists are extended to fit new paired end mappings
-        out_xg_ids += xg_ids
-        out_gam_names += [n + '-mp' for n in gam_names]
+        for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
+            mp_context = copy.deepcopy(context)
+            mp_context.config.mpmap_opts = mpmap_opts
+            for i, index_id in enumerate(index_ids):
+                map_job = job.addChildJobFn(run_mapping, mp_context, False,
+                                            'input.gam', 'aligned-{}-mp'.format(gam_names[i]),
+                                            False, True, index_id[0], index_id[1],
+                                            None, [reads_gam_file_id],
+                                            cores=mp_context.config.misc_cores,
+                                            memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
+                gam_file_ids.append(map_job.rv(0))
+                map_times.append(map_job.rv(1))
 
-    if do_vg_mapping and do_paired:
+            # make sure associated lists are extended to fit new paired end mappings
+            out_xg_ids += xg_ids
+            out_gam_names += [n + '-mp{}'.format(opt_num if opt_num > 0 else '') for n in gam_names]
+
+    if do_vg_mapping and do_paired and singlepath:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, False,
@@ -715,19 +730,22 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
 
     # Do the paired-ended multipath mapping
     if do_vg_mapping and do_paired and multipath:
-        for i, index_id in enumerate(index_ids):
-            map_job = job.addChildJobFn(run_mapping, context, False,
-                                        'input.gam', 'aligned-{}-mp-pe'.format(gam_names[i]),
-                                        True, True, index_id[0], index_id[1],
-                                        None, [reads_gam_file_id],
-                                        cores=context.config.misc_cores,
-                                        memory=context.config.misc_mem, disk=context.config.misc_disk)
-            gam_file_ids.append(map_job.rv(0))
-            map_times.append(map_job.rv(1))            
-        
-        # make sure associated lists are extended to fit new paired end mappings
-        out_xg_ids += xg_ids
-        out_gam_names += [n + '-mp-pe' for n in gam_names]
+        for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
+            mp_context = copy.deepcopy(context)
+            mp_context.config.mpmap_opts = mpmap_opts
+            for i, index_id in enumerate(index_ids):
+                map_job = job.addChildJobFn(run_mapping, mp_context, False,
+                                            'input.gam', 'aligned-{}-mp-pe'.format(gam_names[i]),
+                                            True, True, index_id[0], index_id[1],
+                                            None, [reads_gam_file_id],
+                                            cores=mp_context.config.misc_cores,
+                                            memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
+                gam_file_ids.append(map_job.rv(0))
+                map_times.append(map_job.rv(1))            
+
+            # make sure associated lists are extended to fit new paired end mappings
+            out_xg_ids += xg_ids
+            out_gam_names += [n + '-mp{}-pe'.format(opt_num if opt_num > 0 else '') for n in gam_names]
     
     # run bwa if requested
     bwa_bam_file_ids, bwa_mem_times = [None, None], [None, None]
@@ -1324,12 +1342,16 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
                                   cores=context.config.misc_cores,
                                   memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
+
+    do_single_path = not options.multipath_only
+    do_multi_path = options.multipath or options.multipath_only
                               
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids, reads_gam_file_id,
                                                fasta_file_id, bwa_index_ids, options.bwa,
-                                               not options.paired_only, not options.single_only, options.multipath,
+                                               not options.paired_only, not options.single_only,
+                                               do_single_path, do_multi_path, 
                                                options.ignore_quals)
                                                
     # Unpack the alignment job's return values
@@ -1504,7 +1526,8 @@ def mapeval_main(context, options):
         
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
-    
+
+    t = copy.deepcopy(context)
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 

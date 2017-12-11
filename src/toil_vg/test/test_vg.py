@@ -220,10 +220,10 @@ class VGCGLTest(TestCase):
                   '--vg-graphs', self.test_vg_graph,
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                  '--alignment_cores', '8', '--single-only',                  
+                  '--alignment_cores', '8', '--single-only', '--multipath-only',                 
                   '--maxCores', '8', '--fasta', self.chrom_fa)
 
-        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg'], 0.9)
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
 
         
     def test_4_BRCA1_NA12877(self):

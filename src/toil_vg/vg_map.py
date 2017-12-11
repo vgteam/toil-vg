@@ -295,6 +295,9 @@ def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved,
         if multipath:
             vg_parts += ['vg', 'mpmap']
             vg_parts += context.config.mpmap_opts
+            if '-S' not in vg_parts and '--single-path-mode' not in vg_parts:
+                RealtimeLogger.warning('Adding --single-path-mode to mpmap options as only GAM output supported')
+                vg_parts += ['--single-path-mode']
         else:
             vg_parts += ['vg', 'map'] 
             vg_parts += context.config.map_opts
