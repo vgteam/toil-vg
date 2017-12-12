@@ -98,9 +98,6 @@ def add_mapeval_options(parser):
                         help='run bwa mem on the reads, and add to comparison')
     parser.add_argument('--fasta', type=make_url, default=None,
                         help='fasta sequence file (required for bwa. if a bwa index exists for this file, it will be used)')
-    parser.add_argument('--gam-reads', type=make_url, default=None,
-                        help='reads in GAM format (required for bwa)')
-
     parser.add_argument('--bwa-opts', type=str,
                         help='arguments for bwa mem (wrapped in \"\").')
     
@@ -681,7 +678,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, False,
-                                        'input.gam', 'aligned-{}'.format(gam_names[i]),
+                                        'input.gam', None, 'aligned-{}'.format(gam_names[i]),
                                         False, False, index_id[0], index_id[1],
                                         None, [reads_gam_file_id],
                                         cores=context.config.misc_cores,
@@ -700,7 +697,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, False,
-                                            'input.gam', 'aligned-{}-mp'.format(gam_names[i]),
+                                            'input.gam', None, 'aligned-{}-mp'.format(gam_names[i]),
                                             False, True, index_id[0], index_id[1],
                                             None, [reads_gam_file_id],
                                             cores=mp_context.config.misc_cores,
@@ -716,7 +713,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, False,
-                                        'input.gam', 'aligned-{}-pe'.format(gam_names[i]),
+                                        'input.gam', None, 'aligned-{}-pe'.format(gam_names[i]),
                                         True, False, index_id[0], index_id[1],
                                         None, [reads_gam_file_id],
                                         cores=context.config.misc_cores,
@@ -735,7 +732,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, False,
-                                            'input.gam', 'aligned-{}-mp-pe'.format(gam_names[i]),
+                                            'input.gam', None, 'aligned-{}-mp-pe'.format(gam_names[i]),
                                             True, True, index_id[0], index_id[1],
                                             None, [reads_gam_file_id],
                                             cores=mp_context.config.misc_cores,
