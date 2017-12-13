@@ -225,7 +225,7 @@ genotype: False
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: []
+vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 
 #########################
 ### sim and mapeval Arguments ###
@@ -447,7 +447,7 @@ genotype: False
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: []
+vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 
 #########################
 ### sim and mapeval Arguments ###

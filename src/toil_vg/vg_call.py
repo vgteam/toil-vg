@@ -198,7 +198,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             aug_graph_id = context.write_intermediate_file(job, aug_path)
         
         with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
-            if not context.config.genotype:
+            if not genotype:
                 command = ['vg', 'call', os.path.basename(aug_path), '-t',
                            str(context.config.calling_cores), '-S', sample_name,
                            '-z', os.path.basename(trans_path),

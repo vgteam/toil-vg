@@ -56,6 +56,8 @@ def vcfeval_parse_args(parser):
     parser.add_argument("--vcfeval_cores", type=int,
                         default=1,
                         help="Cores to use for vcfeval")
+    parser.add_argument("--vcfeval_score_field", default=None,
+                        help="vcf FORMAT field to use for ROC score.  overrides vcfeval_opts")
 
 def validate_vcfeval_options(options):
     """ check some options """
@@ -89,7 +91,7 @@ def parse_f1(summary_path):
 
 
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
-                fasta_path, fasta_id, bed_id, out_name = None):                
+                fasta_path, fasta_id, bed_id, out_name = None, score_field=None):                
     """ run vcf_eval, return f1 score """
 
     # make a local work directory
@@ -135,14 +137,22 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     cmd = ['rtg', 'vcfeval', '--calls', call_vcf_name,
            '--baseline', vcfeval_baseline_name,
            '--template', sdf_name, '--output', out_name,
-           '--threads', str(context.config.vcfeval_cores),
-           '--vcf-score-field', 'QUAL']
+           '--threads', str(context.config.vcfeval_cores)]
 
     if bed_name is not None:
         cmd += ['--evaluation-regions', bed_name]
 
     if context.config.vcfeval_opts:
         cmd += context.config.vcfeval_opts
+
+    # override score field from options with one from parameter
+    if score_field:
+        for opt in ['-f', '--vcf-score-field']:
+            if opt in cmd:
+                opt_idx = cmd.index(opt)
+                del cmd[opt_idx]
+                del cmd[opt_idx]
+        cmd += ['--vcf-score-field', score_field]
 
     context.runner.call(job, cmd, work_dir=work_dir)
 
@@ -200,6 +210,7 @@ def vcfeval_main(context, options):
                                      (call_vcf_id, call_tbi_id),
                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                                      options.vcfeval_fasta, fasta_id, bed_id,
+                                     score_field=options.vcfeval_score_field,
                                      cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                      disk=context.config.vcfeval_disk)
 

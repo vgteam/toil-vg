@@ -204,7 +204,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
-                 call, genotype, sample_name, chrom, vcf_offset):
+                 call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field):
     """ top-level call-eval function.  runs the caller and genotype on every gam,
     and freebayes on every bam.  the resulting vcfs are put through vcfeval
     and the accuracies are tabulated in the output
@@ -248,15 +248,19 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 if (call and not gt) or (genotype and gt):
                     out_name = '{}{}'.format(gam_name, '-gt' if gt else '')
                     call_job = job.addChildJobFn(run_all_calling, context, xg_id, [gam_id], [chrom], [vcf_offset],
-                                                 sample_name, gt, out_name=out_name,
+                                                 sample_name, genotype=gt, out_name=out_name,
                                                  cores=context.config.misc_cores,
                                                  memory=context.config.misc_mem,
                                                  disk=context.config.misc_disk)
 
-
+                    if not vcfeval_score_field:
+                        score_field = 'GQ' if gt else 'QUAL'
+                    else:
+                        score_field = vcfeval_score_field
+                        
                     eval_job = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
                                                          vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                         fasta_id, bed_id, out_name=out_name)
+                                                         fasta_id, bed_id, out_name=out_name, score_field=score_field)
                     names.append(out_name)            
                     vcf_tbi_id_pairs.append(call_job.rv())
                     eval_results.append(eval_job.rv())
@@ -339,6 +343,7 @@ def calleval_main(context, options):
                                      do_genotype,
                                      options.sample_name,
                                      options.chroms[0], options.vcf_offsets[0] if options.vcf_offsets else 0,
+                                     options.vcfeval_score_field,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
