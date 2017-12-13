@@ -92,7 +92,9 @@ def calleval_parse_args(parser):
     parser.add_argument('--bam_names', nargs='+',
                         help='names of bwa runs (corresponds to bams)')
     parser.add_argument('--bams', nargs='+', type=make_url,
-                        help='bam inputs for freebayes')                         
+                        help='bam inputs for freebayes')
+    parser.add_argument('--call_and_genotype', action='store_true',
+                        help='run both vg call and vg genotype')
         
 def validate_calleval_options(options):
     """
@@ -202,7 +204,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
-                 genotype, sample_name, chrom, vcf_offset):
+                 call, genotype, sample_name, chrom, vcf_offset):
     """ top-level call-eval function.  runs the caller and genotype on every gam,
     and freebayes on every bam.  the resulting vcfs are put through vcfeval
     and the accuracies are tabulated in the output
@@ -242,19 +244,22 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
 
     if gam_ids:
         for gam_id, gam_name, xg_id in zip(gam_ids, gam_names, xg_ids):
-            call_job = job.addChildJobFn(run_all_calling, context, xg_id, [gam_id], [chrom], [vcf_offset],
-                                         sample_name, genotype, out_name=gam_name,
-                                         cores=context.config.misc_cores,
-                                         memory=context.config.misc_mem,
-                                         disk=context.config.misc_disk)
-            
-            
-            eval_job = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
-                                                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                 fasta_id, bed_id, out_name=gam_name)
-            names.append(gam_name)            
-            vcf_tbi_id_pairs.append(call_job.rv())
-            eval_results.append(eval_job.rv())
+            for gt in [False, True]:
+                if (call and not gt) or (genotype and gt):
+                    out_name = '{}{}'.format(gam_name, '-gt' if gt else '')
+                    call_job = job.addChildJobFn(run_all_calling, context, xg_id, [gam_id], [chrom], [vcf_offset],
+                                                 sample_name, gt, out_name=out_name,
+                                                 cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem,
+                                                 disk=context.config.misc_disk)
+
+
+                    eval_job = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
+                                                         vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                         fasta_id, bed_id, out_name=out_name)
+                    names.append(out_name)            
+                    vcf_tbi_id_pairs.append(call_job.rv())
+                    eval_results.append(eval_job.rv())
 
     calleval_results = job.addFollowOnJobFn(run_calleval_results, context, names, vcf_tbi_id_pairs, eval_results,
                                             cores=context.config.misc_cores,
@@ -324,11 +329,14 @@ def calleval_main(context, options):
                                                   os.path.basename(options.vcfeval_fasta)).rv()
 
             # Make a root job
+            do_call = options.call_and_genotype or not options.genotype
+            do_genotype = options.call_and_genotype or options.genotype
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
                                      inputBamIdxIds,
                                      options.gam_names, options.bam_names, 
                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
-                                     options.genotype, 
+                                     do_call,
+                                     do_genotype,
                                      options.sample_name,
                                      options.chroms[0], options.vcf_offsets[0] if options.vcf_offsets else 0,
                                      cores=context.config.misc_cores,
