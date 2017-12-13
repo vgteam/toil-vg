@@ -66,8 +66,9 @@ def add_mapeval_options(parser):
     """
     
     # General options
-    parser.add_argument('truth', type=make_url, default=None,
-                        help='list of true positions of reads as output by toil-vg sim')        
+    parser.add_argument('--truth', type=make_url, default=None,
+                        help='list of true positions of reads as output by toil-vg sim'
+                        ' (by default positions extracted from --gam_input_reads or --bam_input_reads)')        
     parser.add_argument('--gams', nargs='+', type=make_url, default=[],
                         help='aligned reads to compare to truth.  specify xg index locations with --index-bases')
     parser.add_argument("--index-bases", nargs='+', type=make_url, default=[],
@@ -98,9 +99,6 @@ def add_mapeval_options(parser):
                         help='run bwa mem on the reads, and add to comparison')
     parser.add_argument('--fasta', type=make_url, default=None,
                         help='fasta sequence file (required for bwa. if a bwa index exists for this file, it will be used)')
-    parser.add_argument('--gam-reads', type=make_url, default=None,
-                        help='reads in GAM format (required for bwa)')
-
     parser.add_argument('--bwa-opts', type=str,
                         help='arguments for bwa mem (wrapped in \"\").')
     
@@ -117,6 +115,9 @@ def add_mapeval_options(parser):
 
     parser.add_argument('--more-mpmap-opts', nargs='+', default=[],
                         help='additional batches of mpmap options to try')
+
+    parser.add_argument('--gam-input-xg', type=make_url, default=None,
+                        help= 'If extracting truth positions from --input_gam_reads, specify corresponding xg for annotation')
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -153,7 +154,8 @@ def validate_options(options):
     
     # check bwa / bam input parameters.  
     if options.bwa:
-        require(options.gam_input_reads, '--gam_input_reads required for bwa')
+        require(options.gam_input_reads or options.bam_input_reads,
+                '--gam_input_reads or --bam_input_reads required for bwa')
         require(options.fasta, '--fasta required for bwa')
     if options.bams:
         require(options.bam_names and len(options.bams) == len(options.bam_names),
@@ -198,6 +200,12 @@ def validate_options(options):
     if options.gam_names:
         names += options.gam_names
     require(len(names) == len(set(names)), 'all names must be unique')
+
+    require(options.gam_input_reads is None or options.bam_input_reads is None,
+            '--gam_input_reads and --bam_input_reads cannot both be specified')
+
+    require(options.truth or options.bam_input_reads or options.gam_input_xg,
+            '--gam-input-xg must be used to specify xg index to annotate --gam_input_reads')
     
 def parse_int(value):
     """
@@ -206,7 +214,7 @@ def parse_int(value):
     
     return int(value) if value.strip() != '' else 0
 
-def run_bwa_index(job, context, gam_file_id, fasta_file_id, bwa_index_ids):
+def run_bwa_index(job, context, fasta_file_id, bwa_index_ids):
     """
     Make a bwa index for a fast sequence if not given in input. then run bwa mem
     
@@ -226,32 +234,56 @@ def run_bwa_index(job, context, gam_file_id, fasta_file_id, bwa_index_ids):
             bwa_index_ids[idx_file[len(fasta_file):]] = context.write_intermediate_file(job, idx_file)
 
     return bwa_index_ids
-    
-def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
-    """ run bwa-mem on reads in a gam.  optionally run in paired mode
-    return id of bam file
-    """
 
+def run_bam_to_fastq(job, context, bam_file_id, paired_mode):
+    """
+    convert a bam to fastq (or pair of fastqs)
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # read the bam file
+    bam_file = os.path.join(work_dir, 'input.bam')
+    job.fileStore.readGlobalFile(bam_file_id, bam_file)
+    
+    # if we're paired, must make some split files
+    if paired_mode:
+        sim_fq_files = [os.path.join(work_dir, 'sim_1.fq'),
+                        os.path.join(work_dir, 'sim_2.fq')]
+        cmd = ['samtools', 'fastq', os.path.basename(bam_file),
+               '-1', os.path.basename(sim_fq_files[0]),
+               '-2', os.path.basename(sim_fq_files[1])]
+        context.runner.call(job, cmd, work_dir = work_dir)
+        # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
+        gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', 's/\/1/_1/g'], ['gzip', '-c']]
+        with open(sim_fq_files[0] + '.gz', 'w') as gz_file:
+            context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
+        gzip_cmd = [['sed', os.path.basename(sim_fq_files[1]), '-e', 's/\/2/_2/g'], ['gzip', '-c']]
+        with open(sim_fq_files[1] + '.gz', 'w') as gz_file:
+            context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
+        return [context.write_intermediate_file(job, sim_fq_files[0] + '.gz'),
+                context.write_intermediate_file(job, sim_fq_files[1] + '.gz')]
+    else:
+        sim_fq_file = os.path.join(work_dir, 'sim.fq.gz')
+        cmd = [['samtools', 'fastq', os.path.basename(bam_file), '-N']]
+        # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
+        cmd.append(['sed', '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
+        cmd.append(['gzip'])
+        with open(sim_fq_file, 'w') as sim_file:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_file)
+        return [context.write_intermediate_file(job, sim_fq_file)]
+    
+def run_gam_to_fastq(job, context, gam_file_id, paired_mode):
+    """
+    convert a gam to fastq (or pair of fastqs)
+    """
     work_dir = job.fileStore.getLocalTempDir()
 
     # read the gam file
     gam_file = os.path.join(work_dir, 'input.gam')
     job.fileStore.readGlobalFile(gam_file_id, gam_file)
-
-    # and the index files
-    fasta_file = os.path.join(work_dir, 'reference.fa')
-    for suf, idx_id in bwa_index_ids.items():
-        job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
-
-    # output positions file
-    bam_file = os.path.join(work_dir, 'bwa-mem')
-    if paired_mode:
-        bam_file += '-pe'
-    bam_file += '.bam'
     
     # if we're paired, must make some split files
     if paired_mode:
-
         # convert to json (todo: have docker image that can do vg and jq)
         json_file = gam_file + '.json'
         cmd = ['vg', 'view', '-a', os.path.basename(gam_file)]
@@ -280,10 +312,53 @@ def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
 
             os.remove(end_file)
 
+        return [context.write_intermediate_file(job, sim_fq_files[1]),
+                context.write_intermediate_file(job, sim_fq_files[2])]
+            
+    else:
+        # extract reads from gam.  as above, need to have single docker container (which shouldn't be
+        # a big deal) to run all these chained command and avoid huge files on disk
+        extracted_reads_file = os.path.join(work_dir, 'extracted_reads.fq.gz')
+        cmd = [['vg', 'view', '-X', os.path.basename(gam_file)]]
+        cmd.append(['gzip'])
+        with open(extracted_reads_file, 'w') as out_ext:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
+
+        return [context.write_intermediate_file(job, extracted_reads_file)]
+
+def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
+    """ run bwa-mem on reads in a gam.  optionally run in paired mode
+    return id of bam file
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # read the reads
+    fq_file_names = []
+    for i, fq_reads_id in enumerate(fq_reads_ids):
+        fq_file_names.append(os.path.join(work_dir, 'reads{}.fq.gz'.format(i)))
+        job.fileStore.readGlobalFile(fq_reads_id, fq_file_names[-1])
+
+    # and the index files
+    fasta_file = os.path.join(work_dir, 'reference.fa')
+    for suf, idx_id in bwa_index_ids.items():
+        job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
+
+    # output positions file
+    bam_file = os.path.join(work_dir, 'bwa-mem')
+    if paired_mode:
+        bam_file += '-pe'
+    bam_file += '.bam'
+    
+    # if we're paired, must make some split files
+    if paired_mode:
+
+        assert len(fq_file_names) == 2
+        
         # run bwa-mem on the paired end input
         start_time = timeit.default_timer()
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(sim_fq_files[1]), os.path.basename(sim_fq_files[2])] + context.config.bwa_opts        
+                os.path.basename(fq_file_names[0]), os.path.basename(fq_file_names[1])] + context.config.bwa_opts        
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
@@ -303,18 +378,12 @@ def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
 
     # single end
     else:
-
-        # extract reads from gam.  as above, need to have single docker container (which shouldn't be
-        # a big deal) to run all these chained command and avoid huge files on disk
-        extracted_reads_file = os.path.join(work_dir, 'extracted_reads')
-        cmd = ['vg', 'view', '-X', os.path.basename(gam_file)]
-        with open(extracted_reads_file, 'w') as out_ext:
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
+        assert len(fq_file_names) == 1
 
         # run bwa-mem on single end input
         start_time = timeit.default_timer()
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(extracted_reads_file)] + context.config.bwa_opts
+                os.path.basename(fq_file_names[0])] + context.config.bwa_opts
 
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
@@ -339,7 +408,7 @@ def run_bwa_mem(job, context, gam_file_id, bwa_index_ids, paired_mode):
 
     return bam_file_id, run_time
 
-def extract_bam_read_stats(job, context, name, bam_file_id, paired):
+def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
     """
     extract positions, scores, and MAPQs from bam, return id of read stats file
     (lots of duplicated code with vg_sim, should merge?)
@@ -367,7 +436,7 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired):
         # TODO: will need to switch to something more powerful to parse the score out of the AS tag. For now score everything as 0.
         # TODO: why _ and not / as the read name vs end number delimiter?
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "_" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
+        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep)])
     else:
         # No flags to parse since there's no end pairing and read names are correct.
         # Use inline perl again and insert a fake 0 score column
@@ -439,11 +508,11 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
                '.score, '
                'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
                os.path.basename(gam_annot_json)]]
-    jq_cmd.append(['sed', 's/null/0/g'])
+    # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
+    jq_cmd.append(['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
 
     with open(out_pos_file + '.unsorted', 'w') as out_pos:
         context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
-
 
     # get rid of that big json asap
     os.remove(gam_annot_json)
@@ -640,7 +709,9 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single, do_paired, singlepath, multipath, ignore_quals):
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id,
+                       reads_bam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single,
+                       do_paired, singlepath, multipath, ignore_quals):
     """
     Run alignments, if alignment files have not already been provided.
     
@@ -675,15 +746,20 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                 mpmap_opts.append('-A')
         context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
+    # todo: fix terrible bam/gam interface in mapping
+    input_reads_ids = [reads_gam_file_id] if reads_gam_file_id else [reads_bam_file_id]
+    input_gam_name = 'input.gam' if reads_gam_file_id else None
+    input_bam_name = 'input.bam' if reads_bam_file_id else None
+
     do_vg_mapping = not gam_file_ids and (singlepath or multipath)
     if do_vg_mapping and singlepath and do_single:
         gam_file_ids = []
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, False,
-                                        'input.gam', 'aligned-{}'.format(gam_names[i]),
+                                        input_gam_name, input_bam_name, 'aligned-{}'.format(gam_names[i]),
                                         False, False, index_id[0], index_id[1],
-                                        None, [reads_gam_file_id],
+                                        None, input_reads_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
             gam_file_ids.append(map_job.rv(0))
@@ -700,9 +776,9 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, False,
-                                            'input.gam', 'aligned-{}-mp'.format(gam_names[i]),
+                                            input_gam_name, input_bam_name, 'aligned-{}-mp'.format(gam_names[i]),
                                             False, True, index_id[0], index_id[1],
-                                            None, [reads_gam_file_id],
+                                            None, input_reads_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
                 gam_file_ids.append(map_job.rv(0))
@@ -716,9 +792,9 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, False,
-                                        'input.gam', 'aligned-{}-pe'.format(gam_names[i]),
+                                        input_gam_name, input_bam_name, 'aligned-{}-pe'.format(gam_names[i]),
                                         True, False, index_id[0], index_id[1],
-                                        None, [reads_gam_file_id],
+                                        None, input_reads_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
             gam_file_ids.append(map_job.rv(0))
@@ -735,9 +811,9 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, False,
-                                            'input.gam', 'aligned-{}-mp-pe'.format(gam_names[i]),
+                                            input_gam_name, input_bam_name, 'aligned-{}-mp-pe'.format(gam_names[i]),
                                             True, True, index_id[0], index_id[1],
-                                            None, [reads_gam_file_id],
+                                            None, input_reads_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
                 gam_file_ids.append(map_job.rv(0))
@@ -750,22 +826,32 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     # run bwa if requested
     bwa_bam_file_ids, bwa_mem_times = [None, None], [None, None]
     if do_bwa:
-        bwa_index_job = job.addChildJobFn(run_bwa_index, context,
-                                          reads_gam_file_id,
-                                          fasta_file_id, bwa_index_ids,
-                                          cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                          disk=context.config.alignment_disk)
+        bwa_start_job = Job()
+        job.addChild(bwa_start_job)
+        bwa_index_job = bwa_start_job.addChildJobFn(run_bwa_index, context,
+                                                    fasta_file_id, bwa_index_ids,
+                                                    cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                    disk=context.config.alignment_disk)
         bwa_index_ids = bwa_index_job.rv()
+        
+        assert reads_gam_file_id or reads_bam_file_id        
+        fastq_fn = run_gam_to_fastq if reads_gam_file_id else run_bam_to_fastq
+        reads_id = reads_gam_file_id if reads_gam_file_id else reads_bam_file_id
+        
         if do_single:
-            bwa_mem_job = bwa_index_job.addChildJobFn(run_bwa_mem, context, reads_gam_file_id, bwa_index_ids, False,
-                                                      cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                      disk=context.config.alignment_disk)
+            fq_extract_job = bwa_start_job.addChildJobFn(fastq_fn, context, reads_id, False,
+                                                         disk=context.config.alignment_disk)
+            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, fq_extract_job.rv(), bwa_index_ids, False,
+                                                         cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                         disk=context.config.alignment_disk)
             bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
             bwa_mem_times[0] = bwa_mem_job.rv(1)
         if do_paired:
-            bwa_mem_job = bwa_index_job.addChildJobFn(run_bwa_mem, context, reads_gam_file_id, bwa_index_ids, True,
-                                                      cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                      disk=context.config.alignment_disk)
+            fq_extract_job = bwa_start_job.addChildJobFn(fastq_fn, context, reads_id, True,
+                                                         disk=context.config.alignment_disk)
+            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, fq_extract_job.rv(), bwa_index_ids, True,
+                                                         cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                         disk=context.config.alignment_disk)
             bwa_bam_file_ids[1] = bwa_mem_job.rv(0)
             bwa_mem_times[1] = bwa_mem_job.rv(1)
 
@@ -1311,7 +1397,8 @@ def run_portion_worse(job, context, name, compare_id):
     return total, portion
 
 def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file_ids,
-                vg_file_ids, gam_file_ids, reads_gam_file_id, fasta_file_id, bwa_index_ids, bam_file_ids,
+                vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
+                fasta_file_id, bwa_index_ids, bam_file_ids,
                 pe_bam_file_ids, true_read_stats_file_id):
     """
     Main Toil job, and main entrypoint for use of vg_mapeval as a library.
@@ -1343,12 +1430,22 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
                                   memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
 
+    # Extract our truth positions if no true_read_stats_file_id
+    if not true_read_stats_file_id and reads_gam_file_id:
+        annotate_job = index_job.addChildJobFn(annotate_gam, context, reads_xg_file_id, reads_gam_file_id)
+        true_read_stats_file_id = annotate_job.addFollowOnJobFn(extract_gam_read_stats,
+                                                                context, 'truth', annotate_job.rv()).rv()
+    elif not true_read_stats_file_id and reads_bam_file_id:
+        true_read_stats_file_id = index_job.addChildJobFn(extract_bam_read_stats,
+                                                          context, 'truth', reads_bam_file_id, True).rv()
+
     do_single_path = not options.multipath_only
     do_multi_path = options.multipath or options.multipath_only
                               
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
-                                               options.gam_names, gam_file_ids, reads_gam_file_id,
+                                               options.gam_names, gam_file_ids,
+                                               reads_gam_file_id, reads_bam_file_id,
                                                fasta_file_id, bwa_index_ids, options.bwa,
                                                not options.paired_only, not options.single_only,
                                                do_single_path, do_multi_path, 
@@ -1463,9 +1560,11 @@ def make_mapeval_plan(toil, options):
     plan.xg_file_ids = []
     plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
     plan.id_range_file_ids = []
+    imported_xgs = {}
     if options.index_bases:
         for ib in options.index_bases:
-            plan.xg_file_ids.append(toil.importFile(ib + '.xg'))
+            imported_xgs[ib + '.xg'] = toil.importFile(ib + '.xg')
+            plan.xg_file_ids.append(imported_xgs[ib + '.xg'])
             if not options.gams:
                 plan.gcsa_file_ids.append(
                     (toil.importFile(ib + '.gcsa'),
@@ -1474,12 +1573,25 @@ def make_mapeval_plan(toil, options):
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
                 #    id_range_file_ids.append(
                 #        toil.importFile(ib + '_id_ranges.tsv'))
+
+    plan.reads_xg_file_id = None
+    if options.gam_input_xg:
+        if options.gam_input_xg in imported_xgs:
+            plan.reads_xg_file_id = imported_xgs[options.gam_input_xg]
+        else:
+            plan.reads_xg_file_id = toil.importFile(options.gam_input_xg)
                     
     # Import input reads to be realigned
     if options.gam_input_reads:
         plan.reads_gam_file_id = toil.importFile(options.gam_input_reads)
     else:
-        plan.reads_gam_file_id = None                                           
+        plan.reads_gam_file_id = None
+
+    # Import input reads to be realigned
+    if options.bam_input_reads:
+        plan.reads_bam_file_id = toil.importFile(options.bam_input_reads)
+    else:
+        plan.reads_bam_file_id = None        
                                 
     # Input bwa data        
     plan.bam_file_ids = []
@@ -1505,8 +1617,10 @@ def make_mapeval_plan(toil, options):
                 break
         if not plan.bwa_index_ids:
             plan.fasta_file_id = toil.importFile(options.fasta)
-            
-    plan.true_read_stats_file_id = toil.importFile(options.truth)
+    if options.truth:
+        plan.true_read_stats_file_id = toil.importFile(options.truth)
+    else:
+        plan.true_read_stats_file_id = None
 
     end_time = timeit.default_timer()
     logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -1542,8 +1656,10 @@ def mapeval_main(context, options):
                                      plan.gcsa_file_ids, 
                                      plan.id_range_file_ids,
                                      plan.vg_file_ids, 
-                                     plan.gam_file_ids, 
-                                     plan.reads_gam_file_id, 
+                                     plan.gam_file_ids,
+                                     plan.reads_gam_file_id,
+                                     plan.reads_xg_file_id,
+                                     plan.reads_bam_file_id,
                                      plan.fasta_file_id, 
                                      plan.bwa_index_ids, 
                                      plan.bam_file_ids,

@@ -41,7 +41,8 @@ def run_write_info_to_outstore(job, context, argv):
     for key, val in context.config.__dict__.items():
         f.write('{}: {}\n'.format(key, val))
     f.flush()
-    context.get_out_store().write_output_file(f.name, 'toil-vg-info.txt')
+    context.get_out_store().write_output_file(f.name, 'toil-vg-{}.txt'.format(
+        argv[1] if argv and len(argv) > 1 else 'info'))
     f.close()
 
 class Context(object):

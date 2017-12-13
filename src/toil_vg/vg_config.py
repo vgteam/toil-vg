@@ -487,7 +487,7 @@ def apply_config_file_args(args):
     # do the same thing for more_mpmap_opts which is a list of strings
     if 'more_mpmap_opts' in args.__dict__.keys() and args.__dict__['more_mpmap_opts']:
         for i, m_opts in enumerate(args.__dict__['more_mpmap_opts']):
-            if type(m_opts) is str:
+            if isinstance(m_opts, basestring):
                 args.__dict__['more_mpmap_opts'][i] = make_opts_list(m_opts)
 
     # If no config file given, we generate a default one
