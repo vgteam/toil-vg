@@ -159,7 +159,7 @@ class VGCGLTest(TestCase):
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,
                   self.local_outstore,
-                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--truth', os.path.join(self.local_outstore, 'true.pos'),
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gams', os.path.join(self.local_outstore, 'sample_default.gam'),
@@ -174,7 +174,7 @@ class VGCGLTest(TestCase):
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,
                   self.local_outstore,
-                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
@@ -216,7 +216,7 @@ class VGCGLTest(TestCase):
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,
                   self.local_outstore,
-                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--truth', os.path.join(self.local_outstore, 'true.pos'),
                   '--vg-graphs', self.test_vg_graph,
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
