@@ -101,11 +101,18 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
     # dummy default names
     if not names:
         names = ['vcfeval_output-{}'.format(i) for i in range(len(roc_table_ids))]
+
+    # rely on unique input names
+    assert len(names) == len(set(names))
         
     # download the files
-    table_file_names = [os.path.join(work_dir, name) + '.tsv.gz' for name in names]
-    for name, file_id in zip(table_file_names, roc_table_ids):
-        job.fileStore.readGlobalFile(file_id, name)
+    table_file_paths = [os.path.join(work_dir, name, name) + '.tsv.gz' for name in names]
+    table_file_rel_paths = [os.path.join(name, name) + '.tsv.gz' for name in names]
+    for table_path, name, file_id in zip(table_file_paths, names, roc_table_ids):
+        # rtg gets naming information from directory structure, so we read each file into
+        # its own dir
+        os.makedirs(os.path.join(work_dir, name))
+        job.fileStore.readGlobalFile(file_id, table_path)
 
     out_roc_path = os.path.join(work_dir, 'roc{}.svg'.format('-{}'.format(title) if title else ''))
 
@@ -122,7 +129,7 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
     out_ids = []
 
     roc_cmd = ['rtg', 'rocplot', '--svg', os.path.basename(out_roc_path)]
-    roc_cmd += roc_opts + [os.path.basename(x) for x in table_file_names]
+    roc_cmd += roc_opts + table_file_rel_paths
     
     context.runner.call(job, roc_cmd, work_dir = work_dir)
 
@@ -158,7 +165,7 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     if sample and not out_name:
         out_name = sample        
     if out_name:
-        out_tag = '{}'.format(out_name)
+        out_tag = '{}_vcfeval_output'.format(out_name)
     else:
         out_tag = 'vcfeval_output'
         

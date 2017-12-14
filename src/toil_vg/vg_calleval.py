@@ -204,7 +204,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
     for i, roc_type in zip(range(3,6), ['snp', 'non_snp', 'weighted']):
         roc_table_ids = [eval_result[i] for eval_result in eval_results]
         roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_ids, names=names,
-                                              title=roc_type))
+                                              title=roc_type).rv())
 
     return [context.write_output_file(job, stats_path)] + roc_plot_ids
                              
