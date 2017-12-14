@@ -29,7 +29,7 @@ def vcfeval_subparser(parser):
     parser.add_argument("--call_vcf", type=make_url, required=True,
                         help="input vcf (must be bgzipped and have .tbi")
     parser.add_argument("out_store",
-                            help="output store.  All output written here. Path specified using same syntax as toil jobStore")
+                        help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -89,10 +89,48 @@ def parse_f1(summary_path):
                 f1 = line_f1
     return f1
 
+def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show_scores=False,
+                          line_width=2, ps_plot=False):
+    """
+    draw some rocs from the vcfeval output. return (snps_id, nonsnps_id, weighted_id)
+    """
 
+    # make a local work directory
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # dummy default names
+    if not names:
+        names = ['vcfeval_output-{}'.format(i) for i in range(len(roc_table_ids))]
+        
+    # download the files
+    table_file_names = [os.path.join(work_dir, name) + '.tsv.gz' for name in names]
+    for name, file_id in zip(table_file_names, roc_table_ids):
+        job.fileStore.readGlobalFile(file_id, name)
+
+    out_roc_path = os.path.join(work_dir, 'roc{}.svg'.format('-{}'.format(title) if title else ''))
+
+    roc_opts = []
+    if title:
+        roc_opts += ['--title', title]
+    if show_scores:
+        roc_opts += ['--scores']
+    if line_width:
+        roc_opts += ['--line-width', line_width]
+    if ps_plot:
+        roc_opts += ['precision-sensitivity']
+
+    out_ids = []
+
+    roc_cmd = ['rtg', 'rocplot', '--svg', os.path.basename(out_roc_path)]
+    roc_cmd += roc_opts + [os.path.basename(x) for x in table_file_names]
+    
+    context.runner.call(job, roc_cmd, work_dir = work_dir)
+
+    return context.write_output_file(job, out_roc_path)
+    
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
-                fasta_path, fasta_id, bed_id, out_name = None, score_field=None):                
-    """ run vcf_eval, return f1 score """
+    fasta_path, fasta_id, bed_id, out_name = None, score_field=None):
+    """ run vcf_eval, return (f1 score, summary id, output archive id, snp-id, nonsnp-id, weighted-id)"""
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
@@ -107,7 +145,6 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     vcfeval_baseline_name = 'truth.vcf.gz'
     job.fileStore.readGlobalFile(vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
     job.fileStore.readGlobalFile(vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))    
-    
     # download the fasta (make sure to keep input extension)
     fasta_name = "fa_" + os.path.basename(fasta_path)
     job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
@@ -121,7 +158,7 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     if sample and not out_name:
         out_name = sample        
     if out_name:
-        out_tag = '{}_vcfeval_output'.format(out_name)
+        out_tag = '{}'.format(out_name)
     else:
         out_tag = 'vcfeval_output'
         
@@ -166,17 +203,26 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     context.write_output_file(job, f1_path, out_store_path = '{}_f1.txt'.format(out_tag))
         
     # 2) vcfeval_output_summary.txt
-    context.write_output_file(job, os.path.join(work_dir, out_tag, 'summary.txt'),
-                              out_store_path = '{}_summary.txt'.format(out_tag))
+    out_summary_id = context.write_output_file(job, os.path.join(work_dir, out_tag, 'summary.txt'),
+                                               out_store_path = '{}_summary.txt'.format(out_tag))
 
     # 3) vcfeval_output.tar.gz -- whole shebang
     context.runner.call(job, ['tar', 'czf', out_tag + '.tar.gz', out_tag], work_dir = work_dir)
-    context.write_output_file(job, os.path.join(work_dir, out_tag + '.tar.gz'))
+    out_archive_id = context.write_output_file(job, os.path.join(work_dir, out_tag + '.tar.gz'))
 
     # 4) truth VCF
     context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name))
 
-    return f1
+    # 5) roc data
+    out_roc_ids = []
+    for roc_name in ['snp', 'non_snp', 'weighted']:
+        roc_file = os.path.join(work_dir, out_tag, '{}_roc.tsv.gz'.format(roc_name))
+        if os.path.isfile(roc_file):
+            out_roc_ids.append(context.write_intermediate_file(job, roc_file))
+        else:
+            out_roc_ids.append(None)
+
+    return [f1, out_summary_id, out_archive_id] + out_roc_ids
 
 def vcfeval_main(context, options):
     """ command line access to toil vcf eval logic"""

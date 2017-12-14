@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling
-from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval
+from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
 
@@ -196,10 +196,17 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
     # make a simple tsv
     stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
     with open(stats_path, 'w') as stats_file:
-        for name, f1 in zip(names, eval_results):
-            stats_file.write('{}\t{}\n'.format(name, f1))
+        for name, eval_result in zip(names, eval_results):
+            stats_file.write('{}\t{}\n'.format(name, eval_result[0]))
 
-    return context.write_output_file(job, stats_path)
+    # make some roc plots
+    roc_plot_ids = []
+    for i, roc_type in zip(range(3,6), ['snp', 'non_snp', 'weighted']):
+        roc_table_ids = [eval_result[i] for eval_result in eval_results]
+        roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_ids, names=names,
+                                              title=roc_type))
+
+    return [context.write_output_file(job, stats_path)] + roc_plot_ids
                              
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
