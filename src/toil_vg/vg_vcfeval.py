@@ -200,27 +200,29 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
 
     context.runner.call(job, cmd, work_dir=work_dir)
 
-    f1 = parse_f1(os.path.join(work_dir, os.path.basename(out_name), "summary.txt"))
 
-    # copy results to the output store
-    # 1) vcfeval_output_f1.txt (used currently by tests script)
+    # copy results to outstore 
+    
+    # vcfeval_output_summary.txt
+    out_summary_id = context.write_output_file(job, os.path.join(work_dir, out_tag, 'summary.txt'),
+                                               out_store_path = '{}_summary.txt'.format(out_tag))
+
+    # vcfeval_output.tar.gz -- whole shebang
+    context.runner.call(job, ['tar', 'czf', out_tag + '.tar.gz', out_tag], work_dir = work_dir)
+    out_archive_id = context.write_output_file(job, os.path.join(work_dir, out_tag + '.tar.gz'))
+
+    # truth VCF
+    context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name))
+    context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
+    
+    # vcfeval_output_f1.txt (used currently by tests script)
+    f1 = parse_f1(os.path.join(work_dir, os.path.basename(out_name), "summary.txt"))
     f1_path = os.path.join(work_dir, "f1.txt")    
     with open(f1_path, "w") as f:
         f.write(str(f1))
     context.write_output_file(job, f1_path, out_store_path = '{}_f1.txt'.format(out_tag))
-        
-    # 2) vcfeval_output_summary.txt
-    out_summary_id = context.write_output_file(job, os.path.join(work_dir, out_tag, 'summary.txt'),
-                                               out_store_path = '{}_summary.txt'.format(out_tag))
 
-    # 3) vcfeval_output.tar.gz -- whole shebang
-    context.runner.call(job, ['tar', 'czf', out_tag + '.tar.gz', out_tag], work_dir = work_dir)
-    out_archive_id = context.write_output_file(job, os.path.join(work_dir, out_tag + '.tar.gz'))
-
-    # 4) truth VCF
-    context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name))
-
-    # 5) roc data
+    #  roc data (not written to out store, but returned)
     out_roc_ids = []
     for roc_name in ['snp', 'non_snp', 'weighted']:
         roc_file = os.path.join(work_dir, out_tag, '{}_roc.tsv.gz'.format(roc_name))
