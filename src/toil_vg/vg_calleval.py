@@ -62,6 +62,8 @@ def calleval_subparser(parser):
                         help="GAMs to call.  One per chromosome. Must be same length/order as --chroms")
     parser.add_argument("--sample_name", type=str, required=True,
                         help="sample name (ex NA12878)")
+    parser.add_argument("--gam_index_cores", type=int,
+                        help="number of threads used for gam indexing")
 
 
     # Add common options shared with everybody
