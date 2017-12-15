@@ -202,7 +202,7 @@ class VGCGLTest(TestCase):
                   os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),
                   '--bam_names', 'bwa-mem', 'bwa-mem-pe')
 
-        self._assertCallEvalOutput(self.local_outstore, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.05)
+        self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb'], 0.05)
 
         # check running mapeval on the vg graph
         
