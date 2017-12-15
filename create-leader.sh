@@ -56,7 +56,7 @@ fi
 
 set -x
 
-$PREFIX toil launch-cluster "${CLUSTER_NAME}" --leaderNodeType=t2.micro -z us-west-2a "--keyPairName=${KEYPAIR_NAME}"
+$PREFIX toil launch-cluster "${CLUSTER_NAME}" --leaderNodeType=r3.8xlarge -z us-west-2a "--keyPairName=${KEYPAIR_NAME}"
 
 # We need to manually install git to make pip + git work...
 $PREFIX toil ssh-cluster --insecure --zone=us-west-2a "${CLUSTER_NAME}" apt update
