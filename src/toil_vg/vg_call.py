@@ -39,7 +39,9 @@ def call_subparser(parser):
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
                         help="GAMs to call.  One per chromosome. Must be same length/order as --chroms")
-
+    parser.add_argument("--gam_index_cores", type=int,
+                        help="number of threads used for gam indexing")
+    
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
