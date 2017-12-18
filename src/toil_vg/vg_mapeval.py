@@ -128,7 +128,7 @@ def add_mapeval_options(parser):
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
     
-def get_default_mapeval_options(truth):
+def get_default_mapeval_options():
     """
     Return an argparse Namespace populated with the default mapeval option
     values.
@@ -145,7 +145,7 @@ def get_default_mapeval_options(truth):
     # Stick our arguments on it
     add_mapeval_options(parser)
     # And parse nothing but mandatory arguments
-    return parser.parse_args([truth])
+    return parser.parse_args([])
     
 def validate_options(options):
     """
