@@ -60,6 +60,8 @@ def map_subparser(parser):
 
 def map_parse_args(parser, stand_alone = False):
     """ centralize indexing parameters here """
+    parser.add_argument("--gbwt_index", type=make_url,
+                        help="Path to GBWT haplotype index")
     parser.add_argument("--fastq", nargs='+', type=make_url,
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--gam_input_reads", type=make_url, default=None,
@@ -99,7 +101,7 @@ def validate_map_options(context, options):
                 '-S must be used with multipath aligner to produce GAM output')
     
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_file_ids):
+                xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, reads_file_ids):
     """ split the fastq, then align each chunk.  returns outputgams, paired with total map time
     (excluding toil-vg overhead such as transferring and splitting files )"""
 
@@ -115,10 +117,9 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
     else:
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         reads_chunk_ids = [[r] for r in reads_file_ids]
-
         
     return child_job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                                      interleaved, multipath, xg_file_id, gcsa_and_lcp_ids,
+                                      interleaved, multipath, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id,
                                       id_ranges_file_id, reads_chunk_ids, cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
 
@@ -279,7 +280,7 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
 
     
 def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                        xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, reads_chunk_ids):
+                        xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, reads_chunk_ids):
     """ align all fastq chunks in parallel
     """
     
@@ -298,7 +299,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
         chunk_alignment_job = child_job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
                                                       sample_name,
                                                       interleaved, multipath, chunk_filename_ids, chunk_id,
-                                                      xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
+                                                      xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
         gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
@@ -312,7 +313,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
                         chunk_filename_ids,
-                        chunk_id, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id):
+                        chunk_id, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id):
 
     RealtimeLogger.info("Starting {}alignment on {} chunk {}".format(
         "multipath " if multipath else "", sample_name, chunk_id))
@@ -334,6 +335,13 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     lcp_file = gcsa_file + ".lcp"
     lcp_file_id = gcsa_and_lcp_ids[1]
     job.fileStore.readGlobalFile(lcp_file_id, lcp_file)
+    
+    if gbwt_file_id:
+        # We have a GBWT haplotype index available.
+        gbwt_file =  graph_file + ".gbwt"
+        job.fileStore.readGlobalFile(gbwt_file_id, gbwt_file)
+    else:
+        gbwt_file = None
     
     # We need the sample reads (fastq(s) or gam) for alignment
     reads_files = []
@@ -379,6 +387,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             del vg_parts[vg_parts.index('--interleaved')]
 
         vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file)]
+        if gbwt_file is not None and not multipath:
+            # We have a GBWT haplotype index to use (and we know how to use it)
+            vg_parts += ['--gbwt-name', os.path.basename(gbwt_file)]
 
         RealtimeLogger.info(
             "Running VG for {} against {}: {}".format(sample_name, graph_file,
@@ -566,6 +577,10 @@ def map_main(context, options):
             inputXGFileID = toil.importFile(options.xg_index)
             inputGCSAFileID = toil.importFile(options.gcsa_index)
             inputLCPFileID = toil.importFile(options.gcsa_index + ".lcp")
+            if options.gbwt_index is not None:
+                inputGBWTIndex = toil.importFile(options.gbwt_index)
+            else:
+                inputGBWTIndex = None
             if options.id_ranges is not None:
                 inputIDRangesFileID = toil.importFile(options.id_ranges)
             else:
@@ -589,6 +604,7 @@ def map_main(context, options):
                                      options.interleaved, options.multipath,
                                      inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID),
+                                     inputGBWTIndex,
                                      inputIDRangesFileID, inputReadsFileIDs,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,

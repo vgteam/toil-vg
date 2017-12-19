@@ -73,7 +73,9 @@ def add_mapeval_options(parser):
                         help='aligned reads to compare to truth.  specify xg index locations with --index-bases')
     parser.add_argument("--index-bases", nargs='+', type=make_url, default=[],
                         help='use in place of gams to perform alignment.  will expect '
-                        '<index-base>.gcsa, <index-base>.lcb and <index-base>.xg to exist')
+                        '<index-base>.gcsa, <index-base>.lcp and <index-base>.xg to exist')
+    parser.add_argument('--use-gbwt', action='store_true',
+                        help='also import <index-base>.gbwt and use it during alignment')
     parser.add_argument('--vg-graphs', nargs='+', type=make_url, default=[],
                         help='vg graphs to use in place of gams or indexes.  indexes'
                         ' will be built as required')
@@ -172,6 +174,10 @@ def validate_options(options):
     # accept graphs or indexes in place of gams
     require(options.gams or options.index_bases or options.vg_graphs,
             'one of --vg-graphs, --index-bases or --gams must be used to specifiy vg input')
+
+    if options.use_gbwt:
+        require(not options.gams,
+                '--use-gbwt cannot be used with pre-aligned GAMs in --gams')
 
     if options.gams:
         require(len(options.index_bases) == len(options.gams),
@@ -688,19 +694,19 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
         
     return out_file_id
 
-def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_ids, vg_file_ids):
+def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids, vg_file_ids):
     """ 
     Index the given vg files.
     
     If no vg files are provided, pass through the given indexes, which must be
     provided.
     
-    Returns a list of tuples of the form (xg, (gcsa, lcp), id_ranges), holding
+    Returns a list of tuples of the form (xg, (gcsa, lcp), gbwt, id_ranges), holding
     file IDs for different index components.
     
     """
 
-    # index_ids are of the form (xg, (gcsa, lcp), id_ranges ) as returned by run_indexing
+    # index_ids are of the form (xg, (gcsa, lcp), gbwt, id_ranges ) as returned by run_indexing
     index_ids = []
     if vg_file_ids:
         for vg_file_id in vg_file_ids:
@@ -710,6 +716,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     else:
         for i, xg_id in enumerate(xg_file_ids):
             index_ids.append((xg_id, gcsa_file_ids[i] if gcsa_file_ids else None,
+                              gbwt_file_ids[i] if gbwt_file_ids else None,
                               id_range_file_ids[i] if id_range_file_ids else None))
 
     
@@ -764,7 +771,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_single_ids),
                                         None, None, 'aligned-{}'.format(gam_names[i]),
-                                        False, False, index_id[0], index_id[1],
+                                        False, False, index_id[0], index_id[1], index_id[2],
                                         None, reads_fastq_single_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
@@ -783,7 +790,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_single_ids),
                                             None, None, 'aligned-{}-mp'.format(gam_names[i]),
-                                            False, True, index_id[0], index_id[1],
+                                            False, True, index_id[0], index_id[1], index_id[2],
                                             None, reads_fastq_single_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
@@ -799,7 +806,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
         for i, index_id in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_paired_for_vg_ids),
                                         None, None, 'aligned-{}-pe'.format(gam_names[i]),
-                                        False, False, index_id[0], index_id[1],
+                                        False, False, index_id[0], index_id[1], index_id[2],
                                         None, reads_fastq_paired_for_vg_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
@@ -818,7 +825,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_paired_for_vg_ids),
                                             None, None, 'aligned-{}-mp-pe'.format(gam_names[i]),
-                                            False, True, index_id[0], index_id[1],
+                                            False, True, index_id[0], index_id[1], index_id[2],
                                             None, reads_fastq_paired_for_vg_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
@@ -1394,7 +1401,7 @@ def run_portion_worse(job, context, name, compare_id):
     portion = float(worse) / float(total) if total > 0 else 0
     return total, portion
 
-def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file_ids,
+def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids,
                 vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
                 fasta_file_id, bwa_index_ids, bam_file_ids,
                 pe_bam_file_ids, true_read_stats_file_id):
@@ -1422,6 +1429,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
                                   context,
                                   xg_file_ids,
                                   gcsa_file_ids,
+                                  gbwt_file_ids,
                                   id_range_file_ids,
                                   vg_file_ids,
                                   cores=context.config.misc_cores,
@@ -1577,6 +1585,7 @@ def make_mapeval_plan(toil, options):
 
     plan.xg_file_ids = []
     plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
+    plan.gbwt_file_ids = []
     plan.id_range_file_ids = []
     imported_xgs = {}
     if options.index_bases:
@@ -1587,6 +1596,10 @@ def make_mapeval_plan(toil, options):
                 plan.gcsa_file_ids.append(
                     (toil.importFile(ib + '.gcsa'),
                     toil.importFile(ib + '.gcsa.lcp')))
+                    
+                if options.use_gbwt:
+                    plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
+                    
                 # multiple gam outputs not currently supported by evaluation pipeline
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
                 #    id_range_file_ids.append(
@@ -1671,7 +1684,8 @@ def mapeval_main(context, options):
                                      context, 
                                      options, 
                                      plan.xg_file_ids,
-                                     plan.gcsa_file_ids, 
+                                     plan.gcsa_file_ids,
+                                     plan.gbwt_file_ids,
                                      plan.id_range_file_ids,
                                      plan.vg_file_ids, 
                                      plan.gam_file_ids,
