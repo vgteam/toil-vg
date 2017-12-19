@@ -103,19 +103,24 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
     """ split the fastq, then align each chunk.  returns outputgams, paired with total map time
     (excluding toil-vg overhead such as transferring and splitting files )"""
 
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
     if not context.config.single_reads_chunk:
-        reads_chunk_ids = job.addChildJobFn(run_split_reads, context, fastq, gam_input_reads, bam_input_reads,
-                                            reads_file_ids,
-                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                            disk=context.config.misc_disk).rv()
+        reads_chunk_ids = child_job.addChildJobFn(run_split_reads, context, fastq, gam_input_reads, bam_input_reads,
+                                                  reads_file_ids,
+                                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                  disk=context.config.misc_disk).rv()
     else:
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         reads_chunk_ids = [[r] for r in reads_file_ids]
-    
-    return job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                                interleaved, multipath, xg_file_id, gcsa_and_lcp_ids,
-                                id_ranges_file_id, reads_chunk_ids, cores=context.config.misc_cores,
-                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
+
+        
+    return child_job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
+                                      interleaved, multipath, xg_file_id, gcsa_and_lcp_ids,
+                                      id_ranges_file_id, reads_chunk_ids, cores=context.config.misc_cores,
+                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
 
 def run_split_reads(job, context, fastq, gam_input_reads, bam_input_reads, reads_file_ids):
     """
@@ -284,21 +289,25 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     gam_chunk_file_ids = []
     gam_chunk_running_times = []
 
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
     for chunk_id, chunk_filename_ids in enumerate(zip(*reads_chunk_ids)):
         #Run graph alignment on each fastq chunk
-        chunk_alignment_job = job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
-                                                sample_name,
-                                                interleaved, multipath, chunk_filename_ids, chunk_id,
-                                                xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
-                                                cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                disk=context.config.alignment_disk)
+        chunk_alignment_job = child_job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
+                                                      sample_name,
+                                                      interleaved, multipath, chunk_filename_ids, chunk_id,
+                                                      xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id,
+                                                      cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                      disk=context.config.alignment_disk)
         gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
         gam_chunk_running_times.append(chunk_alignment_job.rv(1))
 
-    return job.addFollowOnJobFn(run_merge_gams, context, sample_name, id_ranges_file_id, gam_chunk_file_ids,
-                                gam_chunk_running_times,
-                                cores=context.config.misc_cores,
-                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+    return child_job.addFollowOnJobFn(run_merge_gams, context, sample_name, id_ranges_file_id, gam_chunk_file_ids,
+                                      gam_chunk_running_times,
+                                      cores=context.config.misc_cores,
+                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
