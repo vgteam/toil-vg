@@ -235,9 +235,10 @@ def run_bwa_index(job, context, fasta_file_id, bwa_index_ids):
 
     return bwa_index_ids
 
-def run_bam_to_fastq(job, context, bam_file_id, paired_mode):
+def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=False):
     """
-    convert a bam to fastq (or pair of fastqs)
+    convert a bam to fastq (or pair of fastqs).  add_suffix will stick a _1 or _2 on
+    paired reads (needed for vg, but not bwa)
     """
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -247,11 +248,15 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode):
     
     # if we're paired, must make some split files
     if paired_mode:
-        sim_fq_files = [os.path.join(work_dir, 'sim_1.fq'),
-                        os.path.join(work_dir, 'sim_2.fq')]
+        sim_fq_files = [os.path.join(work_dir, 'sim_1{}.fq'.format('s' if add_paired_suffix else '')),
+                        os.path.join(work_dir, 'sim_2{}.fq'.format('s' if add_paired_suffix else ''))]
         cmd = ['samtools', 'fastq', os.path.basename(bam_file),
                '-1', os.path.basename(sim_fq_files[0]),
                '-2', os.path.basename(sim_fq_files[1])]
+        if add_paired_suffix:
+            cmd += ['-N']
+        else:
+            cmd += ['-n']
         context.runner.call(job, cmd, work_dir = work_dir)
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
         gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', 's/\/1/_1/g'], ['gzip', '-c']]
@@ -272,7 +277,7 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode):
             context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_file)
         return [context.write_intermediate_file(job, sim_fq_file)]
     
-def run_gam_to_fastq(job, context, gam_file_id, paired_mode):
+def run_gam_to_fastq(job, context, gam_file_id, paired_mode, add_paired_suffix=False):
     """
     convert a gam to fastq (or pair of fastqs)
     """
@@ -290,8 +295,8 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode):
         with open(json_file, 'w') as out_json:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_json)
 
-        sim_fq_files = [None, os.path.join(work_dir, 'sim_1.fq.gz'),
-                        os.path.join(work_dir, 'sim_2.fq.gz')]
+        sim_fq_files = [None, os.path.join(work_dir, 'sim_1{}.fq'.format('s' if add_paired_suffix else '')),
+                        os.path.join(work_dir, 'sim_2{}.fq'.format('s' if add_paired_suffix else ''))]
 
         # make a fastq for each end of pair
         for i in [1, 2]:
@@ -304,7 +309,8 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode):
 
             cmd = [['vg', 'view', '-JaG', os.path.basename(end_file)]]
             cmd.append(['vg', 'view', '-X', '-'])
-            cmd.append(['sed', 's/_{}$//'.format(i)])
+            if not add_paired_suffix:
+                cmd.append(['sed', 's/_{}$//'.format(i)])
             cmd.append(['gzip'])
 
             with open(sim_fq_files[i], 'w') as sim_out:
@@ -709,8 +715,9 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, id_range_file_i
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_gam_file_id,
-                       reads_bam_file_id, fasta_file_id, bwa_index_ids, do_bwa, do_single,
+def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
+                       reads_fastq_single_ids, reads_fastq_paired_ids, reads_fastq_paired_for_vg_ids,
+                       fasta_file_id, bwa_index_ids, do_bwa, do_single,
                        do_paired, singlepath, multipath, ignore_quals):
     """
     Run alignments, if alignment files have not already been provided.
@@ -746,20 +753,19 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                 mpmap_opts.append('-A')
         context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
-    # todo: fix terrible bam/gam interface in mapping
-    input_reads_ids = [reads_gam_file_id] if reads_gam_file_id else [reads_bam_file_id]
-    input_gam_name = 'input.gam' if reads_gam_file_id else None
-    input_bam_name = 'input.bam' if reads_bam_file_id else None
+    assert reads_fastq_single_ids or reads_fastq_paired_ids
+    def fq_names(fq_reads_ids):
+        return ['input{}.fq.gz'.format(i) for i in range(len(fq_reads_ids))]
 
     do_vg_mapping = not gam_file_ids and (singlepath or multipath)
     if do_vg_mapping and singlepath and do_single:
         gam_file_ids = []
         # run vg map if requested
         for i, index_id in enumerate(index_ids):
-            map_job = job.addChildJobFn(run_mapping, context, False,
-                                        input_gam_name, input_bam_name, 'aligned-{}'.format(gam_names[i]),
+            map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_single_ids),
+                                        None, None, 'aligned-{}'.format(gam_names[i]),
                                         False, False, index_id[0], index_id[1],
-                                        None, input_reads_ids,
+                                        None, reads_fastq_single_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
             gam_file_ids.append(map_job.rv(0))
@@ -775,10 +781,10 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             mp_context = copy.deepcopy(context)
             mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
-                map_job = job.addChildJobFn(run_mapping, mp_context, False,
-                                            input_gam_name, input_bam_name, 'aligned-{}-mp'.format(gam_names[i]),
+                map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_single_ids),
+                                            None, None, 'aligned-{}-mp'.format(gam_names[i]),
                                             False, True, index_id[0], index_id[1],
-                                            None, input_reads_ids,
+                                            None, reads_fastq_single_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
                 gam_file_ids.append(map_job.rv(0))
@@ -791,10 +797,10 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
     if do_vg_mapping and do_paired and singlepath:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
-            map_job = job.addChildJobFn(run_mapping, context, False,
-                                        input_gam_name, input_bam_name, 'aligned-{}-pe'.format(gam_names[i]),
-                                        True, False, index_id[0], index_id[1],
-                                        None, input_reads_ids,
+            map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_paired_for_vg_ids),
+                                        None, None, 'aligned-{}-pe'.format(gam_names[i]),
+                                        False, False, index_id[0], index_id[1],
+                                        None, reads_fastq_paired_for_vg_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
             gam_file_ids.append(map_job.rv(0))
@@ -810,10 +816,10 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
             mp_context = copy.deepcopy(context)
             mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
-                map_job = job.addChildJobFn(run_mapping, mp_context, False,
-                                            input_gam_name, input_bam_name, 'aligned-{}-mp-pe'.format(gam_names[i]),
-                                            True, True, index_id[0], index_id[1],
-                                            None, input_reads_ids,
+                map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_paired_for_vg_ids),
+                                            None, None, 'aligned-{}-mp-pe'.format(gam_names[i]),
+                                            False, True, index_id[0], index_id[1],
+                                            None, reads_fastq_paired_for_vg_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
                 gam_file_ids.append(map_job.rv(0))
@@ -833,23 +839,15 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids, reads_g
                                                     cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                     disk=context.config.alignment_disk)
         bwa_index_ids = bwa_index_job.rv()
-        
-        assert reads_gam_file_id or reads_bam_file_id        
-        fastq_fn = run_gam_to_fastq if reads_gam_file_id else run_bam_to_fastq
-        reads_id = reads_gam_file_id if reads_gam_file_id else reads_bam_file_id
-        
+                
         if do_single:
-            fq_extract_job = bwa_start_job.addChildJobFn(fastq_fn, context, reads_id, False,
-                                                         disk=context.config.alignment_disk)
-            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, fq_extract_job.rv(), bwa_index_ids, False,
+            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_single_ids, bwa_index_ids, False,
                                                          cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                          disk=context.config.alignment_disk)
             bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
             bwa_mem_times[0] = bwa_mem_job.rv(1)
         if do_paired:
-            fq_extract_job = bwa_start_job.addChildJobFn(fastq_fn, context, reads_id, True,
-                                                         disk=context.config.alignment_disk)
-            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, fq_extract_job.rv(), bwa_index_ids, True,
+            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_paired_ids, bwa_index_ids, True,
                                                          cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                          disk=context.config.alignment_disk)
             bwa_bam_file_ids[1] = bwa_mem_job.rv(0)
@@ -1439,13 +1437,33 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, id_range_file
         true_read_stats_file_id = index_job.addChildJobFn(extract_bam_read_stats,
                                                           context, 'truth', reads_bam_file_id, True).rv()
 
+    # Extract our fastq reads so that all aligners get the exact same inputs (todo: accept fastq directly)
+    # todo: should be able to use same reads, interleaved, for both
+    fastq_fn = run_gam_to_fastq if reads_gam_file_id else run_bam_to_fastq
+    fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids = None, None, None
+    if not options.paired_only:
+        fq_reads_ids = index_job.addChildJobFn(fastq_fn, context,
+                                               reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
+                                               False,
+                                               disk=context.config.alignment_disk).rv()
+    if not options.single_only:
+        fq_paired_reads_ids  = index_job.addChildJobFn(fastq_fn, context,
+                                                       reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
+                                                       True,
+                                                       disk=context.config.alignment_disk).rv()
+        # todo: smarter annotation so we don't need to make two input sets, one with _1 _2 with vg and one without for bwa
+        fq_paired_reads_for_vg_ids = index_job.addChildJobFn(fastq_fn, context,
+                                                             reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
+                                                             True, True,
+                                                             disk=context.config.alignment_disk).rv()
+
     do_single_path = not options.multipath_only
     do_multi_path = options.multipath or options.multipath_only
                               
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids,
-                                               reads_gam_file_id, reads_bam_file_id,
+                                               fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids,
                                                fasta_file_id, bwa_index_ids, options.bwa,
                                                not options.paired_only, not options.single_only,
                                                do_single_path, do_multi_path, 
