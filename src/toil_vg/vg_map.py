@@ -41,8 +41,6 @@ def map_subparser(parser):
         help="Path to xg index")    
     parser.add_argument("gcsa_index", type=make_url,
         help="Path to GCSA index")
-    parser.add_argument("--gbwt_index", type=make_url,
-        help="Path to GBWT haplotype index")    
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--id_ranges", type=str, default=None,
@@ -62,6 +60,8 @@ def map_subparser(parser):
 
 def map_parse_args(parser, stand_alone = False):
     """ centralize indexing parameters here """
+    parser.add_argument("--gbwt_index", type=make_url,
+                        help="Path to GBWT haplotype index")
     parser.add_argument("--fastq", nargs='+', type=make_url,
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--gam_input_reads", type=make_url, default=None,
