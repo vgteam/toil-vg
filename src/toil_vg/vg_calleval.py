@@ -195,25 +195,27 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
 
+    has_clipped_results = all([eval_result[1] is not None for eval_result in eval_results])
+    result_idx = 1 if has_clipped_results else 0
+
     # make a simple tsv
     stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
     with open(stats_path, 'w') as stats_file:
         for name, eval_result, in zip(names, eval_results):
-            stats_file.write('{}\t{}\n'.format(name, eval_result[0][0]))
-
-    has_clipped_results = all([eval_result[1] is not None for eval_result in eval_results])
+            stats_file.write('{}\t{}\n'.format(name, eval_result[result_idx][0]))
 
     # make some roc plots
     roc_plot_ids = []
     for i, roc_type in zip(range(3,6), ['snp', 'non_snp', 'weighted']):
         roc_table_ids = [eval_result[0][i] for eval_result in eval_results]
-        roc_names = copy.deepcopy(names)
+        roc_title = roc_type if not has_clipped_results else roc_type + '-unclipped'
+        roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_ids, names=names,
+                                              title=roc_title).rv())
+        
         if has_clipped_results:
-            roc_table_ids += [eval_result[1][i] for eval_result in eval_results]
-            roc_names += [n + '-clip' for n in names]
-            RealtimeLogger.warning("NAMES {}".format(roc_names))
-        roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_ids, names=roc_names,
-                                              title=roc_type).rv())
+            roc_table_clip_ids = [eval_result[1][i] for eval_result in eval_results]
+            roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_clip_ids, names=names,
+                                                  title=roc_type).rv())
 
     return [context.write_output_file(job, stats_path)] + roc_plot_ids
                              
@@ -228,40 +230,46 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     vcf_tbi_id_pairs = [] 
     names = []
     eval_results = []
+
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+    
     if bam_ids:
         for bam_id, bam_idx_id, bam_name in zip(bam_ids, bam_idx_ids, bam_names):
             if not bam_idx_id:
-                child_job = job.addChildJobFn(run_bam_index, context, bam_id, bam_name,
-                                              cores=context.config.calling_cores,
-                                              memory=context.config.calling_mem,
-                                              disk=context.config.calling_disk)
-                sorted_bam_id = child_job.rv(0)
-                sorted_bam_idx_id = child_job.rv(1)
+                bam_index_job = child_job.addChildJobFn(run_bam_index, context, bam_id, bam_name,
+                                                        cores=context.config.calling_cores,
+                                                        memory=context.config.calling_mem,
+                                                        disk=context.config.calling_disk)
+                sorted_bam_id = bam_index_job.rv(0)
+                sorted_bam_idx_id = bam_index_job.rv(1)
             else:
-                child_job = Job()
-                job.addChild(child_job)
+                bam_index_job = Job()
+                child_job.addChild(bam_index_job)
                 sorted_bam_id = bam_id
                 sorted_bam_idx_id = bam_idx_id                
 
             fb_out_name = '{}-fb'.format(bam_name)
-            fb_job = child_job.addFollowOnJobFn(run_freebayes, context, fasta_id,
-                                                sorted_bam_id, sorted_bam_idx_id, sample_name,
-                                                chrom, vcf_offset,
-                                                None, out_name = fb_out_name,
-                                                cores=context.config.calling_cores,
-                                                memory=context.config.calling_mem,
-                                                disk=context.config.calling_disk)
+            fb_job = bam_index_job.addFollowOnJobFn(run_freebayes, context, fasta_id,
+                                                    sorted_bam_id, sorted_bam_idx_id, sample_name,
+                                                    chrom, vcf_offset,
+                                                    None, out_name = fb_out_name,
+                                                    cores=context.config.calling_cores,
+                                                    memory=context.config.calling_mem,
+                                                    disk=context.config.calling_disk)
 
             if bed_id:
                 eval_clip_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_job.rv(),
                                                            vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                           fasta_id, bed_id, out_name=fb_out_name + '-clip').rv()
+                                                           fasta_id, bed_id, out_name=fb_out_name).rv()
             else:
                 eval_clip_result = None
                 
             eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_job.rv(),
                                                   vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                  fasta_id, None, out_name=fb_out_name).rv()
+                                                  fasta_id, None,
+                                                  out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped').rv()
             
             vcf_tbi_id_pairs.append(fb_job.rv())            
             names.append(fb_out_name)
@@ -272,11 +280,12 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
             for gt in [False, True]:
                 if (call and not gt) or (genotype and gt):
                     out_name = '{}{}'.format(gam_name, '-gt' if gt else '-call')
-                    call_job = job.addChildJobFn(run_all_calling, context, xg_id, [gam_id], [chrom], [vcf_offset],
-                                                 sample_name, genotype=gt, out_name=out_name,
-                                                 cores=context.config.misc_cores,
-                                                 memory=context.config.misc_mem,
-                                                 disk=context.config.misc_disk)
+                    call_job = child_job.addChildJobFn(run_all_calling, context, xg_id, [gam_id], [chrom], [vcf_offset],
+                                                       sample_name, genotype=gt,
+                                                       out_name=out_name,
+                                                       cores=context.config.misc_cores,
+                                                       memory=context.config.misc_mem,
+                                                       disk=context.config.misc_disk)
 
                     if not vcfeval_score_field:
                         score_field = 'GQ' if gt else 'QUAL'
@@ -286,23 +295,25 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                     if bed_id:
                         eval_clip_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
                                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                                     fasta_id, bed_id, out_name=out_name + '-clip',
+                                                                     fasta_id, bed_id, out_name=out_name,
                                                                      score_field=score_field).rv()
                     else:
                         eval_clip_result = None
                         
                     eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
                                                             vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                            fasta_id, None, out_name=out_name, score_field=score_field).rv()
+                                                            fasta_id, None,
+                                                            out_name=out_name if not bed_id else out_name + '-unclipped',
+                                                            score_field=score_field).rv()
                         
                     names.append(out_name)            
                     vcf_tbi_id_pairs.append(call_job.rv())
                     eval_results.append((eval_result, eval_clip_result))
 
-    calleval_results = job.addFollowOnJobFn(run_calleval_results, context, names, vcf_tbi_id_pairs, eval_results,
-                                            cores=context.config.misc_cores,
-                                            memory=context.config.misc_mem,
-                                            disk=context.config.misc_disk).rv()
+    calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names, vcf_tbi_id_pairs, eval_results,
+                                                  cores=context.config.misc_cores,
+                                                  memory=context.config.misc_mem,
+                                                  disk=context.config.misc_disk).rv()
 
     return calleval_results, names, vcf_tbi_id_pairs, eval_results
 
