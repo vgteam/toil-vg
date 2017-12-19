@@ -73,6 +73,8 @@ def add_mapeval_options(parser):
     parser.add_argument("--index-bases", nargs='+', type=make_url, default=[],
                         help='use in place of gams to perform alignment.  will expect '
                         '<index-base>.gcsa, <index-base>.lcp and <index-base>.xg to exist')
+    parser.add_argument('--use-gbwt', action='store_true',
+                        help='also import <index-base>.gbwt and use it during alignment')
     parser.add_argument('--vg-graphs', nargs='+', type=make_url, default=[],
                         help='vg graphs to use in place of gams or indexes.  indexes'
                         ' will be built as required')
@@ -170,6 +172,10 @@ def validate_options(options):
     # accept graphs or indexes in place of gams
     require(options.gams or options.index_bases or options.vg_graphs,
             'one of --vg-graphs, --index-bases or --gams must be used to specifiy vg input')
+
+    if options.use_gbwt:
+        require(not options.gams,
+                '--use-gbwt cannot be used with pre-aligned GAMs in --gams')
 
     if options.gams:
         require(len(options.index_bases) == len(options.gams),
@@ -1464,6 +1470,7 @@ def make_mapeval_plan(toil, options):
 
     plan.xg_file_ids = []
     plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
+    plan.gbwt_file_ids = []
     plan.id_range_file_ids = []
     if options.index_bases:
         for ib in options.index_bases:
@@ -1472,6 +1479,10 @@ def make_mapeval_plan(toil, options):
                 plan.gcsa_file_ids.append(
                     (toil.importFile(ib + '.gcsa'),
                     toil.importFile(ib + '.gcsa.lcp')))
+                    
+                if options.use_gbwt:
+                    plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
+                    
                 # multiple gam outputs not currently supported by evaluation pipeline
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
                 #    id_range_file_ids.append(
@@ -1541,7 +1552,8 @@ def mapeval_main(context, options):
                                      context, 
                                      options, 
                                      plan.xg_file_ids,
-                                     plan.gcsa_file_ids, 
+                                     plan.gcsa_file_ids,
+                                     plan.gbwt_file_ids,
                                      plan.id_range_file_ids,
                                      plan.vg_file_ids, 
                                      plan.gam_file_ids, 
