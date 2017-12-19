@@ -149,10 +149,10 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
     else:
         pruned_graph_id = context.write_intermediate_file(job, to_index_filename)
     
-    return job.addFollowOnJobFn(run_gcsa_kmers, context, graph_name,
-                                pruned_graph_id, 
-                                cores=context.config.kmers_cores, memory=context.config.kmers_mem,
-                                disk=context.config.kmers_disk).rv()
+    return job.addChildJobFn(run_gcsa_kmers, context, graph_name,
+                             pruned_graph_id, 
+                             cores=context.config.kmers_cores, memory=context.config.kmers_mem,
+                             disk=context.config.kmers_disk).rv()
 
 def run_gcsa_kmers(job, context, graph_name, input_graph_id):
     """
@@ -200,7 +200,11 @@ def run_gcsa_prep(job, context, input_graph_ids,
     start_time = timeit.default_timer()     
 
     kmers_ids = []
-    
+
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
     # Compute our kmers for each input graph (in series)
     # is it worth it to distrbute?  files are so big to move around...
     for graph_i, input_graph_id in enumerate(input_graph_ids):
@@ -216,17 +220,17 @@ def run_gcsa_prep(job, context, input_graph_ids,
             primary_paths = chroms
         
         # Make the kmers, passing along the primary path names
-        kmers_id = job.addChildJobFn(run_gcsa_prune, context, graph_names[graph_i], input_graph_id,
-                                     primary_paths=primary_paths,
-                                     cores=context.config.prune_cores, memory=context.config.prune_mem,
-                                     disk=context.config.prune_disk).rv()
+        kmers_id = child_job.addChildJobFn(run_gcsa_prune, context, graph_names[graph_i], input_graph_id,
+                                           primary_paths=primary_paths,
+                                           cores=context.config.prune_cores, memory=context.config.prune_mem,
+                                           disk=context.config.prune_disk).rv()
         kmers_ids.append(kmers_id)
 
-    return job.addFollowOnJobFn(run_gcsa_indexing, context, kmers_ids,
-                                graph_names, index_name,
-                                cores=context.config.gcsa_index_cores,
-                                memory=context.config.gcsa_index_mem,
-                                disk=context.config.gcsa_index_disk).rv()
+    return child_job.addFollowOnJobFn(run_gcsa_indexing, context, kmers_ids,
+                                      graph_names, index_name,
+                                      cores=context.config.gcsa_index_cores,
+                                      memory=context.config.gcsa_index_mem,
+                                      disk=context.config.gcsa_index_disk).rv()
     
 def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name):
     """
@@ -326,18 +330,22 @@ def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chro
     # Our id ranges (list of triples)
     id_ranges = []
 
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)    
+
     # Get the range for one graph per job. 
     for graph_id, graph_name, chrom in zip(inputGraphFileIDs, graph_names, chroms):
-        id_range = job.addChildJobFn(run_id_range, context, graph_id, graph_name, chrom,
-                                     cores=context.config.prune_cores,
-                                     memory=context.config.prune_mem, disk=context.config.prune_disk).rv()
+        id_range = child_job.addChildJobFn(run_id_range, context, graph_id, graph_name, chrom,
+                                           cores=context.config.prune_cores,
+                                           memory=context.config.prune_mem, disk=context.config.prune_disk).rv()
         
         id_ranges.append(id_range)
 
     # Merge them into a file and return its id
-    return job.addFollowOnJobFn(run_merge_id_ranges, context, id_ranges, index_name,
-                                cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                disk=context.config.misc_disk).rv()
+    return child_job.addFollowOnJobFn(run_merge_id_ranges, context, id_ranges, index_name,
+                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                      disk=context.config.misc_disk).rv()
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time

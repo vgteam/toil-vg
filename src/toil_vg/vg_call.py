@@ -369,14 +369,18 @@ def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, c
                    xg_file_id, vg_chunk_file_id, gam_chunk_file_id, path_size, vcf_offset, sample_name,
                    genotype, augment):
     """ create VCF from a given chunk """
-   
+
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
     RealtimeLogger.info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
     # Run vg call
-    call_job = job.addChildJobFn(
+    call_job = child_job.addChildJobFn(
         run_vg_call,
         context, sample_name, vg_chunk_file_id, gam_chunk_file_id,
         xg_id = xg_file_id,
@@ -394,10 +398,10 @@ def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, c
         memory=context.config.calling_mem, disk=context.config.calling_disk)
     vcf_id, pu_id, xg_id, gam_id, aug_graph_id = [call_job.rv(i) for i in range(5)]
 
-    return job.addFollowOnJobFn(run_clip_vcf, context, path_name, chunk_i, num_chunks, chunk_offset,
-                                clipped_chunk_offset, vcf_offset, vcf_id,
-                                cores=context.config.calling_cores,
-                                memory=context.config.calling_mem, disk=context.config.calling_disk).rv()
+    return child_job.addFollowOnJobFn(run_clip_vcf, context, path_name, chunk_i, num_chunks, chunk_offset,
+                                      clipped_chunk_offset, vcf_offset, vcf_id,
+                                      cores=context.config.calling_cores,
+                                      memory=context.config.calling_mem, disk=context.config.calling_disk).rv()
 
 def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset, vcf_offset, vcf_id):
     """ clip the vcf to respect chunk """
@@ -579,6 +583,10 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
 
     # Keep track of offset in each path
     cur_path_offset = defaultdict(int)
+
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
         
     # Go through the BED output of vg chunk, adding a child calling job for
     # each chunk                
@@ -597,22 +605,22 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
         clipped_chunk_offset = chunk_i * context.config.call_chunk_size - chunk_i * context.config.overlap
         cur_path_offset[chunk_bed_chrom] += 1
         
-        clip_file_id = job.addChildJobFn(run_call_chunk, context, chunk_bed_chrom, chunk_i,
-                                         len(bed_lines),
-                                         chunk_bed_start, clipped_chunk_offset,
-                                         None, vg_chunk_file_id, gam_chunk_file_id,
-                                         path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
-                                         sample_name, genotype, augment,
-                                         cores=context.config.misc_cores,
-                                         memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+        clip_file_id = child_job.addChildJobFn(run_call_chunk, context, chunk_bed_chrom, chunk_i,
+                                               len(bed_lines),
+                                               chunk_bed_start, clipped_chunk_offset,
+                                               None, vg_chunk_file_id, gam_chunk_file_id,
+                                               path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
+                                               sample_name, genotype, augment,
+                                               cores=context.config.misc_cores,
+                                               memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
         clip_file_ids.append(clip_file_id)
 
 
-    vcf_gz_tbi_file_id_pair = job.addFollowOnJobFn(run_merge_vcf_chunks, context, tag,
-                                                   clip_file_ids,
-                                                   cores=context.config.call_chunk_cores,
-                                                   memory=context.config.call_chunk_mem,
-                                                   disk=context.config.call_chunk_disk).rv()
+    vcf_gz_tbi_file_id_pair = child_job.addFollowOnJobFn(run_merge_vcf_chunks, context, tag,
+                                                         clip_file_ids,
+                                                         cores=context.config.call_chunk_cores,
+                                                         memory=context.config.call_chunk_mem,
+                                                         disk=context.config.call_chunk_disk).rv()
  
     return vcf_gz_tbi_file_id_pair
 
