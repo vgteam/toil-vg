@@ -79,7 +79,9 @@ def index_parse_args(parser):
                         help="Options to pass to gcsa indexing.")
 
     parser.add_argument("--vcf_phasing", type=make_url,
-                        help="Import phasing information from VCF into xg")
+                        help="Import phasing information from VCF into xg or GBWT")
+    parser.add_argument("--make_gbwt", action='store_true',
+                        help="Save phasing information to a GBWT instead of to the xg")
 
 def validate_index_options(options):
     """
@@ -91,6 +93,8 @@ def validate_index_options(options):
             ' same number of arguments if more than one graph specified')
     if options.vcf_phasing:
         require(options.vcf_phasing.endswith('.vcf.gz'), 'input phasing file must end with .vcf.gz')
+    if options.make_gbwt:
+        require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
     """
@@ -268,8 +272,13 @@ def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name):
 
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                    vcf_phasing_file_id = None, tbi_phasing_file_id = None):
-    """ Make the xg index and return its store id
+                    vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
+    """
+    Make the xg index and optional GBWT haplotype index.
+    
+    Saves the xg in the outstore as <index_name>.xg and the GBWT, if requested, as <index_name>.gbwt.
+    
+    Return a pair of file IDs, (xg_id, gbwt_id). The GBWT ID will be None if no GBWT is generated.
     """
     
     RealtimeLogger.info("Starting xg indexing...")
@@ -285,12 +294,19 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         job.fileStore.readGlobalFile(graph_id, graph_filename)
         graph_filenames.append(os.path.basename(graph_filename))
 
-    # Get the vcf file for making gpbwt
+    # If we have a separate GBWT it will go here
+    gbwt_filename = os.path.join(work_dir, "{}.gbwt".format(index_name))
+
+    # Get the vcf file for loading phasing info
     if vcf_phasing_file_id:
         phasing_file = os.path.join(work_dir, 'phasing.vcf.gz')
         job.fileStore.readGlobalFile(vcf_phasing_file_id, phasing_file)
         job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
         phasing_opts = ['-v', os.path.basename(phasing_file)]
+        
+        if make_gbwt:
+            # Write the haplotype index to its own file
+            phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
     else:
         phasing_opts = []
 
@@ -307,12 +323,17 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 
     # Checkpoint index to output store
     xg_file_id = context.write_output_file(job, os.path.join(work_dir, xg_filename))
+    
+    gbwt_file_id = None
+    if make_gbwt:
+        # Also save the GBWT if it was generated
+        gbwt_file_id = context.write_output_file(job, gbwt_filename)
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
     RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
-    return xg_file_id
+    return (xg_file_id, gbwt_file_id)
 
 
 def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chroms):
@@ -381,8 +402,13 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_id = None, tbi_phasing_file_id = None,
-                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False):
-    """ run indexing logic by itself.  Return pair of idx for xg and gcsa output index files  
+                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, make_gbwt=False):
+    """
+    Run indexing logic by itself.
+    
+    Return an XG file ID, a pair of GCSA and LCP IDs, an optional GBWT file ID
+    (or None) and an ID for the ID ranges index file.
+    
     """
 
     if not skip_gcsa:
@@ -394,14 +420,17 @@ def run_indexing(job, context, inputGraphFileIDs,
     else:
         gcsa_and_lcp_ids = None
     if not skip_xg:
-        xg_index_id = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
-                                        graph_names, index_name,
-                                        vcf_phasing_file_id, tbi_phasing_file_id,
-                                        cores=context.config.xg_index_cores,
-                                        memory=context.config.xg_index_mem,
-                                        disk=context.config.xg_index_disk).rv()
+        xg_index_job = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
+                                         graph_names, index_name,
+                                         vcf_phasing_file_id, tbi_phasing_file_id,
+                                         make_gbwt,
+                                         cores=context.config.xg_index_cores,
+                                         memory=context.config.xg_index_mem,
+                                         disk=context.config.xg_index_disk)
+        xg_and_gbwt_index_ids = (xg_index_job.rv(0), xg_index_job.rv(1))
+        
     else:
-        xg_index_id = None
+        xg_and_gbwt_index_ids = (None, None)
         
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
         id_ranges_id = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
@@ -412,7 +441,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     else:
         id_ranges_id = None
 
-    return xg_index_id, gcsa_and_lcp_ids, id_ranges_id
+    return xg_and_gbwt_index_ids[0], gcsa_and_lcp_ids, xg_and_gbwt_index_ids[1], id_ranges_id
 
 
 def index_main(context, options):
@@ -457,6 +486,7 @@ def index_main(context, options):
                                      graph_names, options.index_name, options.chroms,
                                      inputPhasingVCFFileID, inputPhasingTBIFileID,
                                      options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
+                                     options.make_gbwt,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
