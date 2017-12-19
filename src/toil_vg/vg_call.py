@@ -161,22 +161,29 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         filter_command = None
         
     # augment command with optional filter piped at beginning
-    augment_io_opts = ['-Z', os.path.basename(trans_path),
-                       '-S', os.path.basename(support_path)]
+    augment_generated_opts = ['-Z', os.path.basename(trans_path)]
     if keep_pileup:
-        augment_io_opts += ['-P', os.path.basename(pu_path)]
+        augment_generated_opts += ['-P', os.path.basename(pu_path)]
     if genotype:
-        augment_io_opts += ['-A', os.path.basename(aug_gam_path)]
+        # Make sure to use the augmentation mode that we need for genotype (augment with everything but no supports)
+        augment_generated_opts += ['-a', 'direct']
+        # We need to keep the augmented gam
+        augment_generated_opts += ['-A', os.path.basename(aug_gam_path)]
+    else:
+        # Make sure to use the augmentation mode for vg call (which can calculate supports)
+        augment_generated_opts += ['-a', 'pileup']
+        # And calculate the supports instead of the augmented gam
+        augment_generated_opts += ['-S', os.path.basename(support_path)]
     augment_command = []
     if filter_command is not None:
         aug_gam_input = '-'
         augment_command.append(filter_command)
         if keep_gam:
-            augment.append(['tee', os.path.basename(gam_filter_path)])
+            augment_command.append(['tee', os.path.basename(gam_filter_path)])
     else:
         aug_gam_input = os.path.basename(gam_path)
     augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
-                    '-t', str(context.config.calling_cores)] + augment_opts + augment_io_opts)
+                    '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
 
     vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
     vcf_log_path = os.path.join(work_dir, '{}_call_log.txt'.format(chunk_name))
