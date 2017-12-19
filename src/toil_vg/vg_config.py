@@ -128,7 +128,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-2018-g71f96239-t119-run'
+vg-docker: 'quay.io/vgteam/vg:v1.6.0-81-gf389c5a8-t121-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
@@ -225,7 +225,7 @@ genotype: False
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: []
+vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 
 #########################
 ### sim and mapeval Arguments ###
@@ -349,7 +349,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.5.0-2018-g71f96239-t119-run'
+vg-docker: 'quay.io/vgteam/vg:v1.6.0-81-gf389c5a8-t121-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
@@ -447,7 +447,7 @@ genotype: False
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: []
+vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 
 #########################
 ### sim and mapeval Arguments ###
@@ -487,7 +487,7 @@ def apply_config_file_args(args):
     # do the same thing for more_mpmap_opts which is a list of strings
     if 'more_mpmap_opts' in args.__dict__.keys() and args.__dict__['more_mpmap_opts']:
         for i, m_opts in enumerate(args.__dict__['more_mpmap_opts']):
-            if type(m_opts) is str:
+            if isinstance(m_opts, basestring):
                 args.__dict__['more_mpmap_opts'][i] = make_opts_list(m_opts)
 
     # If no config file given, we generate a default one

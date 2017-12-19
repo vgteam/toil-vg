@@ -66,12 +66,16 @@ def map_parse_args(parser, stand_alone = False):
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--gam_input_reads", type=make_url, default=None,
                         help="Input reads in GAM format")
+    parser.add_argument("--bam_input_reads", type=make_url, default=None,
+                        help="Input reads in BAM format")
     parser.add_argument("--single_reads_chunk", action="store_true", default=False,
                         help="do not split reads into chunks")
     parser.add_argument("--reads_per_chunk", type=int,
                         help="number of reads for each mapping job")
     parser.add_argument("--alignment_cores", type=int,
                         help="number of threads during the alignment step")
+    parser.add_argument("--gam_index_cores", type=int,
+                        help="number of threads used for gam indexing")    
     parser.add_argument("--interleaved", action="store_true", default=False,
                         help="treat fastq as interleaved read pairs.  overrides map-args")
     parser.add_argument("--map_opts", type=str,
@@ -90,31 +94,36 @@ def validate_map_options(context, options):
             ' passed with --fastq')
     require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
             '--interleaved cannot be used when > 1 fastq given')
-    require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
-            'reads must be speficied with either --fastq or --gam_reads')
+    require(sum(map(lambda x : 1 if x else 0, [options.fastq, options.gam_input_reads, options.bam_input_reads])) == 1,
+            'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
     if options.multipath:
         require('-S' in context.config.mpmap_opts,
                 '-S must be used with multipath aligner to produce GAM output')
     
-def run_mapping(job, context, fastq, gam_input_reads, sample_name, interleaved, multipath,
+def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
                 xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, reads_file_ids):
     """ split the fastq, then align each chunk.  returns outputgams, paired with total map time
     (excluding toil-vg overhead such as transferring and splitting files )"""
 
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
     if not context.config.single_reads_chunk:
-        reads_chunk_ids = job.addChildJobFn(run_split_reads, context, fastq, gam_input_reads, reads_file_ids,
-                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                            disk=context.config.misc_disk).rv()
+        reads_chunk_ids = child_job.addChildJobFn(run_split_reads, context, fastq, gam_input_reads, bam_input_reads,
+                                                  reads_file_ids,
+                                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                  disk=context.config.misc_disk).rv()
     else:
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         reads_chunk_ids = [[r] for r in reads_file_ids]
-    
-    return job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, sample_name, interleaved,
-                                multipath, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id,
-                                id_ranges_file_id, reads_chunk_ids, cores=context.config.misc_cores,
-                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
+        
+    return child_job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
+                                      interleaved, multipath, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id,
+                                      id_ranges_file_id, reads_chunk_ids, cores=context.config.misc_cores,
+                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
 
-def run_split_reads(job, context, fastq, gam_input_reads, reads_file_ids):
+def run_split_reads(job, context, fastq, gam_input_reads, bam_input_reads, reads_file_ids):
     """
     split either fastq or gam input reads into chunks.  returns list of chunk file id lists
     (one for each input reads file)
@@ -127,12 +136,18 @@ def run_split_reads(job, context, fastq, gam_input_reads, reads_file_ids):
             reads_chunk_ids.append(job.addChildJobFn(run_split_fastq, context, fastq, fastq_i, reads_file_id,
                                                      cores=context.config.fq_split_cores,
                                                      memory=context.config.fq_split_mem, disk=context.config.fq_split_disk).rv())
-    else:
+    elif gam_input_reads:
         assert len(reads_file_ids) == 1
         reads_chunk_ids.append(job.addChildJobFn(run_split_gam_reads, context, gam_input_reads, reads_file_ids[0],
                                                   cores=context.config.fq_split_cores,
                                                   memory=context.config.fq_split_mem, disk=context.config.fq_split_disk).rv())
-
+    else:
+        assert bam_input_reads
+        assert len(reads_file_ids) == 1
+        reads_chunk_ids.append(job.addChildJobFn(run_split_bam_reads, context, bam_input_reads, reads_file_ids[0],
+                                                  cores=context.config.fq_split_cores,
+                                                  memory=context.config.fq_split_mem, disk=context.config.fq_split_disk).rv())
+        
     return reads_chunk_ids
 
 
@@ -222,8 +237,49 @@ def run_split_gam_reads(job, context, gam_input_reads, gam_reads_file_id):
     RealtimeLogger.info("Split gam into {} chunks. Process took {} seconds.".format(len(gam_chunk_ids), run_time))
 
     return gam_chunk_ids
+
+def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
+    """ split up an input reads file in BAM format
+    """
+    RealtimeLogger.info("Starting bam split")
+    start_time = timeit.default_timer()
     
-def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, interleaved, multipath,
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the sample fastq for alignment
+    bam_path = os.path.join(work_dir, os.path.basename(bam_input_reads))
+    job.fileStore.readGlobalFile(bam_reads_file_id, bam_path)
+
+    # Split up the bam into chunks
+
+    # Make sure chunk size even in case paired interleaved
+    chunk_size = context.config.reads_per_chunk
+    if chunk_size % 2 != 0:
+        chunk_size += 1
+
+    # 1 line per read
+    chunk_lines = chunk_size * 1
+
+    cmd = [['samtools', 'view', '-h', os.path.basename(bam_path)]]
+    cmd.append(['split', '-l', str(chunk_lines),
+                '--filter=samtools view -h -O BAM - > $FILE.bam', '-', 'bam_reads_chunk.'])
+
+    context.runner.call(job, cmd, work_dir = work_dir)
+
+    bam_chunk_ids = []
+    for chunk_name in os.listdir(work_dir):
+        if chunk_name.endswith('.bam') and chunk_name.startswith('bam_reads_chunk'):
+            bam_chunk_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, chunk_name)))
+        
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Split bam into {} chunks. Process took {} seconds.".format(len(bam_chunk_ids), run_time))
+
+    return bam_chunk_ids
+
+    
+def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
                         xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, reads_chunk_ids):
     """ align all fastq chunks in parallel
     """
@@ -234,23 +290,29 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, sample_name, inter
     gam_chunk_file_ids = []
     gam_chunk_running_times = []
 
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
     for chunk_id, chunk_filename_ids in enumerate(zip(*reads_chunk_ids)):
         #Run graph alignment on each fastq chunk
-        chunk_alignment_job = job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, sample_name,
-                                                interleaved, multipath, chunk_filename_ids, chunk_id,
-                                                xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id,
-                                                cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                disk=context.config.alignment_disk)
+        chunk_alignment_job = child_job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
+                                                      sample_name,
+                                                      interleaved, multipath, chunk_filename_ids, chunk_id,
+                                                      xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id,
+                                                      cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                      disk=context.config.alignment_disk)
         gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
         gam_chunk_running_times.append(chunk_alignment_job.rv(1))
 
-    return job.addFollowOnJobFn(run_merge_gams, context, sample_name, id_ranges_file_id, gam_chunk_file_ids,
-                                gam_chunk_running_times,
-                                cores=context.config.misc_cores,
-                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+    return child_job.addFollowOnJobFn(run_merge_gams, context, sample_name, id_ranges_file_id, gam_chunk_file_ids,
+                                      gam_chunk_running_times,
+                                      cores=context.config.misc_cores,
+                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
 
-def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved, multipath, chunk_filename_ids,
+def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
+                        chunk_filename_ids,
                         chunk_id, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id):
 
     RealtimeLogger.info("Starting {}alignment on {} chunk {}".format(
@@ -283,7 +345,7 @@ def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved,
     
     # We need the sample reads (fastq(s) or gam) for alignment
     reads_files = []
-    reads_ext = 'gam' if gam_input_reads else 'fq.gz'
+    reads_ext = 'gam' if gam_input_reads else 'bam' if bam_input_reads else 'fq.gz'
     for j, chunk_filename_id in enumerate(chunk_filename_ids):
         reads_file = os.path.join(work_dir, 'reads_chunk_{}_{}.{}'.format(chunk_id, j, reads_ext))
         job.fileStore.readGlobalFile(chunk_filename_id, reads_file)
@@ -312,7 +374,7 @@ def run_chunk_alignment(job, context, gam_input_reads, sample_name, interleaved,
             vg_parts += context.config.map_opts
             
         for reads_file in reads_files:
-            input_flag = '-G' if gam_input_reads else '-f'
+            input_flag = '-G' if gam_input_reads else '-b' if bam_input_reads else '-f'
             vg_parts += [input_flag, os.path.basename(reads_file)]
         vg_parts += ['-t', str(context.config.alignment_cores)]
 
@@ -527,14 +589,18 @@ def map_main(context, options):
             if options.fastq:
                 for sample_reads in options.fastq:
                     inputReadsFileIDs.append(toil.importFile(sample_reads))
-            else:
+            elif options.gam_input_reads:
                 inputReadsFileIDs.append(toil.importFile(options.gam_input_reads))
+            else:
+                assert options.bam_input_reads
+                inputReadsFileIDs.append(toil.importFile(options.bam_input_reads))
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
             root_job = Job.wrapJobFn(run_mapping, context, options.fastq,
-                                     options.gam_input_reads, options.sample_name,
+                                     options.gam_input_reads, options.bam_input_reads,
+                                     options.sample_name,
                                      options.interleaved, options.multipath,
                                      inputXGFileID,
                                      (inputGCSAFileID, inputLCPFileID),

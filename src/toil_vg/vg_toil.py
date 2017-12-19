@@ -156,8 +156,8 @@ def validate_pipeline_options(options):
             ' passed with --fastq')
     require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
             '--interleaved cannot be used when > 1 fastq given')
-    require((options.fastq and len(options.fastq)) != (options.gam_input_reads is not None),
-            'reads must be speficied with either --fastq or --gam_reads')    
+    require(sum(map(lambda x : 1 if x else 0, [options.fastq, options.gam_input_reads, options.bam_input_reads])) == 1,
+            'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
 
     
 # Below are the top level jobs of the toil_vg pipeline.  They
@@ -222,7 +222,7 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
 
     if not options.single_reads_chunk:
         fastq_chunk_ids = job.addChildJobFn(run_split_reads, context, options.fastq,
-                                            options.gam_input_reads, inputReadsFileIDs,
+                                            options.gam_input_reads, options.bam_input_reads, inputReadsFileIDs,
                                             cores=context.config.misc_cores,
                                             memory=context.config.misc_mem,
                                             disk=context.config.misc_disk).rv()
@@ -240,7 +240,7 @@ def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, gbwt_f
     """ All mapping, then gam merging.  fastq is split in above step"""
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
-                                    options.fastq, options.gam_input_reads,
+                                    options.fastq, options.gam_input_reads, options.bam_input_reads,
                                     options.sample_name, options.interleaved, options.multipath,
                                     xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, fastq_chunk_ids,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
@@ -376,8 +376,11 @@ def pipeline_main(context, options):
             if options.fastq:
                 for sample_reads in options.fastq:
                     inputReadsFileIDs.append(toil.importFile(sample_reads))
-            else:
+            elif options.gam_input_reads:
                 inputReadsFileIDs.append(toil.importFile(options.gam_input_reads))
+            else:
+                assert options.bam_input_reads
+                inputReadsFileIDs.append(toil.importFile(options.bam_input_reads))
             if options.xg_index:
                 inputXGFileID = toil.importFile(options.xg_index)
             else:

@@ -159,7 +159,7 @@ class VGCGLTest(TestCase):
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,
                   self.local_outstore,
-                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--truth', os.path.join(self.local_outstore, 'true.pos'),
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gams', os.path.join(self.local_outstore, 'sample_default.gam'),
@@ -174,7 +174,7 @@ class VGCGLTest(TestCase):
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,
                   self.local_outstore,
-                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
                   '--index-bases', os.path.join(self.local_outstore, 'small'),
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
@@ -202,7 +202,7 @@ class VGCGLTest(TestCase):
                   os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),
                   '--bam_names', 'bwa-mem', 'bwa-mem-pe')
 
-        self._assertCallEvalOutput(self.local_outstore, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.05)
+        self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb'], 0.02)
 
         # check running mapeval on the vg graph
         
@@ -216,7 +216,7 @@ class VGCGLTest(TestCase):
 
         self._run('toil-vg', 'mapeval', self.jobStoreLocal,
                   self.local_outstore,
-                  os.path.join(self.local_outstore, 'true.pos'),
+                  '--truth', os.path.join(self.local_outstore, 'true.pos'),
                   '--vg-graphs', self.test_vg_graph,
                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
@@ -241,14 +241,28 @@ class VGCGLTest(TestCase):
         self.test_vg_graph = os.path.join(self.workdir, 'snp1kg-brca1.vg')
         self.baseline = os.path.join(self.workdir, 'platinum_NA12877_BRCA1.vcf.gz')
         self.chrom_fa = os.path.join(self.workdir, 'BRCA1.fa.gz')
-        
+        self.bam_reads = self._ci_input_path('NA12877.brca1.bam')
+
         self._run(self.base_command, self.jobStoreLocal, 'NA12877',
                   self.local_outstore, '--fastq', self.sample_reads, self.sample_reads2, '--graphs',
-                  self.test_vg_graph, '--chroms', '17',
+                  self.test_vg_graph, '--chroms', '17', '--index_name', 'index',
                   '--vcf_offsets', '43044293',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)
+
+        # repeat but with bam reads (and not recreating gcsa)
+        self._run(self.base_command, self.jobStoreLocal, 'NA12877',
+                  self.local_outstore, '--bam_input_reads', self.bam_reads,  '--graphs',
+                  self.test_vg_graph, '--chroms', '17',
+                  '--gcsa_index', os.path.join(self.local_outstore, 'index.gcsa'),
+                  # single_reads_chunk currently required for bam in jenkins test but can't figure out
+                  # why, as can't reproduce problems on the command line
+                  '--single_reads_chunk',
+                  '--vcf_offsets', '43044293', 
+                  '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
+        
+        self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)        
 
     def test_5_BRCA1_BRCA2_NA12877(self):
         '''  Test pipeline on chase with two chromosomes, in this case both BRCA regions
