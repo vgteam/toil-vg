@@ -69,7 +69,7 @@ class VGCGLTest(TestCase):
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
 
-    def test_1_sim_small(self):
+    def test_01_sim_small(self):
         ''' 
         This test uses simulated reads from the small dataset from vg, created as follows:
         vg construct -r test/small/x.fa -v test/small/x.vcf.gz > small.vg
@@ -91,7 +91,7 @@ class VGCGLTest(TestCase):
         
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
-    def test_2_sim_small_standalone(self):
+    def test_02_sim_small_standalone(self):
         ''' 
         Same as above, but chain standalone tools instead of toil-vg run
         '''
@@ -127,7 +127,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
 
-    def test_3_sim_small_mapeval(self):
+    def test_03_sim_small_mapeval(self):
         ''' 
         Same generate and align some simulated reads
         '''
@@ -226,7 +226,7 @@ class VGCGLTest(TestCase):
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
 
         
-    def test_4_BRCA1_NA12877(self):
+    def test_04_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
         self._download_input('NA12877.brca1.bam_1.fq.gz')
@@ -264,7 +264,7 @@ class VGCGLTest(TestCase):
         
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)        
 
-    def test_5_BRCA1_BRCA2_NA12877(self):
+    def test_05_BRCA1_BRCA2_NA12877(self):
         '''  Test pipeline on chase with two chromosomes, in this case both BRCA regions
         '''
         self._download_input('NA12877.brca1.brca2.bam.fq.gz')
@@ -317,7 +317,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput(None, outstore, f1_threshold=0.70)
                 
-    def test_6_sim_small_outstore(self):
+    def test_06_sim_small_outstore(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore.
         '''
@@ -335,7 +335,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
-    def test_7_construct(self):
+    def test_07_construct(self):
         '''
         Test that the output of toil-vg construct is somewhat reasonable
         '''
@@ -377,7 +377,7 @@ class VGCGLTest(TestCase):
                 assert vg_size < prev_vg_size
             prev_vg_size = vg_size
 
-    def test_8_sim_small_genotype(self):
+    def test_08_sim_small_genotype(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore.
         '''
@@ -395,7 +395,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
-    def test_9_sim_small_genotype_no_augment(self):
+    def test_09_sim_small_genotype_no_augment(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore.
         '''
@@ -411,7 +411,39 @@ class VGCGLTest(TestCase):
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
                   '--genotype', '--no_augment')
 
-        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)        
+        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
+
+    def test_10_gbwt(self):
+        '''
+        Test that the gbwt gets constructed without crashing (but not much beyond that)
+        '''
+
+        in_vcf = self._ci_input_path('1kg_hg38-BRCA1.vcf.gz')
+        in_tbi = in_vcf + '.tbi'
+        in_fa = self._ci_input_path('17.fa')
+        in_region = '17:43044294-43125482'
+
+        # make a snp1kg graph with alt paths
+        self._run('toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                  '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
+                  '--out_name', 'snp1kg-BRCA1', '--alt_paths')
+
+        # check graph exists
+        vg_path = os.path.join(self.local_outstore, 'snp1kg-BRCA1.vg')
+        self.assertTrue(os.path.isfile(vg_path))
+
+        # make a gbwt and xg index
+        self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                  '--skip_gcsa', '--graphs', vg_path, '--chroms', '17',
+                  '--vcf_phasing', in_vcf, '--index_name', 'my_index',
+                  '--make_gbwt', '--xg_index_cores', '4')
+
+        # check gbwt exists
+        gbwt_path = os.path.join(self.local_outstore, 'my_index.gbwt')
+        self.assertTrue(os.path.isfile(gbwt_path))
+
+        # check gbwt not empty
+        self.assertGreater(os.path.getsize(gbwt_path), 250000)
 
     def _run(self, *args):
         args = list(concat(*args))

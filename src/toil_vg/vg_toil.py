@@ -172,7 +172,7 @@ def validate_pipeline_options(options):
 
 
 def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileIDs, inputXGFileID,
-                       inputGCSAFileID, inputLCPFileID, inputIDRangesFileID,
+                       inputGCSAFileID, inputLCPFileID, inputGBWTFileID, inputIDRangesFileID,
                        inputVCFFileID, inputTBIFileID,
                        inputFastaFileID, inputBeDFileID,
                        inputPhasingVCFFileID, inputPhasingTBIFileID):
@@ -181,15 +181,22 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     splitting, which doesn't depend on indexing. 
     """
 
-    if inputXGFileID is None:
-        xg_file_id = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
-                                       map(os.path.basename, options.graphs),
-                                       options.index_name,
-                                       inputPhasingVCFFileID, inputPhasingTBIFileID,
-                                       cores=options.xg_index_cores, memory=options.xg_index_mem,
-                                       disk=options.xg_index_disk).rv()
+    if inputXGFileID is None or \
+        (inputPhasingVCFFileID is not None and inputPhasingTBIFileID is not None and inputGBWTFileID is None):
+        # We lack an XG index, or we have a phasing VCF but lack a GBWT index.
+        
+        index_job = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
+                                      map(os.path.basename, options.graphs),
+                                      options.index_name,
+                                      inputPhasingVCFFileID, inputPhasingTBIFileID,
+                                      make_gbwt=(inputPhasingVCFFileID is not None and inputPhasingTBIFileID is not None),
+                                      cores=options.xg_index_cores, memory=options.xg_index_mem,
+                                      disk=options.xg_index_disk)
+        (xg_file_id, gbwt_file_id) = (index_job.rv(0), index_job.rv(1))
     else:
+        # Pass through the XG, and the GBWT if we have one
         xg_file_id = inputXGFileID
+        gbwt_file_id = inputGBWTFileID
         
     if inputGCSAFileID is None:
         gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
@@ -223,19 +230,19 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         fastq_chunk_ids = [inputReadsFileIDs]
 
-    return job.addFollowOnJobFn(run_pipeline_map, context, options, xg_file_id, gcsa_and_lcp_ids,
+    return job.addFollowOnJobFn(run_pipeline_map, context, options, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id,
                                 id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
                                 inputFastaFileID, inputBeDFileID, cores=context.config.misc_cores,
                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
-def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
+def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, fastq_chunk_ids,
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
                                     options.fastq, options.gam_input_reads, options.bam_input_reads,
                                     options.sample_name, options.interleaved, options.multipath,
-                                    xg_file_id, gcsa_and_lcp_ids, id_ranges_file_id, fastq_chunk_ids,
+                                    xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, fastq_chunk_ids,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                     disk=context.config.misc_disk).rv(0)
 
@@ -374,16 +381,20 @@ def pipeline_main(context, options):
             else:
                 assert options.bam_input_reads
                 inputReadsFileIDs.append(toil.importFile(options.bam_input_reads))
+            if options.xg_index:
+                inputXGFileID = toil.importFile(options.xg_index)
+            else:
+                inputXGFileID = None
             if options.gcsa_index:
                 inputGCSAFileID = toil.importFile(options.gcsa_index)
                 inputLCPFileID = toil.importFile(options.gcsa_index + ".lcp")
             else:
                 inputGCSAFileID = None
                 inputLCPFileID = None
-            if options.xg_index:
-                inputXGFileID = toil.importFile(options.xg_index)
+            if options.gbwt_index:
+                inputGBWTFileID = toil.importFile(options.gbwt_index)
             else:
-                inputXGFileID = None
+                inputGBWTFileID = None
             if options.id_ranges:
                 inputIDRangesFileID = toil.importFile(options.id_ranges)
             else:
@@ -414,7 +425,7 @@ def pipeline_main(context, options):
             # Make a root job
             root_job = Job.wrapJobFn(run_pipeline_index, context, options, inputGraphFileIDs,
                                      inputReadsFileIDs, inputXGFileID, inputGCSAFileID,
-                                     inputLCPFileID, inputIDRangesFileID,
+                                     inputLCPFileID, inputGBWTFileID, inputIDRangesFileID,
                                      inputVCFFileID, inputTBIFileID,
                                      inputFastaFileID, inputBedFileID,
                                      inputPhasingVCFFileID, inputPhasingTBIFileID,

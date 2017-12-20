@@ -52,11 +52,11 @@ To generate a default configuration for running at genome scale on a cluster wit
 
 A faster test to see if toil-vg runs on the current machine (Replace myname with a unique prefix): 
 
-    ./bakeoff.sh -f myname f1.tsv
+    ./scripts/bakeoff.sh -f myname f1.tsv
 
 Or on a Toil cluster
 
-    ./bakeoff.sh -fm myname f1.tsv
+    ./scripts/bakeoff.sh -fm myname f1.tsv
 
 In both cases, verify that f1.tsv contains a number (should be approx. 0.9).  Note that this script will create some directories (or S3 buckets) of the form `myname-bakeoff-out-store-brca1` and `myname-bakeoff-job-store-brca1`.  These will have to be manually removed. 
 
@@ -80,7 +80,7 @@ Install Toil locally.  This can be done with virtualenv as follows:
 
 ### Create a leader node
 
-    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/create-leader.sh
+    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/scripts/create-leader.sh
     ./create-leader.sh <leader-name> <keypair-name>
 
 Log into the leader with
@@ -97,7 +97,7 @@ Destroy the leader when finished with it.  After logging out with `exit`:
 
 Run a small test from the leader node as follows.  
 
-    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/bakeoff.sh
+    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/scripts/bakeoff.sh
     chmod u+x ./bakeoff.sh
     ./bakeoff.sh -fm <NAME>
 
@@ -178,7 +178,7 @@ Login to the leader node and run a test:
 
     cgcloud ssh -c toil-setup-test toil-leader
     git clone --recursive https://github.com/BD2KGenomics/toil-vg.git
-    toil-vg/bakeoff.sh -fm myname output.tsv
+    toil-vg/scripts/bakeoff.sh -fm myname output.tsv
     cat output.tsv
 
 Terminate the cluster:

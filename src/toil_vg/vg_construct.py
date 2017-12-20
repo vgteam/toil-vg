@@ -347,7 +347,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                     cores=context.config.xg_index_cores,
                                                     memory=context.config.xg_index_mem,
                                                     disk=context.config.xg_index_disk)
-            xg_id = xg_job.rv()
+            xg_id = xg_job.rv(0)
         else:
             xg_id = None
 
@@ -359,11 +359,11 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             # we want an xg index from our thread graphs to pass to vg sim for each haplotype
             for haplotype in haplotypes:
                 haplo_xg_job = haplo_job.addFollowOnJobFn(run_xg_indexing, context, haplo_job.rv(haplotype),
-                                                                    vg_names,
-                                                                    output_name_base + '_thread_{}'.format(haplotype),
-                                                                    cores=context.config.xg_index_cores,
-                                                                    memory=context.config.xg_index_mem,
-                                                                    disk=context.config.xg_index_disk)
+                                                          vg_names,
+                                                          output_name_base + '_thread_{}'.format(haplotype),
+                                                          cores=context.config.xg_index_cores,
+                                                          memory=context.config.xg_index_mem,
+                                                          disk=context.config.xg_index_disk)
         else:
             xg_id = None
 
@@ -671,7 +671,7 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
                                       cores=context.config.xg_index_cores,
                                       memory=context.config.xg_index_mem,
                                       disk=context.config.xg_index_disk)
-        xg_id = gpbwt_job.rv()
+        xg_id = gpbwt_job.rv(0)
         
 
         # make a thread graph from the xg
