@@ -69,7 +69,7 @@ class VGCGLTest(TestCase):
         self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
 
-    def test_1_sim_small(self):
+    def test_01_sim_small(self):
         ''' 
         This test uses simulated reads from the small dataset from vg, created as follows:
         vg construct -r test/small/x.fa -v test/small/x.vcf.gz > small.vg
@@ -91,7 +91,7 @@ class VGCGLTest(TestCase):
         
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
-    def test_2_sim_small_standalone(self):
+    def test_02_sim_small_standalone(self):
         ''' 
         Same as above, but chain standalone tools instead of toil-vg run
         '''
@@ -127,7 +127,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
 
-    def test_3_sim_small_mapeval(self):
+    def test_03_sim_small_mapeval(self):
         ''' 
         Same generate and align some simulated reads
         '''
@@ -226,7 +226,7 @@ class VGCGLTest(TestCase):
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
 
         
-    def test_4_BRCA1_NA12877(self):
+    def test_04_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
         self._download_input('NA12877.brca1.bam_1.fq.gz')
@@ -264,7 +264,7 @@ class VGCGLTest(TestCase):
         
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)        
 
-    def test_5_BRCA1_BRCA2_NA12877(self):
+    def test_05_BRCA1_BRCA2_NA12877(self):
         '''  Test pipeline on chase with two chromosomes, in this case both BRCA regions
         '''
         self._download_input('NA12877.brca1.brca2.bam.fq.gz')
@@ -317,7 +317,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput(None, outstore, f1_threshold=0.70)
                 
-    def test_6_sim_small_outstore(self):
+    def test_06_sim_small_outstore(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore.
         '''
@@ -335,7 +335,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
-    def test_7_construct(self):
+    def test_07_construct(self):
         '''
         Test that the output of toil-vg construct is somewhat reasonable
         '''
@@ -377,7 +377,7 @@ class VGCGLTest(TestCase):
                 assert vg_size < prev_vg_size
             prev_vg_size = vg_size
 
-    def test_8_sim_small_genotype(self):
+    def test_08_sim_small_genotype(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore.
         '''
@@ -395,7 +395,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
-    def test_9_sim_small_genotype_no_augment(self):
+    def test_09_sim_small_genotype_no_augment(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore.
         '''
