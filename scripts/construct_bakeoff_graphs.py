@@ -67,7 +67,7 @@ for region in ['BRCA1', 'BRCA2', 'SMA', 'MHC']:
         prefix = 'snp1kg-{}'.format(region)
         if os_file.startswith(prefix):
             if os_file.endswith('.gcsa.lcp'):
-                ext = '.gcsa.lscp'
+                ext = '.gcsa.lcp'
                 name = os_file[:-len(ext)]
             else:
                 name, ext = os.path.splitext(os_file)
