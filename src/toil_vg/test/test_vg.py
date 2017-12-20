@@ -411,7 +411,39 @@ class VGCGLTest(TestCase):
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
                   '--genotype', '--no_augment')
 
-        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)        
+        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
+
+    def test_10_gbwt(self):
+        '''
+        Test that the gbwt gets constructed without crashing (but not much beyond that)
+        '''
+
+        in_vcf = self._ci_input_path('1kg_hg38-BRCA1.vcf.gz')
+        in_tbi = in_vcf + '.tbi'
+        in_fa = self._ci_input_path('17.fa')
+        in_region = '17:43044294-43125482'
+
+        # make a snp1kg graph with alt paths
+        self._run('toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                  '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
+                  '--out_name', 'snp1kg-BRCA1', '--alt_paths')
+
+        # check graph exists
+        vg_path = os.path.join(self.local_outstore, 'snp1kg-BRCA1.vg')
+        self.assertTrue(os.path.isfile(vg_path))
+
+        # make a gbwt and xg index
+        self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                  '--skip_gcsa', '--graphs', vg_path, '--chroms', '17',
+                  '--vcf_phasing', in_vcf, '--index_name', 'my_index',
+                  '--make_gbwt', '--xg_index_cores', '4')
+
+        # check gbwt exists
+        gbwt_path = os.path.join(self.local_outstore, 'my_index.gbwt')
+        self.assertTrue(os.path.isfile(gbwt_path))
+
+        # check gbwt not empty
+        self.assertGreater(os.path.getsize(gbwt_path), 250000)
 
     def _run(self, *args):
         args = list(concat(*args))
