@@ -441,7 +441,8 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
 
     out_pos_file = bam_file + '.tsv'
 
-    cmd = [['samtools', 'view', os.path.basename(bam_file)]]
+    # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
+    cmd = [['samtools', 'view', os.path.basename(bam_file), '-F', '2304']]
     cmd.append(['grep', '-v', '^@'])
     if paired:
         # Now we use inline perl to parse the SAM flags and synthesize TSV
