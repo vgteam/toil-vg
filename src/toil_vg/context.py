@@ -69,7 +69,7 @@ class Context(object):
         
         # Make a container runner for running tools
         self.runner = ContainerRunner(container_tool_map=get_container_tool_map(
-            self.config))
+            self.config), realtime_stderr=self.config.realTimeStderr)
         
         if out_store is not None:
             # We want to dump files to an IOStore
