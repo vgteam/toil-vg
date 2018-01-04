@@ -284,7 +284,7 @@ class VGCGLTest(TestCase):
                   self.local_outstore, '--fastq', self.sample_reads, '--graphs',
                   self.test_vg_graph, self.test_vg_graph2, '--chroms', '17', '13',
                   '--vcf_offsets', '43044293', '32314860', '--interleaved',
-                  '--single_reads_chunk', '--index_name', 'genome',
+                  '--single_reads_chunk', '--index_name', 'genome', '--realTimeStderr',
                   '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa)
 
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.70)
@@ -306,13 +306,13 @@ class VGCGLTest(TestCase):
                   self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
                   '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
                   '--call_chunk_size', '23000', '--calling_cores', '4',
-                  '--realTimeLogging', '--logInfo', '--call_opts', '-E 0')
+                  '--realTimeLogging', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0')
 
         self._run('toil-vg', 'vcfeval', self.jobStoreLocal,
                   '--call_vcf', os.path.join(outstore, 'NA12877.vcf.gz'),
                   '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, outstore,
-                  '--realTimeLogging', '--logInfo',
+                  '--realTimeLogging', '--realTimeStderr', '--logInfo',
                   '--vcfeval_opts', ' --ref-overlap')
 
         self._assertOutput(None, outstore, f1_threshold=0.70)

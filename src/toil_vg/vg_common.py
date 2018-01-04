@@ -137,8 +137,8 @@ to do: Should go somewhere more central """
 
         # optionally log stderr to the realtime logger by making a pipe and
         # logging the output in a forked process
-        if self.realtime_stderr:
-            assert errfile is None
+        # todo: duplicate errfile to logger rather than ignoring when errfile not None
+        if self.realtime_stderr and not errfile:
             # Make our pipe
             rfd, wfd = os.pipe()
             rfile = os.fdopen(rfd, 'r', 0)
