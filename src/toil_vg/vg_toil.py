@@ -261,11 +261,13 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
         chroms = options.chroms
     assert len(chr_gam_ids) == len(chroms)
 
-    vcf_tbi_wg_id_pair = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, chroms,
-                                           options.vcf_offsets, options.sample_name,
-                                           options.genotype, not options.no_augment,
-                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                           disk=context.config.misc_disk).rv()
+    call_job = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, chroms,
+                                 options.vcf_offsets, options.sample_name,
+                                 options.genotype, not options.no_augment,
+                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                 disk=context.config.misc_disk)
+    
+    vcf_tbi_wg_id_pair = call_job.rv(0), call_job.rv(1)
 
     # optionally run vcfeval at the very end.  output will end up in the outstore.
     # f1 score will be returned.
