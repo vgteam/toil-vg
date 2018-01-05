@@ -11,6 +11,7 @@ from uuid import uuid4
 import pkg_resources, tempfile, datetime
 import logging
 from distutils.spawn import find_executable
+import collections
 
 from toil.common import Toil
 from toil.job import Job
@@ -410,3 +411,33 @@ def remove_ext(string, ext):
         return string[:-len(ext)]
     else:
         return string
+
+class TimeTracker:
+    """ helper dictionary to keep tabs on several named runtimes. """
+    def __init__(self, name = None):
+        """ create. optionally start a timer"""
+        self.times = collections.defaultdict(float)
+        self.running = {}
+        if name:
+            self.start(name)
+    def start(self, name):
+        """ start a timer """
+        assert name not in self.running
+        self.running[name] = timeit.default_timer()
+    def stop(self, name = None):
+        """ stop a timer. if no name, do all running """
+        names = [name] if name else self.running.keys()
+        ti = timeit.default_timer()
+        for name in names:
+            self.times[name] += ti - self.running[name]
+            del self.running[name]
+    def add(self, time_dict):
+        """ add in all times from another TimeTracker """
+        for key, value in time_dict.times.items():
+            self.times[key] += value
+    def total(self, names = None):
+        if not names:
+            names = self.times.keys()
+        return sum([self.times[name] for name in names])
+    def names(self):
+        return self.times.keys()

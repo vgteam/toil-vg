@@ -164,8 +164,10 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id, sample_n
         fb_cmd += ['-r', region]
 
     vcf_path = os.path.join(work_dir, '{}-raw.vcf'.format(out_name))
+    timer = TimeTracker('freebayes')
     with open(vcf_path, 'w') as out_vcf:
         context.runner.call(job, fb_cmd, work_dir=work_dir, outfile=out_vcf)
+    timer.stop()
 
     context.write_output_file(job, vcf_path)
 
@@ -187,9 +189,10 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id, sample_n
     context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_fix_path) + '.gz'], work_dir = work_dir)
 
     return (context.write_output_file(job, vcf_fix_path + '.gz'),
-            context.write_output_file(job, vcf_fix_path + '.gz.tbi'))
+            context.write_output_file(job, vcf_fix_path + '.gz.tbi'),
+            timer)
 
-def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
+def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timing_results):
     """ output the calleval results"""
 
     # make a local work directory
@@ -217,7 +220,34 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results):
             roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_clip_ids, names=names,
                                                   title=roc_type).rv())
 
-    return [context.write_output_file(job, stats_path)] + roc_plot_ids
+    # write some times
+    times_path = os.path.join(work_dir, 'call_times.tsv')
+    
+    # organize our expected labels a bit
+    calling_labels = ['call', 'genotype', 'freebayes']
+    augmenting_labels = ['call-filter-augment', 'call-augment', 'call-filter']
+    all_labels = set()
+    for timer in timing_results:
+        for label in timer.names():
+            all_labels.add(label)
+    other_labels = all_labels - set(calling_labels + augmenting_labels)
+    with open(times_path, 'w') as times_file:
+        # write the header
+        times_file.write('method\tcall\taugment\ttotal-other')
+        for other_label in other_labels:
+            times_file.write('\t{}'.format(other_label.replace('call-','')))
+        times_file.write('\n')
+        # write the body
+        for name, timer in zip(names, timing_results):
+            times_file.write('{}\t{}'.format(name, timer.total(calling_labels)))
+            times_file.write('\t{}'.format(timer.total(augmenting_labels)))
+            times_file.write('\t{}'.format(timer.total(other_labels)))
+            for other_label in other_labels:
+                times_file.write('\t{}'.format(timer.total([other_label])))
+            times_file.write('\n')
+                        
+    return [context.write_output_file(job, stats_path),
+            context.write_output_file(job, times_path)] + roc_plot_ids
                              
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
@@ -230,6 +260,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     vcf_tbi_id_pairs = [] 
     names = []
     eval_results = []
+    timing_results = []
 
     # to encapsulate everything under this job
     child_job = Job()
@@ -258,20 +289,22 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                     cores=context.config.calling_cores,
                                                     memory=context.config.calling_mem,
                                                     disk=context.config.calling_disk)
+            fb_vcf_tbi_id_pair = (fb_job.rv(0), fb_job.rv(1))
+            timing_results.append(fb_job.rv(2))
 
             if bed_id:
-                eval_clip_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_job.rv(),
+                eval_clip_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                                            vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                            fasta_id, bed_id, out_name=fb_out_name).rv()
             else:
                 eval_clip_result = None
                 
-            eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_job.rv(),
+            eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                                   vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                   fasta_id, None,
                                                   out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped').rv()
             
-            vcf_tbi_id_pairs.append(fb_job.rv())            
+            vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)            
             names.append(fb_out_name)
             eval_results.append((eval_result, eval_clip_result))
 
@@ -286,6 +319,8 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                        cores=context.config.misc_cores,
                                                        memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk)
+                    vcf_tbi_id_pair = (call_job.rv(0), call_job.rv(1))
+                    timing_results.append(call_job.rv(2))
 
                     if not vcfeval_score_field:
                         score_field = 'GQ' if gt else 'QUAL'
@@ -293,24 +328,25 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                         score_field = vcfeval_score_field
 
                     if bed_id:
-                        eval_clip_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
+                        eval_clip_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
                                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                                      fasta_id, bed_id, out_name=out_name,
                                                                      score_field=score_field).rv()
                     else:
                         eval_clip_result = None
                         
-                    eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, call_job.rv(),
+                    eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
                                                             vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                             fasta_id, None,
                                                             out_name=out_name if not bed_id else out_name + '-unclipped',
                                                             score_field=score_field).rv()
                         
                     names.append(out_name)            
-                    vcf_tbi_id_pairs.append(call_job.rv())
+                    vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
                     eval_results.append((eval_result, eval_clip_result))
 
-    calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names, vcf_tbi_id_pairs, eval_results,
+    calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names,
+                                                  vcf_tbi_id_pairs, eval_results, timing_results,
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem,
                                                   disk=context.config.misc_disk).rv()
