@@ -244,7 +244,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         vcf_id = context.write_intermediate_file(job, vcf_path)
 
     except Exception as e:
-        logging.error("Calling Failed. Dumping files.")
+        logging.error("Calling failed. Dumping files.")
         for dump_path in [vg_path, pu_path, vcf_log_path, gam_filter_path,
                           aug_path, support_path, trans_path, aug_gam_path]:
             if dump_path and os.path.isfile(dump_path):
