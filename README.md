@@ -80,8 +80,8 @@ Install Toil locally.  This can be done with virtualenv as follows:
 
 ### Create a leader node
 
-    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/scripts/create-leader.sh
-    ./create-leader.sh <leader-name> <keypair-name>
+    wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/scripts/create-ec2-leader.sh
+    ./create-ec2-leader.sh <leader-name> <keypair-name>
 
 Log into the leader with
 
