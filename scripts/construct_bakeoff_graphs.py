@@ -46,21 +46,26 @@ for region in ['BRCA1', 'BRCA2', 'SMA', 'MHC']:
            '--alt_paths', '--realTimeLogging',
            '--control_sample', 'HG00096',
            '--min_af', '0.0335570469',
-           '--primary',
-           '--gcsa_index', '--xg_index'] + config_opts
+           '--primary', '--filter_samples', 'HG00096',
+           '--xg_index', '--gcsa_index'] + config_opts
     
     subprocess.check_call(cmd)
 
-    # make the gbwt of the "minus" graph
-    cmd = ['toil-vg', 'index', job_store, out_store,
-           '--graphs', os.path.join(out_store, 'snp1kg-{}_HG00096.vg'.format(region)),
-           '--chroms', region_to_bed_hg38[region][0],
-           '--vcf_phasing', get_vcf_path_hg38(region),
-           '--make_gbwt',
-           '--index_name', 'snp1kg_minus_HG00096-{}'.format(region),
-           '--skip_gcsa', '--realTimeLogging'] + config_opts
+    # make a gbwt of the minus and filter graphs
+    for tag in ['_minus_HG00096', '_filter']:
+        if tag:
+            vcf_phasing = os.path.join(out_store, '1kg_hg38-{}{}.vcf.gz'.format(region, tag))
+        else:
+            vcf_phasing = get_vcf_path_hg38(region)
+        cmd = ['toil-vg', 'index', job_store, out_store,
+               '--graphs', os.path.join(out_store, 'snp1kg-{}{}.vg'.format(region, tag)),
+               '--chroms', region_to_bed_hg38[region][0],
+               '--vcf_phasing', vcf_phasing,
+               '--make_gbwt',
+               '--index_name', 'snp1kg-{}{}'.format(region, tag),
+               '--skip_gcsa', '--realTimeLogging'] + config_opts
 
-    subprocess.check_call(cmd)
+        subprocess.check_call(cmd)
 
     # make the names consistent to what we've been using
     for os_file in os.listdir(out_store):
@@ -76,6 +81,8 @@ for region in ['BRCA1', 'BRCA2', 'SMA', 'MHC']:
                 new_name = new_name[len('snp1kg_'):]
             elif new_name.startswith('snp1kg_minaf_0.0335570469'):
                 new_name = 'snp1kg_threshold10' + new_name[len('snp1kg_minaf_0.0335570469'):]
+            elif new_name.startswith('snp1kg_filter'):
+                new_name = 'snp1kg_filter_HG00096' + new_name[len('snp1kg_filter'):]
             if os_file != new_name:
                 cmd = ['mv', os.path.join(out_store, os_file), os.path.join(out_store, new_name)]
                 subprocess.check_call(cmd)
