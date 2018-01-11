@@ -364,8 +364,6 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                           cores=context.config.xg_index_cores,
                                                           memory=context.config.xg_index_mem,
                                                           disk=context.config.xg_index_disk)
-        else:
-            xg_id = None
 
         output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id))
     return output
