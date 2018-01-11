@@ -351,13 +351,9 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             lcp_id = None
             
         if xg_index:
-            if gbwt_index:
-                # Build with the GBWT
-                
-                # We can only do this with one VCF.
-                assert(len(vcf_ids) == 1)
-                assert(len(tbi_ids) == 1)
-                
+            if gbwt_index and len(vcf_ids) == 1 and  len(tbi_ids) == 1:
+                # Build with the GBWT, but only if we have exactly one VCF.
+                # Some graphs (like primary) end up with no VCF and thus shouldn't get a GBWT
                 xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
                                                         vg_names, output_name_base,
                                                         vcf_phasing_file_id = vcf_ids[0],
