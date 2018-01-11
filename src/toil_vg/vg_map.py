@@ -402,9 +402,12 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             context.runner.call(job, command, work_dir = work_dir, outfile=alignment_file)
         except:
             # Dump everything we need to replicate the alignment
+            logging.error("Mapping failed. Dumping files.")
             context.write_output_file(job, xg_file)
             context.write_output_file(job, gcsa_file)
             context.write_output_file(job, gcsa_file + '.lcp')
+            if gbwt_file is not None and not multipath:
+                context.write_output_file(job, gbwt_file)
             for reads_file in reads_files:
                 context.write_output_file(job, reads_file)
             
