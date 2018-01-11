@@ -69,6 +69,8 @@ def construct_subparser(parser):
                         help="Make a gcsa index for each output graph")
     parser.add_argument("--xg_index", action="store_true",
                         help="Make an xg index for each output graph")
+    parser.add_argument("--gbwt_index", action="store_true",
+                        help="Make a GBWT index alongside the xg index for each output graph")
     parser.add_argument("--haplo_sample", type=str,
                         help="Make haplotype thread graphs (for simulating from) for this sample")
     parser.add_argument("--primary", action="store_true",
@@ -101,6 +103,13 @@ def validate_construct_options(options):
             'if many fastas specified, must be same number as --regions')
     require(len(options.fasta) == 1 or not options.fasta_regions,
             '--fasta_regions currently only works when single fasta specified with --fasta')
+    require(not options.gbwt_index or options.xg_index,
+            '--xg_index required with --gbwt_index')
+    # TODO: It seems like somne of this code is designed to run multiple regions
+    # in parallel, but the indexing code always indexes them together.
+    require(not options.gbwt_index or len(options.vcf) == 1,
+            '--gbwt_index can only work with a single VCF')
+            
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
     """
@@ -306,7 +315,7 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
     
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
                       max_node_size, alt_paths, flat_alts, regions, merge_graphs,
-                      sort_ids, join_ids, gcsa_index, xg_index, haplo_sample = None,
+                      sort_ids, join_ids, gcsa_index, xg_index, gbwt_index, haplo_sample = None,
                       haplotypes = [0,1]):
     """ 
     construct many graphs in parallel, optionally doing indexing too.  vcf_inputs
@@ -341,15 +350,36 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             gcsa_id = None
             lcp_id = None
             
-        if xg_index:                
-            xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
-                                                    vg_names, output_name_base,
-                                                    cores=context.config.xg_index_cores,
-                                                    memory=context.config.xg_index_mem,
-                                                    disk=context.config.xg_index_disk)
-            xg_id = xg_job.rv(0)
+        if xg_index:
+            if gbwt_index:
+                # Build with the GBWT
+                
+                # We can only do this with one VCF.
+                assert(len(vcf_ids) == 1)
+                assert(len(tbi_ids) == 1)
+                
+                xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
+                                                        vg_names, output_name_base,
+                                                        vcf_phasing_file_id = vcf_ids[0],
+                                                        tbi_phasing_file_id = tbi_ids[0],
+                                                        make_gbwt = True,
+                                                        cores=context.config.xg_index_cores,
+                                                        memory=context.config.xg_index_mem,
+                                                        disk=context.config.xg_index_disk)
+                xg_id = xg_job.rv(0)
+                gbwt_id = xg_job.rv(1)
+            else:
+                # Build without the GBWT
+                xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
+                                                        vg_names, output_name_base,
+                                                        cores=context.config.xg_index_cores,
+                                                        memory=context.config.xg_index_mem,
+                                                        disk=context.config.xg_index_disk)
+                xg_id = xg_job.rv(0)
+                gbwt_id = None
         else:
             xg_id = None
+            gbwt_id = None
 
         if gpbwt:
             haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context, vcf_ids, tbi_ids,
@@ -365,7 +395,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                           memory=context.config.xg_index_mem,
                                                           disk=context.config.xg_index_disk)
 
-        output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id))
+        output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id, gbwt_id))
     return output
                 
 
@@ -810,7 +840,7 @@ def construct_main(context, options):
                                      inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
                                      options.flat_alts, regions, options.merge_graphs,
-                                     True, True, options.gcsa_index, options.xg_index, options.haplo_sample)
+                                     True, True, options.gcsa_index, options.xg_index, options.gbwt_index, options.haplo_sample)
             
             # Run the workflow
             toil.start(init_job)
