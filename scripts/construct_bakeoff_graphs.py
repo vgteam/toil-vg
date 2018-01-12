@@ -47,25 +47,9 @@ for region in ['BRCA1', 'BRCA2', 'SMA', 'MHC']:
            '--control_sample', 'HG00096',
            '--min_af', '0.0335570469',
            '--primary', '--filter_samples', 'HG00096',
-           '--xg_index', '--gcsa_index'] + config_opts
+           '--xg_index', '--gcsa_index', '--gbwt_index'] + config_opts
     
     subprocess.check_call(cmd)
-
-    # make a gbwt of the minus and filter graphs
-    for tag in ['_minus_HG00096', '_filter']:
-        if tag:
-            vcf_phasing = os.path.join(out_store, '1kg_hg38-{}{}.vcf.gz'.format(region, tag))
-        else:
-            vcf_phasing = get_vcf_path_hg38(region)
-        cmd = ['toil-vg', 'index', job_store, out_store,
-               '--graphs', os.path.join(out_store, 'snp1kg-{}{}.vg'.format(region, tag)),
-               '--chroms', region_to_bed_hg38[region][0],
-               '--vcf_phasing', vcf_phasing,
-               '--make_gbwt',
-               '--index_name', 'snp1kg-{}{}'.format(region, tag),
-               '--skip_gcsa', '--realTimeLogging'] + config_opts
-
-        subprocess.check_call(cmd)
 
     # make the names consistent to what we've been using
     for os_file in os.listdir(out_store):
