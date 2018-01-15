@@ -10,7 +10,7 @@ from contextlib import closing
 from unittest import TestCase, skip
 from urlparse import urlparse
 from uuid import uuid4
-import urllib2
+import urllib2, gzip
 
 import os
 import posixpath
@@ -363,7 +363,10 @@ class VGCGLTest(TestCase):
                 assert os.path.isfile(vcf_file)
                 assert os.path.isfile(vcf_file + '.tbi')
 
-                vcf_size = os.path.getsize(vcf_file)
+                # use the number of lines in vcf instead of size, since filtering cuts out a bunch
+                # of samples
+                with gzip.open(vcf_file) as vf:
+                    vcf_size = len([line for line in vf])
                 if prev_vcf_size is not None:
                     assert vcf_size < prev_vcf_size
                 prev_vcf_size = vcf_size

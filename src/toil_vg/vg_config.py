@@ -230,7 +230,7 @@ vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '150', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
+sim-opts: ['-l', '150', '-p', '570', '-v', '165', '-e', '0.01', '-i', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []
@@ -288,9 +288,10 @@ kmers-mem: '70G'
 kmers-disk: '60G'
 
 # Resources allotted gcsa indexing
+# Note for a whole genome 1kg graph, need about 3000G of disk
 gcsa-index-cores: 32
 gcsa-index-mem: '200G'
-gcsa-index-disk: '3000G'
+gcsa-index-disk: '200G'
 
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs
@@ -452,7 +453,7 @@ vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '150', '-p', '500', '-v', '50', '-e', '0.01', '-i', '0.002']
+sim-opts: ['-l', '150', '-p', '570', '-v', '165', '-e', '0.01', '-i', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []

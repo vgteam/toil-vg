@@ -12,16 +12,22 @@ if ! [ -x "$(command -v toil)" ]; then
 	 exit 1
 fi
 
+NODE_TYPE="r3.8xlarge:0.85"
 usage() {
     # Print usage to stderr
     exec 1>&2
     printf "Usage: $0 [Options] CLUSTER_NAME QUOTED-TOIL-VG-ARGS \n"
-    printf "Options:\n\n"
+    printf "Options:\n"
+	 printf "    -n NODE_TYPE use this node_type (default ${NODE_TYPE})\n"
+	 printf "\n"
     exit 1
 }
 
-while getopts "hp:t:" o; do
+while getopts "hn:" o; do
     case "${o}" in
+        n)
+            NODE_TYPE=$OPTARG
+            ;;		  		  
         *)
             usage
             ;;
@@ -44,7 +50,7 @@ set -x
 
 # Some default Toil options.  Need to edit in here to change (or add cli option)
 # In particular, gcsa indexing of whole genome may need more disk than 3.8xlarge
-NODE_OPTS="--nodeTypes r3.8xlarge:0.85 --defaultPreemptable --maxNodes 8"
+NODE_OPTS="--nodeTypes ${NODE_TYPE} --defaultPreemptable --maxNodes 8"
 RETRY_OPTS="--retryCount 3"
 LOG_OPTS="--realTimeLogging --logInfo"
 TOIL_VG_OPTS=""
