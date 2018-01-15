@@ -152,8 +152,9 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
     return seq_names    
         
 def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
-                            regions, output_name, filter_samples = None, haplo_sample = None,
-                            do_primary = False, min_af = None, make_base_graph = True):
+                            regions, output_name, filter_samples = None,
+                            haplo_sample = None, do_primary = False, min_af = None,
+                            make_base_graph = True):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
     - positive control
@@ -267,11 +268,11 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
 
     if do_primary:
         if regions:
-            primary_region_names = [output_name + '_primary'  + '_' + c.replace(':','-') for c in regions]
+            primary_region_names = ['primary'  + '_' + c.replace(':','-') for c in regions]
         else:
             primary_region_names = None
 
-        primary_output_name = remove_ext(output_name, '.vg') + '_primary.vg'.format(sample)
+        primary_output_name = 'primary.vg'
         output['primary'] = [[], [], [], primary_output_name, primary_region_names]
 
     if min_af is not None:
@@ -517,10 +518,6 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
 
 def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     """ Use vcflib to remove all variants specifc to a set of samples.
-    
-    This is extremely slow.  Will want to parallelize if doing often on large VCFs
-    (or rewrite custom tool?  I think running time sunk in vcffixup recomputing allele freqs
-    which is overkill)
     """
     if not samples:
         return vcf_id, tbi_id
@@ -531,21 +528,17 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     job.fileStore.readGlobalFile(vcf_id, vcf_file)
     job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
-    cmd = [['vcfremovesamples', os.path.basename(vcf_file)] + samples]
-    cmd.append(['vcffixup', '-'])
-    cmd.append(['vcffilter', '-f', 'AC > 0'])
+    # Warning: This VCF is only going to have the samples we want to filter out.
+    # Will be okay for constructing graphs, but cause problems for anything that
+    # needs sample information. 
+    cmd = ['bcftools', 'view', os.path.basename(vcf_file), '--exclude-private',
+           '--samples', ','.join(samples), '--force-samples', '--output-type', 'z']
 
     vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
-    filter_vcf_name = '{}_filter.vcf'.format(vcf_base)
+    filter_vcf_name = '{}_filter.vcf.gz'.format(vcf_base)
 
     with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=out_file)
-
-    # bgzip in separate command because docker interface requires (big waste of time/space)
-    # note: tried to use Bio.bgzf.open above to get around but it doesn't seem to work
-    # with streaming
-    context.runner.call(job, ['bgzip', filter_vcf_name], work_dir=work_dir)
-    filter_vcf_name += '.gz'
 
     out_vcf_id = context.write_output_file(job, os.path.join(work_dir, filter_vcf_name))
 
