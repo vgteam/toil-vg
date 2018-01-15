@@ -2,7 +2,7 @@
 """
 Construct a baseline graph to simulate from for testing. Wraps toil-vg construct
 but fills in many input and Toil parameters to make it easier to use. 
-Currently needs to be run as follows: scripts/construct_chrom_ec2.py
+Currently needs to be run as follows: scripts/construct-hs37d5-baseline-ec2.py
 """
 
 import os, sys, subprocess, argparse

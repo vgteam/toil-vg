@@ -2,7 +2,7 @@
 """
 Construct set of "snp1kg" graphs and their indexes on EC2.  Wraps toil-vg construct
 but fills in many input and Toil parameters to make it easier to use. 
-Currently needs to be run as follows: scripts/construct_chrom_ec2.py
+Currently needs to be run as follows: scripts/construct-hs37d5-ec2.py
 """
 
 import os, sys, subprocess, argparse
@@ -35,7 +35,7 @@ if not options.job_store.startswith('aws:'):
 if not options.out_store.startswith('aws:'):
     options.out_store = 'aws:us-west-2:{}'.format(options.out_store)    
     
-out_name = 'snp1kg' if not options.chroms else 'snp1kg_'.format('_'.join(options.chroms))
+out_name = 'snp1kg' if not options.chroms else 'snp1kg_{}'.format('_'.join(options.chroms))
 log_name = '/construct_{}.log'.format(out_name)
 os_log_name = os.path.join(options.out_store[options.out_store.rfind(':')+1:], os.path.basename(log_name))
 
@@ -45,17 +45,18 @@ cmd = ['construct', options.job_store, options.out_store,
        '--logFile', log_name,
        '--primary',
        '--alt_paths',
-       '--min_af', '0.0335570469',
+       '--min_af', '0.034',
        '--xg_index', '--gcsa_index']
 
 # Note config file path is on the leader!!!!  Should fix to copy it over, but not sure how.
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
 
 if options.gbwt:
-    cmd += ['--gbwt']
+    cmd += ['--gbwt_index']
 
 if options.control:
     cmd += ['--control_sample', options.control]
+    cmd += ['--filter_sample', options.control]
 
 if options.chroms:
     # restrict to specified chromosome(s)
