@@ -217,7 +217,7 @@ augment-opts: ['-q', '10']
 call-opts: []
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
-genotype-opts: []
+genotype-opts: ['-i']
 
 # Use vg genotype instead of vg call
 genotype: False
@@ -440,7 +440,7 @@ augment-opts: ['-q', '10']
 call-opts: []
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
-genotype-opts: []
+genotype-opts: ['-i']
 
 # Use vg genotype instead of vg call
 genotype: False
