@@ -272,7 +272,7 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
         else:
             primary_region_names = None
 
-        primary_output_name = 'primary.vg'
+        primary_output_name = 'primary.vg' if '_' not in output_name else 'primary' + output_name[output_name.find('_')+1:]
         output['primary'] = [[], [], [], primary_output_name, primary_region_names]
 
     if min_af is not None:

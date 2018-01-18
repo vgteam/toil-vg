@@ -36,7 +36,7 @@ if not options.job_store.startswith('aws:'):
 if not options.out_store.startswith('aws:'):
     options.out_store = 'aws:us-west-2:{}'.format(options.out_store)    
     
-out_name = 'baseline_{}'.format(options.control)
+out_name = 'baseline'
 if options.chroms != [str(x) for x in range(1,23)]:
     out_name += '_' + '_'.join(options.chroms)
 log_name = '/construct_{}.log'.format(out_name)
