@@ -31,7 +31,7 @@ if options.fastq.lower() == "none":
     options.fastq = None
     default_sim_opts = None
 else:
-    default_sim_opts = '-p 570 -v 165 -S 4 -i 0.002 -I',
+    default_sim_opts = '-p 570 -v 65 -S 4 -i 0.002 -I'
 sim_opts = options.sim_opts if options.sim_opts else default_sim_opts
     
 def print_num(n):
@@ -56,7 +56,7 @@ if options.fastq:
 else:
     out_name += 'ekg'
 if sim_opts:
-    out_name += ''.join(sim_opts)
+    out_name += sim_opts.replace(' ', '')
     
 log_name = '/sim_{}.log'.format(out_name)
 os_log_name = os.path.join(options.out_store[options.out_store.rfind(':')+1:], os.path.basename(log_name))
@@ -74,6 +74,8 @@ cmd = ['sim', options.job_store,
        '--gam']
 if options.fastq:
     cmd += ['--fastq', options.fastq]
+if sim_opts:
+    cmd += ['--sim_opts', '\"{}\"'.format(sim_opts)]
 
 # Note config file path is on the leader!!!!  Should fix to copy it over, but not sure how.
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
@@ -82,7 +84,7 @@ if options.restart:
     cmd += ['--restart']
 else:
     subprocess.check_call(['toil', 'clean', options.job_store])
-    
+
 print ' '.join(cmd)
 subprocess.check_call(['scripts/ec2-run.sh', options.leader, ' '.join(cmd)])
 
