@@ -97,6 +97,8 @@ def calleval_parse_args(parser):
                         help='bam inputs for freebayes')
     parser.add_argument('--call_and_genotype', action='store_true',
                         help='run both vg call and vg genotype')
+    parser.add_argument('--filter_opts_gt',
+                        help='override filter-opts for genotype only')
         
 def validate_calleval_options(options):
     """
@@ -252,7 +254,8 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
-                 call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field):
+                 call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field,
+                 filter_opts_gt):
     """ top-level call-eval function.  runs the caller and genotype on every gam,
     and freebayes on every bam.  the resulting vcfs are put through vcfeval
     and the accuracies are tabulated in the output
@@ -308,12 +311,22 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
             names.append(fb_out_name)
             eval_results.append((eval_result, eval_clip_result))
 
+    # optional override to filter-opts when running genotype
+    # this is allows us to run different filter-opts for call and genotype
+    # (something we don't really need an interface for besides in calleval)
+    if filter_opts_gt:
+        gt_context = copy.deepcopy(context)
+        gt_context.config.filter_opts = filter_opts_gt.split()
+    else:
+        gt_context = context
+
     if gam_ids:
         for gam_id, gam_name, xg_id in zip(gam_ids, gam_names, xg_ids):
             for gt in [False, True]:
                 if (call and not gt) or (genotype and gt):
                     out_name = '{}{}'.format(gam_name, '-gt' if gt else '-call')
-                    call_job = child_job.addChildJobFn(run_all_calling, context, xg_id, [gam_id], [chrom], [vcf_offset],
+                    call_job = child_job.addChildJobFn(run_all_calling, gt_context if gt else context,
+                                                       xg_id, [gam_id], [chrom], [vcf_offset],
                                                        sample_name, genotype=gt,
                                                        out_name=out_name,
                                                        cores=context.config.misc_cores,
@@ -425,6 +438,7 @@ def calleval_main(context, options):
                                      options.sample_name,
                                      options.chroms[0], options.vcf_offsets[0] if options.vcf_offsets else 0,
                                      options.vcfeval_score_field,
+                                     options.filter_opts_gt,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
