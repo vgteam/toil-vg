@@ -192,7 +192,6 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                     '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
 
     vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
-    vcf_log_path = os.path.join(work_dir, '{}_call_log.txt'.format(chunk_name))
 
     # call
     try:
@@ -214,7 +213,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         if keep_augmented:
             aug_graph_id = context.write_intermediate_file(job, aug_path)
         
-        with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
+        with open(vcf_path, 'w') as vgcall_stdout:
             if not genotype:
                 command = ['vg', 'call', os.path.basename(aug_path), '-t',
                            str(context.config.calling_cores), '-S', sample_name,
@@ -238,28 +237,17 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
             timer.start('genotype' if genotype else 'call')
             context.runner.call(job, command, work_dir=work_dir,
-                                 outfile=vgcall_stdout, errfile=vgcall_stderr)
+                                 outfile=vgcall_stdout)
             timer.stop()            
 
         vcf_id = context.write_intermediate_file(job, vcf_path)
 
     except Exception as e:
         logging.error("Calling failed. Dumping files.")
-        for dump_path in [vg_path, pu_path, vcf_log_path, gam_filter_path,
+        for dump_path in [vg_path, pu_path, gam_filter_path,
                           aug_path, support_path, trans_path, aug_gam_path]:
             if dump_path and os.path.isfile(dump_path):
-                context.write_output_file(job, dump_path)
-        
-        # Dump a bit of the log
-        if vcf_log_path and os.path.isfile(vcf_log_path):
-            logging.error("Call log begins with:")
-            log_lines = 0
-            for line in open(vcf_log_path):
-                log_lines += 1
-                logging.error(line.rstrip())
-                if log_lines >= 20:
-                    break
-        
+                context.write_output_file(job, dump_path)        
         raise e
         
     return vcf_id, pileup_id, xg_id, gam_id, aug_graph_id, timer
@@ -336,10 +324,9 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
     # genotype
     try:
         vcf_path = os.path.join(work_dir, '{}_genotype.vcf'.format(chunk_name))
-        vcf_log_path = os.path.join(work_dir, '{}_genotype_log.txt'.format(chunk_name))
         aug_graph_id = None
         
-        with open(vcf_path, 'w') as vgcall_stdout, open(vcf_log_path, 'w') as vgcall_stderr:
+        with open(vcf_path, 'w') as vgcall_stdout:
             command = ['vg', 'genotype', os.path.basename(vg_path)]
             if index_gam:
                 command += [os.path.basename(gam_index_path)]
@@ -358,7 +345,7 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
             if keep_augmented:
                 command.append(['-a', os.path.basename(aug_path)])
             context.runner.call(job, command, work_dir=work_dir,
-                                 outfile=vgcall_stdout, errfile=vgcall_stderr)
+                                 outfile=vgcall_stdout)
             if keep_augmented:
                 aug_graph_id = context.write_intermediate_file(job, aug_path)
 
@@ -369,7 +356,6 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
         context.write_output_file(job, vg_path)
         if not index_gam:
             context.write_output_file(job, gam_filter_path)        
-        context.write_output_file(job, vcf_log_path)
         raise e
         
     return vcf_id, xg_id, gam_id, aug_graph_id
