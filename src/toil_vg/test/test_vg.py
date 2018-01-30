@@ -382,7 +382,7 @@ class VGCGLTest(TestCase):
 
     def test_08_sim_small_genotype(self):
         ''' 
-        This is the same as test #1, but exercises --force_outstore.
+        This is the same as test #1, but exercises --force_outstore and --genotype
         '''
         self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
         self.test_vg_graph = self._ci_input_path('small.vg')
@@ -394,13 +394,13 @@ class VGCGLTest(TestCase):
                   '--graphs', self.test_vg_graph,
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
-                  '--genotype')
+                  '--genotype', '--genotype_opts', ' -Q -A')
 
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
     def test_09_sim_small_genotype_no_augment(self):
         ''' 
-        This is the same as test #1, but exercises --force_outstore.
+        This is the same as test #1, but exercises --force_outstore and --genotype with no augment
         '''
         self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
         self.test_vg_graph = self._ci_input_path('small.vg')
@@ -412,7 +412,7 @@ class VGCGLTest(TestCase):
                   '--graphs', self.test_vg_graph,
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
-                  '--genotype', '--no_augment')
+                  '--genotype', '--no_augment', '--genotype_opts', ' -Q -A')
 
         self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
 
