@@ -56,8 +56,8 @@ LOG_OPTS="--realTimeLogging --logInfo"
 TOIL_VG_OPTS=""
 # We need the master's IP to make Mesos go
 MASTER_IP="$($PREFIX toil ssh-cluster --insecure --zone=us-west-2a --logOff "${CLUSTER_NAME}" hostname -i)"
+MASTER_IP="$(printf $MASTER_IP | sed -e 's/\r$//' -e 's/\n//')"
 MESOS_OPTS="--batchSystem=mesos --mesosMaster=${MASTER_IP}:5050"
-MESOS_OPTS="--batchSystem=mesos"
 # Put together our Toil Options
 TOIL_OPTS="--provisioner aws ${NODE_OPTS} ${RETRY_OPTS} ${LOG_OPTS} ${MESOS_OPTS} ${TOIL_VG_OPTS}"
 
