@@ -171,7 +171,7 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id, sample_n
         context.runner.call(job, fb_cmd, work_dir=work_dir, outfile=out_vcf)
     timer.stop()
 
-    context.write_output_file(job, vcf_path)
+    context.write_intermediate_file(job, vcf_path)
 
     vcf_fix_path = os.path.join(work_dir, '{}.vcf'.format(out_name))
     
