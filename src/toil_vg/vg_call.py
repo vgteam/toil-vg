@@ -415,10 +415,6 @@ def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, cli
     
     # Sort the output
     sort_vcf(job, context.runner, vcf_path + '.us', vcf_path)
-    command=['bgzip', '{}'.format(os.path.basename(vcf_path))]
-    context.runner.call(job, command, work_dir=work_dir)
-    command=['tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
-    context.runner.call(job, command, work_dir=work_dir)
     
     # do the vcf clip
     left_clip = 0 if chunk_i == 0 else context.config.overlap / 2
@@ -426,10 +422,10 @@ def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, cli
     clip_path = os.path.join(work_dir, 'chunk_{}_{}_clip.vcf'.format(path_name, chunk_offset))
     with open(clip_path, "w") as clip_path_stream:
         offset = vcf_offset + 1
-        command=['bcftools', 'view', '-r', '{}:{}-{}'.format(
+        command=['bcftools', 'view', '-t', '{}:{}-{}'.format(
             path_name, offset + clipped_chunk_offset + left_clip,
             offset + clipped_chunk_offset + context.config.call_chunk_size - right_clip - 1),
-                 os.path.basename(vcf_path) + ".gz"]
+                 os.path.basename(vcf_path)]
         context.runner.call(job, command, work_dir=work_dir, outfile=clip_path_stream)
 
     # save clip.vcf files to job store
