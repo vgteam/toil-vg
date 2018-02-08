@@ -50,7 +50,7 @@ construct-mem: '4G'
 construct-disk: '2G'
 
 # Resources allotted for xg indexing.
-# this stage generally cannot take advantage of more than one thread
+# this stage generally cannot take advantage of more than one thread except GBWT
 xg-index-cores: 1
 xg-index-mem: '4G'
 xg-index-disk: '2G'
@@ -271,8 +271,8 @@ construct-mem: '32G'
 construct-disk: '32G'
 
 # Resources allotted for xg indexing.
-# this stage generally cannot take advantage of more than one thread
-xg-index-cores: 1
+# this stage generally cannot take advantage of more than one thread except GBWT
+xg-index-cores: 32
 xg-index-mem: '200G'
 xg-index-disk: '200G'
 
