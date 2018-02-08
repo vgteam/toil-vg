@@ -21,7 +21,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_gcsa_prep
+from toil_vg.vg_index import run_xg_indexing, run_gcsa_prep, run_concat_vcfs
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -107,8 +107,8 @@ def validate_construct_options(options):
             '--xg_index required with --gbwt_index')
     # TODO: It seems like somne of this code is designed to run multiple regions
     # in parallel, but the indexing code always indexes them together.
-    require(not options.gbwt_index or len(options.vcf) == 1,
-            '--gbwt_index can only work with a single VCF')
+    require(not options.gbwt_index or len(options.vcf) >= 1,
+            '--gbwt_index requires --vcf')
             
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
@@ -352,9 +352,23 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             lcp_id = None
             
         if xg_index:
-            if gbwt_index and len(vcf_ids) == 1 and  len(tbi_ids) == 1:
-                # Build with the GBWT, but only if we have exactly one VCF.
-                # Some graphs (like primary) end up with no VCF and thus shouldn't get a GBWT
+            # Build with the GBWT.
+            # Some graphs (like primary) end up with no VCF and thus shouldn't get a GBWT
+            if gbwt_index and len(vcf_ids) >= 1:
+                assert len(vcf_ids) == len(tbi_ids)
+                # GBWT interface needs exactly one VCF, so we merge if necessary
+                if len(vcf_ids) > 1:
+                    concat_job = construct_job.addChildJobFn(run_concat_vcfs, context,
+                                                             vcf_ids, tbi_ids,
+                                                             cores=context.config.xg_index_cores,
+                                                             memory=context.config.xg_index_mem,
+                                                             disk=context.config.xg_index_disk)
+                    vcf_phasing_file_id = concat_job.rv(0)
+                    tbi_phasing_file_id = concat_job.rv(1)
+                else:
+                    vcf_phasing_file_id = vcf_ids[0]
+                    tbi_phasing_file_id = tbi_ids[0]
+                    
                 xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
                                                         vg_names, output_name_base,
                                                         vcf_phasing_file_id = vcf_ids[0],
@@ -627,33 +641,6 @@ def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, mi
                                         
     out_tbi_id = context.write_output_file(job, os.path.join(work_dir, af_vcf_name) + '.tbi')
     
-    return out_vcf_id, out_tbi_id
-
-def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
-    """
-    concatenate a list of vcfs.  we do this because vg index -v only takes one vcf, and
-    we may be working with a set of chromosome vcfs. 
-    """
-
-    work_dir = job.fileStore.getLocalTempDir()
-
-    vcf_names = ['chrom_{}.vcf.gz'.format(i) for i in range(len(vcf_ids))]
-    out_name = 'genome.vcf.gz'
-
-    for vcf_id, tbi_id, vcf_name in zip(vcf_ids, tbi_ids, vcf_names):
-        job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, vcf_name))
-        job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name + '.tbi'))
-
-    cmd = ['bcftools', 'concat'] + [vcf_name for vcf_name in vcf_names] + ['-O', 'z']
-    with open(os.path.join(work_dir, out_name), 'w') as out_file:
-        context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
-
-    cmd = ['tabix', '-f', '-p', 'vcf', out_name]
-    context.runner.call(job, cmd, work_dir=work_dir)
-
-    out_vcf_id = context.write_intermediate_file(job, os.path.join(work_dir, out_name))
-    out_tbi_id = context.write_intermediate_file(job, os.path.join(work_dir, out_name + '.tbi'))
-
     return out_vcf_id, out_tbi_id
 
 def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_names,

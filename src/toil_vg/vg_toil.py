@@ -175,23 +175,34 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                        inputGCSAFileID, inputLCPFileID, inputGBWTFileID, inputIDRangesFileID,
                        inputVCFFileID, inputTBIFileID,
                        inputFastaFileID, inputBeDFileID,
-                       inputPhasingVCFFileID, inputPhasingTBIFileID):
+                       inputPhasingVCFFileIDs, inputPhasingTBIFileIDs):
     """
     All indexing.  result is a tarball in thie output store.  Will also do the fastq
     splitting, which doesn't depend on indexing. 
     """
 
     if inputXGFileID is None or \
-        (inputPhasingVCFFileID is not None and inputPhasingTBIFileID is not None and inputGBWTFileID is None):
+        (inputPhasingVCFFileIDs and inputPhasingTBIFileIDs and inputGBWTFileID is None):
         # We lack an XG index, or we have a phasing VCF but lack a GBWT index.
+        if len(inputPhasingVCFFileIDs) > 1:
+            child_job = job.addChildJobFn(run_concat_vcfs, context,
+                                          inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
+                                          memory=options.xg_index_mem,
+                                          disk=options.xg_index_disk)
+            inputPhasingVCFFileID, inputPhasingTBIFileID = child_job.rv(0), child_job.rv(1)
+        else:
+            child_job = Job()
+            child_job = job.addChild(child_job)
+            inputPhasingVCFFileID = inputPhasingVCFFileIDs[0] if inputPhasingVCFFileIDs else None
+            inputPhasingTBIFileID = inputPhasingTBIFileIDs[0] if inputPhasingTBIFileIDs else None
         
-        index_job = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
-                                      map(os.path.basename, options.graphs),
-                                      options.index_name,
-                                      inputPhasingVCFFileID, inputPhasingTBIFileID,
-                                      make_gbwt=(inputPhasingVCFFileID is not None and inputPhasingTBIFileID is not None),
-                                      cores=options.xg_index_cores, memory=options.xg_index_mem,
-                                      disk=options.xg_index_disk)
+        index_job = child_job.addFollowOnJobFn(run_xg_indexing, context, inputGraphFileIDs,
+                                               map(os.path.basename, options.graphs),
+                                               options.index_name,
+                                               inputPhasingVCFFileID, inputPhasingTBIFileID,
+                                               make_gbwt=(inputPhasingVCFFileID and inputPhasingTBIFileID),
+                                               cores=options.xg_index_cores, memory=options.xg_index_mem,
+                                               disk=options.xg_index_disk)
         (xg_file_id, gbwt_file_id) = (index_job.rv(0), index_job.rv(1))
     else:
         # Pass through the XG, and the GBWT if we have one
@@ -414,12 +425,11 @@ def pipeline_main(context, options):
                 inputTBIFileID = None
                 inputFastaFileID = None
                 inputBedFileID = None
-            if options.vcf_phasing:
-                inputPhasingVCFFileID = toil.importFile(options.vcf_phasing)
-                inputPhasingTBIFileID = toil.importFile(options.vcf_phasing + '.tbi')
-            else:
-                inputPhasingVCFFileID = None
-                inputPhasingTBIFileID = None
+            inputPhasingVCFFileIDs = []
+            inputPhasingTBIFileIDs = []
+            for vcf in options.vcf_phasing:
+                inputPhasingVCFFileIDs.append(toil.importFile(vcf))
+                inputPhasingTBIFileIDs.append(toil.importFile(vcf + '.tbi'))          
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -430,7 +440,7 @@ def pipeline_main(context, options):
                                      inputLCPFileID, inputGBWTFileID, inputIDRangesFileID,
                                      inputVCFFileID, inputTBIFileID,
                                      inputFastaFileID, inputBedFileID,
-                                     inputPhasingVCFFileID, inputPhasingTBIFileID,
+                                     inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
 

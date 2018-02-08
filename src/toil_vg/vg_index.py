@@ -78,8 +78,8 @@ def index_parse_args(parser):
     parser.add_argument("--gcsa_opts", type=str,
                         help="Options to pass to gcsa indexing.")
 
-    parser.add_argument("--vcf_phasing", type=make_url,
-                        help="Import phasing information from VCF into xg or GBWT")
+    parser.add_argument("--vcf_phasing", nargs='+', type=make_url, default=[],
+                        help="Import phasing information from VCF(s) into xg or GBWT")
     parser.add_argument("--make_gbwt", action='store_true',
                         help="Save phasing information to a GBWT instead of to the xg")
 
@@ -92,7 +92,8 @@ def validate_index_options(options):
             '--chroms and --graphs must have'
             ' same number of arguments if more than one graph specified')
     if options.vcf_phasing:
-        require(options.vcf_phasing.endswith('.vcf.gz'), 'input phasing file must end with .vcf.gz')
+        require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
+                'input phasing files must end with .vcf.gz')
     if options.make_gbwt:
         require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
     
@@ -274,6 +275,32 @@ def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name):
 
     return gcsa_file_id, lcp_file_id
 
+def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
+    """
+    concatenate a list of vcfs.  we do this because vg index -v only takes one vcf, and
+    we may be working with a set of chromosome vcfs. 
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    vcf_names = ['chrom_{}.vcf.gz'.format(i) for i in range(len(vcf_ids))]
+    out_name = 'genome.vcf.gz'
+
+    for vcf_id, tbi_id, vcf_name in zip(vcf_ids, tbi_ids, vcf_names):
+        job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, vcf_name))
+        job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name + '.tbi'))
+
+    cmd = ['bcftools', 'concat'] + [vcf_name for vcf_name in vcf_names] + ['-O', 'z']
+    with open(os.path.join(work_dir, out_name), 'w') as out_file:
+        context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
+
+    cmd = ['tabix', '-f', '-p', 'vcf', out_name]
+    context.runner.call(job, cmd, work_dir=work_dir)
+
+    out_vcf_id = context.write_intermediate_file(job, os.path.join(work_dir, out_name))
+    out_tbi_id = context.write_intermediate_file(job, os.path.join(work_dir, out_name + '.tbi'))
+
+    return out_vcf_id, out_tbi_id
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                     vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
@@ -409,7 +436,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
-                 vcf_phasing_file_id = None, tbi_phasing_file_id = None,
+                 vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False, make_gbwt=False):
     """
     Run indexing logic by itself.
@@ -428,13 +455,25 @@ def run_indexing(job, context, inputGraphFileIDs,
     else:
         gcsa_and_lcp_ids = None
     if not skip_xg:
-        xg_index_job = job.addChildJobFn(run_xg_indexing, context, inputGraphFileIDs,
-                                         graph_names, index_name,
-                                         vcf_phasing_file_id, tbi_phasing_file_id,
-                                         make_gbwt,
-                                         cores=context.config.xg_index_cores,
-                                         memory=context.config.xg_index_mem,
-                                         disk=context.config.xg_index_disk)
+        if len(vcf_phasing_file_ids) > 1:
+            child_job = job.addChildJobFn(run_concat_vcfs, context,
+                                          vcf_phasing_file_ids, tbi_phasing_file_ids, 
+                                          memory=context.config.xg_index_mem,
+                                          disk=context.config.xg_index_disk)
+            vcf_phasing_file_id = child_job.rv(0)
+            tbi_phasing_file_id = child_job.rv(1)
+        else:
+            child_job = Job()
+            child_job = job.addChild(child_job)
+            vcf_phasing_file_id = vcf_phasing_file_ids[0] if vcf_phasing_file_ids else None
+            tbi_phasing_file_id = tbi_phasing_file_ids[0] if tbi_phasing_file_ids else None
+        xg_index_job = child_job.addFollowOnJobFn(run_xg_indexing, context, inputGraphFileIDs,
+                                                  graph_names, index_name,
+                                                  vcf_phasing_file_id, tbi_phasing_file_id,
+                                                  make_gbwt,
+                                                  cores=context.config.xg_index_cores,
+                                                  memory=context.config.xg_index_mem,
+                                                  disk=context.config.xg_index_disk)
         xg_and_gbwt_index_ids = (xg_index_job.rv(0), xg_index_job.rv(1))
         
     else:
@@ -475,12 +514,11 @@ def index_main(context, options):
             inputGraphFileIDs = []
             for graph in options.graphs:
                 inputGraphFileIDs.append(toil.importFile(graph))
-            if options.vcf_phasing:
-                inputPhasingVCFFileID = toil.importFile(options.vcf_phasing)
-                inputPhasingTBIFileID = toil.importFile(options.vcf_phasing + '.tbi')
-            else:
-                inputPhasingVCFFileID = None
-                inputPhasingTBIFileID = None
+            inputPhasingVCFFileIDs = []
+            inputPhasingTBIFileIDs = []
+            for vcf in options.vcf_phasing:
+                inputPhasingVCFFileIDs.append(toil.importFile(vcf))
+                inputPhasingTBIFileIDs.append(toil.importFile(vcf + '.tbi'))
 
             # Handy to have meaningful filenames throughout, so we remember
             # the input graph names
@@ -492,7 +530,7 @@ def index_main(context, options):
             # Make a root job
             root_job = Job.wrapJobFn(run_indexing, context, inputGraphFileIDs,
                                      graph_names, options.index_name, options.chroms,
-                                     inputPhasingVCFFileID, inputPhasingTBIFileID,
+                                     inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
                                      options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
                                      options.make_gbwt,
                                      cores=context.config.misc_cores,
