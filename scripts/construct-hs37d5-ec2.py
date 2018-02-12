@@ -17,7 +17,7 @@ def parse_args(args):
                         help="chromosome(s) (default: everything in fasta)")
     parser.add_argument("--config", help="path of config on leader")
     parser.add_argument("--restart", action="store_true", help="resume toil workflow")
-    parser.add_argument("--gbwt", action="store_true", help="make gbwt (only works with 1 chrom currently)")
+    parser.add_argument("--gbwt", action="store_true", help="make gbwt")
     parser.add_argument("--control", help="control sample")
     parser.add_argument("--node", help="toil node type (default=r3.8xlarge:0.85)", default="r3.8xlarge:0.85")
     args = args[1:]        
@@ -25,7 +25,13 @@ def parse_args(args):
 options = parse_args(sys.argv)
 
 def get_vcf_path_hs37d5(chrom):
-    return 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(chrom)
+    base = 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/'
+    if chrom in range(1, 23):
+        return os.path.join(base, 'ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(chrom))
+    elif chrom == 'X':
+        return os.path.join(base, 'ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz')
+    elif chrom == 'Y':
+        return os.path.join(base, 'ALL.chrY.phase3_integrated_v2a.20130502.genotypes.vcf.gz')
 
 def get_fasta_path_hs37d5():
     return 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz'
