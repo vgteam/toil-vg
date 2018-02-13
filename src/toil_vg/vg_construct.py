@@ -350,29 +350,37 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         else:
             gcsa_id = None
             lcp_id = None
+
+        if (gpbwt or gbwt_index) and len(vcf_ids) > 1:
+            # strip nones out of vcf list
+            input_vcf_ids = []
+            input_tbi_ids = []
+            for vcf_id, tbi_id in zip(vcf_ids, tbi_ids):
+                if vcf_id and tbi_id:
+                    input_vcf_ids.append(vcf_id)
+                    input_tbi_ids.append(tbi_id)
+                else:
+                    assert vcf_id == None and tbi_id == None
+            concat_job = construct_job.addChildJobFn(run_concat_vcfs, context,
+                                                     input_vcf_ids, input_tbi_ids,
+                                                     cores=context.config.xg_index_cores,
+                                                     memory=context.config.xg_index_mem,
+                                                     disk=context.config.xg_index_disk)
+            vcf_phasing_file_id = concat_job.rv(0)
+            tbi_phasing_file_id = concat_job.rv(1)
+        else:
+            vcf_phasing_file_id = vcf_ids[0] if len(vcf_ids) == 1 else None
+            tbi_phasing_file_id = tbi_ids[0] if len(tbi_ids) == 1 else None
             
         if xg_index:
             # Build with the GBWT.
             # Some graphs (like primary) end up with no VCF and thus shouldn't get a GBWT
             if gbwt_index and len(vcf_ids) >= 1:
-                assert len(vcf_ids) == len(tbi_ids)
-                # GBWT interface needs exactly one VCF, so we merge if necessary
-                if len(vcf_ids) > 1:
-                    concat_job = construct_job.addChildJobFn(run_concat_vcfs, context,
-                                                             vcf_ids, tbi_ids,
-                                                             cores=context.config.xg_index_cores,
-                                                             memory=context.config.xg_index_mem,
-                                                             disk=context.config.xg_index_disk)
-                    vcf_phasing_file_id = concat_job.rv(0)
-                    tbi_phasing_file_id = concat_job.rv(1)
-                else:
-                    vcf_phasing_file_id = vcf_ids[0]
-                    tbi_phasing_file_id = tbi_ids[0]
-                    
+                assert len(vcf_ids) == len(tbi_ids)                    
                 xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
                                                         vg_names, output_name_base,
-                                                        vcf_phasing_file_id = vcf_ids[0],
-                                                        tbi_phasing_file_id = tbi_ids[0],
+                                                        vcf_phasing_file_id = vcf_phasing_file_id,
+                                                        tbi_phasing_file_id = tbi_phasing_file_id,
                                                         make_gbwt = True,
                                                         cores=context.config.xg_index_cores,
                                                         memory=context.config.xg_index_mem,
@@ -393,7 +401,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             gbwt_id = None
 
         if gpbwt:
-            haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context, vcf_ids, tbi_ids,
+            haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context,
+                                                       [vcf_phasing_file_id], [tbi_phasing_file_id],
                                                        vcf_names, vg_ids, vg_names, output_name_base, regions,
                                                        haplo_sample, haplotypes)
 
@@ -429,9 +438,9 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
 
     region_graph_ids = []    
     for i, (region, region_name) in enumerate(zip(regions, region_names)):
-        vcf_id = None if not vcf_ids else vcf_ids[0] if len(vcf_ids) == 1 else vcf_ids[i]
-        vcf_name = None if not vcf_names else vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
-        tbi_id = None if not tbi_ids else tbi_ids[0] if len(tbi_ids) == 1 else tbi_ids[i]
+        vcf_id = None if not vcf_ids or i >= len(vcf_ids) else vcf_ids[0] if len(vcf_ids) == 1 else vcf_ids[i]
+        vcf_name = None if not vcf_names or i >= len(vcf_names) else vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
+        tbi_id = None if not tbi_ids or i >= len(tbi_ids) else tbi_ids[0] if len(tbi_ids) == 1 else tbi_ids[i]
         fasta_id = fasta_ids[0] if len(fasta_ids) == 1 else fasta_ids[i]
         fasta_name = fasta_names[0] if len(fasta_names) == 1 else fasta_names[i]
         region_graph_ids.append(child_job.addChildJobFn(run_construct_region_graph, context,
