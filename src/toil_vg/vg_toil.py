@@ -37,6 +37,7 @@ from toil_vg.vg_calleval import *
 from toil_vg.vg_call import *
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import *
+from toil_vg.vg_surject import *
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,10 @@ def parse_args(args=None):
     # construct subparser
     parser_construct = subparsers.add_parser('construct', help="Construct graphs from VCF")
     construct_subparser(parser_construct)
+
+    # surject subparser
+    parser_surject = subparsers.add_parser('surject', help="Surject GAM to BAM")
+    surject_subparser(parser_surject)
 
     return parser.parse_args(args)
 
@@ -359,6 +364,8 @@ def main():
         calleval_main(context, args)
     elif args.command == 'construct':
         construct_main(context, args)
+    elif args.command == 'surject':
+        surject_main(context, args)
         
     
 def pipeline_main(context, options):
