@@ -316,6 +316,17 @@ class VGCGLTest(TestCase):
                   '--vcfeval_opts', ' --ref-overlap')
 
         self._assertOutput(None, outstore, f1_threshold=0.70)
+
+        ''' Test surject
+        '''
+        self._run('toil-vg', 'surject', self.jobStoreLocal, outstore,
+                  '--reads_per_chunk', '20000',
+                  '--gam_input_reads', self.sample_gam, '--paths', '13', '17',
+                  '--xg_index', self.xg_index, '--alignment_cores', '2')
+
+        # check bam not empty
+        self.assertGreater(os.path.getsize(os.path.join(outstore, 'surject.bam')), 250000)
+
                 
     def test_06_sim_small_outstore(self):
         ''' 
@@ -498,8 +509,8 @@ class VGCGLTest(TestCase):
             name, f1 = toks[0], toks[1]
             headers.add(name)
             self.assertGreater(float(f1), f1_threshold)
-        self.assertEqual(headers, set(names))        
-
+        self.assertEqual(headers, set(names))
+        
     def tearDown(self):
         shutil.rmtree(self.workdir)
         subprocess.check_call(['toil', 'clean', self.jobStoreLocal])
