@@ -387,8 +387,8 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             del vg_parts[vg_parts.index('--interleaved')]
 
         vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file)]
-        if gbwt_file is not None and not multipath:
-            # We have a GBWT haplotype index to use (and we know how to use it)
+        if gbwt_file is not None:
+            # We have a GBWT haplotype index to use. Both map and mpmap take this long option.
             vg_parts += ['--gbwt-name', os.path.basename(gbwt_file)]
 
         RealtimeLogger.info(
@@ -406,7 +406,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             context.write_output_file(job, xg_file)
             context.write_output_file(job, gcsa_file)
             context.write_output_file(job, gcsa_file + '.lcp')
-            if gbwt_file is not None and not multipath:
+            if gbwt_file is not None:
                 context.write_output_file(job, gbwt_file)
             for reads_file in reads_files:
                 context.write_output_file(job, reads_file)
