@@ -23,6 +23,7 @@ from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
+from toil_vg.vg_mapeval import run_gam_to_fastq
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ def sim_subparser(parser):
                         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--gam", action="store_true",
                         help="Output GAM file, annotated gam file and truth positions")
+    parser.add_argument("--fastq_out", action="store_true",
+                        help="Ouput fastq file (in addition to GAM)")
     parser.add_argument("--annotate_xg", type=make_url,
                         help="xg index used for gam annotation (if different from input indexes)")
     parser.add_argument("--path", default=[], action='append',
@@ -73,7 +76,8 @@ def validate_sim_options(options):
     require(options.seed is None or options.seed > 0,
             'random seed must be greater than 0 (vg sim ignores seed 0)')
     
-def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_annot_file_id, paths = [],
+def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
+            xg_file_ids, xg_annot_file_id, paths = [],
             fastq_id = None, out_name = None):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
@@ -85,6 +89,10 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
         seed = random.randint(0, 2147483647)
         RealtimeLogger.info('No seed specifed, choosing random value = {}'.format(seed))
 
+    # encapsulate follow-on
+    child_job = Job()
+    job.addChild(child_job)
+        
     # we can have more than one xg file if we've split our input graphs up
     # into haplotypes
     for xg_i, xg_file_id in enumerate(xg_file_ids):
@@ -101,17 +109,33 @@ def run_sim(job, context, num_reads, gam, seed, sim_chunks, xg_file_ids, xg_anno
             chunk_reads = file_reads / sim_chunks
             if chunk_i == sim_chunks - 1:
                 chunk_reads += file_reads % sim_chunks
-            sim_out_id_info = job.addChildJobFn(run_sim_chunk, context, gam, seed_base, xg_file_id,
-                                                xg_annot_file_id, paths,
-                                                chunk_i, chunk_reads,
-                                                fastq_id, xg_i,
-                                                cores=context.config.sim_cores, memory=context.config.sim_mem,
-                                                disk=context.config.sim_disk).rv()
+            sim_out_id_info = child_job.addChildJobFn(run_sim_chunk, context, gam, seed_base, xg_file_id,
+                                                      xg_annot_file_id, paths,
+                                                      chunk_i, chunk_reads,
+                                                      fastq_id, xg_i,
+                                                      cores=context.config.sim_cores, memory=context.config.sim_mem,
+                                                      disk=context.config.sim_disk).rv()
             sim_out_id_infos.append(sim_out_id_info)
+            
+    merge_job = child_job.addFollowOnJobFn(run_merge_sim_chunks, context, gam,
+                                           sim_out_id_infos, out_name,
+                                           cores=context.config.sim_cores,
+                                           memory=context.config.sim_mem,
+                                           disk=context.config.sim_disk)
+    
+    merged_gam_id, merged_gam_annot_id, true_id = merge_job.rv(0), merge_job.rv(1), merge_job.rv(2)
 
-    return job.addFollowOnJobFn(run_merge_sim_chunks, context, gam, sim_out_id_infos, out_name,
-                                cores=context.config.sim_cores, memory=context.config.sim_mem,
-                                disk=context.config.sim_disk).rv()
+    if fastq_out:
+        fastq_job = merge_job.addFollowOnJobFn(run_gam_to_fastq, context, merged_gam_id, False,
+                                               out_name = out_name if out_name else 'sim',
+                                               out_store = True,
+                                               cores=context.config.sim_cores,
+                                               memory=context.config.sim_mem,
+                                               disk=context.config.sim_disk)
+        merged_fq_id = fastq_job.rv(0)
+
+    return merged_gam_id, merged_gam_annot_id, true_id
+
 
 def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, paths, chunk_i, num_reads, fastq_id, xg_i):
     """
@@ -312,6 +336,10 @@ def sim_main(context, options):
             else:
                 inputFastqFileID = None
 
+            # can't make the fastq without going through gam
+            if options.fastq_out:
+                options.gam = True                
+
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
@@ -325,6 +353,7 @@ def sim_main(context, options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_sim, context, options.num_reads, options.gam,
+                                     options.fastq_out,
                                      options.seed, options.sim_chunks,
                                      inputXGFileIDs,
                                      inputAnnotXGFileID,
