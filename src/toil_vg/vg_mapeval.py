@@ -373,7 +373,31 @@ def run_concat_fastqs(job, context, fq_reads_ids):
             with open(fq_name) as fq_file:
                 shutil.copyfileobj(fq_file, out_file)
 
-    return context.write_intermediate_file(job, fq_file_names[0])    
+    return context.write_intermediate_file(job, fq_file_names[0])
+
+def run_strip_fq_ext(job, context, fq_reads_ids):
+    """ bwa can't read reads with _1 _2 extensions for paired end alignment.  strip here
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # read the reads
+    fq_file_names = [os.path.join(work_dir, 'reads-{}.fq.gz'.format(i)) \
+                     for i in range(len(fq_reads_ids))]
+    out_file_names = [os.path.join(work_dir, 'reads-strip-{}.fq.gz'.format(i)) \
+                      for i in range(len(fq_reads_ids))]
+    out_ids = []
+    
+    for fq_id, fq_name,  out_name in zip(fq_reads_ids, fq_file_names, out_file_names):
+        job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
+        cmd = [['bgzip', '-dc', os.path.basename(fq_name)]]
+        cmd.append(['sed', '-e', 's/_1//g', '-e', 's/_2//g'])
+        cmd.append(['bgzip', '-c'])
+        with open(out_name, 'w') as out_file:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
+        out_ids.append(context.write_intermediate_file(job, out_name))
+
+    return out_ids
     
 def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a gam.  optionally run in paired mode
@@ -402,8 +426,6 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     # if we're paired, must make some split files
     if paired_mode:
 
-        assert len(fq_file_names) == 2
-        
         # run bwa-mem on the paired end input
         start_time = timeit.default_timer()
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
@@ -1493,11 +1515,16 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         true_read_stats_file_id = index_job.addChildJobFn(extract_bam_read_stats,
                                                           context, 'truth', reads_bam_file_id, True).rv()
 
-    # Extract our fastq reads so that all aligners get the exact same inputs
+    # Extract our fastq reads so that all aligners get the exact same inputs    
     # todo: should be able to use same reads, interleaved, for both
+    fq_reads_ids_bwa = reads_fastq_file_ids
+    if reads_fastq_file_ids and options.bwa:
+        fq_reads_ids_bwa = index_job.addChildJobFn(run_strip_fq_ext, context, reads_fastq_file_ids,
+                                                   disk=context.config.alignment_disk).rv()
+        
     fastq_fn = run_gam_to_fastq if reads_gam_file_id else run_bam_to_fastq
     fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids = (
-        reads_fastq_file_ids, reads_fastq_file_ids, reads_fastq_file_ids)
+        reads_fastq_file_ids, fq_reads_ids_bwa, reads_fastq_file_ids)
     
     # if we got two input fastqs, merge them together for single end
     if len(fq_reads_ids) == 2 and not options.paired_only:
