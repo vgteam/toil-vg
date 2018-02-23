@@ -299,7 +299,7 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
         return [context.write_intermediate_file(job, sim_fq_file)]
     
 def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
-                     out_name = 'sim', out_store = False, add_paired_suffix=False):
+                     add_paired_suffix=False, out_name = 'sim', out_store = False, ):
     """
     convert a gam to fastq (or pair of fastqs)
     """
@@ -319,8 +319,8 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
         with open(json_file, 'w') as out_json:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_json)
 
-        sim_fq_files = [None, os.path.join(work_dir, '{}_1{}.fq'.format(out_name, 's' if add_paired_suffix else '')),
-                        os.path.join(work_dir, '{}_2{}.fq'.format(out_name, 's' if add_paired_suffix else ''))]
+        sim_fq_files = [None, os.path.join(work_dir, '{}_1{}.fq.gz'.format(out_name, 's' if add_paired_suffix else '')),
+                        os.path.join(work_dir, '{}_2{}.fq.gz'.format(out_name, 's' if add_paired_suffix else ''))]
 
         # make a fastq for each end of pair
         for i in [1, 2]:
