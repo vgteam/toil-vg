@@ -172,7 +172,7 @@ index-name: 'genome'
 prune-opts: [['-D'], ['-p', '-l', '16', '-S', '-e', '5'], ['-S', '-l', '32']]
 
 # Options to pass to vg kmers.
-kmers-opts: ['-g', '-B', '-k', '16', '-H', '1000000000', '-T', '1000000001']
+kmers-opts: ['-g', '-B', '-k', '16']
 
 # Options to pass to vg gcsa indexing
 gcsa-opts: ['-X', '3', '-Z', '3000']
@@ -394,7 +394,7 @@ index-name: 'genome'
 prune-opts: [['-D'], ['-p', '-l', '16', '-S', '-e', '4'], ['-S', '-l', '32']]
 
 # Options to pass to vg kmers.
-kmers-opts: ['-g', '-B', '-k', '16', '-H', '1000000000', '-T', '1000000001']
+kmers-opts: ['-g', '-B', '-k', '16']
 
 # Options to pass to vg gcsa indexing
 gcsa-opts: ['-X', '3', '-Z', '3000']

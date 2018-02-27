@@ -201,7 +201,7 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                                   vcf_phasing_file_ids = vcf_ids, tbi_phasing_file_ids = tbi_ids,
                                   skip_xg=skip_xg, skip_gcsa=skip_gcsa, skip_id_ranges=skip_ranges,
                                   make_gbwt=False,
-                                  use_gbwt_for_gcsa=False,
+                                  haplo_pruning=False,
                                   cores=context.config.misc_cores, memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
 
