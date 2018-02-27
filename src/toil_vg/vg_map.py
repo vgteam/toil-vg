@@ -62,6 +62,8 @@ def map_parse_args(parser, stand_alone = False):
     """ centralize indexing parameters here """
     parser.add_argument("--gbwt_index", type=make_url,
                         help="Path to GBWT haplotype index")
+    parser.add_argument("--snarls_index", type=make_url,
+                        help="Path to snarls file")
     parser.add_argument("--fastq", nargs='+', type=make_url,
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--gam_input_reads", type=make_url, default=None,
@@ -96,6 +98,8 @@ def validate_map_options(context, options):
             '--interleaved cannot be used when > 1 fastq given')
     require(sum(map(lambda x : 1 if x else 0, [options.fastq, options.gam_input_reads, options.bam_input_reads])) == 1,
             'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
+    require(options.multipath or options.snarls_index is None,
+            'snarls cannot be used with the single-path mapper') 
     if options.multipath:
         require('-S' in context.config.mpmap_opts,
                 '-S must be used with multipath aligner to produce GAM output')
@@ -611,19 +615,22 @@ def map_main(context, options):
         if not toil.options.restart:
 
             start_time = timeit.default_timer()
-            
-            # Upload local files to the remote IO Store
-            inputXGFileID = toil.importFile(options.xg_index)
-            inputGCSAFileID = toil.importFile(options.gcsa_index)
-            inputLCPFileID = toil.importFile(options.gcsa_index + ".lcp")
+           
+            # Make an index collection
+            indexes = {}
+           
+            # Upload each index we have
+            indexes['xg'] = toil.importFile(options.xg_index)
+            indexes['gcsa'] = toil.importFile(options.gcsa_index)
+            indexes['lcp'] = toil.importFile(options.gcsa_index + ".lcp")
             if options.gbwt_index is not None:
-                inputGBWTIndex = toil.importFile(options.gbwt_index)
-            else:
-                inputGBWTIndex = None
+                indexes['gbwt'] = toil.importFile(options.gbwt_index)
+            if options.snarls_index is not None:
+                indexes['snarls'] = toil.importFile(options.snarls_index)
             if options.id_ranges is not None:
-                inputIDRangesFileID = toil.importFile(options.id_ranges)
-            else:
-                inputIDRangesFileID = None
+                indexes['id_ranges'] = toil.importFile(options.id_ranges)
+            
+            # Upload other local files to the remote IO Store
             inputReadsFileIDs = []
             if options.fastq:
                 for sample_reads in options.fastq:
@@ -641,10 +648,7 @@ def map_main(context, options):
                                      options.gam_input_reads, options.bam_input_reads,
                                      options.sample_name,
                                      options.interleaved, options.multipath,
-                                     inputXGFileID,
-                                     (inputGCSAFileID, inputLCPFileID),
-                                     inputGBWTIndex,
-                                     inputIDRangesFileID, inputReadsFileIDs,
+                                     indexes, inputReadsFileIDs,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

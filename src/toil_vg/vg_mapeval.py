@@ -76,6 +76,8 @@ def add_mapeval_options(parser):
                         '<index-base>.gcsa, <index-base>.lcp and <index-base>.xg to exist')
     parser.add_argument('--use-gbwt', action='store_true',
                         help='also import <index-base>.gbwt and use it during alignment')
+    parser.add_argument('--use-snarls', action='store_true',
+                        help='also import <index-base>.snarls and use it during multipath alignment')
     parser.add_argument('--vg-graphs', nargs='+', type=make_url, default=[],
                         help='vg graphs to use in place of gams or indexes.  indexes'
                         ' will be built as required')
@@ -113,7 +115,7 @@ def add_mapeval_options(parser):
                         'necessary if using --multipath on reads not from trained simulator')
 
     parser.add_argument('--multipath-only', action='store_true',
-                        help='run only mpmap and not map (--multipath will run both and neith will just run map)')
+                        help='run only mpmap and not map (--multipath will run both and using neither will just run map)')
 
     parser.add_argument('--more-mpmap-opts', nargs='+', default=[],
                         help='additional batches of mpmap options to try')
@@ -178,6 +180,10 @@ def validate_options(options):
     if options.use_gbwt:
         require(not options.gams,
                 '--use-gbwt cannot be used with pre-aligned GAMs in --gams')
+                
+    if options.use_snarls:
+        require(options.multipath or options.multipath_only,
+                '--use-snarls only affects the multipath mapper (--multipath or --multipath-only)')
 
     if options.gams:
         require(len(options.index_bases) == len(options.gams),
@@ -695,15 +701,18 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
         
     return out_file_id
 
-def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids, vg_file_ids):
+def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids, snarl_file_ids, vg_file_ids):
     """ 
     Index the given vg files.
     
-    If no vg files are provided, pass through the given indexes, which must be
-    provided.
+    If no vg files are provided, pass through the given indexes. Indexes are
+    lists of index IDs, one per graph, except gcsa_file_ids, which is tuples of
+    GCSA and LCP file IDs, one tuple per graph. Index types which are not used
+    should have falsey values instead of lists.
     
-    Returns a list of tuples of the form (xg, (gcsa, lcp), gbwt, id_ranges), holding
-    file IDs for different index components.
+    Returns a list of dicts from index type name to index file ID, as used by
+    run_indexing in vg_index.py, holding file IDs for different index
+    components.
     
     """
 
@@ -716,9 +725,20 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
                              disk=context.config.misc_disk).rv())
     else:
         for i, xg_id in enumerate(xg_file_ids):
-            index_ids.append((xg_id, gcsa_file_ids[i] if gcsa_file_ids else None,
-                              gbwt_file_ids[i] if gbwt_file_ids else None,
-                              id_range_file_ids[i] if id_range_file_ids else None))
+            # For each graph, gather and tag its indexes
+            indexes = {}
+            indexes['xg'] = xg_id
+            if gcsa_file_ids:
+                indexes['gcsa'], indexes['lcp'] = gcsa_file_ids[i]
+            if gbwt_file_ids:
+                indexes['gbwt'] = gbwt_file_ids[i]
+            if id_range_file_ids:
+                indexes['id_ranges'] = id_range_file_ids[i]
+            if snarl_file_ids:
+                indexes['snarls'] = snarl_file_ids[i]
+                
+            # Put the indexes in the list of index dicts for each graph
+            index_ids.append(indexes)
 
     
     return index_ids
@@ -805,7 +825,6 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     if do_vg_mapping and do_paired and singlepath:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, indexes in enumerate(index_ids):
-            # index_ids are of the form (xg, (gcsa, lcp), gbwt, id_ranges, snarls) as returned by run_indexing
             map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_paired_for_vg_ids),
                                         None, None, 'aligned-{}-pe'.format(gam_names[i]),
                                         False, False, indexes,
@@ -1403,7 +1422,7 @@ def run_portion_worse(job, context, name, compare_id):
     portion = float(worse) / float(total) if total > 0 else 0
     return total, portion
 
-def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids,
+def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids, snarl_file_ids,
                 vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
                 fasta_file_id, bwa_index_ids, bam_file_ids,
                 pe_bam_file_ids, true_read_stats_file_id):
@@ -1411,6 +1430,8 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     Main Toil job, and main entrypoint for use of vg_mapeval as a library.
     
     Run the analysis on the given files.
+    
+    TODO: Refactor to use a list of dicts/dict of listys for the indexes.
     
     Return the file IDs of result files.
     
@@ -1433,6 +1454,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
                                   gcsa_file_ids,
                                   gbwt_file_ids,
                                   id_range_file_ids,
+                                  snarl_file_ids,
                                   vg_file_ids,
                                   cores=context.config.misc_cores,
                                   memory=context.config.misc_mem,
@@ -1589,6 +1611,7 @@ def make_mapeval_plan(toil, options):
     plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
     plan.gbwt_file_ids = []
     plan.id_range_file_ids = []
+    plan.snarl_file_ids = []
     imported_xgs = {}
     if options.index_bases:
         for ib in options.index_bases:
@@ -1601,6 +1624,9 @@ def make_mapeval_plan(toil, options):
                     
                 if options.use_gbwt:
                     plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
+                    
+                if options.use_snarls:
+                    plan.snarl_file_ids.append(toil.importFile(ib + '.snarls'))
                     
                 # multiple gam outputs not currently supported by evaluation pipeline
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
@@ -1689,6 +1715,7 @@ def mapeval_main(context, options):
                                      plan.gcsa_file_ids,
                                      plan.gbwt_file_ids,
                                      plan.id_range_file_ids,
+                                     plan.snarl_file_ids,
                                      plan.vg_file_ids, 
                                      plan.gam_file_ids,
                                      plan.reads_gam_file_id,

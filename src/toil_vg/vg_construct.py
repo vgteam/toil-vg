@@ -21,7 +21,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_gcsa_prep, run_concat_vcfs
+from toil_vg.vg_index import run_xg_indexing, run_gcsa_prep, run_snarl_indexing, run_concat_vcfs
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -71,6 +71,8 @@ def construct_subparser(parser):
                         help="Make an xg index for each output graph")
     parser.add_argument("--gbwt_index", action="store_true",
                         help="Make a GBWT index alongside the xg index for each output graph")
+    parser.add_argument("--snarl_index", action="store_true",
+                        help="Make an snarls file for each output graph")
     parser.add_argument("--haplo_sample", type=str,
                         help="Make haplotype thread graphs (for simulating from) for this sample")
     parser.add_argument("--primary", action="store_true",
@@ -316,11 +318,11 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
     
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
                       max_node_size, alt_paths, flat_alts, regions, merge_graphs,
-                      sort_ids, join_ids, gcsa_index, xg_index, gbwt_index, haplo_sample = None,
+                      sort_ids, join_ids, gcsa_index, xg_index, gbwt_index, snarls_index, haplo_sample = None,
                       haplotypes = [0,1]):
     """ 
-    construct many graphs in parallel, optionally doing indexing too.  vcf_inputs
-    is a list of tuples as created by  run_generate_input_vcfs
+    construct many graphs in parallel, optionally doing indexing too. vcf_inputs
+    is a list of tuples as created by run_generate_input_vcfs
     """
 
     output = []
@@ -373,9 +375,9 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             tbi_phasing_file_id = tbi_ids[0] if len(tbi_ids) == 1 else None
             
         if xg_index:
-            # Build with the GBWT.
-            # Some graphs (like primary) end up with no VCF and thus shouldn't get a GBWT
             if gbwt_index and len(vcf_ids) >= 1:
+                # Build with the GBWT.
+                # Some graphs (like primary) end up with no VCF and thus shouldn't get a GBWT
                 assert len(vcf_ids) == len(tbi_ids)                    
                 xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
                                                         vg_names, output_name_base,
@@ -414,8 +416,19 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                           cores=context.config.xg_index_cores,
                                                           memory=context.config.xg_index_mem,
                                                           disk=context.config.xg_index_disk)
+    
+        if snarls_index:
+            snarls_job = construct_job.addFollowOnJobFn(run_snarl_indexing, context, vg_ids,
+                                                        vg_names, output_name_base,
+                                                        cores=context.config.misc_cores,
+                                                        memory=context.config.misc_mem,
+                                                        disk=context.config.misc_disk)
+            snarls_id = snarls_job.rv()
+        else:
+            snarls_id = None
+    
 
-        output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id, gbwt_id))
+        output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id, gbwt_id, snarls_id))
     return output
                 
 
