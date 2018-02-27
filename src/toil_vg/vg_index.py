@@ -352,7 +352,19 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     command = ['vg', 'index', '-t', str(job.cores), '-x', os.path.basename(xg_filename)]
     command += phasing_opts + graph_filenames
     
-    context.runner.call(job, command, work_dir=work_dir)
+    try:
+        context.runner.call(job, command, work_dir=work_dir)
+    except:
+        # Dump everything we need to replicate the index run
+        logging.error("XG indexing failed. Dumping files.")
+
+        for graph_filename in graph_filenames:
+            context.write_output_file(job, graph_filename)
+        if vcf_phasing_file_id:
+            context.write_output_file(job, phasing_file)
+            context.write_output_file(job, phasing_file + '.tbi')
+
+        raise
 
     # Checkpoint index to output store
     xg_file_id = context.write_output_file(job, os.path.join(work_dir, xg_filename))
