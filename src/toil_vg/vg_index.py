@@ -485,21 +485,23 @@ def run_indexing(job, context, inputGraphFileIDs,
     """
     Run indexing logic by itself.
     
-    Return an XG file ID, a pair of GCSA and LCP IDs, an optional GBWT file ID
-    (or None), an ID for the ID ranges index file, and an ID for the snarl index file.
-    
-    TODO: Change to using a dictionary by name for all these indexes!
-    
+    Return a dict from index type ('xg', 'gcsa', 'lcp', 'gbwt', 'id_ranges', or
+    'snarls') to index file ID if created.
     """
 
+    indexes = {}
+
     if not skip_gcsa:
-        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
-                                             graph_names, index_name, chroms,
-                                             cores=context.config.misc_cores,
-                                             memory=context.config.misc_mem,
-                                             disk=context.config.misc_disk).rv()
-    else:
-        gcsa_and_lcp_ids = None
+        gcsa_job = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
+                                     graph_names, index_name, chroms,
+                                     cores=context.config.misc_cores,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
+                                     
+        # Unpack the tuple
+        indexes['gcsa'] = gcsa_job.rv(0)
+        indexes['lcp'] = gcsa_job.rv(1)
+
     if not skip_xg:
         if len(vcf_phasing_file_ids) > 1:
             child_job = job.addChildJobFn(run_concat_vcfs, context,
@@ -520,33 +522,29 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                   cores=context.config.xg_index_cores,
                                                   memory=context.config.xg_index_mem,
                                                   disk=context.config.xg_index_disk)
-        xg_and_gbwt_index_ids = (xg_index_job.rv(0), xg_index_job.rv(1))
+                                                  
+                                                  
+        indexes['xg'] = xg_index_job.rv(0)
+        if make_gbwt:
+            indexes['gbwt'] = xg_index_job.rv(1)
         
-    else:
-        xg_and_gbwt_index_ids = (None, None)
         
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
-        id_ranges_id = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
-                                         graph_names, index_name, chroms,
-                                         cores=context.config.misc_cores,
-                                         memory=context.config.misc_mem,
-                                         disk=context.config.misc_disk).rv()
-    else:
-        id_ranges_id = None
+        indexes['id_ranges'] = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
+                                                 graph_names, index_name, chroms,
+                                                 cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem,
+                                                 disk=context.config.misc_disk).rv()
         
     if not skip_snarls:
-        snarls_id = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
-                                      graph_names, index_name,
-                                      cores=context.config.misc_cores,
-                                      memory=context.config.misc_mem,
-                                      disk=context.config.misc_disk).rv()
-    else:
-        snarls_id = None
-        
+        indexes['snarls'] = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
+                                              graph_names, index_name,
+                                              cores=context.config.misc_cores,
+                                              memory=context.config.misc_mem,
+                                              disk=context.config.misc_disk).rv()
     
 
-    return xg_and_gbwt_index_ids[0], gcsa_and_lcp_ids, xg_and_gbwt_index_ids[1], id_ranges_id, snarls_id
-
+    return indexes
 
 def index_main(context, options):
     """

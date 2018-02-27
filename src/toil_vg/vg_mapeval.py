@@ -707,7 +707,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
     
     """
 
-    # index_ids are of the form (xg, (gcsa, lcp), gbwt, id_ranges, snarls) as returned by run_indexing
+    # index_ids are dicts from index type to file ID as returned by run_indexing
     index_ids = []
     if vg_file_ids:
         for vg_file_id in vg_file_ids:
@@ -740,7 +740,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     """
 
     # scrape out the xg ids, don't need others any more after this step
-    xg_ids = [index_id[0] for index_id in index_ids]
+    xg_ids = [index_id['xg'] for index_id in index_ids]
 
     # the ids and names we pass forward
     out_xg_ids = xg_ids if gam_file_ids else []
@@ -769,12 +769,11 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     if do_vg_mapping and singlepath and do_single:
         gam_file_ids = []
         # run vg map if requested
-        for i, index_id in enumerate(index_ids):
-            # index_ids are of the form (xg, (gcsa, lcp), gbwt, id_ranges, snarls) as returned by run_indexing
+        for i, indexes in enumerate(index_ids):
             map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_single_ids),
                                         None, None, 'aligned-{}'.format(gam_names[i]),
-                                        False, False, index_id[0], index_id[1], index_id[2],
-                                        None, reads_fastq_single_ids,
+                                        False, False, indexes,
+                                        reads_fastq_single_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
             gam_file_ids.append(map_job.rv(0))
@@ -789,12 +788,11 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
         for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
             mp_context = copy.deepcopy(context)
             mp_context.config.mpmap_opts = mpmap_opts
-            for i, index_id in enumerate(index_ids):
-                # index_ids are of the form (xg, (gcsa, lcp), gbwt, id_ranges, snarls) as returned by run_indexing
+            for i, indexes in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_single_ids),
                                             None, None, 'aligned-{}-mp'.format(gam_names[i]),
-                                            False, True, index_id[0], index_id[1], index_id[2],
-                                            None, reads_fastq_single_ids,
+                                            False, True, indexes,
+                                            reads_fastq_single_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
                 gam_file_ids.append(map_job.rv(0))
@@ -806,12 +804,12 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
 
     if do_vg_mapping and do_paired and singlepath:
         # run paired end version of all vg inputs if --pe-gams specified
-        for i, index_id in enumerate(index_ids):
+        for i, indexes in enumerate(index_ids):
             # index_ids are of the form (xg, (gcsa, lcp), gbwt, id_ranges, snarls) as returned by run_indexing
             map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_paired_for_vg_ids),
                                         None, None, 'aligned-{}-pe'.format(gam_names[i]),
-                                        False, False, index_id[0], index_id[1], index_id[2],
-                                        None, reads_fastq_paired_for_vg_ids,
+                                        False, False, indexes,
+                                        reads_fastq_paired_for_vg_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
             gam_file_ids.append(map_job.rv(0))
@@ -826,12 +824,11 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
         for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
             mp_context = copy.deepcopy(context)
             mp_context.config.mpmap_opts = mpmap_opts
-            for i, index_id in enumerate(index_ids):
-                # index_ids are of the form (xg, (gcsa, lcp), gbwt, id_ranges, snarls) as returned by run_indexing
+            for i, indexes in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_paired_for_vg_ids),
                                             None, None, 'aligned-{}-mp-pe'.format(gam_names[i]),
-                                            False, True, index_id[0], index_id[1], index_id[2],
-                                            None, reads_fastq_paired_for_vg_ids,
+                                            False, True, indexes,
+                                            reads_fastq_paired_for_vg_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
                 gam_file_ids.append(map_job.rv(0))

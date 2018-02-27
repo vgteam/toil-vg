@@ -101,9 +101,17 @@ def validate_map_options(context, options):
                 '-S must be used with multipath aligner to produce GAM output')
     
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, reads_file_ids):
-    """ split the fastq, then align each chunk.  returns outputgams, paired with total map time
-    (excluding toil-vg overhead such as transferring and splitting files )"""
+                indexes, reads_file_ids):
+    """
+    split the fastq, then align each chunk.
+    
+    Takes a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges', 'gbwt',
+    'snarls') to index file ID. Some indexes are extra and specifying them will
+    change mapping behavior.
+    
+    returns outputgams, paired with total map time
+    (excluding toil-vg overhead such as transferring and splitting files )
+    """
 
     # to encapsulate everything under this job
     child_job = Job()
@@ -119,8 +127,7 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
         reads_chunk_ids = [[r] for r in reads_file_ids]
         
     return child_job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                                      interleaved, multipath, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id,
-                                      id_ranges_file_id, reads_chunk_ids, cores=context.config.misc_cores,
+                                      interleaved, multipath, indexes, reads_chunk_ids, cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
 
 def run_split_reads(job, context, fastq, gam_input_reads, bam_input_reads, reads_file_ids):
@@ -280,8 +287,13 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
 
     
 def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                        xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, reads_chunk_ids):
-    """ align all fastq chunks in parallel
+                        indexes, reads_chunk_ids):
+    """
+    align all fastq chunks in parallel
+    
+    Takes a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges', 'gbwt',
+    'snarls') to index file ID. Some indexes are extra and specifying them will
+    change mapping behavior.
     """
     
     # this will be a list of lists.
@@ -299,21 +311,29 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
         chunk_alignment_job = child_job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
                                                       sample_name,
                                                       interleaved, multipath, chunk_filename_ids, chunk_id,
-                                                      xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id,
+                                                      indexes,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
         gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
         gam_chunk_running_times.append(chunk_alignment_job.rv(1))
 
-    return child_job.addFollowOnJobFn(run_merge_gams, context, sample_name, id_ranges_file_id, gam_chunk_file_ids,
+    return child_job.addFollowOnJobFn(run_merge_gams, context, sample_name, indexes.get('id_ranges'), gam_chunk_file_ids,
                                       gam_chunk_running_times,
                                       cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                        chunk_filename_ids,
-                        chunk_id, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id):
+                        chunk_filename_ids, chunk_id, indexes):
+                        
+    """
+    Align a chunk of reads.
+    
+    Takes a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges', 'gbwt',
+    'snarls') to index file ID. Some indexes are extra and specifying them will
+    change mapping behavior.
+    """
+                        
 
     RealtimeLogger.info("Starting {}alignment on {} chunk {}".format(
         "multipath " if multipath else "", sample_name, chunk_id))
@@ -328,18 +348,16 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     graph_file = os.path.join(work_dir, "graph.vg")
 
     xg_file = graph_file + ".xg"
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
+    job.fileStore.readGlobalFile(indexes['xg'], xg_file)
     gcsa_file = graph_file + ".gcsa"
-    gcsa_file_id = gcsa_and_lcp_ids[0]
-    job.fileStore.readGlobalFile(gcsa_file_id, gcsa_file)
+    job.fileStore.readGlobalFile(indexes['gcsa'], gcsa_file)
     lcp_file = gcsa_file + ".lcp"
-    lcp_file_id = gcsa_and_lcp_ids[1]
-    job.fileStore.readGlobalFile(lcp_file_id, lcp_file)
+    job.fileStore.readGlobalFile(indexes['lcp'], lcp_file)
     
-    if gbwt_file_id:
+    if indexes.has_key('gbwt'):
         # We have a GBWT haplotype index available.
         gbwt_file =  graph_file + ".gbwt"
-        job.fileStore.readGlobalFile(gbwt_file_id, gbwt_file)
+        job.fileStore.readGlobalFile(indexes['gbwt'], gbwt_file)
     else:
         gbwt_file = None
     
@@ -369,9 +387,25 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             if '-S' not in vg_parts and '--single-path-mode' not in vg_parts:
                 RealtimeLogger.warning('Adding --single-path-mode to mpmap options as only GAM output supported')
                 vg_parts += ['--single-path-mode']
+                
+            if indexes.has_key('snarls'):
+                # mpmap knows how to use the snarls, and we have them, so we should use them
+                
+                # Note that passing them will affect mapping, if using multiple
+                # tracebacks. Since we only run single path mode, if multiple
+                # tracebacks aren't used, mpmap will ignore the snarls.
+                
+                snarls_file = graph_file + ".snarls"
+                job.fileStore.readGlobalFile(indexes['snarls'], snarls_file)
+                
+                vg_parts += ['--snarls', snarls_file]
+            else:
+                snarls_file = None
+                
         else:
             vg_parts += ['vg', 'map'] 
             vg_parts += context.config.map_opts
+            snarls_file = None
             
         for reads_file in reads_files:
             input_flag = '-G' if gam_input_reads else '-b' if bam_input_reads else '-f'
@@ -408,6 +442,8 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             context.write_output_file(job, gcsa_file + '.lcp')
             if gbwt_file is not None:
                 context.write_output_file(job, gbwt_file)
+            if snarls_file is not None:
+                context.write_output_file(job, snarls_file)
             for reads_file in reads_files:
                 context.write_output_file(job, reads_file)
             
@@ -422,11 +458,11 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         output_file, run_time, 'paired-end' if paired_end else 'single-end',
         'mpmap' if multipath else 'map'))
 
-    if id_ranges_file_id is not None:
+    if indexes.has_key('id_ranges') is not None:
         # Break GAM into multiple chunks at the end. So we need the file
         # defining those chunks.
         id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
-        job.fileStore.readGlobalFile(id_ranges_file_id, id_ranges_file)
+        job.fileStore.readGlobalFile(indexes['id_ranges'], id_ranges_file)
 
         # Chunk the gam up by chromosome
         gam_chunks = split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, output_file)
