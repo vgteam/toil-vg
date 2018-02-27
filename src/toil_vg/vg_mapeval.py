@@ -391,7 +391,7 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
     for fq_id, fq_name,  out_name in zip(fq_reads_ids, fq_file_names, out_file_names):
         job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
         cmd = [['bgzip', '-dc', os.path.basename(fq_name)]]
-        cmd.append(['sed', '-e', 's/_1//g', '-e', 's/_2//g'])
+        cmd.append(['sed', '-e', 's/_1$\|_2$//g'])
         cmd.append(['bgzip', '-c'])
         with open(out_name, 'w') as out_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
