@@ -396,7 +396,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name)
     # Now run the indexer.
     RealtimeLogger.info("Computing Snarls for {}".format(str(graph_filenames)))
 
-    pipeline = [['cat'] + graph_filenames, ['vg', 'snarls']]
+    pipeline = [['cat'] + graph_filenames, ['vg', 'snarls', '-']]
    
     with open(snarl_filename, "w") as snarl_file:
         context.runner.call(job, pipeline, work_dir=work_dir, outfile=snarl_file)
