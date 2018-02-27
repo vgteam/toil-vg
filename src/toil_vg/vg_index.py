@@ -42,6 +42,8 @@ def index_subparser(parser):
                         help="Do not generate gcsa index")
     parser.add_argument("--skip_id_ranges", action="store_true",
                         help="Do not generate id_ranges.tsv")
+    parser.add_argument("--skip_snarls", action="store_true",
+                        help="Do not generate snarl file")
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -365,6 +367,48 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
     return (xg_file_id, gbwt_file_id)
+    
+def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
+    """
+    Compute the snarls of the graph.
+    
+    Saves the snarls file in the outstore as <index_name>.snarls.
+    
+    Return the file ID of the snarls file.
+    """
+    
+    RealtimeLogger.info("Starting snarl computation...")
+    start_time = timeit.default_timer()
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Our local copy of the graphs
+    graph_filenames = []
+    for i, graph_id in enumerate(inputGraphFileIDs):
+        graph_filename = os.path.join(work_dir, graph_names[i])
+        job.fileStore.readGlobalFile(graph_id, graph_filename)
+        graph_filenames.append(os.path.basename(graph_filename))
+
+    # Where do we put the snarls?
+    snarl_filename = "{}.snarls".format(index_name)
+
+    # Now run the indexer.
+    RealtimeLogger.info("Computing Snarls for {}".format(str(graph_filenames)))
+
+    pipeline = [['cat'] + graph_filenames, ['vg', 'snarls']]
+   
+    with open(snarl_filename, "w") as snarl_file:
+        context.runner.call(job, pipeline, work_dir=work_dir, outfile=snarl_file)
+
+    # Checkpoint index to output store
+    snarl_file_id = context.write_output_file(job, os.path.join(work_dir, snarl_filename))
+    
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Finished Computing Snarls. Process took {} seconds.".format(run_time))
+
+    return snarl_file_id
 
 
 def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chroms):
@@ -437,12 +481,14 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
-                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, make_gbwt=False):
+                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, skip_snarls=False, make_gbwt=False):
     """
     Run indexing logic by itself.
     
     Return an XG file ID, a pair of GCSA and LCP IDs, an optional GBWT file ID
-    (or None) and an ID for the ID ranges index file.
+    (or None), an ID for the ID ranges index file, and an ID for the snarl index file.
+    
+    TODO: Change to using a dictionary by name for all these indexes!
     
     """
 
@@ -487,8 +533,19 @@ def run_indexing(job, context, inputGraphFileIDs,
                                          disk=context.config.misc_disk).rv()
     else:
         id_ranges_id = None
+        
+    if not skip_snarls:
+        snarls_id = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
+                                      graph_names, index_name,
+                                      cores=context.config.misc_cores,
+                                      memory=context.config.misc_mem,
+                                      disk=context.config.misc_disk).rv()
+    else:
+        snarls_id = None
+        
+    
 
-    return xg_and_gbwt_index_ids[0], gcsa_and_lcp_ids, xg_and_gbwt_index_ids[1], id_ranges_id
+    return xg_and_gbwt_index_ids[0], gcsa_and_lcp_ids, xg_and_gbwt_index_ids[1], id_ranges_id, snarls_id
 
 
 def index_main(context, options):
@@ -532,7 +589,7 @@ def index_main(context, options):
                                      graph_names, options.index_name, options.chroms,
                                      inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
                                      options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
-                                     options.make_gbwt,
+                                     options.skip_snarls, options.make_gbwt,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
