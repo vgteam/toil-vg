@@ -32,7 +32,7 @@ import tsv
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
-from toil_vg.vg_common import require, make_url, \
+from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script
 from toil_vg.vg_map import map_parse_args, run_mapping
 from toil_vg.vg_index import run_indexing
@@ -153,11 +153,26 @@ def validate_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    
+
+    # need to have input reads coming from somewhere
+    require(sum(map(lambda x : x is not None,
+                    [options.gam_input_reads, options.bam_input_reads, options.fastq])) == 1,
+            'one of --gam_input_reads or --fastq or --bam_input_reads required for input')
+
+    # annotation is not an option when reading fastq
+    require(not options.fastq or options.truth,
+            '--truth required with --fastq input')
+
+    # only one or two fastqs accepted
+    require(not options.fastq or len(options.fastq) in [1,2],
+            'only 1 or two fastqs accepted with --fatsq')
+
+    # only gzipped fastqs accpeted
+    require(not options.fastq or all(map(lambda x : x.endswith('.gz'), options.fastq)),
+            'only gzipped fastqs (ending with .gz) accepted by --fastq')
+            
     # check bwa / bam input parameters.  
     if options.bwa:
-        require(options.gam_input_reads or options.bam_input_reads,
-                '--gam_input_reads or --bam_input_reads required for bwa')
         require(options.fasta, '--fasta required for bwa')
     if options.bams:
         require(options.bam_names and len(options.bams) == len(options.bam_names),
@@ -168,8 +183,8 @@ def validate_options(options):
 
     # some options from toil-vg map are disabled on the command line
     # this can be eventually cleaned up a bit better 
-    require(not (options.interleaved or options.fastq),
-            '--interleaved and --fastq disabled in toil-vg mapeval')
+    require(not options.interleaved,
+            '--interleaved disabled in toil-vg mapeval')
 
     # accept graphs or indexes in place of gams
     require(options.gams or options.index_bases or options.vg_graphs,
@@ -283,7 +298,8 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
             context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_file)
         return [context.write_intermediate_file(job, sim_fq_file)]
     
-def run_gam_to_fastq(job, context, gam_file_id, paired_mode, add_paired_suffix=False):
+def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
+                     add_paired_suffix=False, out_name = 'sim', out_store = False, ):
     """
     convert a gam to fastq (or pair of fastqs)
     """
@@ -292,6 +308,8 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode, add_paired_suffix=F
     # read the gam file
     gam_file = os.path.join(work_dir, 'input.gam')
     job.fileStore.readGlobalFile(gam_file_id, gam_file)
+
+    write_fn = context.write_output_file if out_store else context.write_intermediate_file
     
     # if we're paired, must make some split files
     if paired_mode:
@@ -301,8 +319,8 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode, add_paired_suffix=F
         with open(json_file, 'w') as out_json:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_json)
 
-        sim_fq_files = [None, os.path.join(work_dir, 'sim_1{}.fq'.format('s' if add_paired_suffix else '')),
-                        os.path.join(work_dir, 'sim_2{}.fq'.format('s' if add_paired_suffix else ''))]
+        sim_fq_files = [None, os.path.join(work_dir, '{}_1{}.fq.gz'.format(out_name, 's' if add_paired_suffix else '')),
+                        os.path.join(work_dir, '{}_2{}.fq.gz'.format(out_name, 's' if add_paired_suffix else ''))]
 
         # make a fastq for each end of pair
         for i in [1, 2]:
@@ -324,20 +342,63 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode, add_paired_suffix=F
 
             os.remove(end_file)
 
-        return [context.write_intermediate_file(job, sim_fq_files[1]),
-                context.write_intermediate_file(job, sim_fq_files[2])]
+        return [write_fn(job, sim_fq_files[1]), write_fn(job, sim_fq_files[2])]
             
     else:
         # extract reads from gam.  as above, need to have single docker container (which shouldn't be
         # a big deal) to run all these chained command and avoid huge files on disk
-        extracted_reads_file = os.path.join(work_dir, 'extracted_reads.fq.gz')
+        extracted_reads_file = os.path.join(work_dir, '{}.fq.gz'.format(out_name))
         cmd = [['vg', 'view', '-X', os.path.basename(gam_file)]]
         cmd.append(['gzip'])
         with open(extracted_reads_file, 'w') as out_ext:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
 
-        return [context.write_intermediate_file(job, extracted_reads_file)]
+        return [write_fn(job, extracted_reads_file)]
 
+def run_concat_fastqs(job, context, fq_reads_ids):
+    """ concatenate some fastq files
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    assert len(fq_reads_ids) == 2
+    # read the reads
+    fq_file_names = [os.path.join(work_dir, 'reads-{}.fq.gz'.format(i)) \
+                     for i in range(len(fq_reads_ids))]
+    for fq_id, fq_name in zip(fq_reads_ids, fq_file_names):
+        job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
+
+    # concat the reads (should work fine for gzipped or not)
+    with open(fq_file_names[0], 'a') as out_file:
+        for fq_name in fq_file_names[1:]:
+            with open(fq_name) as fq_file:
+                shutil.copyfileobj(fq_file, out_file)
+
+    return context.write_intermediate_file(job, fq_file_names[0])
+
+def run_strip_fq_ext(job, context, fq_reads_ids):
+    """ bwa can't read reads with _1 _2 extensions for paired end alignment.  strip here
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # read the reads
+    fq_file_names = [os.path.join(work_dir, 'reads-{}.fq.gz'.format(i)) \
+                     for i in range(len(fq_reads_ids))]
+    out_file_names = [os.path.join(work_dir, 'reads-strip-{}.fq.gz'.format(i)) \
+                      for i in range(len(fq_reads_ids))]
+    out_ids = []
+    
+    for fq_id, fq_name,  out_name in zip(fq_reads_ids, fq_file_names, out_file_names):
+        job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
+        cmd = [['bgzip', '-dc', os.path.basename(fq_name)]]
+        cmd.append(['sed', '-e', 's/_1$\|_2$//g'])
+        cmd.append(['bgzip', '-c'])
+        with open(out_name, 'w') as out_file:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
+        out_ids.append(context.write_intermediate_file(job, out_name))
+
+    return out_ids
+    
 def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a gam.  optionally run in paired mode
     return id of bam file
@@ -365,12 +426,17 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     # if we're paired, must make some split files
     if paired_mode:
 
-        assert len(fq_file_names) == 2
-        
         # run bwa-mem on the paired end input
         start_time = timeit.default_timer()
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(fq_file_names[0]), os.path.basename(fq_file_names[1])] + context.config.bwa_opts        
+                os.path.basename(fq_file_names[0])]
+        if len(fq_file_names) == 2:
+            cmd += [os.path.basename(fq_file_names[1])]
+        # if one file comes in, it had better be interleaved            
+        else:
+            cmd += ['-p']
+        cmd += context.config.bwa_opts
+        
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
@@ -592,7 +658,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
             # map seq name->position
             true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
             aln_read_name = test_fields[0]
-            if aln_read_name != true_read_name:
+            if aln_read_name !=true_read_name:
                 raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
                     line_no, true_read_stats_file, test_read_stats_file, true_read_name, aln_read_name))
             aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
@@ -805,9 +871,10 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     if do_vg_mapping and do_paired and singlepath:
         # run paired end version of all vg inputs if --pe-gams specified
         for i, index_id in enumerate(index_ids):
+            interleaved = len(reads_fastq_paired_for_vg_ids) == 1
             map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_paired_for_vg_ids),
                                         None, None, 'aligned-{}-pe'.format(gam_names[i]),
-                                        False, False, index_id[0], index_id[1], index_id[2],
+                                        interleaved, False, index_id[0], index_id[1], index_id[2],
                                         None, reads_fastq_paired_for_vg_ids,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem, disk=context.config.misc_disk)
@@ -820,13 +887,14 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
 
     # Do the paired-ended multipath mapping
     if do_vg_mapping and do_paired and multipath:
+        interleaved = len(reads_fastq_paired_for_vg_ids) == 1
         for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
             mp_context = copy.deepcopy(context)
             mp_context.config.mpmap_opts = mpmap_opts
             for i, index_id in enumerate(index_ids):
                 map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_paired_for_vg_ids),
                                             None, None, 'aligned-{}-mp-pe'.format(gam_names[i]),
-                                            False, True, index_id[0], index_id[1], index_id[2],
+                                            interleaved, True, index_id[0], index_id[1], index_id[2],
                                             None, reads_fastq_paired_for_vg_ids,
                                             cores=mp_context.config.misc_cores,
                                             memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
@@ -1404,6 +1472,7 @@ def run_portion_worse(job, context, name, compare_id):
 
 def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids,
                 vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
+                reads_fastq_file_ids,
                 fasta_file_id, bwa_index_ids, bam_file_ids,
                 pe_bam_file_ids, true_read_stats_file_id):
     """
@@ -1446,16 +1515,28 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         true_read_stats_file_id = index_job.addChildJobFn(extract_bam_read_stats,
                                                           context, 'truth', reads_bam_file_id, True).rv()
 
-    # Extract our fastq reads so that all aligners get the exact same inputs (todo: accept fastq directly)
+    # Extract our fastq reads so that all aligners get the exact same inputs    
     # todo: should be able to use same reads, interleaved, for both
+    fq_reads_ids_bwa = reads_fastq_file_ids
+    if reads_fastq_file_ids and options.bwa:
+        fq_reads_ids_bwa = index_job.addChildJobFn(run_strip_fq_ext, context, reads_fastq_file_ids,
+                                                   disk=context.config.alignment_disk).rv()
+        
     fastq_fn = run_gam_to_fastq if reads_gam_file_id else run_bam_to_fastq
-    fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids = None, None, None
-    if not options.paired_only:
+    fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids = (
+        reads_fastq_file_ids, fq_reads_ids_bwa, reads_fastq_file_ids)
+    
+    # if we got two input fastqs, merge them together for single end
+    if len(fq_reads_ids) == 2 and not options.paired_only:
+        fq_reads_ids = [index_job.addChildJobFn(run_concat_fastqs, context, fq_reads_ids,
+                                               disk=context.config.alignment_disk).rv()]
+        
+    if not options.paired_only and not fq_reads_ids:
         fq_reads_ids = index_job.addChildJobFn(fastq_fn, context,
                                                reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
                                                False,
                                                disk=context.config.alignment_disk).rv()
-    if not options.single_only:
+    if not options.single_only and not fq_paired_reads_ids:
         fq_paired_reads_ids  = index_job.addChildJobFn(fastq_fn, context,
                                                        reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
                                                        True,
@@ -1623,7 +1704,13 @@ def make_mapeval_plan(toil, options):
     if options.bam_input_reads:
         plan.reads_bam_file_id = toil.importFile(options.bam_input_reads)
     else:
-        plan.reads_bam_file_id = None        
+        plan.reads_bam_file_id = None
+
+    # Import input reads to be realigned        
+    plan.reads_fastq_file_ids = []
+    if options.fastq:
+        for sample_reads in options.fastq:
+            plan.reads_fastq_file_ids.append(toil.importFile(sample_reads))
                                 
     # Input bwa data        
     plan.bam_file_ids = []
@@ -1693,6 +1780,7 @@ def mapeval_main(context, options):
                                      plan.reads_gam_file_id,
                                      plan.reads_xg_file_id,
                                      plan.reads_bam_file_id,
+                                     plan.reads_fastq_file_ids,
                                      plan.fasta_file_id, 
                                      plan.bwa_index_ids, 
                                      plan.bam_file_ids,

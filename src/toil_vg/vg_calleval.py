@@ -140,8 +140,9 @@ def run_bam_index(job, context, bam_file_id, bam_name):
     return out_bam_id, out_idx_id
     
     
-def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id, sample_name, region, offset, freebayes_opts,
-                  out_name):
+def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
+                  sample_name, region, offset, out_name,
+                  freebayes_opts = ['--genotype-qualities']):
     """
     run freebayes to make a vcf
     """
@@ -288,7 +289,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
             fb_job = bam_index_job.addFollowOnJobFn(run_freebayes, context, fasta_id,
                                                     sorted_bam_id, sorted_bam_idx_id, sample_name,
                                                     chrom, vcf_offset,
-                                                    None, out_name = fb_out_name,
+                                                    out_name = fb_out_name,
                                                     cores=context.config.calling_cores,
                                                     memory=context.config.calling_mem,
                                                     disk=context.config.calling_disk)
@@ -298,14 +299,16 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
             if bed_id:
                 eval_clip_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                                            vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                           fasta_id, bed_id, out_name=fb_out_name).rv()
+                                                           fasta_id, bed_id, out_name=fb_out_name,
+                                                           score_field='GQ').rv()
             else:
                 eval_clip_result = None
                 
             eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                                   vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                   fasta_id, None,
-                                                  out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped').rv()
+                                                  out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
+                                                  score_field='GQ').rv()
             
             vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)            
             names.append(fb_out_name)

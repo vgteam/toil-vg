@@ -310,7 +310,7 @@ to do: Should go somewhere more central """
             except OSError as e:
                 # the default message: OSError: [Errno 13] Permission denied is a bit cryptic
                 # so we print something a bit more explicit if a command isn't found
-                if e.errno == 13 and not find_executable(args[i][0]):
+                if e.errno in [2,13] and not find_executable(args[i][0]):
                     raise RuntimeError('Command not found: {}'.format(args[i][0]))
                 else:
                     raise e
