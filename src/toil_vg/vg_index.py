@@ -81,7 +81,12 @@ def index_parse_args(parser):
     parser.add_argument("--vcf_phasing", nargs='+', type=make_url, default=[],
                         help="Import phasing information from VCF(s) into xg or GBWT")
     parser.add_argument("--make_gbwt", action='store_true',
-                        help="Save phasing information to a GBWT instead of to the xg")
+                        help="Save phasing information to a GBWT (instead of GBWT inside XG)")
+    # todo: do we want an option to pass an a GBWT?
+    parser.add_argument("--haplo_pruning", action='store_true',
+                        help="Use GBWT for haplotype pruning for GCSA construction")
+                        
+    
 
 def validate_index_options(options):
     """
@@ -96,6 +101,8 @@ def validate_index_options(options):
                 'input phasing files must end with .vcf.gz')
     if options.make_gbwt:
         require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
+    if options.haplo_pruning:
+        require(options.make_gbwt, '--make_gbwt required for --haplo_pruning')
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
     """
@@ -196,6 +203,7 @@ def run_gcsa_kmers(job, context, graph_name, input_graph_id):
 
 def run_gcsa_prep(job, context, input_graph_ids,
                   graph_names, index_name, chroms,
+                  chrom_xg_ids=None, chrom_gbwt_ids=None,
                   primary_path_override=None):
     """
     Do all the preprocessing for gcsa indexing (pruning and kmers)
@@ -437,58 +445,114 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
-                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, make_gbwt=False):
+                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, make_gbwt=False,
+                 use_gbwt_for_gcsa=False):
     """
     Run indexing logic by itself.
     
-    Return an XG file ID, a pair of GCSA and LCP IDs, an optional GBWT file ID
-    (or None) and an ID for the ID ranges index file.
+    Return an XG file ID, a list of chrom XG IDs, a GBWT ID, a list of chrom GBWT IDs,
+    a GCSA ID, a LCP ID, a GPBWT
+    and an ID for the ID ranges index file. (any of the above can be empty depending on the flags)
     
     """
+    xg_root_job = Job()
+    job.addChild(xg_root_job)
 
-    if not skip_gcsa:
-        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
-                                             graph_names, index_name, chroms,
-                                             cores=context.config.misc_cores,
-                                             memory=context.config.misc_mem,
-                                             disk=context.config.misc_disk).rv()
-    else:
-        gcsa_and_lcp_ids = None
+    make_gpbwt = vcf_phasing_file_ids and not make_gbwt
+    
+    # return a tuple of this:
+    xg_index_id = None
+    chrom_xg_ids = []
+    gbwt_id = None
+    chrom_gbwt_ids = []
+    gcsa_id = None
+    lcp_id = None
+    gpbwt_id = None
+    id_ranges_id = None
+    
     if not skip_xg:
-        if len(vcf_phasing_file_ids) > 1:
-            child_job = job.addChildJobFn(run_concat_vcfs, context,
-                                          vcf_phasing_file_ids, tbi_phasing_file_ids, 
-                                          memory=context.config.xg_index_mem,
-                                          disk=context.config.xg_index_disk)
-            vcf_phasing_file_id = child_job.rv(0)
-            tbi_phasing_file_id = child_job.rv(1)
-        else:
-            child_job = Job()
-            child_job = job.addChild(child_job)
-            vcf_phasing_file_id = vcf_phasing_file_ids[0] if vcf_phasing_file_ids else None
-            tbi_phasing_file_id = tbi_phasing_file_ids[0] if tbi_phasing_file_ids else None
-        xg_index_job = child_job.addFollowOnJobFn(run_xg_indexing, context, inputGraphFileIDs,
-                                                  graph_names, index_name,
-                                                  vcf_phasing_file_id, tbi_phasing_file_id,
-                                                  make_gbwt,
-                                                  cores=context.config.xg_index_cores,
-                                                  memory=context.config.xg_index_mem,
-                                                  disk=context.config.xg_index_disk)
-        xg_and_gbwt_index_ids = (xg_index_job.rv(0), xg_index_job.rv(1))
-        
+        if make_gbwt:
+            # need to make chrosomome xgs and gbwts.  there is annoying redundance in
+            # xg indexing as we'll make a whole-genome xg, but there's no real getting
+            # around it atm (can add options to do one or there other if necessary).
+            if not chroms or len(chroms) == 1:
+                chroms = [index_name]
+            for vcf_id, tbi_id, chrom in zip(vcf_phasing_file_ids, tbi_phasing_file_ids, chroms):
+                xg_chrom_index_job = xg_root_job.addChildJobFn(run_xg_indexing,
+                                                               context, inputGraphFileIDs,
+                                                               graph_names, chrom,
+                                                               vcf_id, tbi_id,
+                                                               make_gbwt,
+                                                               cores=context.config.xg_index_cores,
+                                                               memory=context.config.xg_index_mem,
+                                                               disk=context.config.xg_index_disk)
+                chrom_xg_ids.append(xg_chrom_index_job.rv(0))
+                chrom_gbwt_ids.append(xg_chrom_index_job.rv(1))
+
+            if len(vcf_phasing_file_ids) == 1:
+                gbwt_id = chrom_gbwt_ids[0]
+            else:
+                # todo: optional merge?
+                gbwt_id = xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, chrom_gbwt_ids,
+                                                       cores=context.config.xg_index_cores,
+                                                       memory=context.config.xg_index_mem,
+                                                       disk=context.config.xg_index_disk).rv()
+
+        # now do the whole genome xg (without any gbwt)
+        if len(chrom_xg_ids) == 1 and not make_gpbwt:
+            # our first chromosome is effectively the whole genome (note that above we
+            # detected this and put in index_name so it's saved right (don't care about chrom names))
+            xg_index_id = chrom_xg_ids[0]
+        else:            
+            if make_gpbwt and len(vcf_phasing_file_ids) > 1:
+                concat_job = xg_root_job.addChildJobFn(run_concat_vcfs, context,
+                                                       vcf_phasing_file_ids, tbi_phasing_file_ids,
+                                                       cores=1,
+                                                       memory=context.config.xg_index_mem,
+                                                       disk=context.config.xg_index_disk)
+                vcf_phasing_file_id = concat_job.rv(0)
+                tbi_phasing_file_id = concat_job.rv(1)
+            else:
+                concat_job = Job()
+                xg_root_job.addChild(concat_job)
+                vcf_phasing_file_id = None if not vcf_phasing_file_ids else vcf_phasing_file_ids[0]
+                tbi_phasing_file_id = None if not tbi_phasing_file_ids else tbi_phasing_file_ids[0]
+                
+            xg_index_job = concat_job.addChildJobFn(run_xg_indexing,
+                                                    context, inputGraphFileIDs,
+                                                    graph_names, index_name,
+                                                    vcf_phasing_file_id, tbi_phasing_file_id,
+                                                    make_gbwt=False,
+                                                    cores=context.config.xg_index_cores,
+                                                    memory=context.config.xg_index_mem,
+                                                    disk=context.config.xg_index_disk)
+            xg_index_id = xg_index_job.rv(0)
+
+    # the use_gbwt_for_gcsa flag determines if gcsa is a follow-on from xg
+    gcsa_root_job = Job()
+    if use_gbwt_for_gcsa:
+        xg_root_job.addFollowOn(gcsa_root_job)
     else:
-        xg_and_gbwt_index_ids = (None, None)
-        
+        job.addChild(gcsa_root_job)
+    
+    if not skip_gcsa:
+        gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
+                                               graph_names, index_name, chroms, chrom_xg_ids,
+                                               chrom_gbwt_ids,
+                                               cores=context.config.misc_cores,
+                                               memory=context.config.misc_mem,
+                                               disk=context.config.misc_disk)
+        gcsa_id = gcsa_job.rv(0)
+        lcp_id = gcsa_job.rv(1)
+    
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
         id_ranges_id = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
                                          graph_names, index_name, chroms,
                                          cores=context.config.misc_cores,
                                          memory=context.config.misc_mem,
                                          disk=context.config.misc_disk).rv()
-    else:
-        id_ranges_id = None
 
-    return xg_and_gbwt_index_ids[0], gcsa_and_lcp_ids, xg_and_gbwt_index_ids[1], id_ranges_id
+    return xg_index_id, chrom_xg_ids, gbwt_id, chrom_gbwt_ids, gcsa_id, lcp_id, id_ranges_id
 
 
 def index_main(context, options):
@@ -533,6 +597,7 @@ def index_main(context, options):
                                      inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
                                      options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
                                      options.make_gbwt,
+                                     options.haplo_pruning,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
