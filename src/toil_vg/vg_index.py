@@ -359,7 +359,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         logging.error("XG indexing failed. Dumping files.")
 
         for graph_filename in graph_filenames:
-            context.write_output_file(job, graph_filename)
+            context.write_output_file(job, os.path.join(work_dir, graph_filename))
         if vcf_phasing_file_id:
             context.write_output_file(job, phasing_file)
             context.write_output_file(job, phasing_file + '.tbi')
