@@ -166,10 +166,9 @@ freebayes-docker: 'maxulysse/freebayes:1.2.5'
 # Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
 index-name: 'genome'
 
-# Options to pass to vg mod for pruning phase.
-# The primary path(s) will always be added back onto the pruned grpah
-# Phase skipped if empty.  If list of lists, mod commands will be chained together
-prune-opts: [['-D'], ['-p', '-l', '16', '-S', '-e', '5'], ['-S', '-l', '32']]
+# Options to pass to vg prune.
+# (limit to general parameters, currently -k, -e, s.  Rest decided by toil-vg via other options)
+prune-opts: []
 
 # Options to pass to vg kmers.
 kmers-opts: ['-g', '-B', '-k', '16']
@@ -388,10 +387,9 @@ freebayes-docker: 'maxulysse/freebayes:1.2.5'
 # Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
 index-name: 'genome'
 
-# Options to pass to vg mod for pruning phase.
-# The primary path(s) will always be added back onto the pruned grpah
-# Phase skipped if empty.  If list of lists, mod commands will be chained together
-prune-opts: [['-D'], ['-p', '-l', '16', '-S', '-e', '4'], ['-S', '-l', '32']]
+# Options to pass to vg prune.
+# (limit to general parameters, currently -k, -e, s.  Rest decided by toil-vg via other options)
+prune-opts: []
 
 # Options to pass to vg kmers.
 kmers-opts: ['-g', '-B', '-k', '16']
@@ -480,7 +478,7 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'kmers_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts']:
+                   'bwa_opts', 'kmers_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
 

@@ -712,7 +712,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
     if vg_file_ids:
         for vg_file_id in vg_file_ids:
             index_job = job.addChildJobFn(run_indexing, context, [vg_file_id], ['default.vg'],
-                                          'index', 'default', 
+                                          'index', ['default'], 
                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
                                           disk=context.config.misc_disk)
             index_ids.append((index_job.rv(0), (index_job.rv(4), index_job.rv(5)),

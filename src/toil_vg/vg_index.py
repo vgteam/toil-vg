@@ -102,69 +102,10 @@ def validate_index_options(options):
     if options.haplo_pruning:
         require(options.make_gbwt, '--make_gbwt required for --haplo_pruning')
     
-def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
+def run_gcsa_prune(job, context, graph_name, input_graph_id, xg_id, gbwt_id, mapping_id,
+                   unfold):
     """
-    Make the pruned graph, return its id
-    Retains the specified primary paths.
-    """
-    RealtimeLogger.info("Starting graph-pruning for gcsa kmers...")
-    start_time = timeit.default_timer()
-
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Place where we put pruned vg
-    to_index_filename = None
-    
-    if len(context.config.prune_opts) > 0:
-
-        # Make sure we are dealing with list of lists
-        if not isinstance(context.config.prune_opts[0], list):
-            context.config.prune_opts = [context.config.prune_opts]
-        assert all([isinstance(x, list) for x in  context.config.prune_opts])
-
-        # Download input graph
-        graph_filename = os.path.join(work_dir, graph_name)
-        job.fileStore.readGlobalFile(input_graph_id, graph_filename)
-
-        to_index_filename = os.path.join(work_dir, "pruned_{}".format(graph_name))
-        with open(to_index_filename, "w") as to_index_file:
-            command = [['vg', 'mod', os.path.basename(graph_filename), '-t',
-                        str(max(1, job.cores / len(context.config.prune_opts)))] +
-                       context.config.prune_opts[0]]
-            
-            # tack on subsequent vg mod commands if specified
-            for po in context.config.prune_opts[1:]:
-                command.append(['vg', 'mod', '-', '-t', 
-                                str(max(1, job.cores / len(context.config.prune_opts)))] + po)
-                               
-            context.runner.call(job, command, work_dir=work_dir, outfile=to_index_file)
-            
-            # Then append in the primary path.
-            command = ['vg', 'mod', '-N']
-            for primary_path in primary_paths:
-                # Send along all the primary paths
-                command.append('-r')
-                command.append(primary_path)
-            command += ['-t', str(job.cores), os.path.basename(graph_filename)]
-            context.runner.call(job, command, work_dir=work_dir, outfile=to_index_file)
-
-    end_time = timeit.default_timer()
-    run_time = end_time - start_time
-    RealtimeLogger.info("Finished pruning. Process took {} seconds.".format(run_time))
-
-    if to_index_filename is None:
-        # no pruning done: just pass along the input graph as is
-        pruned_graph_id = input_graph_id
-    else:
-        pruned_graph_id = context.write_intermediate_file(job, to_index_filename)
-
-    return pruned_graph_id
-
-def run_gcsa_prune_gbwt(job, context, graph_name, input_graph_id, xg_id, gbwt_id, mapping_id):
-    """
-    Make the pruned graph using gbwt and vg prune and return (pruned_graph_id, mapping_id)
-    (Can be used even if gbwt_id is None)
+    Make a pruned graph using vg prune.  If unfold_mapping_id is provided, use -u, else -r
     """
     RealtimeLogger.info("Starting GBWT graph-pruning for gcsa kmers...")
     start_time = timeit.default_timer()
@@ -190,19 +131,14 @@ def run_gcsa_prune_gbwt(job, context, graph_name, input_graph_id, xg_id, gbwt_id
     if mapping_id:
         job.fileStore.readGlobalFile(mapping_id, mapping_filename, mutable=True)
 
-    # (from https://github.com/jltsiren/gcsa2/wiki/New-Construction-Benchmarks)
-    # first pruning step (default edge max restoring paths) TODO: parameterize
-    cmd = ['vg', 'prune', '-r', '-x', os.path.basename(xg_filename),
-           '-p', os.path.basename(graph_filename), '-t', str(job.cores)]
-    with open(restored_filename, 'w') as restored_file:
-        context.runner.call(job, cmd, work_dir=work_dir, outfile=restored_file)
-
-    # second pruning step (remove unobserved recombinations using gbwt)
-    cmd = ['vg', 'prune', '-u', '-x', os.path.basename(xg_filename),
-           '-a',
-           '-m', os.path.basename(mapping_filename),
-           '-p', os.path.basename(graph_filename),
-           '-t', str(job.cores)]
+    cmd = ['vg', 'prune', '-x', os.path.basename(xg_filename),
+           os.path.basename(graph_filename), '-t', str(job.cores)]
+    if context.config.prune_opts:
+        cmd += context.config.prune_opts
+    if unfold:
+        cmd += ['-a', '-m', os.path.basename(mapping_filename), '-u']
+    else:
+        cmd += ['-r']
     if gbwt_id:
         cmd += ['-g', os.path.basename(gbwt_filename)]
     with open(pruned_filename, 'w') as pruned_file:
@@ -213,7 +149,10 @@ def run_gcsa_prune_gbwt(job, context, graph_name, input_graph_id, xg_id, gbwt_id
     RealtimeLogger.info("Finished GBWT pruning. Process took {} seconds.".format(run_time))
 
     pruned_graph_id = context.write_intermediate_file(job, pruned_filename)
-    mapping_id = context.write_intermediate_file(job, mapping_filename)
+    if unfold:
+        mapping_id = context.write_intermediate_file(job, mapping_filename)
+    else:
+        mapping_id = None
 
     return pruned_graph_id, mapping_id
 
@@ -254,19 +193,17 @@ def run_gcsa_kmers(job, context, graph_name, input_graph_id):
 
 def run_gcsa_prep(job, context, input_graph_ids,
                   graph_names, index_name, chroms,
-                  chrom_xg_ids=None, chrom_gbwt_ids=None,
-                  primary_path_override=None):
+                  chrom_xg_ids, chrom_gbwt_ids):
     """
     Do all the preprocessing for gcsa indexing (pruning and kmers)
     Then launch the indexing as follow-on
     """    
     RealtimeLogger.info("Starting gcsa preprocessing...")
     start_time = timeit.default_timer()
+    assert len(chrom_xg_ids) == len(input_graph_ids)    
     if chrom_gbwt_ids:
         assert len(chrom_gbwt_ids) == len(chrom_xg_ids)
         assert len(chrom_gbwt_ids) <= len(input_graph_ids)
-    if chrom_xg_ids:
-        assert len(chrom_xg_ids) == len(input_graph_ids)
 
     kmers_ids = []
 
@@ -278,45 +215,28 @@ def run_gcsa_prep(job, context, input_graph_ids,
 
     # keep these in lists for now just in case
     prune_jobs = []
+    # todo: figure out how best to update file with toil without making copies
     mapping_ids = []
 
-    # prune then do kmers of each input graph.  note that new interface pruning needs to be
-    # done sequentially
+    # toggle unfolding versus restoring in pruning here (todo: do we want to make more explicit to user?)
+    prune_unfold = chrom_gbwt_ids and any(chrom_gbwt_ids)
+
+    # prune then do kmers of each input graph.
     for graph_i, input_graph_id in enumerate(input_graph_ids):
-        # toggle new interface with chrom_xg_ids
-        if chrom_xg_ids:
-            # Do the new GBWT-based pruning
-            gbwt_id = chrom_gbwt_ids[graph_i] if chrom_gbwt_ids else None
-            xg_id = chrom_xg_ids[graph_i]
-            prev_job = prune_jobs[-1] if prune_jobs else prune_root_job
-            mapping_id = mapping_ids[-1] if mapping_ids else None
-            prune_job = prev_job.addFollowOnJobFn(run_gcsa_prune_gbwt, context, graph_names[graph_i],
-                                                  input_graph_id, xg_id, gbwt_id, mapping_id,
-                                                  cores=context.config.prune_cores,
-                                                  memory=context.config.prune_mem,
-                                                  disk=context.config.prune_disk)
-            prune_id = prune_job.rv(0)
+        xg_id = chrom_xg_ids[graph_i]        
+        gbwt_id = chrom_gbwt_ids[graph_i] if chrom_gbwt_ids else None
+        mapping_id = mapping_ids[-1] if mapping_ids else None        
+        prev_job = prune_jobs[-1] if prune_jobs else prune_root_job
+        prune_job = prev_job.addFollowOnJobFn(run_gcsa_prune, context, graph_names[graph_i],
+                                              input_graph_id, xg_id, gbwt_id, mapping_id, prune_unfold,
+                                              cores=context.config.prune_cores,
+                                              memory=context.config.prune_mem,
+                                              disk=context.config.prune_disk)
+        prune_id = prune_job.rv(0)
+        # toggle between parallele/sequential based on if we're unfolding or now
+        if prune_unfold:
             prune_jobs.append(prune_job)
             mapping_ids.append(prune_job.rv(1))
-
-        else:
-            # Determine the primary path list to use
-            if primary_path_override is not None:
-                primary_paths = primary_path_override
-            elif len(input_graph_ids) == len(chroms):
-                primary_paths = [chroms[graph_i]]
-            else:
-                assert len(input_graph_ids) == 1
-                primary_paths = chroms
-
-            # Do the old mod-based pruning where we keep a path
-            # TODO: Can we try to use vg prune here too?
-            prune_job = prune_root_job.addChildJobFn(run_gcsa_prune, context, graph_names[graph_i],
-                                                     input_graph_id, primary_paths=primary_paths,
-                                                     cores=context.config.prune_cores,
-                                                     memory=context.config.prune_mem,
-                                                     disk=context.config.prune_disk)
-            prune_id = prune_job.rv()
 
         # Compute the kmers as a follow-on to prune
         kmers_id = prune_job.addFollowOnJobFn(run_gcsa_kmers, context, graph_names[graph_i],
@@ -552,6 +472,8 @@ def run_indexing(job, context, inputGraphFileIDs,
     """
     xg_root_job = Job()
     job.addChild(xg_root_job)
+    chrom_xg_root_job = Job()
+    job.addChild(chrom_xg_root_job)
 
     make_gpbwt = vcf_phasing_file_ids and not make_gbwt
     
@@ -565,35 +487,36 @@ def run_indexing(job, context, inputGraphFileIDs,
     gpbwt_id = None
     id_ranges_id = None
     
-    if not skip_xg:
-        if make_gbwt:
-            # need to make chrosomome xgs and gbwts.  there is annoying redundance in
-            # xg indexing as we'll make a whole-genome xg, but there's no real getting
-            # around it atm (can add options to do one or there other if necessary).
+    if not skip_xg or not skip_gcsa:
+        if not skip_gcsa or make_gbwt:
+            # In its current state, vg prune requires chromosomal xgs, so we must make
+            # these xgs if we're doing any kind of gcsa indexing.  Also, if we're making
+            # a gbwt, we do that at the same time (merging later if more than one graph)
             if not chroms or len(chroms) == 1:
                 chroms = [index_name]
             for i, chrom in enumerate(chroms):
                 vcf_id = vcf_phasing_file_ids[i] if i < len(vcf_phasing_file_ids) else None
                 tbi_id = tbi_phasing_file_ids[i] if i < len(tbi_phasing_file_ids) else None
-                xg_chrom_index_job = xg_root_job.addChildJobFn(run_xg_indexing,
-                                                               context, [inputGraphFileIDs[i]],
-                                                               [graph_names[i]], chrom,
-                                                               vcf_id, tbi_id,
-                                                               make_gbwt = vcf_id is not None,
-                                                               cores=context.config.xg_index_cores,
-                                                               memory=context.config.xg_index_mem,
-                                                               disk=context.config.xg_index_disk)
+                RealtimeLogger.info("I= {} IDS={} CHROMS={}".format(i, inputGraphFileIDs, chroms))
+                xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_xg_indexing,
+                                                                     context, [inputGraphFileIDs[i]],
+                                                                     [graph_names[i]], chrom,
+                                                                     vcf_id, tbi_id,
+                                                                     make_gbwt = make_gbwt,
+                                                                     cores=context.config.xg_index_cores,
+                                                                     memory=context.config.xg_index_mem,
+                                                                     disk=context.config.xg_index_disk)
                 chrom_xg_ids.append(xg_chrom_index_job.rv(0))
                 chrom_gbwt_ids.append(xg_chrom_index_job.rv(1))
 
             if len(vcf_phasing_file_ids) == 1:
                 gbwt_id = chrom_gbwt_ids[0]
-            else:
+            elif len(vcf_phasing_file_ids) > 1:
                 # todo: optional merge?
-                gbwt_id = xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, chrom_gbwt_ids,
-                                                       cores=context.config.xg_index_cores,
-                                                       memory=context.config.xg_index_mem,
-                                                       disk=context.config.xg_index_disk).rv()
+                gbwt_id = chrom_xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, chrom_gbwt_ids,
+                                                             cores=context.config.xg_index_cores,
+                                                             memory=context.config.xg_index_mem,
+                                                             disk=context.config.xg_index_disk).rv()
 
         # now do the whole genome xg (without any gbwt)
         if len(chrom_xg_ids) == 1 and not make_gpbwt:
@@ -612,8 +535,8 @@ def run_indexing(job, context, inputGraphFileIDs,
             else:
                 concat_job = Job()
                 xg_root_job.addChild(concat_job)
-                vcf_phasing_file_id = None if not vcf_phasing_file_ids else vcf_phasing_file_ids[0]
-                tbi_phasing_file_id = None if not tbi_phasing_file_ids else tbi_phasing_file_ids[0]
+                vcf_phasing_file_id = None
+                tbi_phasing_file_id = None
                 
             xg_index_job = concat_job.addChildJobFn(run_xg_indexing,
                                                     context, inputGraphFileIDs,
@@ -625,12 +548,9 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                     disk=context.config.xg_index_disk)
             xg_index_id = xg_index_job.rv(0)
 
-    # the haplo_pruning flag determines if gcsa is a follow-on from xg
+    # gcsa follow from chrom_xg jobs
     gcsa_root_job = Job()
-    if haplo_pruning:
-        xg_root_job.addFollowOn(gcsa_root_job)
-    else:
-        job.addChild(gcsa_root_job)
+    chrom_xg_root_job.addFollowOn(gcsa_root_job)
     
     if not skip_gcsa:
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
