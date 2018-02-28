@@ -99,6 +99,8 @@ def validate_index_options(options):
                 'input phasing files must end with .vcf.gz')
     if options.make_gbwt:
         require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
+    if options.haplo_pruning:
+        require(options.make_gbwt, '--make_gbwt required for --haplo_pruning')
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, primary_paths=[]):
     """
@@ -570,12 +572,14 @@ def run_indexing(job, context, inputGraphFileIDs,
             # around it atm (can add options to do one or there other if necessary).
             if not chroms or len(chroms) == 1:
                 chroms = [index_name]
-            for vcf_id, tbi_id, chrom in zip(vcf_phasing_file_ids, tbi_phasing_file_ids, chroms):
+            for i, chrom in enumerate(chroms):
+                vcf_id = vcf_phasing_file_ids[i] if i < len(vcf_phasing_file_ids) else None
+                tbi_id = tbi_phasing_file_ids[i] if i < len(tbi_phasing_file_ids) else None
                 xg_chrom_index_job = xg_root_job.addChildJobFn(run_xg_indexing,
-                                                               context, inputGraphFileIDs,
-                                                               graph_names, chrom,
+                                                               context, [inputGraphFileIDs[i]],
+                                                               [graph_names[i]], chrom,
                                                                vcf_id, tbi_id,
-                                                               make_gbwt,
+                                                               make_gbwt = vcf_id is not None,
                                                                cores=context.config.xg_index_cores,
                                                                memory=context.config.xg_index_mem,
                                                                disk=context.config.xg_index_disk)
