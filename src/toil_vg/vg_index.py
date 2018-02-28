@@ -403,7 +403,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name)
         graph_filenames.append(os.path.basename(graph_filename))
 
     # Where do we put the snarls?
-    snarl_filename = "{}.snarls".format(index_name)
+    snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name))
 
     # Now run the indexer.
     RealtimeLogger.info("Computing Snarls for {}".format(str(graph_filenames)))
@@ -414,7 +414,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name)
         context.runner.call(job, pipeline, work_dir=work_dir, outfile=snarl_file)
 
     # Checkpoint index to output store
-    snarl_file_id = context.write_output_file(job, os.path.join(work_dir, snarl_filename))
+    snarl_file_id = context.write_output_file(job, snarl_filename)
     
     end_time = timeit.default_timer()
     run_time = end_time - start_time
