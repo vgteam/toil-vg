@@ -358,7 +358,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
         phasing_opts = ['-v', os.path.basename(phasing_file)]
         
-        if make_gbwt:
+        if make_gbwt and vcf_phasing_file_id:
             # Write the haplotype index to its own file
             phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
     else:
@@ -379,7 +379,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     xg_file_id = context.write_output_file(job, os.path.join(work_dir, xg_filename))
     
     gbwt_file_id = None
-    if make_gbwt:
+    if make_gbwt and vcf_phasing_file_id:
         # Also save the GBWT if it was generated
         gbwt_file_id = context.write_output_file(job, gbwt_filename)
 
@@ -447,7 +447,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
     """
     work_dir = job.fileStore.getLocalTempDir()
 
-    # Where do we put the XG index?
+    # Where do we put the id ranges tsv?
     id_range_filename = os.path.join(work_dir, '{}_id_ranges.tsv'.format(index_name))
 
     with open(id_range_filename, 'w') as f:
@@ -456,6 +456,30 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 
     # Checkpoint index to output store
     return context.write_output_file(job, id_range_filename)
+
+def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
+    """ merge up some gbwts
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    gbwt_chrom_filenames = []
+
+    for i, gbwt_id in enumerate(chrom_gbwt_ids):
+        if gbwt_id:
+            gbwt_filename = os.path.join(work_dir, '{}.gbwt'.format(i))
+            job.fileStore.readGlobalFile(gbwt_id, gbwt_filename)
+            gbwt_chrom_filenames.append(gbwt_filename)
+
+    if len(gbwt_chrom_filenames) == 0:
+        return None
+    elif len(gbwt_chrom_filenames) == 1:
+        return context.write_output_file(job, gbwt_chrom_filenames[0],
+                                         out_store_path = index_name + '.gbwt')
+    else:
+        cmd = ['vg', 'gbwt', '--merge', '-f', '-o', index_name]
+        cmd += [os.path.basename(f) for f in gbwt_chrom_filenames]
+        context.runner.call(job, cmd, work_dir=work_dir)
+        return context.write_output_file(job, os.path.join(work_dir, index_name + '.gbwt'))
 
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
@@ -509,11 +533,9 @@ def run_indexing(job, context, inputGraphFileIDs,
                 chrom_xg_ids.append(xg_chrom_index_job.rv(0))
                 chrom_gbwt_ids.append(xg_chrom_index_job.rv(1))
 
-            if len(vcf_phasing_file_ids) == 1:
-                gbwt_id = chrom_gbwt_ids[0]
-            elif len(vcf_phasing_file_ids) > 1:
-                # todo: optional merge?
+            if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
                 gbwt_id = chrom_xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, chrom_gbwt_ids,
+                                                             index_name,
                                                              cores=context.config.xg_index_cores,
                                                              memory=context.config.xg_index_mem,
                                                              disk=context.config.xg_index_disk).rv()
