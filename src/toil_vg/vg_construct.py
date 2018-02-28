@@ -318,9 +318,10 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
 
     
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
-                      max_node_size, alt_paths, flat_alts, regions, merge_graphs,
-                      sort_ids, join_ids, gcsa_index, xg_index, gbwt_index, snarls_index, haplo_sample = None,
-                      haplotypes = [0,1]):
+                      max_node_size, alt_paths, flat_alts, regions,
+                      merge_graphs = False, sort_ids = False, join_ids = False,
+                      gcsa_index = False, xg_index = False, gbwt_index = False, snarls_index = False,
+                      haplo_sample = None, haplotypes = [0,1]):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -404,6 +405,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             gbwt_id = None
 
         if gpbwt:
+            assert(haplo_sample is not None)
             haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context,
                                                        [vcf_phasing_file_id], [tbi_phasing_file_id],
                                                        vcf_names, vg_ids, vg_names, output_name_base, regions,
@@ -673,6 +675,8 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
     chromosome name to get the threads
     """
 
+    assert(sample is not None)
+
     # ith element will be a list of graphs (1 list / region) for haplotype i
     thread_vg_ids = []
     for h in haplotypes:
@@ -730,6 +734,9 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
     thread_vg_ids = []
 
     for hap in haplotypes:
+        
+        # This can't work if the sample is None and we want any haplotypes
+        assert(sample is not None)
 
         try:
 
@@ -861,8 +868,13 @@ def construct_main(context, options):
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
-                                     options.flat_alts, regions, options.merge_graphs,
-                                     True, True, options.gcsa_index, options.xg_index, options.gbwt_index, options.haplo_sample)
+                                     options.flat_alts, regions,
+                                     merge_graphs = options.merge_graphs,
+                                     sort_ids = True, join_ids = True,
+                                     gcsa_index = options.gcsa_index, xg_index = options.xg_index,
+                                     gbwt_index = options.gbwt_index, snarls_index = options.snarls_index,
+                                     haplo_sample = options.haplo_sample)
+                                     
             
             # Run the workflow
             toil.start(init_job)
