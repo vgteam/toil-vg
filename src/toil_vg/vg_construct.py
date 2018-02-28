@@ -12,6 +12,7 @@ import urlparse
 import getpass
 import pdb
 import logging
+import os
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -684,6 +685,8 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
     # returning nonsense
     assert len(vg_ids) == len(regions)
     assert len(vcf_ids) == 1 or len(vcf_ids) == len(regions)
+    
+    logger.info('Making haplo graphs for chromosomes {}'.format(chroms))
 
     for i, (vg_id, vg_name, region) in enumerate(zip(vg_ids, vg_names, chroms)):
         vcf_name = vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
@@ -728,31 +731,52 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
 
     for hap in haplotypes:
 
-        tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
-        thread_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
-        with open(thread_path, 'w') as thread_file:
-            # strip paths from our original graph            
-            cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+        try:
 
-            # get haplotype thread paths from the gpbwt
-            cmd = ['vg', 'find', '-x', os.path.basename(xg_path)]
-            for chrom in chroms:
-                cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+            tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
+            thread_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
+            logger.info('Creating thread graph {}'.format(thread_path))
+            with open(thread_path, 'w') as thread_file:
+                # strip paths from our original graph            
+                cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
 
-        thread_path_trim = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
-        with open(thread_path_trim, 'w') as thread_file:
-            # Then we trim out anything other than our thread path
-            cmd = [['vg', 'mod', '-N', os.path.basename(thread_path)]]
-            # And get rid of our thread paths since they take up lots of space when re-indexing
-            filter_cmd = ['vg', 'mod', '-']
-            for chrom in chroms:
-                filter_cmd += ['-r', chrom]
-            cmd.append(filter_cmd)
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+                # get haplotype thread paths from the gpbwt
+                cmd = ['vg', 'find', '-x', os.path.basename(xg_path)]
+                for chrom in chroms:
+                    cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+                
+            # Make sure we didn't get a suspiciously tiny file
+            assert(os.path.getsize(thread_path) > 1000)
 
-        thread_vg_ids.append(context.write_output_file(job, thread_path_trim))
+            thread_path_trim = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
+            logger.info('Creating trimmed thread graph {}'.format(thread_path_trim))
+            with open(thread_path_trim, 'w') as thread_file:
+                # Then we trim out anything other than our thread path
+                cmd = [['vg', 'mod', '-N', os.path.basename(thread_path)]]
+                # And get rid of our thread paths since they take up lots of space when re-indexing
+                filter_cmd = ['vg', 'mod', '-']
+                for chrom in chroms:
+                    filter_cmd += ['-r', chrom]
+                cmd.append(filter_cmd)
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+
+            thread_vg_ids.append(context.write_output_file(job, thread_path_trim))
+            
+            # Make sure we didn't get a suspiciously tiny file
+            assert(os.path.getsize(thread_path_trim) > 1000)
+            
+        except:
+            # Dump everything we need to replicate the thread extraction
+            logging.error("Thread extraction failed. Dumping files.")
+
+            context.write_output_file(job, vg_path)
+            context.write_output_file(job, xg_path)
+            
+            raise
+
+    logger.info('Got {} thread file IDs'.format(len(thread_vg_ids)))
 
     return thread_vg_ids
 
