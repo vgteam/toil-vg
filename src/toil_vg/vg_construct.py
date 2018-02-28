@@ -72,7 +72,7 @@ def construct_subparser(parser):
                         help="Make an xg index for each output graph")
     parser.add_argument("--gbwt_index", action="store_true",
                         help="Make a GBWT index alongside the xg index for each output graph")
-    parser.add_argument("--snarl_index", action="store_true",
+    parser.add_argument("--snarls_index", action="store_true",
                         help="Make an snarls file for each output graph")
     parser.add_argument("--haplo_sample", type=str,
                         help="Make haplotype thread graphs (for simulating from) for this sample")
