@@ -205,7 +205,17 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                                   cores=context.config.misc_cores, memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
                                   
-    indexes = index_job.rv()
+    # Indexes is a promise for a dict, but we need to fill in some fields if
+    # they will come out as None. This would be super easy with nice thenable
+    # promises but we don't have those so we shall hack around it.
+
+    indexes = {}
+
+    indexes['xg'] = inputXGFileID if skip_xg else index_job.rv('xg')
+    indexes['gcsa'] = inputGCSAFileID if skip_gcsa else index_job.rv('gcsa')
+    indexes['lcp'] = inputLCPFileID if skip_gcsa else index_job.rv('lcp')
+    indexes['gbwt'] = inputGBWTFileID if inputGBWTFileID else index_job.rv('gbwt')
+    indexes['id_ranges'] = inputIDRangesFileID if skip_ranges else index_job.rv('id_ranges')
 
     if not options.single_reads_chunk:
         fastq_chunk_ids = job.addChildJobFn(run_split_reads, context, options.fastq,
