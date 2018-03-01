@@ -716,9 +716,6 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                     cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
                 
-            # Make sure we didn't get a suspiciously tiny file
-            assert(os.path.getsize(thread_path) > 1000)
-
             thread_path_trim = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
             logger.info('Creating trimmed thread graph {}'.format(thread_path_trim))
             with open(thread_path_trim, 'w') as thread_file:
@@ -732,9 +729,6 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
 
             thread_vg_ids.append(context.write_output_file(job, thread_path_trim))
-            
-            # Make sure we didn't get a suspiciously tiny file
-            assert(os.path.getsize(thread_path_trim) > 1000)
             
         except:
             # Dump everything we need to replicate the thread extraction
