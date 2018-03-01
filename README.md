@@ -22,7 +22,8 @@ Installation requires Python and Toil.  We recommend installing within virtualen
 
     virtualenv toilvenv
     source toilvenv/bin/activate
-    pip install -I -U toil[aws,mesos] toil-vg
+    pip install toil[aws,mesos]==3.13.0
+    pip install --pre toil-vg
 
 ### Docker
 

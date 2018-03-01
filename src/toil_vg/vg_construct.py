@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_gcsa_prep, run_snarl_indexing, run_concat_vcfs
+from toil_vg.vg_index import run_xg_indexing, run_indexing
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -325,6 +325,10 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
+    
+    Returns a list of tuples of the form (vg_ids, vg_names, indexes), where
+    indexes is the index dict from index type to file ID.
+    
     """
 
     output = []
@@ -335,79 +339,46 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         gpbwt = name == 'haplo'
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
-                                          max_node_size, gpbwt or alt_paths, flat_alts, regions,
+                                          max_node_size, gbwt_index or gpbwt or alt_paths,
+                                          flat_alts, regions,
                                           region_names, sort_ids, join_ids, merge_output_name)
 
         vg_ids = construct_job.rv()
         vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
 
         vg_names = [remove_ext(i, '.vg') + '.vg' for i in vg_names]
-        if gcsa_index and not gpbwt:
-            if not regions:
-                paths = []
-            else:
-                paths = [p.split(':')[0] for p in regions]
-            gcsa_job = construct_job.addFollowOnJobFn(run_gcsa_prep, context, vg_ids,
-                                                      vg_names, output_name_base, paths)
-            gcsa_id = gcsa_job.rv(0)
-            lcp_id = gcsa_job.rv(1)
-        else:
-            gcsa_id = None
-            lcp_id = None
 
-        if (gpbwt or gbwt_index) and len(vcf_ids) > 1:
-            # strip nones out of vcf list
-            input_vcf_ids = []
-            input_tbi_ids = []
+        if not regions:
+            chroms = []
+        else:
+            chroms = [p.split(':')[0] for p in regions]
+
+        # strip nones out of vcf list            
+        input_vcf_ids = []
+        input_tbi_ids = []
+        if gpbwt or gbwt_index:
             for vcf_id, tbi_id in zip(vcf_ids, tbi_ids):
                 if vcf_id and tbi_id:
                     input_vcf_ids.append(vcf_id)
                     input_tbi_ids.append(tbi_id)
                 else:
                     assert vcf_id == None and tbi_id == None
-            concat_job = construct_job.addChildJobFn(run_concat_vcfs, context,
-                                                     input_vcf_ids, input_tbi_ids,
-                                                     cores=context.config.xg_index_cores,
-                                                     memory=context.config.xg_index_mem,
-                                                     disk=context.config.xg_index_disk)
-            vcf_phasing_file_id = concat_job.rv(0)
-            tbi_phasing_file_id = concat_job.rv(1)
-        else:
-            vcf_phasing_file_id = vcf_ids[0] if len(vcf_ids) == 1 else None
-            tbi_phasing_file_id = tbi_ids[0] if len(tbi_ids) == 1 else None
-            
-        if xg_index:
-            if gbwt_index and len(vcf_ids) >= 1:
-                # Build with the GBWT.
-                # Some graphs (like primary) end up with no VCF and thus shouldn't get a GBWT
-                assert len(vcf_ids) == len(tbi_ids)                    
-                xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
-                                                        vg_names, output_name_base,
-                                                        vcf_phasing_file_id = vcf_phasing_file_id,
-                                                        tbi_phasing_file_id = tbi_phasing_file_id,
-                                                        make_gbwt = True,
-                                                        cores=context.config.xg_index_cores,
-                                                        memory=context.config.xg_index_mem,
-                                                        disk=context.config.xg_index_disk)
-                xg_id = xg_job.rv(0)
-                gbwt_id = xg_job.rv(1)
-            else:
-                # Build without the GBWT
-                xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context, vg_ids,
-                                                        vg_names, output_name_base,
-                                                        cores=context.config.xg_index_cores,
-                                                        memory=context.config.xg_index_mem,
-                                                        disk=context.config.xg_index_disk)
-                xg_id = xg_job.rv(0)
-                gbwt_id = None
-        else:
-            xg_id = None
-            gbwt_id = None
+        
+        indexing_job = construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
+                                                      vg_names, output_name_base, chroms,
+                                                      input_vcf_ids, input_tbi_ids,
+                                                      skip_xg=not xg_index, skip_gcsa=not gcsa_index,
+                                                      skip_id_ranges=True, skip_snarls=not snarls_index,
+                                                      make_gbwt=gbwt_index, haplo_pruning=False)
+        gcsa_id = indexing_job.rv('gcsa')
+        lcp_id = indexing_job.rv('lcp')
+        xg_id = indexing_job.rv('xg')
+        gbwt_id = indexing_job.rv('gbwt')
 
         if gpbwt:
             assert(haplo_sample is not None)
             haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context,
-                                                       [vcf_phasing_file_id], [tbi_phasing_file_id],
+                                                       input_vcf_ids, input_tbi_ids,
                                                        vcf_names, vg_ids, vg_names, output_name_base, regions,
                                                        haplo_sample, haplotypes)
 
@@ -419,19 +390,12 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                           cores=context.config.xg_index_cores,
                                                           memory=context.config.xg_index_mem,
                                                           disk=context.config.xg_index_disk)
+                                                          
+                # TODO: file IDs are not exposed to caller
     
-        if snarls_index:
-            snarls_job = construct_job.addFollowOnJobFn(run_snarl_indexing, context, vg_ids,
-                                                        vg_names, output_name_base,
-                                                        cores=context.config.misc_cores,
-                                                        memory=context.config.misc_mem,
-                                                        disk=context.config.misc_disk)
-            snarls_id = snarls_job.rv()
-        else:
-            snarls_id = None
     
 
-        output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id, gbwt_id, snarls_id))
+        output.append((vg_ids, vg_names, indexes))
     return output
                 
 
@@ -689,9 +653,10 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
     # returning nonsense
     assert len(vg_ids) == len(regions)
     assert len(vcf_ids) == 1 or len(vcf_ids) == len(regions)
+    assert len(tbi_ids) == len(vcf_ids)
     
     logger.info('Making haplo graphs for chromosomes {}'.format(chroms))
-
+    
     for i, (vg_id, vg_name, region) in enumerate(zip(vg_ids, vg_names, chroms)):
         vcf_name = vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
         vcf_id = vcf_ids[0] if len(vcf_names) == 1 else vcf_ids[i]

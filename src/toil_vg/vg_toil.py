@@ -186,58 +186,26 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     splitting, which doesn't depend on indexing. 
     """
     
-    indexes = {}
+    # get the parameters we need for run_indexing
+    skip_xg = inputXGFileID is not None
+    skip_gcsa = inputGCSAFileID is not None
+    skip_ranges = inputIDRangesFileID is not None
+    graph_names = map(os.path.basename, options.graphs)
+    # todo: interface for multiple vcf.  
+    vcf_ids = [] if not inputVCFFileID else [inputVCFFileID]
+    tbi_ids = [] if not inputTBIFileID else [inputTBIFileID]
 
-    if inputXGFileID is None or \
-        (inputPhasingVCFFileIDs and inputPhasingTBIFileIDs and inputGBWTFileID is None):
-        # We lack an XG index, or we have a phasing VCF but lack a GBWT index.
-        if len(inputPhasingVCFFileIDs) > 1:
-            child_job = job.addChildJobFn(run_concat_vcfs, context,
-                                          inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
-                                          memory=options.xg_index_mem,
-                                          disk=options.xg_index_disk)
-            inputPhasingVCFFileID, inputPhasingTBIFileID = child_job.rv(0), child_job.rv(1)
-        else:
-            child_job = Job()
-            child_job = job.addChild(child_job)
-            inputPhasingVCFFileID = inputPhasingVCFFileIDs[0] if inputPhasingVCFFileIDs else None
-            inputPhasingTBIFileID = inputPhasingTBIFileIDs[0] if inputPhasingTBIFileIDs else None
-        
-        index_job = child_job.addFollowOnJobFn(run_xg_indexing, context, inputGraphFileIDs,
-                                               map(os.path.basename, options.graphs),
-                                               options.index_name,
-                                               inputPhasingVCFFileID, inputPhasingTBIFileID,
-                                               make_gbwt=(inputPhasingVCFFileID and inputPhasingTBIFileID),
-                                               cores=options.xg_index_cores, memory=options.xg_index_mem,
-                                               disk=options.xg_index_disk)
-        indexes['xg'] = index_job.rv(0)
-        if inputPhasingVCFFileID and inputPhasingTBIFileID:
-            indexes['gbwt'] = index_job.rv(1)
-    else:
-        # Pass through the XG, and the GBWT if we have one
-        indexes['xg'] = inputXGFileID
-        if inputGBWTFileID is not None:
-            indexes['gbwt'] = inputGBWTFileID
-        
-    if inputGCSAFileID is None:
-        gcsa_job = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
-                                     map(os.path.basename, options.graphs),
-                                     options.index_name, options.chroms,
-                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                     disk=context.config.misc_disk)
-        (indexes['gcsa'], indexes['lcp']) = (gcsa_job.rv(0), gcsa_job.rv(1))
-    else:
-        assert inputLCPFileID is not None
-        (indexes['gcsa'], indexes['lcp']) = inputGCSAFileID, inputLCPFileID
-
-    if inputIDRangesFileID is not None:
-        indexes['id_ranges'] = inputIDRangesFileID
-    elif len(inputGraphFileIDs) > 1:
-        indexes['id_ranges'] = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
-                                                 map(os.path.basename, options.graphs),
-                                                 options.index_name, options.chroms,
-                                                 cores=context.config.misc_cores,
-                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()        
+    # todo: interface for gbwt
+    index_job = job.addChildJobFn(run_indexing, context, inputGraphFileIDs,
+                                  graph_names, options.index_name, options.chroms,
+                                  vcf_phasing_file_ids = vcf_ids, tbi_phasing_file_ids = tbi_ids,
+                                  skip_xg=skip_xg, skip_gcsa=skip_gcsa, skip_id_ranges=skip_ranges, skip_snarls=True,
+                                  make_gbwt=False,
+                                  haplo_pruning=False,
+                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                  disk=context.config.misc_disk)
+                                  
+    indexes = index_job.rv()
 
     if not options.single_reads_chunk:
         fastq_chunk_ids = job.addChildJobFn(run_split_reads, context, options.fastq,
