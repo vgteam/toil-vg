@@ -185,6 +185,8 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     All indexing.  result is a tarball in thie output store.  Will also do the fastq
     splitting, which doesn't depend on indexing. 
     """
+    
+    indexes = {}
 
     if inputXGFileID is None or \
         (inputPhasingVCFFileIDs and inputPhasingTBIFileIDs and inputGBWTFileID is None):
@@ -208,33 +210,33 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                                                make_gbwt=(inputPhasingVCFFileID and inputPhasingTBIFileID),
                                                cores=options.xg_index_cores, memory=options.xg_index_mem,
                                                disk=options.xg_index_disk)
-        (xg_file_id, gbwt_file_id) = (index_job.rv(0), index_job.rv(1))
+        indexes['xg'] = index_job.rv(0)
+        if inputPhasingVCFFileID and inputPhasingTBIFileID:
+            indexes['gbwt'] = index_job.rv(1)
     else:
         # Pass through the XG, and the GBWT if we have one
-        xg_file_id = inputXGFileID
-        gbwt_file_id = inputGBWTFileID
+        indexes['xg'] = inputXGFileID
+        if inputGBWTFileID is not None:
+            indexes['gbwt'] = inputGBWTFileID
         
     if inputGCSAFileID is None:
-        gcsa_and_lcp_ids = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
-                                             map(os.path.basename, options.graphs),
-                                             options.index_name, options.chroms,
-                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                             disk=context.config.misc_disk).rv()
+        (indexes['gcsa'], indexes['lcp']) = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
+                                                              map(os.path.basename, options.graphs),
+                                                              options.index_name, options.chroms,
+                                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                              disk=context.config.misc_disk).rv()
     else:
         assert inputLCPFileID is not None
-        gcsa_and_lcp_ids = inputGCSAFileID, inputLCPFileID
+        (indexes['gcsa'], indexes['lcp']) = inputGCSAFileID, inputLCPFileID
 
     if inputIDRangesFileID is not None:
-        id_ranges_file_id = inputIDRangesFileID
+        indexes['id_ranges'] = inputIDRangesFileID
     elif len(inputGraphFileIDs) > 1:
-        id_ranges_file_id = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
-                                              map(os.path.basename, options.graphs),
-                                              options.index_name, options.chroms,
-                                              cores=context.config.misc_cores,
-                                              memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
-    else:
-        # don't bother making id ranges if only one input graph
-        id_ranges_file_id = None        
+        indexes['id_ranges'] = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
+                                                 map(os.path.basename, options.graphs),
+                                                 options.index_name, options.chroms,
+                                                 cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()        
 
     if not options.single_reads_chunk:
         fastq_chunk_ids = job.addChildJobFn(run_split_reads, context, options.fastq,
@@ -246,23 +248,22 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         fastq_chunk_ids = [inputReadsFileIDs]
 
-    return job.addFollowOnJobFn(run_pipeline_map, context, options, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id,
-                                id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
+    return job.addFollowOnJobFn(run_pipeline_map, context, options, indexes, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
                                 inputFastaFileID, inputBeDFileID, cores=context.config.misc_cores,
                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
-def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, fastq_chunk_ids,
+def run_pipeline_map(job, context, options, indexes, fastq_chunk_ids,
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
                                     options.fastq, options.gam_input_reads, options.bam_input_reads,
                                     options.sample_name, options.interleaved, options.multipath,
-                                    xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, fastq_chunk_ids,
+                                    indexes, fastq_chunk_ids,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                     disk=context.config.misc_disk).rv(0)
 
-    return job.addFollowOnJobFn(run_pipeline_call, context, options, xg_file_id, id_ranges_file_id,
+    return job.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes['id_ranges'],
                                 chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
                                 fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
                                 disk=context.config.misc_disk).rv()
