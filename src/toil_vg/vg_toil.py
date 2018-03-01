@@ -207,15 +207,24 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                                   
     # Indexes is a promise for a dict, but we need to fill in some fields if
     # they will come out as None. This would be super easy with nice thenable
-    # promises but we don't have those so we shall hack around it.
+    # promises but we don't have those so we need another job.
+    
+    input_indexes = {}
+    if skip_xg:
+        input_indexes['xg'] = inputXGFileID
+    if skip_gcsa:
+        input_indexes['gcsa'] = inputGCSAFileID
+        input_indexes['lcp'] = inputLCPFileID
+    if inputGBWTFileID:
+        input_indexes['gbwt'] = inputGBWTFileID
+    if skip_ranges:
+        input_indexes['id_ranges'] = inputIDRangesFileID
+    
+    index_merge_job = index_job.addFollowOnJobFn(merge_dicts, index_job.rv(), input_indexes,
+                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                 disk=context.config.misc_disk)
 
-    indexes = {}
-
-    indexes['xg'] = inputXGFileID if skip_xg else index_job.rv('xg')
-    indexes['gcsa'] = inputGCSAFileID if skip_gcsa else index_job.rv('gcsa')
-    indexes['lcp'] = inputLCPFileID if skip_gcsa else index_job.rv('lcp')
-    indexes['gbwt'] = inputGBWTFileID if inputGBWTFileID else index_job.rv('gbwt')
-    indexes['id_ranges'] = inputIDRangesFileID if skip_ranges else index_job.rv('id_ranges')
+    
 
     if not options.single_reads_chunk:
         fastq_chunk_ids = job.addChildJobFn(run_split_reads, context, options.fastq,
@@ -227,9 +236,20 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         fastq_chunk_ids = [inputReadsFileIDs]
 
-    return job.addFollowOnJobFn(run_pipeline_map, context, options, indexes, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
-                                inputFastaFileID, inputBeDFileID, cores=context.config.misc_cores,
-                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+    return job.addFollowOnJobFn(run_pipeline_map, context, options, index_merge_job.rv(), fastq_chunk_ids,
+                                inputVCFFileID, inputTBIFileID, inputFastaFileID, inputBeDFileID,
+                                cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
+                                
+def merge_dicts(job, dict1, dict2):
+    """
+    Merge two dicts together as a Toil job.
+    """
+    
+    # We can modify the input dict1 in place.
+    dict1.update(dict2)
+    return dict1
+            
 
 def run_pipeline_map(job, context, options, indexes, fastq_chunk_ids,
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
