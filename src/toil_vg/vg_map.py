@@ -462,7 +462,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         output_file, run_time, 'paired-end' if paired_end else 'single-end',
         'mpmap' if multipath else 'map'))
 
-    if indexes.has_key('id_ranges') is not None:
+    if indexes.has_key('id_ranges'):
         # Break GAM into multiple chunks at the end. So we need the file
         # defining those chunks.
         id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
