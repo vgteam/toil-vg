@@ -220,11 +220,12 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
             indexes['gbwt'] = inputGBWTFileID
         
     if inputGCSAFileID is None:
-        (indexes['gcsa'], indexes['lcp']) = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
-                                                              map(os.path.basename, options.graphs),
-                                                              options.index_name, options.chroms,
-                                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                              disk=context.config.misc_disk).rv()
+        gcsa_job = job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
+                                     map(os.path.basename, options.graphs),
+                                     options.index_name, options.chroms,
+                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
+        (indexes['gcsa'], indexes['lcp']) = (gcsa_job.rv(0), gcsa_job.rv(1))
     else:
         assert inputLCPFileID is not None
         (indexes['gcsa'], indexes['lcp']) = inputGCSAFileID, inputLCPFileID
