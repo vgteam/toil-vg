@@ -186,7 +186,7 @@ def validate_options(options):
     # some options from toil-vg map are disabled on the command line
     # this can be eventually cleaned up a bit better 
     require(not options.interleaved,
-            '--interleaved disabled in toil-vg mapeval')
+            '--interleaved disabled in toil-vg mapeval; a single --fastq is always assumed interleaved and two are always assumed paired')
 
     # accept graphs or indexes in place of gams
     require(options.gams or options.index_bases or options.vg_graphs,
