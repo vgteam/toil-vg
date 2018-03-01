@@ -597,7 +597,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      disk=context.config.xg_index_disk).rv()
 
         # now do the whole genome xg (without any gbwt)
-        if len(indexes['chrom_xg']) == 1 and not make_gpbwt:
+        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1 and not make_gpbwt:
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
             indexes['xg'] = indexes['chrom_xg'][0]
@@ -631,6 +631,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     chrom_xg_root_job.addFollowOn(gcsa_root_job)
     
     if not skip_gcsa:
+        # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
                                                graph_names, index_name, chroms, indexes['chrom_xg'],
                                                indexes['chrom_gbwt'],

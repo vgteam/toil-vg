@@ -790,8 +790,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
                                           'index', ['default'], 
                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
                                           disk=context.config.misc_disk)
-            index_ids.append((index_job.rv(0), (index_job.rv(4), index_job.rv(5)),
-                              index_job.rv(2), index_job.rv(6)))
+            index_ids.append(index_job.rv())
     else:
         for i, xg_id in enumerate(xg_file_ids):
             # For each graph, gather and tag its indexes
