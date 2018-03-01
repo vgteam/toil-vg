@@ -331,7 +331,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         gpbwt = name == 'haplo'
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
-                                          max_node_size, gpbwt or alt_paths, flat_alts, regions,
+                                          max_node_size, gbwt_index or gpbwt or alt_paths,
+                                          flat_alts, regions,
                                           region_names, sort_ids, join_ids, merge_output_name)
 
         vg_ids = construct_job.rv()

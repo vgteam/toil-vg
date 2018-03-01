@@ -476,7 +476,7 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
         return context.write_output_file(job, gbwt_chrom_filenames[0],
                                          out_store_path = index_name + '.gbwt')
     else:
-        cmd = ['vg', 'gbwt', '--merge', '-f', '-o', index_name]
+        cmd = ['vg', 'gbwt', '--merge', '-f', '-o', index_name + '.gbwt']
         cmd += [os.path.basename(f) for f in gbwt_chrom_filenames]
         context.runner.call(job, cmd, work_dir=work_dir)
         return context.write_output_file(job, os.path.join(work_dir, index_name + '.gbwt'))
