@@ -264,7 +264,7 @@ def run_pipeline_map(job, context, options, indexes, fastq_chunk_ids,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                     disk=context.config.misc_disk).rv(0)
 
-    return job.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes['id_ranges'],
+    return job.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
                                 chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
                                 fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
                                 disk=context.config.misc_disk).rv()
