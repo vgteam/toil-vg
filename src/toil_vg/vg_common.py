@@ -125,9 +125,21 @@ to do: Should go somewhere more central """
 
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
              check_output = False, tool_name=None):
-        """ run a command.  decide to use docker based on whether
-        its in the docker_tool_map.  args is either the usual argument list,
-        or a list of lists (in the case of a chain of piped commands)  """
+        """
+        
+        Run a command. Decide to use a container based on whether the tool
+        (either the tool of the first command, or the tool named by tool_name)
+        its in the container engine's tool map. Can handle args being either a
+        single list of string arguments (starting with the binary name) or a
+        list of such lists (in which case a pipeline is run, using no more than
+        one container).
+        
+        Redirects standard output and standard error to the file objects outfile
+        and errfile, if specified. If check_output is true, the call will block,
+        raise an exception on a nonzero exit status, and return standard
+        output's contents.
+        
+        """
         # from here on, we assume our args is a list of lists
         if len(args) == 0 or len(args) > 0 and type(args[0]) is not list:
             args = [args]

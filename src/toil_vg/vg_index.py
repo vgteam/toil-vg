@@ -42,6 +42,8 @@ def index_subparser(parser):
                         help="Do not generate gcsa index")
     parser.add_argument("--skip_id_ranges", action="store_true",
                         help="Do not generate id_ranges.tsv")
+    parser.add_argument("--skip_snarls", action="store_true",
+                        help="Do not generate snarl file")
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -373,7 +375,19 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     command = ['vg', 'index', '-t', str(job.cores), '-x', os.path.basename(xg_filename)]
     command += phasing_opts + graph_filenames
     
-    context.runner.call(job, command, work_dir=work_dir)
+    try:
+        context.runner.call(job, command, work_dir=work_dir)
+    except:
+        # Dump everything we need to replicate the index run
+        logging.error("XG indexing failed. Dumping files.")
+
+        for graph_filename in graph_filenames:
+            context.write_output_file(job, os.path.join(work_dir, graph_filename))
+        if vcf_phasing_file_id:
+            context.write_output_file(job, phasing_file)
+            context.write_output_file(job, phasing_file + '.tbi')
+
+        raise
 
     # Checkpoint index to output store
     xg_file_id = context.write_output_file(job, os.path.join(work_dir, xg_filename))
@@ -388,6 +402,50 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
     return (xg_file_id, gbwt_file_id)
+    
+def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
+    """
+    Compute the snarls of the graph.
+    
+    Saves the snarls file in the outstore as <index_name>.snarls.
+    
+    Return the file ID of the snarls file.
+    """
+    
+    RealtimeLogger.info("Starting snarl computation...")
+    start_time = timeit.default_timer()
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Our local copy of the graphs
+    graph_filenames = []
+    for i, graph_id in enumerate(inputGraphFileIDs):
+        graph_filename = os.path.join(work_dir, graph_names[i])
+        job.fileStore.readGlobalFile(graph_id, graph_filename)
+        graph_filenames.append(os.path.basename(graph_filename))
+
+    # Where do we put the snarls?
+    snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name))
+
+    # Now run the indexer.
+    RealtimeLogger.info("Computing Snarls for {}".format(str(graph_filenames)))
+
+    pipeline = [['cat'] + graph_filenames, ['vg', 'snarls', '-']]
+   
+    with open(snarl_filename, "w") as snarl_file:
+        # Concatenate all the graphs and compute the snarls.
+        # Make sure to do it all in the container for vg (and not for 'cat')
+        context.runner.call(job, pipeline, work_dir=work_dir, tool_name='vg', outfile=snarl_file)
+
+    # Checkpoint index to output store
+    snarl_file_id = context.write_output_file(job, snarl_filename)
+    
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Finished Computing Snarls. Process took {} seconds.".format(run_time))
+
+    return snarl_file_id
 
 
 def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chroms):
@@ -484,14 +542,17 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
-                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, make_gbwt=False,
-                 haplo_pruning=False):
+                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, skip_snarls=False,
+                 make_gbwt=False, haplo_pruning=False):
     """
     Run indexing logic by itself.
     
-    Return an XG file ID, a list of chrom XG IDs, a GBWT ID, a list of chrom GBWT IDs,
-    a GCSA ID, a LCP ID, a GPBWT
-    and an ID for the ID ranges index file. (any of the above can be empty depending on the flags)
+    Return a dict from index type ('xg','chrom_xg', 'gcsa', 'lcp', 'gbwt',
+    'chrom_gbwt', 'id_ranges', or 'snarls') to index file ID(s) if created.
+    
+    For 'chrom_xg' and 'chrom_gbwt', the value is a list of one XG or GBWT per
+    chromosome in chroms, to support `vg prune`. The others are all single file
+    IDs
     
     """
     xg_root_job = Job()
@@ -499,23 +560,18 @@ def run_indexing(job, context, inputGraphFileIDs,
     chrom_xg_root_job = Job()
     job.addChild(chrom_xg_root_job)
 
+    # This will hold the index to return
+    indexes = {}
+
     make_gpbwt = vcf_phasing_file_ids and not make_gbwt
-    
-    # return a tuple of this:
-    xg_index_id = None
-    chrom_xg_ids = []
-    gbwt_id = None
-    chrom_gbwt_ids = []
-    gcsa_id = None
-    lcp_id = None
-    gpbwt_id = None
-    id_ranges_id = None
     
     if not skip_xg or not skip_gcsa:
         if not skip_gcsa or make_gbwt:
             # In its current state, vg prune requires chromosomal xgs, so we must make
             # these xgs if we're doing any kind of gcsa indexing.  Also, if we're making
             # a gbwt, we do that at the same time (merging later if more than one graph)
+            indexes['chrom_xg'] = []
+            indexes['chrom_gbwt'] = []
             if not chroms or len(chroms) == 1:
                 chroms = [index_name]
             for i, chrom in enumerate(chroms):
@@ -530,21 +586,21 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      cores=context.config.xg_index_cores,
                                                                      memory=context.config.xg_index_mem,
                                                                      disk=context.config.xg_index_disk)
-                chrom_xg_ids.append(xg_chrom_index_job.rv(0))
-                chrom_gbwt_ids.append(xg_chrom_index_job.rv(1))
+                indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
+                indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
             if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
-                gbwt_id = chrom_xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, chrom_gbwt_ids,
-                                                             index_name,
-                                                             cores=context.config.xg_index_cores,
-                                                             memory=context.config.xg_index_mem,
-                                                             disk=context.config.xg_index_disk).rv()
+                indexes['gbwt'] = chrom_xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
+                                                                     index_name,
+                                                                     cores=context.config.xg_index_cores,
+                                                                     memory=context.config.xg_index_mem,
+                                                                     disk=context.config.xg_index_disk).rv()
 
         # now do the whole genome xg (without any gbwt)
-        if len(chrom_xg_ids) == 1 and not make_gpbwt:
+        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1 and not make_gpbwt:
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
-            xg_index_id = chrom_xg_ids[0]
+            indexes['xg'] = indexes['chrom_xg'][0]
         else:            
             if make_gpbwt and len(vcf_phasing_file_ids) > 1:
                 concat_job = xg_root_job.addChildJobFn(run_concat_vcfs, context,
@@ -568,31 +624,31 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                     cores=context.config.xg_index_cores,
                                                     memory=context.config.xg_index_mem,
                                                     disk=context.config.xg_index_disk)
-            xg_index_id = xg_index_job.rv(0)
+            indexes['xg'] = xg_index_job.rv(0)
 
     # gcsa follow from chrom_xg jobs
     gcsa_root_job = Job()
     chrom_xg_root_job.addFollowOn(gcsa_root_job)
     
     if not skip_gcsa:
+        # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
-                                               graph_names, index_name, chroms, chrom_xg_ids,
-                                               chrom_gbwt_ids,
+                                               graph_names, index_name, chroms, indexes['chrom_xg'],
+                                               indexes['chrom_gbwt'],
                                                cores=context.config.misc_cores,
                                                memory=context.config.misc_mem,
                                                disk=context.config.misc_disk)
-        gcsa_id = gcsa_job.rv(0)
-        lcp_id = gcsa_job.rv(1)
+        indexes['gcsa'] = gcsa_job.rv(0)
+        indexes['lcp'] = gcsa_job.rv(1)
     
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
-        id_ranges_id = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
-                                         graph_names, index_name, chroms,
-                                         cores=context.config.misc_cores,
-                                         memory=context.config.misc_mem,
-                                         disk=context.config.misc_disk).rv()
+        indexes['id_ranges'] = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
+                                                 graph_names, index_name, chroms,
+                                                 cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem,
+                                                 disk=context.config.misc_disk).rv()
 
-    return xg_index_id, chrom_xg_ids, gbwt_id, chrom_gbwt_ids, gcsa_id, lcp_id, id_ranges_id
-
+    return indexes
 
 def index_main(context, options):
     """
@@ -634,9 +690,10 @@ def index_main(context, options):
             root_job = Job.wrapJobFn(run_indexing, context, inputGraphFileIDs,
                                      graph_names, options.index_name, options.chroms,
                                      inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
-                                     options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
-                                     options.make_gbwt,
-                                     options.haplo_pruning,
+                                     skip_xg=options.skip_xg, skip_gcsa=options.skip_gcsa,
+                                     skip_id_ranges=options.skip_id_ranges,
+                                     skip_snarls=options.skip_snarls, make_gbwt=options.make_gbwt,
+                                     haplo_pruning=options.haplo_pruning,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

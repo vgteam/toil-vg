@@ -12,6 +12,7 @@ import urlparse
 import getpass
 import pdb
 import logging
+import os
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -71,6 +72,8 @@ def construct_subparser(parser):
                         help="Make an xg index for each output graph")
     parser.add_argument("--gbwt_index", action="store_true",
                         help="Make a GBWT index alongside the xg index for each output graph")
+    parser.add_argument("--snarls_index", action="store_true",
+                        help="Make an snarls file for each output graph")
     parser.add_argument("--haplo_sample", type=str,
                         help="Make haplotype thread graphs (for simulating from) for this sample")
     parser.add_argument("--primary", action="store_true",
@@ -315,12 +318,17 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
 
     
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
-                      max_node_size, alt_paths, flat_alts, regions, merge_graphs,
-                      sort_ids, join_ids, gcsa_index, xg_index, gbwt_index, haplo_sample = None,
-                      haplotypes = [0,1]):
+                      max_node_size, alt_paths, flat_alts, regions,
+                      merge_graphs = False, sort_ids = False, join_ids = False,
+                      gcsa_index = False, xg_index = False, gbwt_index = False, snarls_index = False,
+                      haplo_sample = None, haplotypes = [0,1]):
     """ 
-    construct many graphs in parallel, optionally doing indexing too.  vcf_inputs
-    is a list of tuples as created by  run_generate_input_vcfs
+    construct many graphs in parallel, optionally doing indexing too. vcf_inputs
+    is a list of tuples as created by run_generate_input_vcfs
+    
+    Returns a list of tuples of the form (vg_ids, vg_names, indexes), where
+    indexes is the index dict from index type to file ID.
+    
     """
 
     output = []
@@ -359,14 +367,13 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         indexing_job = construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
                                                       vg_names, output_name_base, chroms,
                                                       input_vcf_ids, input_tbi_ids,
-                                                      not xg_index, not gcsa_index, True,
-                                                      gbwt_index, False)
-        gcsa_id = indexing_job.rv(4)
-        lcp_id = indexing_job.rv(5)
-        xg_id = indexing_job.rv(0)
-        gbwt_id = indexing_job.rv(2)
+                                                      skip_xg=not xg_index, skip_gcsa=not gcsa_index,
+                                                      skip_id_ranges=True, skip_snarls=not snarls_index,
+                                                      make_gbwt=gbwt_index, haplo_pruning=False)
+        indexes = indexing_job.rv()    
 
         if gpbwt:
+            assert(haplo_sample is not None)
             haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context,
                                                        input_vcf_ids, input_tbi_ids,
                                                        vcf_names, vg_ids, vg_names, output_name_base, regions,
@@ -380,8 +387,12 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                           cores=context.config.xg_index_cores,
                                                           memory=context.config.xg_index_mem,
                                                           disk=context.config.xg_index_disk)
+                                                          
+                # TODO: file IDs are not exposed to caller
+    
+    
 
-        output.append((vg_ids, vg_names, gcsa_id, lcp_id, xg_id, gbwt_id))
+        output.append((vg_ids, vg_names, indexes))
     return output
                 
 
@@ -625,6 +636,8 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
     chromosome name to get the threads
     """
 
+    assert(sample is not None)
+
     # ith element will be a list of graphs (1 list / region) for haplotype i
     thread_vg_ids = []
     for h in haplotypes:
@@ -638,7 +651,9 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
     assert len(vg_ids) == len(regions)
     assert len(vcf_ids) == 1 or len(vcf_ids) == len(regions)
     assert len(tbi_ids) == len(vcf_ids)
-
+    
+    logger.info('Making haplo graphs for chromosomes {}'.format(chroms))
+    
     for i, (vg_id, vg_name, region) in enumerate(zip(vg_ids, vg_names, chroms)):
         vcf_name = vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
         vcf_id = vcf_ids[0] if len(vcf_names) == 1 else vcf_ids[i]
@@ -681,32 +696,56 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
     thread_vg_ids = []
 
     for hap in haplotypes:
+        
+        # This can't work if the sample is None and we want any haplotypes
+        assert(sample is not None)
 
-        tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
-        thread_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
-        with open(thread_path, 'w') as thread_file:
-            # strip paths from our original graph            
-            cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+        try:
 
-            # get haplotype thread paths from the gpbwt
-            cmd = ['vg', 'find', '-x', os.path.basename(xg_path)]
-            for chrom in chroms:
-                cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+            tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
+            thread_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
+            logger.info('Creating thread graph {}'.format(thread_path))
+            with open(thread_path, 'w') as thread_file:
+                # strip paths from our original graph            
+                cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
 
-        thread_path_trim = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
-        with open(thread_path_trim, 'w') as thread_file:
-            # Then we trim out anything other than our thread path
-            cmd = [['vg', 'mod', '-N', os.path.basename(thread_path)]]
-            # And get rid of our thread paths since they take up lots of space when re-indexing
-            filter_cmd = ['vg', 'mod', '-']
-            for chrom in chroms:
-                filter_cmd += ['-r', chrom]
-            cmd.append(filter_cmd)
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+                # get haplotype thread paths from the gpbwt
+                cmd = ['vg', 'find', '-x', os.path.basename(xg_path)]
+                for chrom in chroms:
+                    cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+                
+            # Make sure we didn't get a suspiciously tiny file
+            assert(os.path.getsize(thread_path) > 1000)
 
-        thread_vg_ids.append(context.write_output_file(job, thread_path_trim))
+            thread_path_trim = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
+            logger.info('Creating trimmed thread graph {}'.format(thread_path_trim))
+            with open(thread_path_trim, 'w') as thread_file:
+                # Then we trim out anything other than our thread path
+                cmd = [['vg', 'mod', '-N', os.path.basename(thread_path)]]
+                # And get rid of our thread paths since they take up lots of space when re-indexing
+                filter_cmd = ['vg', 'mod', '-']
+                for chrom in chroms:
+                    filter_cmd += ['-r', chrom]
+                cmd.append(filter_cmd)
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+
+            thread_vg_ids.append(context.write_output_file(job, thread_path_trim))
+            
+            # Make sure we didn't get a suspiciously tiny file
+            assert(os.path.getsize(thread_path_trim) > 1000)
+            
+        except:
+            # Dump everything we need to replicate the thread extraction
+            logging.error("Thread extraction failed. Dumping files.")
+
+            context.write_output_file(job, vg_path)
+            context.write_output_file(job, xg_path)
+            
+            raise
+
+    logger.info('Got {} thread file IDs'.format(len(thread_vg_ids)))
 
     return thread_vg_ids
 
@@ -791,8 +830,13 @@ def construct_main(context, options):
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
-                                     options.flat_alts, regions, options.merge_graphs,
-                                     True, True, options.gcsa_index, options.xg_index, options.gbwt_index, options.haplo_sample)
+                                     options.flat_alts, regions,
+                                     merge_graphs = options.merge_graphs,
+                                     sort_ids = True, join_ids = True,
+                                     gcsa_index = options.gcsa_index, xg_index = options.xg_index,
+                                     gbwt_index = options.gbwt_index, snarls_index = options.snarls_index,
+                                     haplo_sample = options.haplo_sample)
+                                     
             
             # Run the workflow
             toil.start(init_job)

@@ -185,7 +185,7 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     All indexing.  result is a tarball in thie output store.  Will also do the fastq
     splitting, which doesn't depend on indexing. 
     """
-
+    
     # get the parameters we need for run_indexing
     skip_xg = inputXGFileID is not None
     skip_gcsa = inputGCSAFileID is not None
@@ -199,17 +199,32 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     index_job = job.addChildJobFn(run_indexing, context, inputGraphFileIDs,
                                   graph_names, options.index_name, options.chroms,
                                   vcf_phasing_file_ids = vcf_ids, tbi_phasing_file_ids = tbi_ids,
-                                  skip_xg=skip_xg, skip_gcsa=skip_gcsa, skip_id_ranges=skip_ranges,
+                                  skip_xg=skip_xg, skip_gcsa=skip_gcsa, skip_id_ranges=skip_ranges, skip_snarls=True,
                                   make_gbwt=False,
                                   haplo_pruning=False,
                                   cores=context.config.misc_cores, memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
+                                  
+    # Indexes is a promise for a dict, but we need to fill in some fields if
+    # they will come out as None. This would be super easy with nice thenable
+    # promises but we don't have those so we need another job.
+    
+    input_indexes = {}
+    if skip_xg:
+        input_indexes['xg'] = inputXGFileID
+    if skip_gcsa:
+        input_indexes['gcsa'] = inputGCSAFileID
+        input_indexes['lcp'] = inputLCPFileID
+    if inputGBWTFileID:
+        input_indexes['gbwt'] = inputGBWTFileID
+    if skip_ranges:
+        input_indexes['id_ranges'] = inputIDRangesFileID
+    
+    index_merge_job = index_job.addFollowOnJobFn(merge_dicts, index_job.rv(), input_indexes,
+                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                 disk=context.config.misc_disk)
 
-    xg_file_id = inputXGFileID if skip_xg else index_job.rv(0)
-    gcsa_file_id = inputGCSAFileID if skip_gcsa else index_job.rv(4)
-    lcp_file_id = inputLCPFileID if skip_gcsa else index_job.rv(5)
-    gbwt_file_id = inputGBWTFileID if inputGBWTFileID else index_job.rv(2)
-    id_ranges_file_id = inputIDRangesFileID if skip_ranges else index_job.rv(6)
+    
 
     if not options.single_reads_chunk:
         fastq_chunk_ids = job.addChildJobFn(run_split_reads, context, options.fastq,
@@ -221,24 +236,33 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         fastq_chunk_ids = [inputReadsFileIDs]
 
-    return job.addFollowOnJobFn(run_pipeline_map, context, options, xg_file_id,
-                                (gcsa_file_id, lcp_file_id), gbwt_file_id,
-                                id_ranges_file_id, fastq_chunk_ids, inputVCFFileID, inputTBIFileID,
-                                inputFastaFileID, inputBeDFileID, cores=context.config.misc_cores,
-                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+    return job.addFollowOnJobFn(run_pipeline_map, context, options, index_merge_job.rv(), fastq_chunk_ids,
+                                inputVCFFileID, inputTBIFileID, inputFastaFileID, inputBeDFileID,
+                                cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
+                                
+def merge_dicts(job, dict1, dict2):
+    """
+    Merge two dicts together as a Toil job.
+    """
+    
+    # We can modify the input dict1 in place.
+    dict1.update(dict2)
+    return dict1
+            
 
-def run_pipeline_map(job, context, options, xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, fastq_chunk_ids,
+def run_pipeline_map(job, context, options, indexes, fastq_chunk_ids,
                      baseline_vcf_id, baseline_tbi_id, fasta_id, bed_id):
     """ All mapping, then gam merging.  fastq is split in above step"""
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
                                     options.fastq, options.gam_input_reads, options.bam_input_reads,
                                     options.sample_name, options.interleaved, options.multipath,
-                                    xg_file_id, gcsa_and_lcp_ids, gbwt_file_id, id_ranges_file_id, fastq_chunk_ids,
+                                    indexes, fastq_chunk_ids,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                     disk=context.config.misc_disk).rv(0)
 
-    return job.addFollowOnJobFn(run_pipeline_call, context, options, xg_file_id, id_ranges_file_id,
+    return job.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
                                 chr_gam_ids, baseline_vcf_id, baseline_tbi_id,
                                 fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
                                 disk=context.config.misc_disk).rv()
