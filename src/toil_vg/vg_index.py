@@ -434,7 +434,9 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name)
     pipeline = [['cat'] + graph_filenames, ['vg', 'snarls', '-']]
    
     with open(snarl_filename, "w") as snarl_file:
-        context.runner.call(job, pipeline, work_dir=work_dir, outfile=snarl_file)
+        # Concatenate all the graphs and compute the snarls.
+        # Make sure to do it all in the container for vg (and not for 'cat')
+        context.runner.call(job, pipeline, work_dir=work_dir, tool_name='vg', outfile=snarl_file)
 
     # Checkpoint index to output store
     snarl_file_id = context.write_output_file(job, snarl_filename)
