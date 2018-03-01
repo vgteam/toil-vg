@@ -370,10 +370,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                       skip_xg=not xg_index, skip_gcsa=not gcsa_index,
                                                       skip_id_ranges=True, skip_snarls=not snarls_index,
                                                       make_gbwt=gbwt_index, haplo_pruning=False)
-        gcsa_id = indexing_job.rv('gcsa')
-        lcp_id = indexing_job.rv('lcp')
-        xg_id = indexing_job.rv('xg')
-        gbwt_id = indexing_job.rv('gbwt')
+        indexes = indexing_job.rv()    
 
         if gpbwt:
             assert(haplo_sample is not None)
