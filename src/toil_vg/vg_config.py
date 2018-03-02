@@ -50,10 +50,14 @@ construct-mem: '4G'
 construct-disk: '2G'
 
 # Resources allotted for xg indexing.
-# this stage generally cannot take advantage of more than one thread except GBWT
 xg-index-cores: 1
 xg-index-mem: '4G'
 xg-index-disk: '2G'
+
+# Resources allotted for xg indexing by chromosome (used for GBWT).
+gbwt-index-cores: 1
+gbwt-index-mem: '4G'
+gbwt-index-disk: '2G'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
@@ -167,14 +171,15 @@ freebayes-docker: 'maxulysse/freebayes:1.2.5'
 index-name: 'genome'
 
 # Options to pass to vg prune.
-# (limit to general parameters, currently -k, -e, s.  Rest decided by toil-vg via other options)
+# (limit to general parameters, currently -k, -e, s.  
+# Rest decided by toil-vg via other options like prune-mode)
 prune-opts: []
 
 # Options to pass to vg kmers.
-kmers-opts: ['-g', '-B', '-k', '16']
+kmers-opts: ['--gcsa-out', '--gcsa-binary', '--kmer-size', 16]
 
 # Options to pass to vg gcsa indexing
-gcsa-opts: ['-X', '3', '-Z', '3000']
+gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
 
 ########################
 ### vg_map Arguments ###
@@ -193,7 +198,7 @@ reads-per-chunk: 10000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['-S']
+mpmap-opts: ['--single-path-mode']
 
 #########################
 ### vg_call Arguments ###
@@ -229,7 +234,7 @@ vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '150', '-p', '570', '-v', '165', '-e', '0.01', '-i', '0.002']
+sim-opts: ['--read-length', '150', '--frag-len', '570', '--frag-std-dev', '165', '--sub-rate', '0.01', '--indel-rate', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []
@@ -270,10 +275,14 @@ construct-mem: '32G'
 construct-disk: '32G'
 
 # Resources allotted for xg indexing.
-# this stage generally cannot take advantage of more than one thread except GBWT
-xg-index-cores: 32
+xg-index-cores: 2
 xg-index-mem: '200G'
 xg-index-disk: '200G'
+
+# Resources allotted for xg indexing by chromosome (used for GBWT).
+gbwt-index-cores: 2
+gbwt-index-mem: '64G'
+gbwt-index-disk: '100G'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
@@ -388,14 +397,15 @@ freebayes-docker: 'maxulysse/freebayes:1.2.5'
 index-name: 'genome'
 
 # Options to pass to vg prune.
-# (limit to general parameters, currently -k, -e, s.  Rest decided by toil-vg via other options)
+# (limit to general parameters, currently -k, -e, s.  
+# Rest decided by toil-vg via other options like prune-mode)
 prune-opts: []
 
 # Options to pass to vg kmers.
-kmers-opts: ['-g', '-B', '-k', '16']
+kmers-opts: ['--gcsa-out', '--gcsa-binary', '--kmer-size', 16]
 
 # Options to pass to vg gcsa indexing
-gcsa-opts: ['-X', '3', '-Z', '3000']
+gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
 
 ########################
 ### vg_map Arguments ###
@@ -414,7 +424,7 @@ reads-per-chunk: 50000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['-S']
+mpmap-opts: ['--single-path-mode']
 
 #########################
 ### vg_call Arguments ###
@@ -450,7 +460,7 @@ vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
 #########################
 ### sim and mapeval Arguments ###
 # Options to pass to vg sim (should not include -x, -n, -s or -a)
-sim-opts: ['-l', '150', '-p', '570', '-v', '165', '-e', '0.01', '-i', '0.002']
+sim-opts: ['--read-length', '150', '--frag-len', '570', '--frag-std-dev', '165', '--sub-rate', '0.01', '--indel-rate', '0.002']
 
 # Options to pass to bwa
 bwa-opts: []

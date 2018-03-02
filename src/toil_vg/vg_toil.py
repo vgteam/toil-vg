@@ -127,6 +127,14 @@ def pipeline_subparser(parser_run):
         help="Path to file with node id ranges for each chromosome in BED format.  If not"
                             " supplied, will be generated from --graphs)")
 
+    parser_run.add_argument("--graphs", nargs='+', type=make_url,
+                        help="input graph(s). one per chromosome (separated by space)")
+
+    parser_run.add_argument("--chroms", nargs='+',
+                        help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
+                        " has multiple elements, must be same length/order as --chroms")
+
+
     # Add common options shared with everybody
     add_common_vg_parse_args(parser_run)
     
@@ -201,7 +209,6 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                                   vcf_phasing_file_ids = vcf_ids, tbi_phasing_file_ids = tbi_ids,
                                   skip_xg=skip_xg, skip_gcsa=skip_gcsa, skip_id_ranges=skip_ranges, skip_snarls=True,
                                   make_gbwt=False,
-                                  haplo_pruning=False,
                                   cores=context.config.misc_cores, memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
                                   

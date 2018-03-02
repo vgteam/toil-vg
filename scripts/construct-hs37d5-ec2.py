@@ -18,7 +18,13 @@ def parse_args(args):
     parser.add_argument("--config", help="path of config on leader")
     parser.add_argument("--restart", action="store_true", help="resume toil workflow")
     parser.add_argument("--gbwt", action="store_true", help="make gbwt")
+    parser.add_argument("--xg", action="store_true", help="make xg")
+    parser.add_argument("--gcsa", action="store_true", help="make gcsa")
+    parser.add_argument("--snarls", action="store_true", help="make snarls")
     parser.add_argument("--control", help="control sample")
+    parser.add_argument("--primary", action="store_true", help="make primary graph")
+    parser.add_argument("--minaf", type=float, help="make min allele filter graph")
+    
     parser.add_argument("--node", help="toil node type (default=r3.8xlarge:0.85)", default="r3.8xlarge:0.85")
     args = args[1:]        
     return parser.parse_args(args)
@@ -26,9 +32,12 @@ options = parse_args(sys.argv)
 
 def get_vcf_path_hs37d5(chrom):
     base = 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/'
-    if chrom in range(1, 23):
-        return os.path.join(base, 'ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(chrom))
-    elif chrom == 'X':
+    try:
+        if int(chrom) in range(1, 23):
+            return os.path.join(base, 'ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(chrom))
+    except:
+        pass
+    if chrom == 'X':
         return os.path.join(base, 'ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz')
     elif chrom == 'Y':
         return os.path.join(base, 'ALL.chrY.phase3_integrated_v2a.20130502.genotypes.vcf.gz')
@@ -49,16 +58,28 @@ cmd = ['construct', options.job_store, options.out_store,
        '--fasta', get_fasta_path_hs37d5(),
        '--out_name', out_name,
        '--logFile', log_name,
-       '--primary',
-       '--alt_paths',
-       '--min_af', '0.034',
-       '--xg_index', '--gcsa_index']
+       '--alt_paths']
 
 # Note config file path is on the leader!!!!  Should fix to copy it over, but not sure how.
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
 
+if options.minaf:
+    cmd += ['--min_af', str(options.minaf)]
+
+if options.primary:
+    cmd += ['--primary']
+
+if options.xg:
+    cmd += ['--xg_index']
+
+if options.gcsa:
+    cmd += ['--gcsa_index']
+
 if options.gbwt:
     cmd += ['--gbwt_index']
+
+if options.snarls:
+    cmd += ['--snarls_index']
 
 if options.control:
     cmd += ['--control_sample', options.control]
@@ -77,7 +98,7 @@ if options.restart:
     cmd += ['--restart']
 else:
     subprocess.check_call(['toil', 'clean', options.job_store])
-    
+
 print ' '.join(cmd)
 subprocess.check_call(['scripts/ec2-run.sh', '-n', options.node, options.leader, ' '.join(cmd)])
 

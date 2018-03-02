@@ -103,7 +103,7 @@ class VGCGLTest(TestCase):
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8', '--kmers_cores', '8',
-                  '--realTimeLogging', '--logInfo', '--index_name', 'small')
+                  '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index')
 
         self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
                   os.path.join(self.local_outstore, 'small.xg'),
@@ -140,7 +140,7 @@ class VGCGLTest(TestCase):
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8', '--kmers_cores', '8',
-                  '--realTimeLogging', '--logInfo', '--index_name', 'small')
+                  '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index')
 
         self._run('toil-vg', 'sim', self.jobStoreLocal,
                  os.path.join(self.local_outstore, 'small.xg'), '2000',
@@ -448,7 +448,7 @@ class VGCGLTest(TestCase):
 
         # make a gbwt and xg index
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
-                  '--skip_gcsa', '--graphs', vg_path, '--chroms', '17',
+                  '--xg_index', '--graphs', vg_path, '--chroms', '17',
                   '--vcf_phasing', in_vcf, '--index_name', 'my_index',
                   '--make_gbwt', '--xg_index_cores', '4')
 

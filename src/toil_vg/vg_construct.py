@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_indexing
+from toil_vg.vg_index import run_xg_indexing, run_indexing, index_parse_args, index_toggle_parse_args, validate_index_options
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -66,14 +66,6 @@ def construct_subparser(parser):
                         help="Filter out all variants specific to the CEPH pedigree, which includes NA12878")
     parser.add_argument("--filter_samples", nargs='+',
                         help="Filter out all variants specific to given samples")
-    parser.add_argument("--gcsa_index", action="store_true",
-                        help="Make a gcsa index for each output graph")
-    parser.add_argument("--xg_index", action="store_true",
-                        help="Make an xg index for each output graph")
-    parser.add_argument("--gbwt_index", action="store_true",
-                        help="Make a GBWT index alongside the xg index for each output graph")
-    parser.add_argument("--snarls_index", action="store_true",
-                        help="Make an snarls file for each output graph")
     parser.add_argument("--haplo_sample", type=str,
                         help="Make haplotype thread graphs (for simulating from) for this sample")
     parser.add_argument("--primary", action="store_true",
@@ -82,7 +74,11 @@ def construct_subparser(parser):
                         help="Do not construct base graph from input vcf.  Only make optional controls")
     parser.add_argument("--min_af", type=float, default=None,
                         help="Create a control using the given minium allele frequency")
-    
+
+    # Add common indexing options shared with vg_index
+    index_toggle_parse_args(parser)
+    index_parse_args(parser)
+
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -171,8 +167,8 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
     # our input vcf
     output = dict()
     if make_base_graph:
-        output['base'] = [vcf_ids, vcf_names, tbi_ids, output_name,
-                          [output_name + '_' + c.replace(':','-') for c in regions] if regions else None]
+        output[output_name] = [vcf_ids, vcf_names, tbi_ids, output_name,
+                               [output_name + '_' + c.replace(':','-') for c in regions] if regions else None]
     
     # our positive and negative controls
     if sample:
@@ -321,7 +317,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       max_node_size, alt_paths, flat_alts, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       gcsa_index = False, xg_index = False, gbwt_index = False, snarls_index = False,
-                      haplo_sample = None, haplotypes = [0,1]):
+                      haplo_sample = None, haplotypes = [0,1], gbwt_prune = False):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -341,9 +337,10 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gbwt_index or gpbwt or alt_paths,
                                           flat_alts, regions,
-                                          region_names, sort_ids, join_ids, merge_output_name)
+                                          region_names, sort_ids, join_ids, name, merge_output_name)
 
-        vg_ids = construct_job.rv()
+        vg_ids = construct_job.rv(0)
+        mapping_id = construct_job.rv(1)
         vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
 
         vg_names = [remove_ext(i, '.vg') + '.vg' for i in vg_names]
@@ -367,9 +364,10 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         indexing_job = construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
                                                       vg_names, output_name_base, chroms,
                                                       input_vcf_ids, input_tbi_ids,
+                                                      node_mapping_id = mapping_id,
                                                       skip_xg=not xg_index, skip_gcsa=not gcsa_index,
                                                       skip_id_ranges=True, skip_snarls=not snarls_index,
-                                                      make_gbwt=gbwt_index, haplo_pruning=False)
+                                                      make_gbwt=gbwt_index, gbwt_prune=gbwt_prune)
         indexes = indexing_job.rv()    
 
         if gpbwt:
@@ -397,8 +395,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
-                              max_node_size, alt_paths, flat_alts, regions, region_names,
-                              sort_ids, join_ids, merge_output_name):
+                               max_node_size, alt_paths, flat_alts, regions, region_names,
+                               sort_ids, join_ids, name, merge_output_name):
     """ construct graph(s) from several regions in parallel.  we could eventually generalize this
     to accept multiple vcfs and/or fastas if needed, as well as to determine regions from file,
     but for now we only accept single files, and require region list.
@@ -433,13 +431,13 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
                                                   disk=context.config.construct_disk).rv())
 
     return child_job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
-                                      region_names, merge_output_name).rv()
+                                      region_names, name, merge_output_name).rv()
 
 
-def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merge_output_name = None):
+def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name, merge_output_name = None):
     """
     join the ids of some graphs.  if a merge_output_name is given, cat them all together as well
-    this function saves output to the outstore
+    this function saves output to the outstore.  also does the node mapping file 
     """
         
     work_dir = job.fileStore.getLocalTempDir()
@@ -455,16 +453,19 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
         merge_output_name = remove_ext(merge_output_name, '.vg') + '.vg'
 
     # if there's nothing to do, just write the files and return
-    if len(region_graph_ids) == 1 or not (join_ids or merge_output_name):
+    if not join_ids:
         out_ids = []
         for region_file in region_files:
             out_ids.append(context.write_output_file(job, os.path.join(work_dir, region_file),
                                                      out_store_path = merge_output_name))
-        return out_ids
+        return out_ids, None
+
+    mapping_file = merge_output_name[:-3] if merge_output_name else name
+    mapping_file = os.path.join(work_dir, mapping_file + '.mapping')
 
     if join_ids:
         # join the ids
-        cmd = ['vg', 'ids', '-j'] + region_files
+        cmd = ['vg', 'ids', '--join', '--mapping', os.path.basename(mapping_file)] + region_files
         context.runner.call(job, cmd, work_dir=work_dir)
 
     if merge_output_name is not None:
@@ -473,9 +474,12 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
             for region_file in region_files:
                 with open(os.path.join(work_dir, region_file)) as cf:
                     shutil.copyfileobj(cf, merge_file)
-        return [context.write_output_file(job, os.path.join(work_dir, merge_output_name))]
+        out_graphs = [context.write_output_file(job, os.path.join(work_dir, merge_output_name))]
     else:
-        return [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
+        out_graphs = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
+
+    mapping_id = context.write_output_file(job, mapping_file)
+    return out_graphs, mapping_id
         
     
 def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
@@ -493,22 +497,22 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         job.fileStore.readGlobalFile(vcf_id, vcf_file)
         job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
-    cmd = ['vg', 'construct', '-r', os.path.basename(fasta_file)]
+    cmd = ['vg', 'construct', '--reference', os.path.basename(fasta_file)]
     if vcf_id:
-        cmd += ['-v', os.path.basename(vcf_file)]
+        cmd += ['--vcf', os.path.basename(vcf_file)]
     if region:
-        cmd += ['-R', region]
+        cmd += ['--region', region]
         if is_chrom:
-            cmd += ['-C']
+            cmd += ['--region-is-chrom']
     if max_node_size:
-        cmd += ['-m', max_node_size]
+        cmd += ['--node-max', max_node_size]
     if alt_paths:
-        cmd += ['-a']
+        cmd += ['--alt-paths']
     if job.cores:
-        cmd += ['-t', job.cores]
+        cmd += ['--threads', job.cores]
 
     if sort_ids:
-        cmd = [cmd, ['vg', 'ids', '-s', '-']]
+        cmd = [cmd, ['vg', 'ids', '--sort', '-']]
 
     vg_path = os.path.join(work_dir, region_name)
     with open(vg_path, 'w') as vg_file:
@@ -750,6 +754,7 @@ def construct_main(context, options):
 
     # check some options
     validate_construct_options(options)
+    validate_index_options(options, False)
 
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
@@ -827,10 +832,12 @@ def construct_main(context, options):
                                      options.flat_alts, regions,
                                      merge_graphs = options.merge_graphs,
                                      sort_ids = True, join_ids = True,
-                                     gcsa_index = options.gcsa_index, xg_index = options.xg_index,
-                                     gbwt_index = options.gbwt_index, snarls_index = options.snarls_index,
-                                     haplo_sample = options.haplo_sample)
-                                     
+                                     gcsa_index = options.gcsa_index or options.all_index,
+                                     xg_index = options.xg_index or options.all_index,
+                                     gbwt_index = options.gbwt_index or options.all_index,
+                                     snarls_index = options.snarls_index or options.all_index,
+                                     haplo_sample = options.haplo_sample,
+                                     gbwt_prune = options.gbwt_prune)
             
             # Run the workflow
             toil.start(init_job)
