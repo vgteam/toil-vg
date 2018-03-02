@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_indexing
+from toil_vg.vg_index import run_xg_indexing, run_indexing, index_parse_args, index_toggle_parse_args
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -66,14 +66,6 @@ def construct_subparser(parser):
                         help="Filter out all variants specific to the CEPH pedigree, which includes NA12878")
     parser.add_argument("--filter_samples", nargs='+',
                         help="Filter out all variants specific to given samples")
-    parser.add_argument("--gcsa_index", action="store_true",
-                        help="Make a gcsa index for each output graph")
-    parser.add_argument("--xg_index", action="store_true",
-                        help="Make an xg index for each output graph")
-    parser.add_argument("--gbwt_index", action="store_true",
-                        help="Make a GBWT index alongside the xg index for each output graph")
-    parser.add_argument("--snarls_index", action="store_true",
-                        help="Make an snarls file for each output graph")
     parser.add_argument("--haplo_sample", type=str,
                         help="Make haplotype thread graphs (for simulating from) for this sample")
     parser.add_argument("--primary", action="store_true",
@@ -84,7 +76,8 @@ def construct_subparser(parser):
                         help="Create a control using the given minium allele frequency")
 
     # Add common indexing options shared with vg_index
-    index_parse_args(parser_run)
+    index_toggle_parse_args(parser)
+    index_parse_args(parser)
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -830,10 +823,11 @@ def construct_main(context, options):
                                      options.flat_alts, regions,
                                      merge_graphs = options.merge_graphs,
                                      sort_ids = True, join_ids = True,
-                                     gcsa_index = options.gcsa_index, xg_index = options.xg_index,
-                                     gbwt_index = options.gbwt_index, snarls_index = options.snarls_index,
+                                     gcsa_index = options.gcsa_index or options.all_index,
+                                     xg_index = options.xg_index or options.all_index,
+                                     gbwt_index = options.gbwt_index or options.all_index,
+                                     snarls_index = options.snarls_index or options.all_index,
                                      haplo_sample = options.haplo_sample)
-                                     
             
             # Run the workflow
             toil.start(init_job)

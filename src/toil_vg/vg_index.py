@@ -43,27 +43,34 @@ def index_subparser(parser):
                         help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
                         " has multiple elements, must be same length/order as --chroms")
 
-    parser.add_argument("--skip_xg", action="store_true",
-                        help="Do not generate xg index")
-    parser.add_argument("--skip_gcsa", action="store_true",
-                        help="Do not generate gcsa index")
-    parser.add_argument("--skip_id_ranges", action="store_true",
-                        help="Do not generate id_ranges.tsv")
-    parser.add_argument("--skip_snarls", action="store_true",
-                        help="Do not generate snarl file")
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
     # Add indexing options
+    index_toggle_parse_args(parser)
     index_parse_args(parser)
-
+    
     # Add common docker options
     add_container_tool_parse_args(parser)
 
-
+def index_toggle_parse_args(parser):
+    """ common args we do not want to share with toil-vg run """
+    parser.add_argument("--gcsa_index", action="store_true",
+                        help="Make a gcsa index for each output graph")
+    parser.add_argument("--xg_index", action="store_true",
+                        help="Make an xg index for each output graph")
+    parser.add_argument("--gbwt_index", action="store_true",
+                        help="Make a GBWT index alongside the xg index for each output graph")
+    parser.add_argument("--snarls_index", action="store_true",
+                        help="Make an snarls file for each output graph")
+    parser.add_argument("--id_ranges_index", action="store_true",
+                        help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
+    parser.add_argument("--all_index", action="store_true",
+                        help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --id_ranges_index")
+    
 def index_parse_args(parser):
     """ centralize indexing parameters here """
-
+    
     parser.add_argument("--gcsa_index_cores", type=int,
         help="number of threads during the gcsa indexing step")
     parser.add_argument("--xg_index_cores", type=int,
@@ -108,6 +115,9 @@ def validate_index_options(options):
             'only one of --make_gbwt and --gbwt_input can be used at a time')
     if options.gbwt_input:
         require(options.gbwt_prune == 'gbwt', '--gbwt_prune required with --gbwt_input')
+    require(any([options.xg_index, options.gcsa_index, options.snarls_index,
+                 options.id_ranges_index, options.gbwt_index, options.all_index]),
+            'at least one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index required, --all_index')
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id):
     """
@@ -541,7 +551,8 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [], gbwt_id = None,
-                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False, make_gbwt=False):
+                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
+                 skip_snarls=False, make_gbwt=False):
     """
     Run indexing logic by itself.
     
@@ -560,19 +571,22 @@ def run_indexing(job, context, inputGraphFileIDs,
 
     # This will hold the index to return
     indexes = {}
+    if gbwt_id:
+        indexes['gbwt'] = gbwt_id
 
     make_gpbwt = vcf_phasing_file_ids and not make_gbwt
     
     if not skip_xg or not skip_gcsa:
+        indexes['chrom_xg'] = []
+        indexes['chrom_gbwt'] = []                                                            
         if make_gbwt:
             # In its current state, vg prune requires chromosomal xgs, so we must make
             # these xgs if we're doing any kind of gcsa indexing.  Also, if we're making
             # a gbwt, we do that at the same time (merging later if more than one graph)
-            indexes['chrom_xg'] = []
-            indexes['chrom_gbwt'] = []
             if not chroms or len(chroms) == 1:
                 chroms = [index_name]
-            
+            indexes['chrom_xg'] = []
+            indexes['chrom_gbwt'] = []                                        
             # when doing whole genome, we don't really want to give our chromosome jobs
             # the same resources as the whole genome xg.  This is a little hack to tune it
             chr_scale = .25 if chroms and len(chroms) > 1 else 1
@@ -634,8 +648,8 @@ def run_indexing(job, context, inputGraphFileIDs,
     if not skip_gcsa:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
         # todo: we're only taking in a genome gbwt as input, because that's all we write
-        if not chrom_gbwt_ids and gbwt_id:
-            chrom_gbwt_ids = [gbwt_id] * len(cinputGraphFileIDs)
+        if not indexes.has_key('chrom_gbwt') and indexes.has_key('gbwt'):
+            indexes['chrom_gbwt'] = indexes['gbwt'] * len(cinputGraphFileIDs)
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
                                                graph_names, index_name, chroms,
                                                indexes['chrom_gbwt'],
@@ -702,11 +716,11 @@ def index_main(context, options):
                                      graph_names, options.index_name, options.chroms,
                                      inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
                                      inputGBWTID,
-                                     skip_xg=options.skip_xg, skip_gcsa=options.skip_gcsa,
-                                     skip_id_ranges=options.skip_id_ranges,
-                                     skip_snarls=options.skip_snarls, make_gbwt=options.make_gbwt,
-                                     options.skip_xg, options.skip_gcsa, options.skip_id_ranges,
-                                     options.make_gbwt,
+                                     skip_xg = not options.xg_index and not options.all_index,
+                                     skip_gcsa = not options.gcsa_index and not options.all_index,
+                                     skip_id_ranges = not options.id_ranges_index and not options.all_index,
+                                     skip_snarls = not options.snarls_index and not options.all_index,
+                                     make_gbwt=options.make_gbwt,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
