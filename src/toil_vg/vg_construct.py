@@ -317,7 +317,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       max_node_size, alt_paths, flat_alts, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       gcsa_index = False, xg_index = False, gbwt_index = False, snarls_index = False,
-                      haplo_sample = None, haplotypes = [0,1]):
+                      haplo_sample = None, haplotypes = [0,1], gbwt_prune = False):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -365,7 +365,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                       input_vcf_ids, input_tbi_ids,
                                                       skip_xg=not xg_index, skip_gcsa=not gcsa_index,
                                                       skip_id_ranges=True, skip_snarls=not snarls_index,
-                                                      make_gbwt=gbwt_index, haplo_pruning=False)
+                                                      make_gbwt=gbwt_index, gbwt_prune=gbwt_prune)
         indexes = indexing_job.rv()    
 
         if gpbwt:
@@ -828,7 +828,8 @@ def construct_main(context, options):
                                      xg_index = options.xg_index or options.all_index,
                                      gbwt_index = options.gbwt_index or options.all_index,
                                      snarls_index = options.snarls_index or options.all_index,
-                                     haplo_sample = options.haplo_sample)
+                                     haplo_sample = options.haplo_sample,
+                                     gbwt_prune = options.gbwt_prune)
             
             # Run the workflow
             toil.start(init_job)

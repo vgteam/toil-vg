@@ -237,7 +237,7 @@ def run_gcsa_prep(job, context, input_graph_ids,
     for graph_i, input_graph_id in enumerate(input_graph_ids):
         gbwt_id = chrom_gbwt_ids[graph_i] if chrom_gbwt_ids else None
         mapping_id = mapping_ids[-1] if mapping_ids else None        
-        prev_job = prune_jobs[-1] if prune_jobs else prune_root_job
+        prev_job = prune_jobs[-1] if prune_jobs and gbwt_id else prune_root_job
         if not skip_pruning:
             prune_job = prev_job.addFollowOnJobFn(run_gcsa_prune, context, graph_names[graph_i],
                                                   input_graph_id, gbwt_id, mapping_id,
@@ -294,7 +294,7 @@ def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name, mapping_
     # Where do we put the GCSA2 index?
     gcsa_filename = "{}.gcsa".format(index_name)
 
-    command = ['vg', 'index', '--gcsa-out', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
+    command = ['vg', 'index', '--gcsa-name', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['--threads', str(job.cores)]
     
     for kmers_filename in kmers_filenames:
@@ -556,7 +556,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [], gbwt_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
-                 skip_snarls=False, make_gbwt=False):
+                 skip_snarls=False, make_gbwt=False, gbwt_prune=False):
     """
     Run indexing logic by itself.
     
@@ -568,10 +568,12 @@ def run_indexing(job, context, inputGraphFileIDs,
     IDs
     
     """
+    child_job = Job()
+    job.addChild(child_job)
     xg_root_job = Job()
-    job.addChild(xg_root_job)
+    child_job.addChild(xg_root_job)
     chrom_xg_root_job = Job()
-    job.addChild(chrom_xg_root_job)
+    child_job.addChild(chrom_xg_root_job)
 
     # This will hold the index to return
     indexes = {}
@@ -643,9 +645,11 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                         disk=context.config.xg_index_disk)
                 indexes['xg'] = xg_index_job.rv(0)
 
-    # gcsa follow from chrom_xg jobs
+
     gcsa_root_job = Job()
-    chrom_xg_root_job.addFollowOn(gcsa_root_job)
+    # gcsa follow from chrom_xg jobs only if gbwt needed for pruning
+    gcsa_predecessor_job = chrom_xg_root_job if gbwt_prune else child_job
+    gcsa_predecessor_job.addFollowOn(gcsa_root_job)
     
     if not skip_gcsa:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
@@ -654,7 +658,7 @@ def run_indexing(job, context, inputGraphFileIDs,
             indexes['chrom_gbwt'] = indexes['gbwt'] * len(cinputGraphFileIDs)
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
                                                graph_names, index_name, chroms,
-                                               indexes['chrom_gbwt'],
+                                               indexes['chrom_gbwt'] if gbwt_prune else [],
                                                cores=context.config.misc_cores,
                                                memory=context.config.misc_mem,
                                                disk=context.config.misc_disk)
@@ -722,7 +726,7 @@ def index_main(context, options):
                                      skip_gcsa = not options.gcsa_index and not options.all_index,
                                      skip_id_ranges = not options.id_ranges_index and not options.all_index,
                                      skip_snarls = not options.snarls_index and not options.all_index,
-                                     make_gbwt=options.make_gbwt,
+                                     make_gbwt=options.make_gbwt, gbwt_prune=options.gbwt_prune,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
