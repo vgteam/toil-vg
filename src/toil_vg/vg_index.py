@@ -43,6 +43,10 @@ def index_subparser(parser):
                         help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
                         " has multiple elements, must be same length/order as --chroms")
 
+    parser.add_argument("--node_mapping", type=make_url,
+                        help="node mapping file required for gbwt pruning.  created by toil-vg construct"
+                        " (or vg ids -j)")
+
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
@@ -109,7 +113,9 @@ def validate_index_options(options, index_main):
                 ' same number of arguments if more than one graph specified')
         require(any([options.xg_index, options.gcsa_index, options.snarls_index,
                      options.id_ranges_index, options.gbwt_index, options.all_index]),
-                'at least one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index required, --all_index')        
+                'at least one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index required, --all_index')
+        require(not options.gbwt_prune or options.node_mapping,
+                '--node_mapping required with --gbwt_prune')
     if options.vcf_phasing:
         require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
                 'input phasing files must end with .vcf.gz')
@@ -210,7 +216,7 @@ def run_gcsa_kmers(job, context, graph_name, input_graph_id):
 
 def run_gcsa_prep(job, context, input_graph_ids,
                   graph_names, index_name, chroms,
-                  chrom_gbwt_ids, skip_pruning=False):
+                  chrom_gbwt_ids, node_mapping_id, skip_pruning=False):
     """
     Do all the preprocessing for gcsa indexing (pruning and kmers)
     Then launch the indexing as follow-on
@@ -231,7 +237,7 @@ def run_gcsa_prep(job, context, input_graph_ids,
     # keep these in lists for now just in case
     prune_jobs = []
     # todo: figure out how best to update file with toil without making copies
-    mapping_ids = []
+    mapping_ids = [node_mapping_id] if node_mapping_id else []
 
     # prune then do kmers of each input graph.
     for graph_i, input_graph_id in enumerate(input_graph_ids):
@@ -555,6 +561,7 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [], gbwt_id = None,
+                 node_mapping_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
                  skip_snarls=False, make_gbwt=False, gbwt_prune=False):
     """
@@ -659,6 +666,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
                                                graph_names, index_name, chroms,
                                                indexes['chrom_gbwt'] if gbwt_prune else [],
+                                               node_mapping_id,
                                                cores=context.config.misc_cores,
                                                memory=context.config.misc_mem,
                                                disk=context.config.misc_disk)
@@ -709,6 +717,9 @@ def index_main(context, options):
             inputGBWTID = None
             if options.gbwt_input:
                 inputGBWTID = toil.importFile(options.gbwt_input)
+            inputNodeMappingID = None
+            if options.node_mapping:
+                inputNodeMappingID = toil.importFile(options.node_mapping)
 
             # Handy to have meaningful filenames throughout, so we remember
             # the input graph names
@@ -721,7 +732,7 @@ def index_main(context, options):
             root_job = Job.wrapJobFn(run_indexing, context, inputGraphFileIDs,
                                      graph_names, options.index_name, options.chroms,
                                      inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
-                                     inputGBWTID,
+                                     inputGBWTID, inputNodeMappingID,
                                      skip_xg = not options.xg_index and not options.all_index,
                                      skip_gcsa = not options.gcsa_index and not options.all_index,
                                      skip_id_ranges = not options.id_ranges_index and not options.all_index,

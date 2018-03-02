@@ -167,8 +167,8 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
     # our input vcf
     output = dict()
     if make_base_graph:
-        output['base'] = [vcf_ids, vcf_names, tbi_ids, output_name,
-                          [output_name + '_' + c.replace(':','-') for c in regions] if regions else None]
+        output[output_name] = [vcf_ids, vcf_names, tbi_ids, output_name,
+                               [output_name + '_' + c.replace(':','-') for c in regions] if regions else None]
     
     # our positive and negative controls
     if sample:
@@ -337,9 +337,10 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gbwt_index or gpbwt or alt_paths,
                                           flat_alts, regions,
-                                          region_names, sort_ids, join_ids, merge_output_name)
+                                          region_names, sort_ids, join_ids, name, merge_output_name)
 
-        vg_ids = construct_job.rv()
+        vg_ids = construct_job.rv(0)
+        mapping_id = construct_job.rv(1)
         vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
 
         vg_names = [remove_ext(i, '.vg') + '.vg' for i in vg_names]
@@ -363,6 +364,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         indexing_job = construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
                                                       vg_names, output_name_base, chroms,
                                                       input_vcf_ids, input_tbi_ids,
+                                                      node_mapping_id = mapping_id,
                                                       skip_xg=not xg_index, skip_gcsa=not gcsa_index,
                                                       skip_id_ranges=True, skip_snarls=not snarls_index,
                                                       make_gbwt=gbwt_index, gbwt_prune=gbwt_prune)
@@ -393,8 +395,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
-                              max_node_size, alt_paths, flat_alts, regions, region_names,
-                              sort_ids, join_ids, merge_output_name):
+                               max_node_size, alt_paths, flat_alts, regions, region_names,
+                               sort_ids, join_ids, name, merge_output_name):
     """ construct graph(s) from several regions in parallel.  we could eventually generalize this
     to accept multiple vcfs and/or fastas if needed, as well as to determine regions from file,
     but for now we only accept single files, and require region list.
@@ -429,13 +431,13 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
                                                   disk=context.config.construct_disk).rv())
 
     return child_job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
-                                      region_names, merge_output_name).rv()
+                                      region_names, name, merge_output_name).rv()
 
 
-def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merge_output_name = None):
+def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name, merge_output_name = None):
     """
     join the ids of some graphs.  if a merge_output_name is given, cat them all together as well
-    this function saves output to the outstore
+    this function saves output to the outstore.  also does the node mapping file 
     """
         
     work_dir = job.fileStore.getLocalTempDir()
@@ -451,16 +453,19 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
         merge_output_name = remove_ext(merge_output_name, '.vg') + '.vg'
 
     # if there's nothing to do, just write the files and return
-    if len(region_graph_ids) == 1 or not (join_ids or merge_output_name):
+    if not join_ids:
         out_ids = []
         for region_file in region_files:
             out_ids.append(context.write_output_file(job, os.path.join(work_dir, region_file),
                                                      out_store_path = merge_output_name))
-        return out_ids
+        return out_ids, None
+
+    mapping_file = merge_output_name[:-3] if merge_output_name else name
+    mapping_file = os.path.join(work_dir, mapping_file + '.mapping')
 
     if join_ids:
         # join the ids
-        cmd = ['vg', 'ids', '--join'] + region_files
+        cmd = ['vg', 'ids', '--join', '--mapping', os.path.basename(mapping_file)] + region_files
         context.runner.call(job, cmd, work_dir=work_dir)
 
     if merge_output_name is not None:
@@ -469,9 +474,12 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
             for region_file in region_files:
                 with open(os.path.join(work_dir, region_file)) as cf:
                     shutil.copyfileobj(cf, merge_file)
-        return [context.write_output_file(job, os.path.join(work_dir, merge_output_name))]
+        out_graphs = [context.write_output_file(job, os.path.join(work_dir, merge_output_name))]
     else:
-        return [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
+        out_graphs = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
+
+    mapping_id = context.write_output_file(job, mapping_file)
+    return out_graphs, mapping_id
         
     
 def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
