@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_indexing, index_parse_args, index_toggle_parse_args
+from toil_vg.vg_index import run_xg_indexing, run_indexing, index_parse_args, index_toggle_parse_args, validate_index_options
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -460,7 +460,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, merg
 
     if join_ids:
         # join the ids
-        cmd = ['vg', 'ids', '-j'] + region_files
+        cmd = ['vg', 'ids', '--join'] + region_files
         context.runner.call(job, cmd, work_dir=work_dir)
 
     if merge_output_name is not None:
@@ -489,22 +489,22 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         job.fileStore.readGlobalFile(vcf_id, vcf_file)
         job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
-    cmd = ['vg', 'construct', '-r', os.path.basename(fasta_file)]
+    cmd = ['vg', 'construct', '--reference', os.path.basename(fasta_file)]
     if vcf_id:
-        cmd += ['-v', os.path.basename(vcf_file)]
+        cmd += ['--vcf', os.path.basename(vcf_file)]
     if region:
-        cmd += ['-R', region]
+        cmd += ['--region', region]
         if is_chrom:
-            cmd += ['-C']
+            cmd += ['--region-is-chrom']
     if max_node_size:
-        cmd += ['-m', max_node_size]
+        cmd += ['--node-max', max_node_size]
     if alt_paths:
-        cmd += ['-a']
+        cmd += ['--alt-paths']
     if job.cores:
-        cmd += ['-t', job.cores]
+        cmd += ['--threads', job.cores]
 
     if sort_ids:
-        cmd = [cmd, ['vg', 'ids', '-s', '-']]
+        cmd = [cmd, ['vg', 'ids', '--sort', '-']]
 
     vg_path = os.path.join(work_dir, region_name)
     with open(vg_path, 'w') as vg_file:
@@ -746,6 +746,7 @@ def construct_main(context, options):
 
     # check some options
     validate_construct_options(options)
+    validate_index_options(options, False)
 
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None

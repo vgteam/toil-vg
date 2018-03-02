@@ -75,6 +75,8 @@ def index_parse_args(parser):
         help="number of threads during the gcsa indexing step")
     parser.add_argument("--xg_index_cores", type=int,
         help="number of threads during the xg indexing step")
+    parser.add_argument("--gbwt_index_cores", type=int,
+        help="number of threads during the gbwt indexing step")    
 
     parser.add_argument("--kmers_cores", type=int,
         help="number of threads during the gcsa kmers step")
@@ -96,14 +98,15 @@ def index_parse_args(parser):
     parser.add_argument("--gbwt_prune", action='store_true',
                         help="Use gbwt for gcsa pruning")
                         
-def validate_index_options(options):
+def validate_index_options(options, check_chroms=True):
     """
     Throw an error if an invalid combination of options has been selected.
-    """                           
-    require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
-    require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
-            '--chroms and --graphs must have'
-            ' same number of arguments if more than one graph specified')
+    """
+    if check_chroms:
+        require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
+        require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
+                '--chroms and --graphs must have'
+                ' same number of arguments if more than one graph specified')
     if options.vcf_phasing:
         require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
                 'input phasing files must end with .vcf.gz')
@@ -111,6 +114,7 @@ def validate_index_options(options):
         require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
     if options.gbwt_prune:
         require(options.make_gbwt or options.gbwt_input, '--make_gbwt or --gbwt_input required for --gbwt_prune')
+        require(options.gcsa_index or options.all_index, '--gbwt_prune requires gbwt indexing')
     require(not options.make_gbwt or not options.gbwt_input,
             'only one of --make_gbwt and --gbwt_input can be used at a time')
     if options.gbwt_input:
@@ -145,7 +149,7 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
     if mapping_id:
         job.fileStore.readGlobalFile(mapping_id, mapping_filename, mutable=True)
 
-    cmd = ['vg', 'prune', os.path.basename(graph_filename), '-t', str(job.cores)]
+    cmd = ['vg', 'prune', os.path.basename(graph_filename), '--threads', str(job.cores)]
     if context.config.prune_opts:
         cmd += context.config.prune_opts
     if gbwt_id:
@@ -191,7 +195,7 @@ def run_gcsa_kmers(job, context, graph_name, input_graph_id):
 
     # Make the GCSA2 kmers file
     with open(output_kmers_filename, "w") as kmers_file:
-        command = ['vg', 'kmers',  os.path.basename(graph_filename), '-t', str(job.cores)]
+        command = ['vg', 'kmers',  os.path.basename(graph_filename), '--threads', str(job.cores)]
         command += context.config.kmers_opts
         context.runner.call(job, command, work_dir=work_dir, outfile=kmers_file)
 
@@ -290,11 +294,11 @@ def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name, mapping_
     # Where do we put the GCSA2 index?
     gcsa_filename = "{}.gcsa".format(index_name)
 
-    command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
-    command += ['-t', str(job.cores)]
+    command = ['vg', 'index', '--gcsa-out', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
+    command += ['--threads', str(job.cores)]
     
     for kmers_filename in kmers_filenames:
-        command += ['-i', os.path.basename(kmers_filename)]
+        command += ['--dbg-in', os.path.basename(kmers_filename)]
     if mapping_id:
         command += ['--mapping', os.path.basename(mapping_filename)]
     context.runner.call(job, command, work_dir=work_dir)
@@ -381,7 +385,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     # Now run the indexer.
     RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))
 
-    command = ['vg', 'index', '-t', str(job.cores), '-x', os.path.basename(xg_filename)]
+    command = ['vg', 'index', '--threads', str(job.cores), '--xg-name', os.path.basename(xg_filename)]
     command += phasing_opts + graph_filenames
     
     try:
@@ -502,7 +506,7 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
 
     #run vg stats
     #expect result of form node-id-range <tab> first:last
-    command = ['vg', 'stats', '-r', os.path.basename(graph_filename)]
+    command = ['vg', 'stats', '--node-id-range', os.path.basename(graph_filename)]
     stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
     assert stats_out[0] == 'node-id-range'
     first, last = stats_out[1].split(':')
@@ -543,7 +547,7 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
         return context.write_output_file(job, gbwt_chrom_filenames[0],
                                          out_store_path = index_name + '.gbwt')
     else:
-        cmd = ['vg', 'gbwt', '--merge', '-f', '-o', index_name + '.gbwt']
+        cmd = ['vg', 'gbwt', '--merge', '--fast', '--output', index_name + '.gbwt']
         cmd += [os.path.basename(f) for f in gbwt_chrom_filenames]
         context.runner.call(job, cmd, work_dir=work_dir)
         return context.write_output_file(job, os.path.join(work_dir, index_name + '.gbwt'))
@@ -587,9 +591,6 @@ def run_indexing(job, context, inputGraphFileIDs,
                 chroms = [index_name]
             indexes['chrom_xg'] = []
             indexes['chrom_gbwt'] = []                                        
-            # when doing whole genome, we don't really want to give our chromosome jobs
-            # the same resources as the whole genome xg.  This is a little hack to tune it
-            chr_scale = .25 if chroms and len(chroms) > 1 else 1
             for i, chrom in enumerate(chroms):
                 vcf_id = vcf_phasing_file_ids[i] if i < len(vcf_phasing_file_ids) else None
                 tbi_id = tbi_phasing_file_ids[i] if i < len(tbi_phasing_file_ids) else None
@@ -598,9 +599,9 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
                                                                      make_gbwt = make_gbwt,
-                                                                     cores=max(1, chr_scale * context.config.xg_index_cores),
-                                                                     memory=max(1, chr_scale * context.config.xg_index_mem),
-                                                                     disk=max(1, chr_scale * context.config.xg_index_disk))
+                                                                     cores=context.config.gbwt_index_cores,
+                                                                     memory=context.config.gbwt_index_mem,
+                                                                     disk=context.config.gbwt_index_disk)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
@@ -630,16 +631,17 @@ def run_indexing(job, context, inputGraphFileIDs,
                 xg_root_job.addChild(concat_job)
                 vcf_phasing_file_id = None
                 tbi_phasing_file_id = None
-                
-            xg_index_job = concat_job.addChildJobFn(run_xg_indexing,
-                                                    context, inputGraphFileIDs,
-                                                    graph_names, index_name,
-                                                    vcf_phasing_file_id, tbi_phasing_file_id,
-                                                    make_gbwt=False,
-                                                    cores=context.config.xg_index_cores,
-                                                    memory=context.config.xg_index_mem,
-                                                    disk=context.config.xg_index_disk)
-            indexes['xg'] = xg_index_job.rv(0)
+
+            if not skip_xg:
+                xg_index_job = concat_job.addChildJobFn(run_xg_indexing,
+                                                        context, inputGraphFileIDs,
+                                                        graph_names, index_name,
+                                                        vcf_phasing_file_id, tbi_phasing_file_id,
+                                                        make_gbwt=False,
+                                                        cores=context.config.xg_index_cores,
+                                                        memory=context.config.xg_index_mem,
+                                                        disk=context.config.xg_index_disk)
+                indexes['xg'] = xg_index_job.rv(0)
 
     # gcsa follow from chrom_xg jobs
     gcsa_root_job = Job()
