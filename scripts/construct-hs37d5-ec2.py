@@ -20,6 +20,7 @@ def parse_args(args):
     parser.add_argument("--gbwt", action="store_true", help="make gbwt")
     parser.add_argument("--xg", action="store_true", help="make xg")
     parser.add_argument("--gcsa", action="store_true", help="make gcsa")
+    parser.add_argument("--snarls", action="store_true", help="make snarls")
     parser.add_argument("--control", help="control sample")
     parser.add_argument("--primary", action="store_true", help="make primary graph")
     parser.add_argument("--minaf", type=float, help="make min allele filter graph")
@@ -76,6 +77,9 @@ if options.gcsa:
 
 if options.gbwt:
     cmd += ['--gbwt_index']
+
+if options.snarls:
+    cmd += ['--snarls_index']
 
 if options.control:
     cmd += ['--control_sample', options.control]
