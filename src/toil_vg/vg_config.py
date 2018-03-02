@@ -167,14 +167,15 @@ freebayes-docker: 'maxulysse/freebayes:1.2.5'
 index-name: 'genome'
 
 # Options to pass to vg prune.
-# (limit to general parameters, currently -k, -e, s.  Rest decided by toil-vg via other options)
+# (limit to general parameters, currently -k, -e, s.  
+# Rest decided by toil-vg via other options like prune-mode)
 prune-opts: []
 
 # Options to pass to vg kmers.
-kmers-opts: ['-g', '-B', '-k', '16']
+kmers-opts: ['--gcsa-out', '--gcsa-binary', '--kmer-size', 16]
 
 # Options to pass to vg gcsa indexing
-gcsa-opts: ['-X', '3', '-Z', '3000']
+gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
 
 ########################
 ### vg_map Arguments ###
@@ -388,14 +389,15 @@ freebayes-docker: 'maxulysse/freebayes:1.2.5'
 index-name: 'genome'
 
 # Options to pass to vg prune.
-# (limit to general parameters, currently -k, -e, s.  Rest decided by toil-vg via other options)
+# (limit to general parameters, currently -k, -e, s.  
+# Rest decided by toil-vg via other options like prune-mode)
 prune-opts: []
 
 # Options to pass to vg kmers.
-kmers-opts: ['-g', '-B', '-k', '16']
+kmers-opts: ['--gcsa-out', '--gcsa-binary', '--kmer-size', 16]
 
 # Options to pass to vg gcsa indexing
-gcsa-opts: ['-X', '3', '-Z', '3000']
+gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
 
 ########################
 ### vg_map Arguments ###

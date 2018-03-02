@@ -82,7 +82,10 @@ def construct_subparser(parser):
                         help="Do not construct base graph from input vcf.  Only make optional controls")
     parser.add_argument("--min_af", type=float, default=None,
                         help="Create a control using the given minium allele frequency")
-    
+
+    # Add common indexing options shared with vg_index
+    index_parse_args(parser_run)
+
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
