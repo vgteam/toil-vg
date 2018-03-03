@@ -76,7 +76,7 @@ if options.gcsa:
     cmd += ['--gcsa_index']
 
 if options.gbwt:
-    cmd += ['--gbwt_index']
+    cmd += ['--gbwt_index', '--gbwt_prune']
 
 if options.snarls:
     cmd += ['--snarls_index']

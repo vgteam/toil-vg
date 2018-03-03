@@ -94,9 +94,7 @@ def index_parse_args(parser):
                         help="Options to pass to gcsa indexing.")
 
     parser.add_argument("--vcf_phasing", nargs='+', type=make_url, default=[],
-                        help="Import phasing information from VCF(s) into xg or GBWT")
-    parser.add_argument("--make_gbwt", action='store_true',
-                        help="Save phasing information to a GBWT (instead of GBWT inside XG)")
+                        help="Import phasing information from VCF(s) into xg (or GBWT with --gbwt_index)")
     parser.add_argument("--gbwt_input", type=make_url,
                         help="Use given GBWT for GCSA2 pruning")
     parser.add_argument("--gbwt_prune", action='store_true',
@@ -119,13 +117,13 @@ def validate_index_options(options, index_main):
     if options.vcf_phasing:
         require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
                 'input phasing files must end with .vcf.gz')
-    if options.make_gbwt:
+    if options.gbwt_index:
         require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
     if options.gbwt_prune:
-        require(options.make_gbwt or options.gbwt_input, '--make_gbwt or --gbwt_input required for --gbwt_prune')
+        require(options.gbwt_index or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
         require(options.gcsa_index or options.all_index, '--gbwt_prune requires gbwt indexing')
-    require(not options.make_gbwt or not options.gbwt_input,
-            'only one of --make_gbwt and --gbwt_input can be used at a time')
+    require(not options.gbwt_index or not options.gbwt_input,
+            'only one of --gbwt_index and --gbwt_input can be used at a time')
     if options.gbwt_input:
         require(options.gbwt_prune == 'gbwt', '--gbwt_prune required with --gbwt_input')
     
@@ -737,7 +735,7 @@ def index_main(context, options):
                                      skip_gcsa = not options.gcsa_index and not options.all_index,
                                      skip_id_ranges = not options.id_ranges_index and not options.all_index,
                                      skip_snarls = not options.snarls_index and not options.all_index,
-                                     make_gbwt=options.make_gbwt, gbwt_prune=options.gbwt_prune,
+                                     make_gbwt=options.gbwt_index, gbwt_prune=options.gbwt_prune,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

@@ -450,7 +450,7 @@ class VGCGLTest(TestCase):
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--xg_index', '--graphs', vg_path, '--chroms', '17',
                   '--vcf_phasing', in_vcf, '--index_name', 'my_index',
-                  '--make_gbwt', '--xg_index_cores', '4')
+                  '--gbwt_index', '--xg_index_cores', '4')
 
         # check gbwt exists
         gbwt_path = os.path.join(self.local_outstore, 'my_index.gbwt')
