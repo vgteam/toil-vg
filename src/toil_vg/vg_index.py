@@ -100,19 +100,18 @@ def index_parse_args(parser):
     parser.add_argument("--gbwt_prune", action='store_true',
                         help="Use gbwt for gcsa pruning")
                         
-def validate_index_options(options, index_main):
+def validate_index_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    if index_main:
-        require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
-        require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
-                '--chroms and --graphs must have'
-                ' same number of arguments if more than one graph specified')
-        require(any([options.xg_index, options.gcsa_index, options.snarls_index,
-                     options.id_ranges_index, options.gbwt_index, options.all_index]),
-                'at least one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index required, --all_index')
-        require(not options.gbwt_prune or options.node_mapping,
+    require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
+    require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
+            '--chroms and --graphs must have'
+            ' same number of arguments if more than one graph specified')
+    require(any([options.xg_index, options.gcsa_index, options.snarls_index,
+                 options.id_ranges_index, options.gbwt_index, options.all_index]),
+            'at least one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index required, --all_index')
+    require(not options.gbwt_prune or options.node_mapping,
                 '--node_mapping required with --gbwt_prune')
     if options.vcf_phasing:
         require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
@@ -686,7 +685,7 @@ def index_main(context, options):
     """
 
     # check some options
-    validate_index_options(options, True)
+    validate_index_options(options)
         
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
