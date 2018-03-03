@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_indexing, index_parse_args, index_toggle_parse_args, validate_index_options
+from toil_vg.vg_index import run_xg_indexing, run_indexing, index_parse_args, index_toggle_parse_args
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -754,7 +754,6 @@ def construct_main(context, options):
 
     # check some options
     validate_construct_options(options)
-    validate_index_options(options, False)
 
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
