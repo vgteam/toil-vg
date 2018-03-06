@@ -36,12 +36,12 @@ def index_subparser(parser):
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
-    parser.add_argument("--graphs", nargs='+', type=make_url,
+    parser.add_argument("--graphs", nargs='+', type=make_url, required=True,
                         help="input graph(s). one per chromosome (separated by space)")
 
     parser.add_argument("--chroms", nargs='+',
                         help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
-                        " has multiple elements, must be same length/order as --chroms")
+                        " has multiple elements, must be same length/order as --chroms (not needed for xg_index)")
 
     parser.add_argument("--node_mapping", type=make_url,
                         help="node mapping file required for gbwt pruning.  created by toil-vg construct"
@@ -104,10 +104,12 @@ def validate_index_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    require(options.chroms and options.graphs, '--chroms and --graphs must be specified')
-    require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
-            '--chroms and --graphs must have'
-            ' same number of arguments if more than one graph specified')
+    if any([options.gcsa_index, options.snarls_index,
+            options.id_ranges_index, options.gbwt_index, options.all_index]):
+        require(options.chroms, '--chroms must be specified')
+        require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
+                '--chroms and --graphs must have'
+                ' same number of arguments if more than one graph specified if doing anything but xg indexing')
     require(any([options.xg_index, options.gcsa_index, options.snarls_index,
                  options.id_ranges_index, options.gbwt_index, options.all_index]),
             'at least one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index required, --all_index')

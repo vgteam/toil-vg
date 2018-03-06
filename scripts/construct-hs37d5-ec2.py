@@ -24,6 +24,7 @@ def parse_args(args):
     parser.add_argument("--control", help="control sample")
     parser.add_argument("--primary", action="store_true", help="make primary graph")
     parser.add_argument("--minaf", type=float, help="make min allele filter graph")
+    parser.add_argument("--alt_paths", action="store_true", help="force alt paths")
     
     parser.add_argument("--node", help="toil node type (default=r3.8xlarge:0.85)", default="r3.8xlarge:0.85")
     args = args[1:]        
@@ -42,6 +43,9 @@ def get_vcf_path_hs37d5(chrom):
     elif chrom == 'Y':
         return os.path.join(base, 'ALL.chrY.phase3_integrated_v2a.20130502.genotypes.vcf.gz')
 
+def get_unphased_vcf_path_hs37d5():
+    return 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.wgs.phase3_shapeit2_mvncall_integrated_v5b.20130502.sites.vcf.gz'
+
 def get_fasta_path_hs37d5():
     return 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz'
 
@@ -57,8 +61,7 @@ os_log_name = os.path.join(options.out_store[options.out_store.rfind(':')+1:], o
 cmd = ['construct', options.job_store, options.out_store,
        '--fasta', get_fasta_path_hs37d5(),
        '--out_name', out_name,
-       '--logFile', log_name,
-       '--alt_paths']
+       '--logFile', log_name]
 
 # Note config file path is on the leader!!!!  Should fix to copy it over, but not sure how.
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
@@ -77,6 +80,9 @@ if options.gcsa:
 
 if options.gbwt:
     cmd += ['--gbwt_index', '--gbwt_prune']
+    
+if options.gbwt or options.alt_paths:
+    cmd += ['--alt_paths']
 
 if options.snarls:
     cmd += ['--snarls_index']
@@ -88,11 +94,17 @@ if options.control:
 if options.chroms:
     # restrict to specified chromosome(s)
     cmd += ['--regions'] + options.chroms
-    cmd += ['--vcf'] + [get_vcf_path_hs37d5(chrom) for chrom in options.chroms]
+    if options.gbwt or options.alt_paths:
+        cmd += ['--vcf'] + [get_vcf_path_hs37d5(chrom) for chrom in options.chroms]
+    else:
+        cmd += ['--vcf'] + [get_unphased_vcf_path_hs37d5()]
 else:
     # do all chromsomes as well as decoys
-    cmd += ['--fasta_regions']
-    cmd += ['--vcf'] + [get_vcf_path_hs37d5(chrom) for chrom in range(1, 23) + ['X', 'Y']]
+    cmd += ['--fasta_regions', '--vcf']
+    if options.gbwt or options.alt_paths:
+        cmd += [get_vcf_path_hs37d5(chrom) for chrom in range(1, 23) + ['X', 'Y']]
+    else:
+        cmd += [get_unphased_vcf_path_hs37d5()]
 
 if options.restart:
     cmd += ['--restart']
