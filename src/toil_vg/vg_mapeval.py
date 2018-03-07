@@ -158,8 +158,8 @@ def validate_options(options):
 
     # need to have input reads coming from somewhere
     require(sum(map(lambda x : x is not None,
-                    [options.gam_input_reads, options.bam_input_reads, options.fastq])) == 1,
-            'one of --gam_input_reads or --fastq or --bam_input_reads required for input')
+                    [options.gam_input_reads, options.bam_input_reads, options.fastq, options.gams])) == 1,
+            'one of --gam_input_reads or --fastq or --bam_input_reads or --gams required for input')
 
     # annotation is not an option when reading fastq
     require(not options.fastq or options.truth,
@@ -849,12 +849,12 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 mpmap_opts.append('-A')
         context.config.map_opts = [o for o in context.config.map_opts if o not in ['-A', '--qual-adjust']]
 
-    assert reads_fastq_single_ids or reads_fastq_paired_ids
     def fq_names(fq_reads_ids):
         return ['input{}.fq.gz'.format(i) for i in range(len(fq_reads_ids))]
 
     do_vg_mapping = not gam_file_ids and (singlepath or multipath)
     if do_vg_mapping and singlepath and do_single:
+        assert reads_fastq_single_ids
         gam_file_ids = []
         # run vg map if requested
         for i, indexes in enumerate(index_ids):
@@ -873,6 +873,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
 
     # Do the single-ended multipath mapping
     if do_vg_mapping and multipath and do_single:
+        assert reads_fastq_single_ids
         for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
             mp_context = copy.deepcopy(context)
             mp_context.config.mpmap_opts = mpmap_opts
@@ -892,6 +893,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
 
     if do_vg_mapping and do_paired and singlepath:
         # run paired end version of all vg inputs if --pe-gams specified
+        assert reads_fastq_paired_for_vg_ids
         for i, indexes in enumerate(index_ids):
             interleaved = len(reads_fastq_paired_for_vg_ids) == 1
             map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_paired_for_vg_ids),
@@ -909,6 +911,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
 
     # Do the paired-ended multipath mapping
     if do_vg_mapping and do_paired and multipath:
+        assert reads_fastq_paired_for_vg_ids
         interleaved = len(reads_fastq_paired_for_vg_ids) == 1
         for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
             mp_context = copy.deepcopy(context)
@@ -939,12 +942,14 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
         bwa_index_ids = bwa_index_job.rv()
                 
         if do_single:
+            assert reads_fastq_single_ids
             bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_single_ids, bwa_index_ids, False,
                                                          cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                          disk=context.config.alignment_disk)
             bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
             bwa_mem_times[0] = bwa_mem_job.rv(1)
         if do_paired:
+            assert reads_fastq_paired_ids
             bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_paired_ids, bwa_index_ids, True,
                                                          cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                          disk=context.config.alignment_disk)
@@ -1555,22 +1560,25 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     if len(fq_reads_ids) == 2 and not options.paired_only:
         fq_reads_ids = [index_job.addChildJobFn(run_concat_fastqs, context, fq_reads_ids,
                                                disk=context.config.alignment_disk).rv()]
-        
-    if not options.paired_only and not fq_reads_ids:
-        fq_reads_ids = index_job.addChildJobFn(fastq_fn, context,
-                                               reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
-                                               False,
-                                               disk=context.config.alignment_disk).rv()
-    if not options.single_only and not fq_paired_reads_ids:
-        fq_paired_reads_ids  = index_job.addChildJobFn(fastq_fn, context,
-                                                       reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
-                                                       True,
-                                                       disk=context.config.alignment_disk).rv()
-        # todo: smarter annotation so we don't need to make two input sets, one with _1 _2 with vg and one without for bwa
-        fq_paired_reads_for_vg_ids = index_job.addChildJobFn(fastq_fn, context,
-                                                             reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
-                                                             True, True,
-                                                             disk=context.config.alignment_disk).rv()
+    
+    if reads_gam_file_id or reads_bam_file_id:
+        # There are reads to extract to FASTQ for realigning
+    
+        if not options.paired_only and not fq_reads_ids:
+            fq_reads_ids = index_job.addChildJobFn(fastq_fn, context,
+                                                   reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
+                                                   False,
+                                                   disk=context.config.alignment_disk).rv()
+        if not options.single_only and not fq_paired_reads_ids:
+            fq_paired_reads_ids  = index_job.addChildJobFn(fastq_fn, context,
+                                                           reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
+                                                           True,
+                                                           disk=context.config.alignment_disk).rv()
+            # todo: smarter annotation so we don't need to make two input sets, one with _1 _2 with vg and one without for bwa
+            fq_paired_reads_for_vg_ids = index_job.addChildJobFn(fastq_fn, context,
+                                                                 reads_gam_file_id if reads_gam_file_id else reads_bam_file_id,
+                                                                 True, True,
+                                                                 disk=context.config.alignment_disk).rv()
 
     do_single_path = not options.multipath_only
     do_multi_path = options.multipath or options.multipath_only
