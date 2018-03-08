@@ -156,10 +156,18 @@ def validate_options(options):
     Throw an error if an invalid combination of options has been selected.
     """
 
+    # We can only deal with one source of unaligned input reads
+    input_count = sum(map(lambda x : x is not None, [options.gam_input_reads, options.bam_input_reads, options.fastq]))
+    require(input_count <= 1,
+            'no more than one of --gam_input_reads, --fastq, or --bam_input_reads allowed for input')
+    
     # need to have input reads coming from somewhere
-    require(sum(map(lambda x : bool(x),
-                    [options.gam_input_reads, options.bam_input_reads, options.fastq, options.gams])) == 1,
-            'one of --gam_input_reads or --fastq or --bam_input_reads or --gams required for input')
+    require(options.gams != [] or input_count > 0,
+            'either --gams must be specified with pre-aligned GAM files, or one of ' +
+            '--gam_input_reads, --fastq, or --bam_input_reads must give reads to align')
+            
+    # Note that we have to accept --gams along with unaligned reads; in that
+    # case we ignore the unaligned reads and use the pre-aligned GAMs.
 
     # annotation is not an option when reading fastq
     require(not options.fastq or options.truth,
