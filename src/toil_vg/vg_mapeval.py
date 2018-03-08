@@ -157,7 +157,7 @@ def validate_options(options):
     """
 
     # need to have input reads coming from somewhere
-    require(sum(map(lambda x : x is not None,
+    require(sum(map(lambda x : bool(x),
                     [options.gam_input_reads, options.bam_input_reads, options.fastq, options.gams])) == 1,
             'one of --gam_input_reads or --fastq or --bam_input_reads or --gams required for input')
 
