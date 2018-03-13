@@ -246,13 +246,15 @@ to do: Should go somewhere more central """
             # Collect the stdout output from the container and return it.
             # By default the Docker API collects and returns stdout.
             
+            # We shouldn't specify remove=True because Toil queues up the
+            # removal itself and two removals is an error.
+            
             assert(outfile is None)
             
             captured_stdout = apiDockerCall(job, tool, parameters,
                                             volumes=volumes,
                                             working_dir=working_dir,
                                             entrypoint=entrypoint,
-                                            remove=True,
                                             log_config={'type': 'none', 'config': {}},
                                             environment=environment)
         
@@ -275,7 +277,6 @@ to do: Should go somewhere more central """
                                               volumes=volumes,
                                               working_dir=working_dir,
                                               entrypoint=entrypoint,
-                                              remove=True,
                                               log_config={'type': 'none', 'config': {}},
                                               environment=environment,
                                               stream=True)
@@ -297,7 +298,6 @@ to do: Should go somewhere more central """
                               volumes=volumes,
                               working_dir=working_dir,
                               entrypoint=entrypoint,
-                              remove=True,
                               log_config={'type': 'none', 'config': {}},
                               environment=environment,
                               stdout=False)
