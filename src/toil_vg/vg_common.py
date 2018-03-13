@@ -216,17 +216,6 @@ to do: Should go somewhere more central """
         # And a working directory override
         working_dir = None
 
-        if len(args) == 1:
-            # split off first argument as entrypoint (so we can be oblivious as to whether
-            # that happens by default)
-            parameters = [] if len(args[0]) == 1 else args[0][1:]
-            entrypoint = args[0][0]
-        else:
-            # can leave as is for piped interface which takes list of args lists
-            # and doesn't worry about entrypoints since everything goes through bash -c
-            # todo: check we have a bash entrypoint!
-            parameters = args
-        
         # breaks Rscript.  Todo: investigate how general this actually is
         if name != 'Rscript':
             # vg uses TMPDIR for temporary files
@@ -239,69 +228,87 @@ to do: Should go somewhere more central """
 
         # set our working directory map
         if work_dir is not None:
-            volumes = {os.path.abspath(work_dir): {'bind': '/data', 'mode': 'rw'}}
+            volumes[os.path.abspath(work_dir)] = {'bind': '/data', 'mode': 'rw'}
             working_dir = '/data'
+            
+        if outfile is not None:
+            # We need to send output to a file object
 
-        if check_output is True:
-            # Collect the stdout output from the container and return it.
-            # By default the Docker API collects and returns stdout.
+            assert(not check_output)
             
-            # We shouldn't specify remove=True because Toil queues up the
-            # removal itself and two removals is an error.
+            # We can't just redirect stdout of the container from the API, so
+            # we do something more complicated.
             
-            assert(outfile is None)
+            # Set up a FIFO to receive it
+            fifo_dir = tempfile.mkdtemp()
+            fifo_host_path = os.path.join(fifo_dir, 'stdout.fifo')
+            os.mkfifo(fifo_host_path)
             
-            captured_stdout = apiDockerCall(job, tool, parameters,
-                                            volumes=volumes,
-                                            working_dir=working_dir,
-                                            entrypoint=entrypoint,
-                                            log_config={'type': 'none', 'config': {}},
-                                            environment=environment)
-        
+            # Mount the FIFO in the container.
+            # The container doesn't actually have to have the mountpoint directory in its filesystem.
+            volumes[fifo_dir] = {'bind': '/control', 'mode': 'rw'}
+            
+            # Redirect the command output by tacking on another pipeline stage
+            parameters = args + ['dd', 'of=/control/stdout.fifo']
+            
+            
+            # Start the container detached so we don't wait on it
+            container = apiDockerCall(job, tool, parameters,
+                                      volumes=volumes,
+                                      working_dir=working_dir,
+                                      entrypoint=entrypoint,
+                                      environment=environment,
+                                      detach=True)
+                                     
+            with open(fifo_host_path) as fifo_in:
+                # Consume the output
+                shutil.copyfileobj(fifo_in, outfile)
+            
+            # Wait on the container's return code
+            response = container.wait()
+            
+            os.unlink(fifo_host_path)
+            os.rmdir(fifo_dir)
+            
+            if response['StatusCode'] != 0:
+                # Raise an error if it's not sucess
+                raise RuntimeError("Docker container for command {} failed with code {}".format(
+                                   " | ".join(" ".join(x) for x in args), response['StatusCode']))
+            
         else:
-            # Ignore the output and return whatever we want. But we may be
-            # supposed to stream the container output to a file object. This
-            # can be tricky because it seems like Docker wants to save all
-            # container output itself in JSON, on the theory that stdout is
-            # always a small text log, and then produce it for us on demand.
+            # No piping needed.
+        
+            if len(args) == 1:
+                # split off first argument as entrypoint (so we can be oblivious as to whether
+                # that happens by default)
+                parameters = [] if len(args[0]) == 1 else args[0][1:]
+                entrypoint = args[0][0]
+            else:
+                # can leave as is for piped interface which takes list of args lists
+                # and doesn't worry about entrypoints since everything goes through bash -c
+                # todo: check we have a bash entrypoint!
+                parameters = args
             
-            if outfile:
+            if check_output:
+                # We need to collect the output. Run the container blockingly, with logging.
             
-                # Our solution is to use the stream mode to get a generator for
-                # the container's stdout, and hope that Docker implements this
-                # cleverly enough that we can stream stdout without it hitting
-                # disk or buffering forever because there's no newline in it or
-                # something.
-                
-                stdout_stream = apiDockerCall(job, tool, parameters,
-                                              volumes=volumes,
-                                              working_dir=working_dir,
-                                              entrypoint=entrypoint,
-                                              log_config={'type': 'none', 'config': {}},
-                                              environment=environment,
-                                              stream=True)
-                                              
-                shutil.copyfileobj(stdout_stream, outfile)
-                
-                # TODO: The Docker API claims to raise
-                # "docker.errors.ContainerError - If the container exits with a
-                # non-zero exit code and detach is False.", but it's not really
-                # possible for that to happen when stream is True without it
-                # waiting for the container to finish and buffering potentially
-                # unbounded output somewhere in /var with the Docker stuff.
-                
-                # So either we're going to miss errors or we're going to fill disk.
+                captured_stdout = apiDockerCall(job, tool, parameters,
+                                                volumes=volumes,
+                                                working_dir=working_dir,
+                                                entrypoint=entrypoint,
+                                                environment=environment)
             
             else:
-                # No need to do anything with the output data
+                # We don't need any output. Run the container blockingly, without
+                # logging, so any output that is large doesn't fill disk.
+                
                 apiDockerCall(job, tool, parameters,
                               volumes=volumes,
                               working_dir=working_dir,
                               entrypoint=entrypoint,
                               log_config={'type': 'none', 'config': {}},
-                              environment=environment,
-                              stdout=False)
-                                            
+                              stdout=False,
+                              environment=environment)
         
         end_time = timeit.default_timer()
         run_time = end_time - start_time
