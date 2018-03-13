@@ -16,7 +16,7 @@ import collections
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
-from toil.lib.docker import dockerCall, dockerCheckOutput
+from toil.lib.docker import dockerCall, dockerCheckOutput, apiDockerCall
 from toil_vg.singularity import singularityCall, singularityCheckOutput
 from toil_vg.iostore import IOStore
 
@@ -182,10 +182,19 @@ to do: Should go somewhere more central """
             return self.call_directly(args, work_dir, outfile, errfile, check_output)
         
     def call_with_docker(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
-        """ Thin wrapper for docker_call that will use internal lookup to
+        """
+        
+        Thin wrapper for docker_call that will use internal lookup to
         figure out the location of the docker file.  Only exposes docker_call
         parameters used so far.  expect args as list of lists.  if (toplevel)
-        list has size > 1, then piping interface used """
+        list has size > 1, then piping interface used
+        
+        TODO: Ignores errfile and never redirects stderr from the container!
+        
+        Does support redirecting output to outfile, unless check_output is
+        used, in which case output is captured.
+        
+        """
 
         RealtimeLogger.info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
@@ -195,14 +204,23 @@ to do: Should go somewhere more central """
         name = tool_name if tool_name is not None else args[0][0]
         tool = self.docker_tool_map[name]
 
-        # default parameters from toil's docker.py
-        docker_parameters = ['--rm', '--log-driver', 'none']
+        # We keep an environment dict
+        environment = {}
+        
+        # And an entry point override
+        entrypoint = None
+        
+        # And a volumes dict for mounting
+        volumes = {}
+        
+        # And a working directory override
+        working_dir = None
 
         if len(args) == 1:
             # split off first argument as entrypoint (so we can be oblivious as to whether
             # that happens by default)
             parameters = [] if len(args[0]) == 1 else args[0][1:]
-            docker_parameters += ['--entrypoint', args[0][0]]
+            entrypoint = args[0][0]
         else:
             # can leave as is for piped interface which takes list of args lists
             # and doesn't worry about entrypoints since everything goes through bash -c
@@ -214,22 +232,76 @@ to do: Should go somewhere more central """
             # vg uses TMPDIR for temporary files
             # this is particularly important for gcsa, which makes massive files.
             # we will default to keeping these in our working directory
-            docker_parameters += ['--env', 'TMPDIR=.']
+            environment['TMPDIR'] = '.'
             
         # Force all dockers to run sort in a consistent way
-        docker_parameters += ['--env', 'LC_ALL=C']
+        environment['LC_ALL'] = 'C'
 
         # set our working directory map
         if work_dir is not None:
-            docker_parameters += ['-v', '{}:/data'.format(os.path.abspath(work_dir)),
-                                  '-w', '/data']
+            volumes = {os.path.abspath(work_dir): {'bind': '/data', 'mode': 'rw'}}
+            working_dir = '/data'
 
         if check_output is True:
-            ret = dockerCheckOutput(job, tool, parameters=parameters,
-                                    dockerParameters=docker_parameters, workDir=work_dir)
+            # Collect the stdout output from the container and return it.
+            # By default the Docker API collects and returns stdout.
+            
+            assert(outfile is None)
+            
+            captured_stdout = apiDockerCall(job, tool, parameters,
+                                            volumes=volumes,
+                                            working_dir=working_dir,
+                                            entrypoint=entrypoint,
+                                            remove=True,
+                                            log_config={'type': 'none', 'config': {}},
+                                            environment=environment)
+        
         else:
-            ret = dockerCall(job, tool, parameters=parameters, dockerParameters=docker_parameters,
-                             workDir=work_dir, outfile = outfile)
+            # Ignore the output and return whatever we want. But we may be
+            # supposed to stream the container output to a file object. This
+            # can be tricky because it seems like Docker wants to save all
+            # container output itself in JSON, on the theory that stdout is
+            # always a small text log, and then produce it for us on demand.
+            
+            if outfile:
+            
+                # Our solution is to use the stream mode to get a generator for
+                # the container's stdout, and hope that Docker implements this
+                # cleverly enough that we can stream stdout without it hitting
+                # disk or buffering forever because there's no newline in it or
+                # something.
+                
+                stdout_stream = apiDockerCall(job, tool, parameters,
+                                              volumes=volumes,
+                                              working_dir=working_dir,
+                                              entrypoint=entrypoint,
+                                              remove=True,
+                                              log_config={'type': 'none', 'config': {}},
+                                              environment=environment,
+                                              stream=True)
+                                              
+                shutil.copyfileobj(stdout_stream, outfile)
+                
+                # TODO: The Docker API claims to raise
+                # "docker.errors.ContainerError – If the container exits with a
+                # non-zero exit code and detach is False.", but it's not really
+                # possible for that to happen when stream is True without it
+                # waiting for the container to finish and buffering potentially
+                # unbounded output somewhere in /var with the Docker stuff.
+                
+                # So either we're going to miss errors or we're going to fill disk.
+            
+            else:
+                # No need to do anything with the output data
+                apiDockerCall(job, tool, parameters,
+                              volumes=volumes,
+                              working_dir=working_dir,
+                              entrypoint=entrypoint,
+                              remove=True,
+                              log_config={'type': 'none', 'config': {}},
+                              environment=environment,
+                              stdout=False)
+                                            
         
         end_time = timeit.default_timer()
         run_time = end_time - start_time
@@ -240,7 +312,8 @@ to do: Should go somewhere more central """
             outfile.flush()
             os.fsync(outfile.fileno())
 
-        return ret
+        if check_output is True:
+            return captured_stdout
     
     def call_with_singularity(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
         """ Thin wrapper for singularity_call that will use internal lookup to
