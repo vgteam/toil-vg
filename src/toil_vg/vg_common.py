@@ -283,7 +283,7 @@ to do: Should go somewhere more central """
                 shutil.copyfileobj(stdout_stream, outfile)
                 
                 # TODO: The Docker API claims to raise
-                # "docker.errors.ContainerError – If the container exits with a
+                # "docker.errors.ContainerError - If the container exits with a
                 # non-zero exit code and detach is False.", but it's not really
                 # possible for that to happen when stream is True without it
                 # waiting for the container to finish and buffering potentially
