@@ -8,6 +8,7 @@ import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno
 import fcntl
 import select
+import time
 import threading
 from uuid import uuid4
 import pkg_resources, tempfile, datetime
@@ -261,18 +262,23 @@ to do: Should go somewhere more central """
                                       entrypoint=entrypoint,
                                       environment=environment,
                                       detach=True)
-                                     
-            with open(fifo_host_path) as fifo_in:
-                # If the Docker container goes badly enough, it may not even
-                # open the other end of the FIFO. So we can't just wait for it
-                # to EOF before checking on the Docker.
-                
-                # Put the FIFO into nonblocking mode. See <https://stackoverflow.com/a/5749687>
-                fifo_fd = fifo_in.fileno()
-                fcntl.fcntl(fifo_fd, fcntl.F_SETFL, fcntl.fcntl(fifo_fd, fcntl.F_GETFL) | os.O_NONBLOCK)
-                
-                # Now read will throw if there is no data
-                
+            
+            RealtimeLogger.info("Asked for container {}".format(container.id))
+            
+            # If the Docker container goes badly enough, it may not even
+            # open the other end of the FIFO. So we can't just wait for it
+            # to EOF before checking on the Docker.
+            
+            # Open the FIFO into nonblocking mode. See
+            # <https://stackoverflow.com/a/5749687> and
+            # <http://shallowsky.com/blog/programming/python-read-characters.html>
+            fifo_fd = os.open(fifo_host_path, os.O_RDONLY | os.O_NONBLOCK)
+            
+            # Now read will throw if there is no data
+            
+            try:
+                # Prevent leaking FDs
+            
                 # If this is set, and there is no data in the pipe, decide that no data is coming
                 last_chance = False
                 # If this is set, we have seen data in the pipe, so the other
@@ -284,23 +290,29 @@ to do: Should go somewhere more central """
                     # While there still might be data in the pipe
                     
                     # Select on the pipe with a timeout, so we don't spin constantly waiting for data
-                    select.select([fifo_in], [], [], 10)
+                    RealtimeLogger.info("Selecting")
+                    select.select([fifo_fd], [], [], 10)
+                    RealtimeLogger.info("Selected")
                     
                     try:
                         # Ignore what select says and attempt a read anyway
-                        data = fifo_in.read()
+                        data = os.read(fifo_fd, 4096)
                         
                         if data == "":
                             # We didn't throw and we got nothing, so it must be EOF.
+                            RealtimeLogger.info("Got EOF")
                             break
                             
                     except OSError as err:
                         if err.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
                             # There is no data right now
+                            RealtimeLogger.info("Got EAGAIN/EWOULDBLOCK")
                             data = None
                         else:
                             # Something else has gone wrong
                             raise err
+                    
+                    RealtimeLogger.info("Got {} bytes".format(len(data)))
                         
                     if data is not None:
                         # Send our data to the outfile
@@ -325,7 +337,11 @@ to do: Should go somewhere more central """
                             time.sleep(10)
                             last_chance = True
                             continue
-                        
+                            
+            finally:
+                # No matter what happens, close our end of the FIFO
+                os.close(fifo_fd)
+                    
                         
             # Now our data is all sent.
             # Wait on the container and get its return code.
