@@ -95,7 +95,7 @@ check_build_reqs:
 
 
 prepare: check_venv
-	$(pip) install numpy scipy sklearn
+	$(pip) install numpy scipy scikit-learn==0.18.2
 	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.13.0' biopython==1.67 pyvcf==0.6.8
 	pip list
 clean_prepare: check_venv

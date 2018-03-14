@@ -6,6 +6,8 @@ may eventually move to or be replaced by stuff in toil-lib.
 from __future__ import print_function
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno
+import fcntl
+import select
 import threading
 from uuid import uuid4
 import pkg_resources, tempfile, datetime
@@ -261,10 +263,72 @@ to do: Should go somewhere more central """
                                       detach=True)
                                      
             with open(fifo_host_path) as fifo_in:
-                # Consume the output
-                shutil.copyfileobj(fifo_in, outfile)
-            
-            # Wait on the container's return code
+                # If the Docker container goes badly enough, it may not even
+                # open the other end of the FIFO. So we can't just wait for it
+                # to EOF before checking on the Docker.
+                
+                # Put the FIFO into nonblocking mode. See <https://stackoverflow.com/a/5749687>
+                fifo_fd = fifo_in.fileno()
+                fcntl.fcntl(fifo_fd, fcntl.F_SETFL, fcntl.fcntl(fifo_fd, fcntl.F_GETFL) | os.O_NONBLOCK)
+                
+                # Now read will throw if there is no data
+                
+                # If this is set, and there is no data in the pipe, decide that no data is coming
+                last_chance = False
+                # If this is set, we have seen data in the pipe, so the other
+                # end must have opened it and will eventually close it if it
+                # doesn't run forever.
+                saw_data = False
+                
+                while True:
+                    # While there still might be data in the pipe
+                    
+                    # Select on the pipe with a timeout, so we don't spin constantly waiting for data
+                    select.select([fifo_in], [], [], 10)
+                    
+                    try:
+                        # Ignore what select says and attempt a read anyway
+                        data = fifo_in.read()
+                        
+                        if data == "":
+                            # We didn't throw and we got nothing, so it must be EOF.
+                            break
+                            
+                    except OSError as err:
+                        if err.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
+                            # There is no data right now
+                            data = None
+                        else:
+                            # Something else has gone wrong
+                            raise err
+                        
+                    if data is not None:
+                        # Send our data to the outfile
+                        outfile.write(data)
+                        saw_data = True
+                    elif not saw_data:
+                        # We timed out and there has never been any data. Maybe the container has died/never started?
+                        
+                        if last_chance:
+                            # The container has been dead for a while and nothing has arrived yet. Assume no data is coming.
+                            RealtimeLogger.info("Giving up on output form container {}".format(container.id))
+                            break
+                        
+                        # Otherwise, check on it
+                        container.reload()
+                        RealtimeLogger.info("Container {} has never sent us output. Status: {}".format(container.id, container.status))
+                        
+                        if container.status not in ['created', 'restarting', 'running', 'removing']:
+                            # The container has stopped. So what are we doing waiting around for it?
+                            
+                            # Wait one last time for any lingering data to percolate through the FIFO
+                            time.sleep(10)
+                            last_chance = True
+                            continue
+                        
+                        
+            # Now our data is all sent.
+            # Wait on the container and get its return code.
             response = container.wait()
             
             os.unlink(fifo_host_path)
