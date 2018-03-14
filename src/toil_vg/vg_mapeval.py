@@ -1277,7 +1277,7 @@ def run_max_f1(job, context, name, compare_id):
     
     """
     if not have_sklearn:
-        return ["sklearn_not_installed"] * 2 
+        return "sklearn_not_installed" 
     
     work_dir = job.fileStore.getLocalTempDir()
 

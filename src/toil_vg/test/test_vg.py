@@ -485,6 +485,8 @@ class VGCGLTest(TestCase):
         headers = set()
         for row in table[1:]:
             toks = row.split()
+            if len(toks) != 6:
+                raise RuntimeError("toks should have 6 entries but is {}".format(toks))
             self.assertEqual(len(toks), 6)
             name, count, acc, auc, qqr, maxf1 = \
                 toks[0], int(toks[1]), float(toks[2]), float(toks[3]), float(toks[4]), float(toks[5])
