@@ -252,7 +252,7 @@ to do: Should go somewhere more central """
             volumes[fifo_dir] = {'bind': '/control', 'mode': 'rw'}
             
             # Redirect the command output by tacking on another pipeline stage
-            parameters = args + ['dd', 'of=/control/stdout.fifo']
+            parameters = args + [['dd', 'of=/control/stdout.fifo']]
             
             
             # Start the container detached so we don't wait on it
