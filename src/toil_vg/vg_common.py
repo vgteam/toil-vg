@@ -295,7 +295,7 @@ to do: Should go somewhere more central """
                     # Select on the pipe with a timeout, so we don't spin constantly waiting for data
                     RealtimeLogger.info("Selecting")
                     can_read, can_write, had_error = select.select([fifo_fd], [], [fifo_fd], 10)
-                    RealtimeLogger.info("Selected {} readable and {} execptional".format(len(can_read), len(had_error)))
+                    RealtimeLogger.info("Selected {} readable and {} exceptional".format(len(can_read), len(had_error)))
                     
                     if len(can_read) > 0 or len(had_error) > 0:
                         # There is data available or something else weird about our FIFO.
@@ -357,15 +357,15 @@ to do: Should go somewhere more central """
                         
             # Now our data is all sent.
             # Wait on the container and get its return code.
-            response = container.wait()
+            return_code = container.wait()
             
             os.unlink(fifo_host_path)
             os.rmdir(fifo_dir)
             
-            if response['StatusCode'] != 0:
+            if return_code != 0:
                 # Raise an error if it's not sucess
                 raise RuntimeError("Docker container for command {} failed with code {}".format(
-                                   " | ".join(" ".join(x) for x in args), response['StatusCode']))
+                                   " | ".join(" ".join(x) for x in args), return_code))
             
         else:
             # No piping needed.
