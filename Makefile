@@ -99,7 +99,7 @@ prepare: check_venv
 	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.13.0' biopython==1.67 pyvcf==0.6.8
 	pip list
 clean_prepare: check_venv
-	$(pip) uninstall -y pytest biopython numpy scipy sklearn pyvcf
+	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf
 
 check_venv:
 	@$(python) -c 'import sys; sys.exit( int( not hasattr(sys, "real_prefix") ) )' \
