@@ -263,7 +263,7 @@ to do: Should go somewhere more central """
                                       environment=environment,
                                       detach=True)
             
-            RealtimeLogger.info("Asked for container {}".format(container.id))
+            RealtimeLogger.debug("Asked for container {}".format(container.id))
             
             # If the Docker container goes badly enough, it may not even
             # open the other end of the FIFO. So we can't just wait for it
