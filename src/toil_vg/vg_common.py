@@ -274,7 +274,10 @@ to do: Should go somewhere more central """
             # <http://shallowsky.com/blog/programming/python-read-characters.html>
             fifo_fd = os.open(fifo_host_path, os.O_RDONLY | os.O_NONBLOCK)
             
-            # Now read will throw if there is no data
+            # Now read ought to throw if there is no data. But
+            # <https://stackoverflow.com/q/38843278> and some testing suggest
+            # that this doesn't happen, and it just looks like EOF. So we will
+            # watch out for that.
             
             try:
                 # Prevent leaking FDs
@@ -291,28 +294,37 @@ to do: Should go somewhere more central """
                     
                     # Select on the pipe with a timeout, so we don't spin constantly waiting for data
                     RealtimeLogger.info("Selecting")
-                    select.select([fifo_fd], [], [], 10)
-                    RealtimeLogger.info("Selected")
+                    can_read, can_write, had_error = select.select([fifo_fd], [], [fifo_fd], 10)
+                    RealtimeLogger.info("Selected {} readable and {} execptional".format(len(can_read), len(had_error)))
                     
-                    try:
-                        # Ignore what select says and attempt a read anyway
-                        data = os.read(fifo_fd, 4096)
-                        
-                        if data == "":
-                            # We didn't throw and we got nothing, so it must be EOF.
-                            RealtimeLogger.info("Got EOF")
-                            break
+                    if len(can_read) > 0 or len(had_error) > 0:
+                        # There is data available or something else weird about our FIFO.
+                    
+                        try:
+                            # Do a nonblocking read. Since we checked with select we never should get "" unless there's an EOF.
+                            data = os.read(fifo_fd, 4096)
                             
-                    except OSError as err:
-                        if err.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
-                            # There is no data right now
-                            RealtimeLogger.info("Got EAGAIN/EWOULDBLOCK")
-                            data = None
-                        else:
-                            # Something else has gone wrong
-                            raise err
+                            RealtimeLogger.info("Got {} bytes".format(len(data)))
+                            
+                            if data == "":
+                                # We didn't throw and we got nothing, so it must be EOF.
+                                RealtimeLogger.info("Got EOF")
+                                break
+                                
+                        except OSError as err:
+                            if err.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
+                                # There is no data right now
+                                RealtimeLogger.info("Got EAGAIN/EWOULDBLOCK")
+                                data = None
+                            else:
+                                # Something else has gone wrong
+                                raise err
+                                
+                    else:
+                        # There is no data available. Don't even try to read. Treat it as if a read refused to block.
+                        data = None
                     
-                    RealtimeLogger.info("Got {} bytes".format(len(data)))
+                    
                         
                     if data is not None:
                         # Send our data to the outfile
