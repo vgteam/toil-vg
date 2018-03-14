@@ -226,6 +226,11 @@ to do: Should go somewhere more central """
             # we will default to keeping these in our working directory
             environment['TMPDIR'] = '.'
             
+        if name == 'Rscript':
+            # The R dockers by default want to install packages in non-writable directories. Sometimes.
+            # Make sure a writable directory which exists is used.
+            environment['R_LIBS']='/tmp'
+            
         # Force all dockers to run sort in a consistent way
         environment['LC_ALL'] = 'C'
 
