@@ -293,9 +293,9 @@ to do: Should go somewhere more central """
                     # While there still might be data in the pipe
                     
                     # Select on the pipe with a timeout, so we don't spin constantly waiting for data
-                    RealtimeLogger.info("Selecting")
+                    RealtimeLogger.debug("Selecting")
                     can_read, can_write, had_error = select.select([fifo_fd], [], [fifo_fd], 10)
-                    RealtimeLogger.info("Selected {} readable and {} exceptional".format(len(can_read), len(had_error)))
+                    RealtimeLogger.debug("Selected {} readable and {} exceptional".format(len(can_read), len(had_error)))
                     
                     if len(can_read) > 0 or len(had_error) > 0:
                         # There is data available or something else weird about our FIFO.
@@ -304,17 +304,17 @@ to do: Should go somewhere more central """
                             # Do a nonblocking read. Since we checked with select we never should get "" unless there's an EOF.
                             data = os.read(fifo_fd, 4096)
                             
-                            RealtimeLogger.info("Got {} bytes".format(len(data)))
+                            RealtimeLogger.debug("Got {} bytes".format(len(data)))
                             
                             if data == "":
                                 # We didn't throw and we got nothing, so it must be EOF.
-                                RealtimeLogger.info("Got EOF")
+                                RealtimeLogger.debug("Got EOF")
                                 break
                                 
                         except OSError as err:
                             if err.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
                                 # There is no data right now
-                                RealtimeLogger.info("Got EAGAIN/EWOULDBLOCK")
+                                RealtimeLogger.debug("Got EAGAIN/EWOULDBLOCK")
                                 data = None
                             else:
                                 # Something else has gone wrong
@@ -335,12 +335,12 @@ to do: Should go somewhere more central """
                         
                         if last_chance:
                             # The container has been dead for a while and nothing has arrived yet. Assume no data is coming.
-                            RealtimeLogger.info("Giving up on output form container {}".format(container.id))
+                            RealtimeLogger.warning("Giving up on output form container {}".format(container.id))
                             break
                         
                         # Otherwise, check on it
                         container.reload()
-                        RealtimeLogger.info("Container {} has never sent us output. Status: {}".format(container.id, container.status))
+                        RealtimeLogger.warning("Container {} has never sent us output. Status: {}".format(container.id, container.status))
                         
                         if container.status not in ['created', 'restarting', 'running', 'removing']:
                             # The container has stopped. So what are we doing waiting around for it?
@@ -362,11 +362,6 @@ to do: Should go somewhere more central """
             os.unlink(fifo_host_path)
             os.rmdir(fifo_dir)
             
-            if return_code != 0:
-                # Raise an error if it's not sucess
-                raise RuntimeError("Docker container for command {} failed with code {}".format(
-                                   " | ".join(" ".join(x) for x in args), return_code))
-            
         else:
             # No piping needed.
         
@@ -380,28 +375,46 @@ to do: Should go somewhere more central """
                 # and doesn't worry about entrypoints since everything goes through bash -c
                 # todo: check we have a bash entrypoint!
                 parameters = args
-            
-            if check_output:
-                # We need to collect the output. Run the container blockingly, with logging.
-            
-                captured_stdout = apiDockerCall(job, tool, parameters,
-                                                volumes=volumes,
-                                                working_dir=working_dir,
-                                                entrypoint=entrypoint,
-                                                environment=environment)
-            
-            else:
-                # We don't need any output. Run the container blockingly, without
-                # logging, so any output that is large doesn't fill disk.
                 
-                apiDockerCall(job, tool, parameters,
-                              volumes=volumes,
-                              working_dir=working_dir,
-                              entrypoint=entrypoint,
-                              log_config={'type': 'none', 'config': {}},
-                              stdout=False,
-                              environment=environment)
+                
+            # Run the container and dump the logs if it fails.
+            container = apiDockerCall(job, tool, parameters,
+                                      volumes=volumes,
+                                      working_dir=working_dir,
+                                      entrypoint=entrypoint,
+                                      environment=environment,
+                                      detach=True)
+                                      
+            # Wait on the container and get its return code.
+            return_code = container.wait()
+            
+        # When we get here, the container has been run, and stdout is either in the file object we sent it to or in the Docker logs.
+        # stderr is always in the Docker logs.
+            
+        if return_code != 0:
+            # What were we doing?
+            command = " | ".join(" ".join(x) for x in args)
         
+            # Dump logs
+            RealtimeLogger.error("Docker container for command {} failed with code {}".format(command, return_code))
+            RealtimeLogger.error("Dumping stderr...")
+            for line in container.logs(stderr=True, stdout=False, stream=True):
+                RealtimeLogger.error(line)
+                
+            if not check_output and outfile is None:
+                # Dump stdout as well, since it's not something the caller wanted as data
+                RealtimeLogger.error("Dumping stdout...")
+                for line in container.logs(stderr=False, stdout=True, stream=True):
+                    RealtimeLogger.error(line)
+        
+            # Raise an error if it's not sucess
+            raise RuntimeError("Docker container for command {} failed with code {}".format(command, return_code))
+        
+        if check_output:
+            # We need to collect the output. We grab it from Docker's handy on-disk buffer.
+            # TODO: Bad Things can happen if the container logs too much.
+            captured_stdout = container.logs(stderr=False, stdout=True)
+            
         end_time = timeit.default_timer()
         run_time = end_time - start_time
         RealtimeLogger.info("Successfully docker ran {} in {} seconds.".format(
