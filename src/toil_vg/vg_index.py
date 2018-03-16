@@ -586,7 +586,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     if gbwt_id:
         indexes['gbwt'] = gbwt_id
 
-    make_gpbwt = vcf_phasing_file_ids and not make_gbwt
+    make_gpbwt = (len(vcf_phasing_file_ids) > 0) and not make_gbwt
     
     if not skip_xg or not skip_gcsa:
         indexes['chrom_xg'] = []
@@ -637,8 +637,13 @@ def run_indexing(job, context, inputGraphFileIDs,
             else:
                 concat_job = Job()
                 xg_root_job.addChild(concat_job)
-                vcf_phasing_file_id = None
-                tbi_phasing_file_id = None
+                
+                if make_gpbwt:
+                    vcf_phasing_file_id = vcf_phasing_file_ids[0]
+                    tbi_phasing_file_id = tbi_phasing_file_ids[0]
+                else:
+                    vcf_phasing_file_id = None
+                    tbi_phasing_file_id = None
 
             if not skip_xg:
                 xg_index_job = concat_job.addChildJobFn(run_xg_indexing,
