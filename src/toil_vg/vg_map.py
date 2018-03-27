@@ -402,7 +402,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
                 snarls_file = graph_file + ".snarls"
                 job.fileStore.readGlobalFile(indexes['snarls'], snarls_file)
                 
-                vg_parts += ['--snarls', snarls_file]
+                vg_parts += ['--snarls', os.path.basename(snarls_file)]
             else:
                 snarls_file = None
                 

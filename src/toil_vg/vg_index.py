@@ -580,6 +580,22 @@ def run_indexing(job, context, inputGraphFileIDs,
     child_job.addChild(xg_root_job)
     chrom_xg_root_job = Job()
     child_job.addChild(chrom_xg_root_job)
+    
+    RealtimeLogger.debug("Running indexing: {}.".format({
+         'graph_names': graph_names,
+         'index_name': index_name,
+         'chroms': chroms,
+         'vcf_phasing_file_ids': vcf_phasing_file_ids,
+         'tbi_phasing_file_ids': tbi_phasing_file_ids,
+         'gbwt_id': gbwt_id,
+         'node_mapping_id': node_mapping_id,
+         'skip_xg': skip_xg,
+         'skip_gcsa': skip_gcsa,
+         'skip_id_ranges': skip_id_ranges,
+         'skip_snarls': skip_snarls,
+         'make_gbwt': make_gbwt,
+         'gbwt_prune': gbwt_prune
+    }))
 
     # This will hold the index to return
     indexes = {}
@@ -683,6 +699,14 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                  cores=context.config.misc_cores,
                                                  memory=context.config.misc_mem,
                                                  disk=context.config.misc_disk).rv()
+                                                 
+    if not skip_snarls:
+        indexes['snarls'] = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
+                                              graph_names, index_name,
+                                              cores=context.config.misc_cores,
+                                              memory=context.config.misc_mem,
+                                              disk=context.config.misc_disk).rv()
+    
 
     return indexes
 
