@@ -345,6 +345,68 @@ def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
 
     return out_vcf_id, out_tbi_id
 
+def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
+                        vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
+    """
+    Encapsulates run_concat_graphs and run_xg_indexing job functions.
+    Can be used for ease of programming in job functions that require running only
+    during runs of the run_xg_indexing job function.
+    """
+    
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)    
+    
+    # Concatenate the graph files.
+    cat_graph_file_id, cat_graph_basename = child_job.addChildJobFn(run_concat_graphs, inputGraphFileIDs, graph_names, index_name)
+    
+    return child_job.addChildJobFn(run_xg_indexing,
+                                   context, cat_graph_file_id,
+                                   cat_graph_basename, index_name,
+                                   vcf_phasing_file_id, tbi_phasing_file_id,
+                                   make_gbwt=False,
+                                   cores=context.config.xg_index_cores,
+                                   memory=context.config.xg_index_mem,
+                                   disk=context.config.xg_index_disk)
+ 
+
+def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
+    """
+    Concatenate a list of graph files. We do this because the haplotype index vg index
+    produces can only be built for a single graph.
+    """
+    RealtimeLogger.info("Starting VG graph concatenation...")
+    start_time = timeit.default_timer()
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Our local copy of the graphs
+    graph_filenames = []
+    for i, graph_id in enumerate(inputGraphFileIDs):
+        graph_filename = os.path.join(work_dir, graph_names[i])
+        job.fileStore.readGlobalFile(graph_id, graph_filename)
+        graph_filenames.append(os.path.basename(graph_filename))
+    
+    # Cat graph files since the haplotype index can only be built for a single graph
+    # Where do we put the concatenated graph files?
+    cat_graph_filename = os.path.join(work_dir, "{}.cat.vg".format(index_name))
+
+    cmd = ['cat'] + graph_filenames
+   
+    with open(cat_graph_filename, "w") as cat_graph_file:
+        # Concatenate all the graphs.
+        context.runner.call(job, cmd, work_dir=work_dir, tool_name='vg', outfile=cat_graph_file)
+
+    # Checkpoint concatednated graph file to output store
+    cat_graph_file_id = context.write_output_file(job, cat_graph_filename)
+    
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Finished VG graph concatenation. Process took {} seconds.".format(run_time))
+
+    return cat_graph_file_id, os.path.basename(cat_graph_filename)
+
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                     vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
     """
@@ -388,10 +450,10 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     xg_filename = "{}.xg".format(index_name)
 
     # Now run the indexer.
-    RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))
+    RealtimeLogger.info("XG Indexing {}".format(str(cat_graph_filename)))
 
     command = ['vg', 'index', '--threads', str(job.cores), '--xg-name', os.path.basename(xg_filename)]
-    command += phasing_opts + graph_filenames
+    command += phasing_opts + [cat_graph_filename]
     
     try:
         context.runner.call(job, command, work_dir=work_dir)
@@ -400,7 +462,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         logging.error("XG indexing failed. Dumping files.")
 
         for graph_filename in graph_filenames:
-            context.write_output_file(job, os.path.join(work_dir, graph_filename))
+            context.write_output_file(job, os.path.join(work_dir, cat_graph_filename))
         if vcf_phasing_file_id:
             context.write_output_file(job, phasing_file)
             context.write_output_file(job, phasing_file + '.tbi')
@@ -618,7 +680,7 @@ def run_indexing(job, context, inputGraphFileIDs,
             for i, chrom in enumerate(chroms):
                 vcf_id = vcf_phasing_file_ids[i] if i < len(vcf_phasing_file_ids) else None
                 tbi_id = tbi_phasing_file_ids[i] if i < len(tbi_phasing_file_ids) else None
-                xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_xg_indexing,
+                xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
@@ -662,7 +724,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                     tbi_phasing_file_id = None
 
             if not skip_xg:
-                xg_index_job = concat_job.addChildJobFn(run_xg_indexing,
+                xg_index_job = concat_job.addChildJobFn(run_cat_xg_indexing,
                                                         context, inputGraphFileIDs,
                                                         graph_names, index_name,
                                                         vcf_phasing_file_id, tbi_phasing_file_id,
