@@ -427,10 +427,10 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     xg_filename = "{}.xg".format(index_name)
 
     # Now run the indexer.
-    RealtimeLogger.info("XG Indexing {}".format(str(cat_graph_filename)))
+    RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))
 
     command = ['vg', 'index', '--threads', str(job.cores), '--xg-name', os.path.basename(xg_filename)]
-    command += phasing_opts + [cat_graph_filename]
+    command += phasing_opts + graph_filenames
     
     try:
         context.runner.call(job, command, work_dir=work_dir)
@@ -439,7 +439,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         logging.error("XG indexing failed. Dumping files.")
 
         for graph_filename in graph_filenames:
-            context.write_output_file(job, os.path.join(work_dir, cat_graph_filename))
+            context.write_output_file(job, os.path.join(work_dir, graph_filename))
         if vcf_phasing_file_id:
             context.write_output_file(job, phasing_file)
             context.write_output_file(job, phasing_file + '.tbi')
