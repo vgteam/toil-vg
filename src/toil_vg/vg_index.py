@@ -358,16 +358,16 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     job.addChild(child_job)    
     
     # Concatenate the graph files.
-    cat_graph_file_id, cat_graph_basename = child_job.addChildJobFn(run_concat_graphs, inputGraphFileIDs, graph_names, index_name)
+    cat_graph_file_id, cat_graph_basename = child_job.addChildJobFn(run_concat_graphs, inputGraphFileIDs, graph_names, index_name).rv()
     
-    return child_job.addChildJobFn(run_xg_indexing,
-                                   context, cat_graph_file_id,
-                                   cat_graph_basename, index_name,
-                                   vcf_phasing_file_id, tbi_phasing_file_id,
-                                   make_gbwt=False,
-                                   cores=context.config.xg_index_cores,
-                                   memory=context.config.xg_index_mem,
-                                   disk=context.config.xg_index_disk)
+    return child_job.addFollowOnJobFn(run_xg_indexing,
+                                      context, cat_graph_file_id,
+                                      cat_graph_basename, index_name,
+                                      vcf_phasing_file_id, tbi_phasing_file_id,
+                                      make_gbwt=False,
+                                      cores=context.config.xg_index_cores,
+                                      memory=context.config.xg_index_mem,
+                                      disk=context.config.xg_index_disk).rv()
  
 
 def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
