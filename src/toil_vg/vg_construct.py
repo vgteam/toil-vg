@@ -521,34 +521,56 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
     return context.write_intermediate_file(job, vg_path)
 
 def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
-    """ Use vcflib to remove all variants specifc to a set of samples.
+    """ 
+    
+    Use vcflib to remove all variants specifc to a set of samples.
+    Keep all the sample data in the VCF except that for the sample that was removed.
+    
     """
     if not samples:
+        # We can exclude nothing with a no-op
         return vcf_id, tbi_id
     
     work_dir = job.fileStore.getLocalTempDir()
 
+    # Download the original VCF
     vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
     job.fileStore.readGlobalFile(vcf_id, vcf_file)
     job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
-    # Warning: This VCF is only going to have the samples we want to filter out.
-    # Will be okay for constructing graphs, but cause problems for anything that
-    # needs sample information. 
-    cmd = ['bcftools', 'view', os.path.basename(vcf_file), '--exclude-private',
-           '--samples', ','.join(samples), '--force-samples', '--output-type', 'z']
-
     vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+    # Where will the final filtered VCF go?
     filter_vcf_name = '{}_filter.vcf.gz'.format(vcf_base)
+    # What intermediate VCF will we use for variants to drop?
+    private_vcf_name = '{}_private.vcf.gz'.format(vcf_base)
 
+    # Make a VCF with only the variants for the sample we want gone 
+    cmd = ['bcftools', 'view', os.path.basename(vcf_file), '--private',
+           '--samples', ','.join(samples), '--force-samples', '--output-type', 'z']
+    with open(os.path.join(work_dir, private_vcf_name), 'w') as out_file:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
+        
+    # bcftools isec demands indexed input, so index the itnermediate file.
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', private_vcf_name],
+                        work_dir=work_dir)
+        
+    # Now make a VCF that excludes those variants and also excludes the filtered-out samples.
+    # We subtract the private variants from the original VCF, and then remove the samples we're excluding.
+    cmd = [['bcftools', 'isec', '--complement', os.path.basename(vcf_file), os.path.basename(private_vcf_name),
+            '--write', '1'],
+           ['bcftools', 'view', '-', '--samples', '^' + (','.join(samples)),
+            '--force-samples', '--output-type', 'z']]
     with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
-        context.runner.call(job, cmd, work_dir = work_dir, outfile=out_file)
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
 
+    # Upload the final VCF
     out_vcf_id = context.write_output_file(job, os.path.join(work_dir, filter_vcf_name))
 
+    # Index it
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', filter_vcf_name],
                         work_dir=work_dir)
                                         
+    # And upload the index
     out_tbi_id = context.write_output_file(job, os.path.join(work_dir, filter_vcf_name) + '.tbi')
     
     return out_vcf_id, out_tbi_id
