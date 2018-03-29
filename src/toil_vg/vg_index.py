@@ -345,29 +345,6 @@ def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
 
     return out_vcf_id, out_tbi_id
 
-def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                        vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
-    """
-    Encapsulates run_concat_graphs and run_xg_indexing job functions.
-    Can be used for ease of programming in job functions that require running only
-    during runs of the run_xg_indexing job function.
-    """
-    
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)    
-    
-    # Concatenate the graph files.
-    cat_graph_file_id, cat_graph_basename = child_job.addChildJobFn(run_concat_graphs, inputGraphFileIDs, graph_names, index_name).rv()
-    
-    return child_job.addFollowOnJobFn(run_xg_indexing,
-                                      context, cat_graph_file_id,
-                                      cat_graph_basename, index_name,
-                                      vcf_phasing_file_id, tbi_phasing_file_id,
-                                      make_gbwt=False,
-                                      cores=context.config.xg_index_cores,
-                                      memory=context.config.xg_index_mem,
-                                      disk=context.config.xg_index_disk).rv()
  
 
 def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
@@ -482,6 +459,30 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
     return (xg_file_id, gbwt_file_id)
+
+def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
+                        vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
+    """
+    Encapsulates run_concat_graphs and run_xg_indexing job functions.
+    Can be used for ease of programming in job functions that require running only
+    during runs of the run_xg_indexing job function.
+    """
+    
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)    
+    
+    # Concatenate the graph files.
+    cat_graph_file_id, cat_graph_basename = child_job.addChildJobFn(run_concat_graphs, inputGraphFileIDs, graph_names, index_name).rv()
+    
+    return child_job.addFollowOnJobFn(run_xg_indexing,
+                                      context, cat_graph_file_id,
+                                      cat_graph_basename, index_name,
+                                      vcf_phasing_file_id, tbi_phasing_file_id,
+                                      make_gbwt=False,
+                                      cores=context.config.xg_index_cores,
+                                      memory=context.config.xg_index_mem,
+                                      disk=context.config.xg_index_disk).rv()
     
 def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
     """
