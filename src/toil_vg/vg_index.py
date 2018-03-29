@@ -427,6 +427,9 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name)
     
     Saves the snarls file in the outstore as <index_name>.snarls.
     
+    Removes trivial snarls, which are not really useful and which snarl cutting
+    in mpmap can go overboard with.
+    
     Return the file ID of the snarls file.
     """
     
@@ -449,7 +452,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name)
     # Now run the indexer.
     RealtimeLogger.info("Computing Snarls for {}".format(str(graph_filenames)))
 
-    pipeline = [['cat'] + graph_filenames, ['vg', 'snarls', '-']]
+    pipeline = [['cat'] + graph_filenames, ['vg', 'snarls', '--filter-trivial', '-']]
    
     with open(snarl_filename, "w") as snarl_file:
         # Concatenate all the graphs and compute the snarls.
@@ -682,7 +685,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
         # todo: we're only taking in a genome gbwt as input, because that's all we write
         if not indexes.has_key('chrom_gbwt') and indexes.has_key('gbwt'):
-            indexes['chrom_gbwt'] = indexes['gbwt'] * len(cinputGraphFileIDs)
+            indexes['chrom_gbwt'] = indexes['gbwt'] * len(inputGraphFileIDs)
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
                                                graph_names, index_name, chroms,
                                                indexes['chrom_gbwt'] if gbwt_prune else [],
