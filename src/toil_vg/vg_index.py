@@ -382,7 +382,7 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
     run_time = end_time - start_time
     RealtimeLogger.info("Finished VG graph concatenation. Process took {} seconds.".format(run_time))
 
-    return cat_graph_file_id, os.path.basename(cat_graph_filename)
+    return (cat_graph_file_id, os.path.basename(cat_graph_filename))
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                     vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
@@ -473,11 +473,11 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     job.addChild(child_job)    
     
     # Concatenate the graph files.
-    cat_graph_file_id, cat_graph_basename = child_job.addChildJobFn(run_concat_graphs, inputGraphFileIDs, graph_names, index_name).rv()
+    vg_concat_job = child_job.addChildJobFn(run_concat_graphs, inputGraphFileIDs, graph_names, index_name)
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
-                                      context, cat_graph_file_id,
-                                      cat_graph_basename, index_name,
+                                      context, vg_concat_job.rv(0),
+                                      vg_concat_job.rv(1), index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
                                       make_gbwt=False,
                                       cores=context.config.xg_index_cores,
