@@ -478,8 +478,8 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     vg_concat_job = child_job.addChildJobFn(run_concat_graphs, context, inputGraphFileIDs, graph_names, index_name)
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
-                                      context, vg_concat_job.rv(0),
-                                      vg_concat_job.rv(1), index_name,
+                                      context, [vg_concat_job.rv(0)],
+                                      [vg_concat_job.rv(1)], index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
                                       make_gbwt=False,
                                       cores=context.config.xg_index_cores,
