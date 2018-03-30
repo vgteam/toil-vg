@@ -376,7 +376,7 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
         context.runner.call(job, cmd, work_dir=work_dir, tool_name='vg', outfile=cat_graph_file)
 
     # Checkpoint concatednated graph file to output store
-    cat_graph_file_id = context.write_output_file(job, cat_graph_filename)
+    cat_graph_file_id = context.write_output_file(job, os.path.join(work_dir, cat_graph_filename))
     
     end_time = timeit.default_timer()
     run_time = end_time - start_time
