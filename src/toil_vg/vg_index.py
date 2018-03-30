@@ -399,7 +399,9 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
-
+    
+    RealtimeLogger.info("inputGraphFileIDs: {}".format(str(inputGraphFileIDs)))
+    RealtimeLogger.info("graph_names: {}".format(str(graph_names)))
     # Our local copy of the graphs
     graph_filenames = []
     for i, graph_id in enumerate(inputGraphFileIDs):
