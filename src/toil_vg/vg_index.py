@@ -481,7 +481,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       context, [vg_concat_job.rv(0)],
                                       [vg_concat_job.rv(1)], index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
-                                      make_gbwt=False,
+                                      make_gbwt,
                                       cores=context.config.xg_index_cores,
                                       memory=context.config.xg_index_mem,
                                       disk=context.config.xg_index_disk).rv()
