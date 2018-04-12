@@ -47,7 +47,7 @@ Running a pipeline this large can be unstable due to the amount of data and the 
 - `jobhist ${JOBID}`: Gives specific execution time and success status of previously execulted jobs.
 - `checkquota -u ${USERNAME}`: Gives total disk quota provided and disk useage for the user.
 
-More information on monitorying Slurm batchsystem jobs on Biowulf can be found [here](https://hpc.nih.gov/docs/userguide.html#monitor).
+More information on monitoring Slurm batchsystem jobs on Biowulf can be found [here](https://hpc.nih.gov/docs/userguide.html#monitor).
 
 ### Run times
 
