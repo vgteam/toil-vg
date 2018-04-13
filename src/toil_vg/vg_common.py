@@ -19,7 +19,7 @@ import collections
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
-from toil.lib.docker import dockerCall, dockerCheckOutput, apiDockerCall
+from toil_vg.docker import dockerCall, dockerCheckOutput, _fixPermissions
 from toil_vg.singularity import singularityCall, singularityCheckOutput
 from toil_vg.iostore import IOStore
 
@@ -185,19 +185,10 @@ to do: Should go somewhere more central """
             return self.call_directly(args, work_dir, outfile, errfile, check_output)
         
     def call_with_docker(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
-        """
-        
-        Thin wrapper for docker_call that will use internal lookup to
+        """ Thin wrapper for docker_call that will use internal lookup to
         figure out the location of the docker file.  Only exposes docker_call
         parameters used so far.  expect args as list of lists.  if (toplevel)
-        list has size > 1, then piping interface used
-        
-        TODO: Ignores errfile and never redirects stderr from the container!
-        
-        Does support redirecting output to outfile, unless check_output is
-        used, in which case output is captured.
-        
-        """
+        list has size > 1, then piping interface used """
 
         RealtimeLogger.info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
         start_time = timeit.default_timer()
@@ -207,220 +198,56 @@ to do: Should go somewhere more central """
         name = tool_name if tool_name is not None else args[0][0]
         tool = self.docker_tool_map[name]
 
-        # We keep an environment dict
-        environment = {}
-        
-        # And an entry point override
-        entrypoint = None
-        
-        # And a volumes dict for mounting
-        volumes = {}
-        
-        # And a working directory override
-        working_dir = None
+        # default parameters from toil's docker.py
+        docker_parameters = ['--rm', '--log-driver', 'none']
 
+        if len(args) == 1:
+            # split off first argument as entrypoint (so we can be oblivious as to whether
+            # that happens by default)
+            parameters = [] if len(args[0]) == 1 else args[0][1:]
+            docker_parameters += ['--entrypoint', args[0][0]]
+        else:
+            # can leave as is for piped interface which takes list of args lists
+            # and doesn't worry about entrypoints since everything goes through bash -c
+            # todo: check we have a bash entrypoint!
+            parameters = args
+        
         # breaks Rscript.  Todo: investigate how general this actually is
         if name != 'Rscript':
             # vg uses TMPDIR for temporary files
             # this is particularly important for gcsa, which makes massive files.
             # we will default to keeping these in our working directory
-            environment['TMPDIR'] = '.'
-            
-        if name == 'Rscript':
-            # The R dockers by default want to install packages in non-writable directories. Sometimes.
+            docker_parameters += ['--env', 'TMPDIR=.']
+        else:
+            # The R dockers by default want to install packages in non-writable directories.
             # Make sure a writable directory which exists is used.
-            environment['R_LIBS']='/tmp'
+            docker_parameters += ['--env', 'R_LIBS=/tmp']
             
         # Force all dockers to run sort in a consistent way
-        environment['LC_ALL'] = 'C'
+        docker_parameters += ['--env', 'LC_ALL=C']
 
         # set our working directory map
         if work_dir is not None:
-            volumes[os.path.abspath(work_dir)] = {'bind': '/data', 'mode': 'rw'}
-            working_dir = '/data'
-            
-        if outfile is not None:
-            # We need to send output to a file object
+            docker_parameters += ['-v', '{}:/data'.format(os.path.abspath(work_dir)),
+                                  '-w', '/data']
 
-            assert(not check_output)
-            
-            # We can't just redirect stdout of the container from the API, so
-            # we do something more complicated.
-            
-            # Set up a FIFO to receive it
-            fifo_dir = tempfile.mkdtemp()
-            fifo_host_path = os.path.join(fifo_dir, 'stdout.fifo')
-            os.mkfifo(fifo_host_path)
-            
-            # Mount the FIFO in the container.
-            # The container doesn't actually have to have the mountpoint directory in its filesystem.
-            volumes[fifo_dir] = {'bind': '/control', 'mode': 'rw'}
-            
-            # Redirect the command output by tacking on another pipeline stage
-            parameters = args + [['dd', 'of=/control/stdout.fifo']]
-            
-            
-            # Start the container detached so we don't wait on it
-            container = apiDockerCall(job, tool, parameters,
-                                      volumes=volumes,
-                                      working_dir=working_dir,
-                                      entrypoint=entrypoint,
-                                      environment=environment,
-                                      detach=True)
-            
-            RealtimeLogger.debug("Asked for container {}".format(container.id))
-            
-            # If the Docker container goes badly enough, it may not even
-            # open the other end of the FIFO. So we can't just wait for it
-            # to EOF before checking on the Docker.
-            
-            # Open the FIFO into nonblocking mode. See
-            # <https://stackoverflow.com/a/5749687> and
-            # <http://shallowsky.com/blog/programming/python-read-characters.html>
-            fifo_fd = os.open(fifo_host_path, os.O_RDONLY | os.O_NONBLOCK)
-            
-            # Now read ought to throw if there is no data. But
-            # <https://stackoverflow.com/q/38843278> and some testing suggest
-            # that this doesn't happen, and it just looks like EOF. So we will
-            # watch out for that.
-            
-            try:
-                # Prevent leaking FDs
-            
-                # If this is set, and there is no data in the pipe, decide that no data is coming
-                last_chance = False
-                # If this is set, we have seen data in the pipe, so the other
-                # end must have opened it and will eventually close it if it
-                # doesn't run forever.
-                saw_data = False
-                
-                while True:
-                    # While there still might be data in the pipe
-                    
-                    # Select on the pipe with a timeout, so we don't spin constantly waiting for data
-                    RealtimeLogger.debug("Selecting")
-                    can_read, can_write, had_error = select.select([fifo_fd], [], [fifo_fd], 10)
-                    RealtimeLogger.debug("Selected {} readable and {} exceptional".format(len(can_read), len(had_error)))
-                    
-                    if len(can_read) > 0 or len(had_error) > 0:
-                        # There is data available or something else weird about our FIFO.
-                    
-                        try:
-                            # Do a nonblocking read. Since we checked with select we never should get "" unless there's an EOF.
-                            data = os.read(fifo_fd, 4096)
-                            
-                            RealtimeLogger.debug("Got {} bytes".format(len(data)))
-                            
-                            if data == "":
-                                # We didn't throw and we got nothing, so it must be EOF.
-                                RealtimeLogger.debug("Got EOF")
-                                break
-                                
-                        except OSError as err:
-                            if err.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
-                                # There is no data right now
-                                RealtimeLogger.debug("Got EAGAIN/EWOULDBLOCK")
-                                data = None
-                            else:
-                                # Something else has gone wrong
-                                raise err
-                                
-                    else:
-                        # There is no data available. Don't even try to read. Treat it as if a read refused to block.
-                        data = None
-                    
-                    
-                        
-                    if data is not None:
-                        # Send our data to the outfile
-                        outfile.write(data)
-                        saw_data = True
-                    elif not saw_data:
-                        # We timed out and there has never been any data. Maybe the container has died/never started?
-                        
-                        if last_chance:
-                            # The container has been dead for a while and nothing has arrived yet. Assume no data is coming.
-                            RealtimeLogger.warning("Giving up on output form container {}".format(container.id))
-                            break
-                        
-                        # Otherwise, check on it
-                        container.reload()
-                        RealtimeLogger.warning("Container {} has never sent us output. Status: {}".format(container.id, container.status))
-                        
-                        if container.status not in ['created', 'restarting', 'running', 'removing']:
-                            # The container has stopped. So what are we doing waiting around for it?
-                            
-                            # Wait one last time for any lingering data to percolate through the FIFO
-                            time.sleep(10)
-                            last_chance = True
-                            continue
-                            
-            finally:
-                # No matter what happens, close our end of the FIFO
-                os.close(fifo_fd)
-                    
-                        
-            # Now our data is all sent.
-            # Wait on the container and get its return code.
-            return_code = container.wait()
-            
-            os.unlink(fifo_host_path)
-            os.rmdir(fifo_dir)
-            
+        if check_output is True:
+            ret = dockerCheckOutput(job, tool, parameters=parameters,
+                                    dockerParameters=docker_parameters, workDir=work_dir,
+                                    errfile = errfile)
         else:
-            # No piping needed.
-        
-            if len(args) == 1:
-                # split off first argument as entrypoint (so we can be oblivious as to whether
-                # that happens by default)
-                parameters = [] if len(args[0]) == 1 else args[0][1:]
-                entrypoint = args[0][0]
-            else:
-                # can leave as is for piped interface which takes list of args lists
-                # and doesn't worry about entrypoints since everything goes through bash -c
-                # todo: check we have a bash entrypoint!
-                parameters = args
-                
-                
-            # Run the container and dump the logs if it fails.
-            container = apiDockerCall(job, tool, parameters,
-                                      volumes=volumes,
-                                      working_dir=working_dir,
-                                      entrypoint=entrypoint,
-                                      environment=environment,
-                                      detach=True)
-                                      
-            # Wait on the container and get its return code.
-            return_code = container.wait()
-            
-        # When we get here, the container has been run, and stdout is either in the file object we sent it to or in the Docker logs.
-        # stderr is always in the Docker logs.
-            
-        if return_code != 0:
-            # What were we doing?
-            command = " | ".join(" ".join(x) for x in args)
-        
-            # Dump logs
-            RealtimeLogger.error("Docker container for command {} failed with code {}".format(command, return_code))
-            RealtimeLogger.error("Dumping stderr...")
-            for line in container.logs(stderr=True, stdout=False, stream=True):
-                # Trim trailing \n
-                RealtimeLogger.error(line[:-1])
-                
-            if not check_output and outfile is None:
-                # Dump stdout as well, since it's not something the caller wanted as data
-                RealtimeLogger.error("Dumping stdout...")
-                for line in container.logs(stderr=False, stdout=True, stream=True):
-                    # Trim trailing \n
-                    RealtimeLogger.error(line[:-1])
-        
-            # Raise an error if it's not sucess
-            raise RuntimeError("Docker container for command {} failed with code {}".format(command, return_code))
-        
-        if check_output:
-            # We need to collect the output. We grab it from Docker's handy on-disk buffer.
-            # TODO: Bad Things can happen if the container logs too much.
-            captured_stdout = container.logs(stderr=False, stdout=True)
+            ret = dockerCall(job, tool, parameters=parameters, dockerParameters=docker_parameters,
+                             workDir=work_dir, outfile = outfile, errfile = errfile)
+
+        # This isn't running through reliably by itself.  Will assume it's
+        # because I took docker.py out of toil, and leave here until we revert to
+        # toil's docker
+        #
+        # Note: It's the tabix docker call in merge_vcf_chunks that's problematic
+        #       It complains that the container can't be found, so fixPermissions
+        #       doesn't get run afterward.  
+        #
+        _fixPermissions(tool, work_dir)
             
         end_time = timeit.default_timer()
         run_time = end_time - start_time
@@ -431,8 +258,7 @@ to do: Should go somewhere more central """
             outfile.flush()
             os.fsync(outfile.fileno())
 
-        if check_output is True:
-            return captured_stdout
+        return ret
     
     def call_with_singularity(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
         """ Thin wrapper for singularity_call that will use internal lookup to
