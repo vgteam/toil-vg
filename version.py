@@ -15,7 +15,7 @@
 version = '1.4.1a1'
 
 required_versions = {'pyyaml': '>=3.11',
-                     'boto3': '==1.6.7',
+                     'boto3': '>=1.4.7',
                      'tsv': '==1.2',
                      'scikit-learn': '==0.18.2',
                      'pyvcf': '==0.6.8'}
