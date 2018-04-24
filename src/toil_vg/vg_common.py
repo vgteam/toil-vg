@@ -192,8 +192,6 @@ to do: Should go somewhere more central """
         parameters used so far.  expect args as list of lists.  if (toplevel)
         list has size > 1, then piping interface used
         
-        TODO: Ignores errfile and never redirects stderr from the container!
-        
         Does support redirecting output to outfile, unless check_output is
         used, in which case output is captured.
         
@@ -230,6 +228,9 @@ to do: Should go somewhere more central """
             # The R dockers by default want to install packages in non-writable directories. Sometimes.
             # Make sure a writable directory which exists is used.
             environment['R_LIBS']='/tmp'
+
+        if name == 'vg':
+            environment['VG_FULL_TRACEBACK'] = '1'
             
         # Force all dockers to run sort in a consistent way
         environment['LC_ALL'] = 'C'
@@ -416,6 +417,10 @@ to do: Should go somewhere more central """
         
             # Raise an error if it's not sucess
             raise RuntimeError("Docker container for command {} failed with code {}".format(command, return_code))
+        elif errfile:
+            # user wants stderr even if no crash
+            for line in container.logs(stderr=True, stdout=False, stream=True):
+                errfile.write(line)
         
         if check_output:
             # We need to collect the output. We grab it from Docker's handy on-disk buffer.
@@ -454,21 +459,25 @@ to do: Should go somewhere more central """
         global environment_lock
         with environment_lock:
             # TODO: We can't stop other threads using os.environ or subprocess or w/e on their own
-        
-            # Set the locale to C for consistent sorting
-            old_lc_all = os.environ.get('LC_ALL')
-            os.environ['LC_ALL'] = 'C'
+
+            # Set the locale to C for consistent sorting, and activate vg traceback     
+            update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1'}
+            old_env = {}
+            for env_name, env_val in update_env.items():
+                old_env[env_name] = os.environ.get(env_name)
+                os.environ[env_name] = env_val
             
             if check_output is True:
                 ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
             else:
                 ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
             
-            # Restore old locale
-            if old_lc_all is not None:
-                os.environ['LC_ALL'] = old_lc_all
-            else:
-                del os.environ['LC_ALL']
+            # Restore old locale and vg traceback
+            for env_name, env_val in update_env.items():
+                if old_env[env_name] is not None:
+                    os.environ[env_name] = old_env[env_name]
+                else:
+                    del os.environ[env_name]
         
         end_time = timeit.default_timer()
         run_time = end_time - start_time
@@ -499,6 +508,9 @@ to do: Should go somewhere more central """
         
         # Set the locale to C for consistent sorting
         my_env['LC_ALL'] = 'C'
+
+        # Set the vg traceback
+        my_env['VG_FULL_TRACEBACK'] = '1'
 
         procs = []
         for i in range(len(args)):

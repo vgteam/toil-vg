@@ -52,7 +52,7 @@ set -x
 # In particular, gcsa indexing of whole genome may need more disk than 3.8xlarge
 NODE_OPTS="--nodeTypes ${NODE_TYPE} --defaultPreemptable --maxNodes 8"
 RETRY_OPTS="--retryCount 3"
-LOG_OPTS="--realTimeLogging --logInfo"
+LOG_OPTS="--realTimeLogging --logInfo --realTimeStderr"
 TOIL_VG_OPTS=""
 # We need the master's IP to make Mesos go
 MASTER_IP="$($PREFIX toil ssh-cluster --insecure --zone=us-west-2a --logOff "${CLUSTER_NAME}" hostname -i)"
