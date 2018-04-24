@@ -82,14 +82,9 @@ def index_parse_args(parser):
     parser.add_argument("--gbwt_index_cores", type=int,
         help="number of threads during the gbwt indexing step")    
 
-    parser.add_argument("--kmers_cores", type=int,
-        help="number of threads during the gcsa kmers step")
-
     parser.add_argument("--index_name", type=str, default='index',
                         help="name of index files. <name>.xg, <name>.gcsa etc.")
 
-    parser.add_argument("--kmers_opts", type=str,
-                        help="Options to pass to vg kmers.")
     parser.add_argument("--gcsa_opts", type=str,
                         help="Options to pass to gcsa indexing.")
 
@@ -132,7 +127,7 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
     """
     Make a pruned graph using vg prune.  If unfold_mapping_id is provided, use -u, else -r
     """
-    RealtimeLogger.info("Starting GBWT graph-pruning for gcsa kmers...")
+    RealtimeLogger.info("Starting GCSA graph-pruning {}...".format("using GBWT" if gbwt_id else ""))
     start_time = timeit.default_timer()
 
     # Define work directory for docker calls
@@ -168,7 +163,7 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
     
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealtimeLogger.info("Finished GBWT pruning. Process took {} seconds.".format(run_time))
+    RealtimeLogger.info("Finished GCSA pruning. Process took {} seconds.".format(run_time))
 
     pruned_graph_id = context.write_intermediate_file(job, pruned_filename)
     if gbwt_id:
@@ -178,54 +173,17 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
 
     return pruned_graph_id, mapping_id
 
-def run_gcsa_kmers(job, context, graph_name, input_graph_id):
-    """
-    Make the kmers file, return its id
-    """
-    RealtimeLogger.info("Starting gcsa kmers...")
-    start_time = timeit.default_timer()
-
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Download input graph
-    graph_filename = os.path.join(work_dir, graph_name)
-    job.fileStore.readGlobalFile(input_graph_id, graph_filename)
-
-    # Output
-    output_kmers_filename = graph_filename + '.kmers'
-   
-    RealtimeLogger.info("Finding kmers in {} to {}".format(
-        graph_filename, output_kmers_filename))
-
-    # Make the GCSA2 kmers file
-    with open(output_kmers_filename, "w") as kmers_file:
-        command = ['vg', 'kmers',  os.path.basename(graph_filename), '--threads', str(job.cores)]
-        command += context.config.kmers_opts
-        context.runner.call(job, command, work_dir=work_dir, outfile=kmers_file)
-
-    # Back to store
-    output_kmers_id = context.write_intermediate_file(job, output_kmers_filename)
-
-    end_time = timeit.default_timer()
-    run_time = end_time - start_time
-    RealtimeLogger.info("Finished GCSA kmers. Process took {} seconds.".format(run_time))
-
-    return output_kmers_id
-
 def run_gcsa_prep(job, context, input_graph_ids,
                   graph_names, index_name, chroms,
                   chrom_gbwt_ids, node_mapping_id, skip_pruning=False):
     """
-    Do all the preprocessing for gcsa indexing (pruning and kmers)
+    Do all the preprocessing for gcsa indexing (pruning)
     Then launch the indexing as follow-on
     """    
     RealtimeLogger.info("Starting gcsa preprocessing...")
     start_time = timeit.default_timer()
     if chrom_gbwt_ids:
         assert len(chrom_gbwt_ids) <= len(input_graph_ids)
-
-    kmers_ids = []
 
     # to encapsulate everything under this job
     child_job = Job()
@@ -238,7 +196,8 @@ def run_gcsa_prep(job, context, input_graph_ids,
     # todo: figure out how best to update file with toil without making copies
     mapping_ids = [node_mapping_id] if node_mapping_id else []
 
-    # prune then do kmers of each input graph.
+    # prune each input graph.
+    prune_ids = []
     for graph_i, input_graph_id in enumerate(input_graph_ids):
         gbwt_id = chrom_gbwt_ids[graph_i] if chrom_gbwt_ids else None
         mapping_id = mapping_ids[-1] if mapping_ids else None        
@@ -256,22 +215,15 @@ def run_gcsa_prep(job, context, input_graph_ids,
                 mapping_ids.append(prune_job.rv(1))
         else:
             prune_id = input_graph_id
+        prune_ids.append(prune_id)
 
-        # Compute the kmers as a follow-on to prune
-        kmers_id = prune_job.addFollowOnJobFn(run_gcsa_kmers, context, graph_names[graph_i],
-                                              prune_id, 
-                                              cores=context.config.kmers_cores,
-                                              memory=context.config.kmers_mem,
-                                              disk=context.config.kmers_disk).rv()
-        kmers_ids.append(kmers_id)
-
-    return child_job.addFollowOnJobFn(run_gcsa_indexing, context, kmers_ids,
+    return child_job.addFollowOnJobFn(run_gcsa_indexing, context, prune_ids,
                                       graph_names, index_name, mapping_ids[-1] if mapping_ids else None,
                                       cores=context.config.gcsa_index_cores,
                                       memory=context.config.gcsa_index_mem,
                                       disk=context.config.gcsa_index_disk).rv()
     
-def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name, mapping_id):
+def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_id):
     """
     Make the gcsa2 index. Return its store id
     """
@@ -282,13 +234,13 @@ def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name, mapping_
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
-    # Download all the kmers.  
-    kmers_filenames = []
+    # Download all the pruned graphs.  
+    prune_filenames = []
     
-    for graph_i, kmers_id in enumerate(kmers_ids):
-        kmers_filename = os.path.join(work_dir, os.path.basename(graph_names[graph_i]) + '.kmers')
-        job.fileStore.readGlobalFile(kmers_id, kmers_filename)
-        kmers_filenames.append(kmers_filename)
+    for graph_i, prune_id in enumerate(prune_ids):
+        prune_filename = os.path.join(work_dir, os.path.basename(graph_names[graph_i]) + '.prune')
+        job.fileStore.readGlobalFile(prune_id, prune_filename)
+        prune_filenames.append(prune_filename)
 
     # Download the mapping_id
     mapping_filename = None
@@ -302,10 +254,12 @@ def run_gcsa_indexing(job, context, kmers_ids, graph_names, index_name, mapping_
     command = ['vg', 'index', '--gcsa-name', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['--threads', str(job.cores)]
     
-    for kmers_filename in kmers_filenames:
-        command += ['--dbg-in', os.path.basename(kmers_filename)]
     if mapping_id:
         command += ['--mapping', os.path.basename(mapping_filename)]
+
+    for prune_filename in prune_filenames:
+        command += [os.path.basename(prune_filename)]
+        
     context.runner.call(job, command, work_dir=work_dir)
 
     # Checkpoint index to output store

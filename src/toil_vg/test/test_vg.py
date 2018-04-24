@@ -59,7 +59,7 @@ class VGCGLTest(TestCase):
         self.base_command = concat('toil-vg', 'run',
                                    '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                                    '--call_chunk_size', '20000',
-                                   '--gcsa_index_cores', '8', '--kmers_cores', '8',
+                                   '--gcsa_index_cores', '8',
                                    '--alignment_cores', '4',
                                    '--calling_cores', '4', '--vcfeval_cores', '4',
                                    '--vcfeval_opts', ' --ref-overlap',
@@ -102,7 +102,7 @@ class VGCGLTest(TestCase):
         
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8', '--kmers_cores', '8',
+                   '--gcsa_index_cores', '8',
                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index')
 
         self._run('toil-vg', 'map', self.jobStoreLocal, 'sample',
@@ -139,7 +139,7 @@ class VGCGLTest(TestCase):
 
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8', '--kmers_cores', '8',
+                   '--gcsa_index_cores', '8',
                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index')
 
         self._run('toil-vg', 'sim', self.jobStoreLocal,
