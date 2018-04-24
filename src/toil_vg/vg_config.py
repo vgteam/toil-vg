@@ -65,11 +65,6 @@ prune-cores: 1
 prune-mem: '4G'
 prune-disk: '2G'
 
-# Resources allotted for gcsa kmers.  
-kmers-cores: 1
-kmers-mem: '4G'
-kmers-disk: '2G'
-
 # Resources allotted gcsa indexing
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
@@ -174,9 +169,6 @@ index-name: 'genome'
 # (limit to general parameters, currently -k, -e, s.  
 # Rest decided by toil-vg via other options like prune-mode)
 prune-opts: []
-
-# Options to pass to vg kmers.
-kmers-opts: ['--gcsa-out', '--gcsa-binary', '--kmer-size', 16]
 
 # Options to pass to vg gcsa indexing
 gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
@@ -290,11 +282,6 @@ prune-cores: 2
 prune-mem: '60G'
 prune-disk: '60G'
 
-# Resources allotted for gcsa kmers.  
-kmers-cores: 16
-kmers-mem: '70G'
-kmers-disk: '60G'
-
 # Resources allotted gcsa indexing
 # Note for a whole genome 1kg graph, need about 3000G of disk
 gcsa-index-cores: 32
@@ -401,9 +388,6 @@ index-name: 'genome'
 # Rest decided by toil-vg via other options like prune-mode)
 prune-opts: []
 
-# Options to pass to vg kmers.
-kmers-opts: ['--gcsa-out', '--gcsa-binary', '--kmer-size', 16]
-
 # Options to pass to vg gcsa indexing
 gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
 
@@ -488,7 +472,7 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'kmers_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
+                   'bwa_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
 
