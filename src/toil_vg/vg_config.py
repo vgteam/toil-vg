@@ -171,7 +171,7 @@ index-name: 'genome'
 prune-opts: []
 
 # Options to pass to vg gcsa indexing
-gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
+gcsa-opts: []
 
 ########################
 ### vg_map Arguments ###
@@ -389,7 +389,7 @@ index-name: 'genome'
 prune-opts: []
 
 # Options to pass to vg gcsa indexing
-gcsa-opts: ['--size-limit', 3000, '--kmer-size', 16]
+gcsa-opts: []
 
 ########################
 ### vg_map Arguments ###
