@@ -194,7 +194,7 @@ def run_gcsa_prep(job, context, input_graph_ids,
     # keep these in lists for now just in case
     prune_jobs = []
     # todo: figure out how best to update file with toil without making copies
-    mapping_ids = [node_mapping_id] if node_mapping_id else []
+    mapping_ids = [node_mapping_id] if node_mapping_id and chrom_gbwt_ids else []
 
     # prune each input graph.
     prune_ids = []

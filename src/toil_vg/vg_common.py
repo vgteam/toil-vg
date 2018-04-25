@@ -167,7 +167,7 @@ to do: Should go somewhere more central """
                     data = rfile.readline()
                     if not data:
                         break
-                    RealtimeLogger.info('(sdterr) {}'.format(data.strip()))
+                    RealtimeLogger.info('(stderr) {}'.format(data.strip()))
                 os._exit(0)
             else:
                 assert pid > 0
