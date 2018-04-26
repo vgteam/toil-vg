@@ -413,9 +413,21 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
 
     region_graph_ids = []    
     for i, (region, region_name) in enumerate(zip(regions, region_names)):
-        vcf_id = None if not vcf_ids or i >= len(vcf_ids) else vcf_ids[0] if len(vcf_ids) == 1 else vcf_ids[i]
-        vcf_name = None if not vcf_names or i >= len(vcf_names) else vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
-        tbi_id = None if not tbi_ids or i >= len(tbi_ids) else tbi_ids[0] if len(tbi_ids) == 1 else tbi_ids[i]
+        if not vcf_ids or (len(vcf_ids) > 1 and i >= len(vcf_ids)):
+            # no vcf for region
+            vcf_id = None
+            tbi_id = None
+            vcf_name = None
+        elif len(vcf_ids) == 1:
+            # special case: 1 vcf given, so assumed for all regions
+            vcf_id = vcf_ids[0]
+            tbi_id = tbi_ids[0]
+            vcf_name = vcf_names[0]
+        else:
+            # one vcf per region
+            vcf_id = vcf_ids[i]
+            tbi_id = tbi_ids[i]
+            vcf_name = vcf_names[i]
         fasta_id = fasta_ids[0] if len(fasta_ids) == 1 else fasta_ids[i]
         fasta_name = fasta_names[0] if len(fasta_names) == 1 else fasta_names[i]
         region_graph_ids.append(child_job.addChildJobFn(run_construct_region_graph, context,
