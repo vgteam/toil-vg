@@ -804,13 +804,13 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
             # For each graph, gather and tag its indexes
             indexes = {}
             indexes['xg'] = xg_id
-            if gcsa_file_ids:
+            if gcsa_file_ids and gcsa_file_ids[i] is not None:
                 indexes['gcsa'], indexes['lcp'] = gcsa_file_ids[i]
-            if gbwt_file_ids:
+            if gbwt_file_ids and gbwt_file_ids[i] is not None:
                 indexes['gbwt'] = gbwt_file_ids[i]
-            if id_range_file_ids:
+            if id_range_file_ids and id_range_file_ids[i] is not None:
                 indexes['id_ranges'] = id_range_file_ids[i]
-            if snarl_file_ids:
+            if snarl_file_ids and snarl_file_ids[i] is not None:
                 indexes['snarls'] = snarl_file_ids[i]
                 
             # Put the indexes in the list of index dicts for each graph
@@ -1722,7 +1722,15 @@ def make_mapeval_plan(toil, options):
                     toil.importFile(ib + '.gcsa.lcp')))
                     
                 if options.use_gbwt:
-                    plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
+                    try:
+                        # If the file exists/imports successfully, we use it
+                        plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
+                    except:
+                        # If it doesn't exist, it won't import. And we want to
+                        # tolerate absent GBWT indexes for some graphs (like
+                        # primary) where haplotype data is unavailable
+                        plan.gbwt_file_ids.append(None)
+                        
                     
                 if options.use_snarls:
                     plan.snarl_file_ids.append(toil.importFile(ib + '.snarls'))
