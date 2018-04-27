@@ -807,6 +807,8 @@ def construct_main(context, options):
         if not toil.options.restart:
 
             start_time = timeit.default_timer()
+
+            logger.info('Importing input files into Toil')
             
             # Upload local files to the remote IO Store
             inputFastaFileIDs = [toil.importFile(fasta) for fasta in options.fasta]

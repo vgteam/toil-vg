@@ -25,6 +25,7 @@ def parse_args(args):
     parser.add_argument("--primary", action="store_true", help="make primary graph")
     parser.add_argument("--minaf", type=float, help="make min allele filter graph")
     parser.add_argument("--alt_paths", action="store_true", help="force alt paths")
+    parser.add_argument("--filter_ceph", action="store_true", help="filter private CEPH variants")
     
     parser.add_argument("--node", help="toil node type (default=r3.8xlarge:0.85)", default="r3.8xlarge:0.85")
     args = args[1:]        
@@ -91,17 +92,20 @@ if options.control:
     cmd += ['--control_sample', options.control]
     cmd += ['--filter_sample', options.control]
 
+if options.filter_ceph:
+    cmd += ['--filter_ceph']
+
 if options.chroms:
     # restrict to specified chromosome(s)
     cmd += ['--regions'] + options.chroms
-    if options.gbwt or options.alt_paths:
+    if options.gbwt or options.alt_paths or options.filter_ceph:
         cmd += ['--vcf'] + [get_vcf_path_hs37d5(chrom) for chrom in options.chroms]
     else:
         cmd += ['--vcf'] + [get_unphased_vcf_path_hs37d5()]
 else:
     # do all chromsomes as well as decoys
     cmd += ['--fasta_regions', '--vcf']
-    if options.gbwt or options.alt_paths:
+    if options.gbwt or options.alt_paths or options.filter_ceph:
         cmd += [get_vcf_path_hs37d5(chrom) for chrom in range(1, 23) + ['X', 'Y']]
     else:
         cmd += [get_unphased_vcf_path_hs37d5()]
