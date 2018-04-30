@@ -24,6 +24,10 @@ Installation requires Python and Toil.  We recommend installing within virtualen
     source toilvenv/bin/activate
     pip install toil[aws,mesos]==3.13.0
     pip install --pre toil-vg
+    
+## WIKI
+
+See the [Wiki](https://github.com/vgteam/toil-vg/wiki) in addition to below for examples.
 
 ### Docker
 
