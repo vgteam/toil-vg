@@ -69,6 +69,7 @@ prune-disk: '2G'
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
 gcsa-index-disk: '2G'
+gcsa-index-preemptable: 'True'
 
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs
@@ -287,6 +288,7 @@ prune-disk: '60G'
 gcsa-index-cores: 32
 gcsa-index-mem: '200G'
 gcsa-index-disk: '200G'
+gcsa-index-preemptable: 'False'
 
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs

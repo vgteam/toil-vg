@@ -221,7 +221,8 @@ def run_gcsa_prep(job, context, input_graph_ids,
                                       graph_names, index_name, mapping_ids[-1] if mapping_ids else None,
                                       cores=context.config.gcsa_index_cores,
                                       memory=context.config.gcsa_index_mem,
-                                      disk=context.config.gcsa_index_disk).rv()
+                                      disk=context.config.gcsa_index_disk,
+                                      preemptable=context.config.gcsa_index_preemptable).rv()
     
 def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_id):
     """
