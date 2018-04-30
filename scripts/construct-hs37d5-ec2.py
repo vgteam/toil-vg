@@ -25,9 +25,10 @@ def parse_args(args):
     parser.add_argument("--primary", action="store_true", help="make primary graph")
     parser.add_argument("--minaf", type=float, help="make min allele filter graph")
     parser.add_argument("--alt_paths", action="store_true", help="force alt paths")
-    parser.add_argument("--filter_ceph", action="store_true", help="filter private CEPH variants")
-    
-    parser.add_argument("--node", help="toil node type (default=r3.8xlarge:0.85)", default="r3.8xlarge:0.85")
+    parser.add_argument("--filter_ceph", action="store_true", help="filter private CEPH variants")    
+    parser.add_argument("--node", help="toil node type(s) (i3.8xlarge:0.90,i3.8xlarge). can be comma-separated list", default="i3.8xlarge:0.90,i3.8xlarge")
+    parser.add_argument("--max_node", help="Max nodes for each type (can be comman-separated list)",
+                        default="5,2")
     args = args[1:]        
     return parser.parse_args(args)
 options = parse_args(sys.argv)
@@ -116,7 +117,8 @@ else:
     subprocess.check_call(['toil', 'clean', options.job_store])
 
 print ' '.join(cmd)
-subprocess.check_call(['scripts/ec2-run.sh', '-n', options.node, options.leader, ' '.join(cmd)])
+subprocess.check_call(['scripts/ec2-run.sh', '-n', options.node,
+                       '-m', options.max_node, options.leader, ' '.join(cmd)])
 
 #copy the log to the out store
 cmd = ['toil', 'ssh-cluster',  '--insecure', '--zone=us-west-2a', options.leader,
