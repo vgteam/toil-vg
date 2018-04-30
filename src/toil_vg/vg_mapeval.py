@@ -914,7 +914,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
         for condition in conditions_in:
             if condition["aligner"] == "vg" and condition["multipath"]:
                 # Only vg mpmap conditions get expanded by option set
-                for opt_num in len(mpmap_opts_list):
+                for opt_num in range(len(mpmap_opts_list)):
                     extended = dict(condition)
                     extended.update({"opt_num": opt_num})
                     yield extended
