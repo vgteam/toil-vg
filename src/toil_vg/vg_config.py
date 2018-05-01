@@ -58,6 +58,7 @@ xg-index-disk: '2G'
 gbwt-index-cores: 1
 gbwt-index-mem: '4G'
 gbwt-index-disk: '2G'
+gbwt-index-preemptable: 'True'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
@@ -276,6 +277,7 @@ xg-index-disk: '100G'
 gbwt-index-cores: 6
 gbwt-index-mem: '60G'
 gbwt-index-disk: '100G'
+gbwt-index-preemptable: 'False'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread

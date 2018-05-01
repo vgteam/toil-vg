@@ -648,7 +648,8 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      make_gbwt = make_gbwt,
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
-                                                                     disk=context.config.gbwt_index_disk)
+                                                                     disk=context.config.gbwt_index_disk,
+                                                                     preemptable=not make_gbwt or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
