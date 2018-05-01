@@ -930,12 +930,12 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 extended.update({"paired": paired})
                 yield extended
                 
-    # This one expands vg mpmap conditions by whether to use the gbwt index for
+    # This one expands vg conditions by whether to use the gbwt index for
     # haplotype-aware mapping or not
     def gbwt_conditions(conditions_in):
         for condition in conditions_in:
-            if condition["aligner"] == "vg" and condition["multipath"]:
-                # Only vg mpmap conditions get expanded by gbwt or not
+            if condition["aligner"] == "vg":
+                # Both vg map and vg mpmap conditions get expanded by gbwt or not
                 for gbwt in matrix["gbwt"]:
                     extended = dict(condition)
                     extended.update({"gbwt": gbwt})
@@ -1003,12 +1003,23 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 fastq_ids = reads_fastq_single_ids
                 # It is never interleaved
                 interleaved = False
+                
+            if condition["gbwt"]:
+                tag_string += "-gbwt"
                     
             # We collect all the map jobs in a list for each index, so we can update all our output lists ofr them
             map_jobs = []
                     
             for i, indexes in enumerate(index_ids):
-                # Map or mpmap, paired or not as appropriate, against each index.
+                # Map or mpmap, paired or not as appropriate, against each index set.
+                
+                if not condition["gbwt"]:
+                    # Drop the GBWT index if present for the non-GBWT conditions
+                    # TODO: we know things don't have GBWTs because their GBWT and no-GBWT results are the same...
+                    indexes = dict(indexes)
+                    if indexes.has_key("gbwt"):
+                        del indexes["gbwt"]
+                
                 map_jobs.append(job.addChildJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
                                                   None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
                                                   interleaved, condition["multipath"], indexes,
@@ -1682,7 +1693,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         "aligner": ["vg"],
         "paired": [],
         "multipath": [],
-        "gbwt": [True]
+        "gbwt": [False]
     }
     
     if not options.multipath_only:
@@ -1698,6 +1709,9 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     if not options.single_only:
         # Allow paired read mapping
         matrix["paired"].append(True)
+        
+    if options.use_gbwt:
+        matrix["gbwt"].append(True)
         
     if options.bwa:
         # Make sure to run the BWA aligner too
