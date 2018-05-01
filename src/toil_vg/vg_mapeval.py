@@ -821,17 +821,39 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
 
 def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                        reads_fastq_single_ids, reads_fastq_paired_ids, reads_fastq_paired_for_vg_ids,
-                       fasta_file_id, bwa_index_ids, do_bwa, do_single,
-                       do_paired, singlepath, multipath, ignore_quals):
+                       fasta_file_id, bwa_index_ids, matrix, ignore_quals):
     """
+    
     Run alignments, if alignment files have not already been provided.
     
     Returns a list of graph/gam names, a list of associated gam file IDs, a
     list of associated xg index IDs, and a list of BAM file IDs (or Nones) for
-    realigned read BAMs, and a list of running times (for map commands not including toil-vg overhead)
+    realigned read BAMs, and a list of running times (for map commands not
+    including toil-vg overhead)
     
     We need to modify the name and index lists because we synthesize paired-end
     versions of existing entries.
+    
+    Determines what conditions and combinations of conditions to run by looking
+    at the "matrix" parameter, which is a dict from string variable name to a
+    list of values for that variable. All sensible combinations of the variable
+    values from the matrix are run as conditions.
+    
+    Variables to be used in the matrix are:
+    
+    "aligner": ["vg", "bwa"]
+    
+    "multipath": [True, False]
+    
+    "paired": [True, False]
+    
+    "gbwt": [True, False]
+   
+    Additionally, mpmap_opts and more_mpmap_opts from the context's config are
+    consulted, doubling the mpmap runs if more_mpmap_opts is set.
+   
+    If gam_file_ids are specified, passes those through instead of doing any vg
+    mapping, but still does bwa mapping if requested.
     
     """
 
@@ -860,109 +882,176 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     def fq_names(fq_reads_ids):
         return ['input{}.fq.gz'.format(i) for i in range(len(fq_reads_ids))]
 
-    do_vg_mapping = not gam_file_ids and (singlepath or multipath)
-    if do_vg_mapping and singlepath and do_single:
-        assert reads_fastq_single_ids
-        gam_file_ids = []
-        # run vg map if requested
-        for i, indexes in enumerate(index_ids):
-            map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_single_ids),
-                                        None, None, 'aligned-{}'.format(gam_names[i]),
-                                        False, False, indexes,
-                                        reads_fastq_single_ids,
-                                        cores=context.config.misc_cores,
-                                        memory=context.config.misc_mem, disk=context.config.misc_disk)
-            gam_file_ids.append(map_job.rv(0))
-            map_times.append(map_job.rv(1))
-
-        # make sure associated lists are extended
-        out_xg_ids += xg_ids
-        out_gam_names += gam_names
-
-    # Do the single-ended multipath mapping
-    if do_vg_mapping and multipath and do_single:
-        assert reads_fastq_single_ids
-        for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
-            mp_context = copy.deepcopy(context)
-            mp_context.config.mpmap_opts = mpmap_opts
+    # Define some generators to expand conditions. Each takes a generator of
+    # conditions to loop over, and yields those back again, possibly duplicated
+    # and with more variables filled in.
+    
+    # This one expands all conditions by aligner
+    def aligner_conditions(conditions_in):
+        for condition in conditions_in:
+            # Every condition gets expanded by aligner
+            for aligner in matrix["aligner"]:
+                extended = dict(condition)
+                extended.update({"aligner": aligner})
+                yield extended
+    
+    # This one expands vg conditions by whether to use mpmap or not
+    def multipath_conditions(conditions_in):
+        for condition in conditions_in:
+            if condition["aligner"] == "vg":
+                # Only vg conditions get expanded by multipath or not
+                for multipath in matrix["multipath"]:
+                    extended = dict(condition)
+                    extended.update({"multipath": multipath})
+                    yield extended
+            else:
+                yield condition
+                
+    # This one expands vg mpmap conditions by which mpmap option set should be
+    # used (as an int index into mpmap_opts_list).
+    # TODO: Make this come through the matrix and not a separate list
+    def multipath_opts_conditions(conditions_in):
+        for condition in conditions_in:
+            if condition["aligner"] == "vg" and condition["multipath"]:
+                # Only vg mpmap conditions get expanded by option set
+                for opt_num in range(len(mpmap_opts_list)):
+                    extended = dict(condition)
+                    extended.update({"opt_num": opt_num})
+                    yield extended
+            else:
+                yield condition
+                
+    # This one expands all conditions by whether to do paired-end or single-end
+    # mapping
+    def paired_conditions(conditions_in):
+        for condition in conditions_in:
+            for paired in matrix["paired"]:
+                extended = dict(condition)
+                extended.update({"paired": paired})
+                yield extended
+                
+    # This one expands vg mpmap conditions by whether to use the gbwt index for
+    # haplotype-aware mapping or not
+    def gbwt_conditions(conditions_in):
+        for condition in conditions_in:
+            if condition["aligner"] == "vg" and condition["multipath"]:
+                # Only vg mpmap conditions get expanded by gbwt or not
+                for gbwt in matrix["gbwt"]:
+                    extended = dict(condition)
+                    extended.update({"gbwt": gbwt})
+                    yield extended
+            else:
+                yield condition
+                
+    # Define the list of functions to nest, innermost first. To add another
+    # independent variable to the experiment, write another condition-expanding
+    # generator function above and put it at the end of this list.
+    condition_steps = [aligner_conditions, multipath_conditions, multipath_opts_conditions, paired_conditions, gbwt_conditions]
+    # Make the master condition generator by composing all the generator
+    # functions. To use it, pass it a list of an empty dict and loop over the
+    # fleshed-out condition dicts it generates.
+    condition_generator = reduce(lambda left, right: lambda x: right(left(x)), condition_steps)
+    
+    
+    # Determine if we should do vg mapping or if we have gams already
+    do_vg_mapping = not gam_file_ids
+    # If we don't have them already, make an empty list.
+    gam_file_ids = gam_file_ids or []
+    
+    # If bwa is not run, we need some Nones for its results
+    bwa_bam_file_ids, bwa_mem_times = [None, None], [None, None]
+    # And if it is run it will all run under this job, which starts out as None
+    bwa_start_job = None
+    
+    for condition in condition_generator([{}]):
+        # For each condition
+        if condition["aligner"] == "vg" and do_vg_mapping:
+            # This condition requires running vg and we aren't just using pre-run GAMs.
+            
+            # VG alignments get a tag string to distinguish the output GAMs.
+            # It comes out something like "-mp-pe".
+            tag_string = ""
+            
+            if condition["multipath"]:
+                # Doing multipath mapping
+                tag_string += "-mp"
+                tag_string += (str(condition["opt_num"]) if condition["opt_num"] > 0 else '')
+                
+                # Prepare a context for multipath mapping with the appropriate option set.
+                mapping_context = copy.deepcopy(context)
+                mapping_context.config.mpmap_opts = mpmap_opts_list[condition["opt_num"]]
+            else:
+                # Just use the normal context we have
+                mapping_context = context
+            
+            if condition["paired"]:
+                # Add the paired end tag
+                tag_string += "-pe"
+                # Make sure we have paired data
+                assert reads_fastq_paired_for_vg_ids
+                fastq_ids = reads_fastq_paired_for_vg_ids
+                # And determine if it is interleaved...
+                interleaved = len(reads_fastq_paired_for_vg_ids) == 1
+                if not interleaved:
+                    # ...or if we know we are paired by having 2 files.
+                    assert len(reads_fastq_paired_for_vg_ids) == 2
+            else:
+                # Make sure we have single-end data
+                assert reads_fastq_single_ids
+                # And that it won't be seen as paired non-interleaved
+                assert len(reads_fastq_single_ids) == 1
+                fastq_ids = reads_fastq_single_ids
+                # It is never interleaved
+                interleaved = False
+                    
+            # We collect all the map jobs in a list for each index, so we can update all our output lists ofr them
+            map_jobs = []
+                    
             for i, indexes in enumerate(index_ids):
-                map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_single_ids),
-                                            None, None, 'aligned-{}-mp'.format(gam_names[i]),
-                                            False, True, indexes,
-                                            reads_fastq_single_ids,
-                                            cores=mp_context.config.misc_cores,
-                                            memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
+                # Map or mpmap, paired or not as appropriate, against each index.
+                map_jobs.append(job.addChildJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
+                                                  None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
+                                                  interleaved, condition["multipath"], indexes,
+                                                  fastq_ids,
+                                                  cores=mapping_context.config.misc_cores,
+                                                  memory=mapping_context.config.misc_mem, disk=mapping_context.config.misc_disk))
+                                    
+            for i, map_job in enumerate(map_jobs):
+                # Update our output lists for every mapping job we are running
                 gam_file_ids.append(map_job.rv(0))
                 map_times.append(map_job.rv(1))
-
-            # make sure associated lists are extended to fit new paired end mappings
-            out_xg_ids += xg_ids
-            out_gam_names += [n + '-mp{}'.format(opt_num if opt_num > 0 else '') for n in gam_names]
-
-    if do_vg_mapping and do_paired and singlepath:
-        # run paired end version of all vg inputs if --pe-gams specified
-        assert reads_fastq_paired_for_vg_ids
-        for i, indexes in enumerate(index_ids):
-            interleaved = len(reads_fastq_paired_for_vg_ids) == 1
-            map_job = job.addChildJobFn(run_mapping, context, fq_names(reads_fastq_paired_for_vg_ids),
-                                        None, None, 'aligned-{}-pe'.format(gam_names[i]),
-                                        interleaved, False, indexes,
-                                        reads_fastq_paired_for_vg_ids,
-                                        cores=context.config.misc_cores,
-                                        memory=context.config.misc_mem, disk=context.config.misc_disk)
-            gam_file_ids.append(map_job.rv(0))
-            map_times.append(map_job.rv(1))            
+                out_xg_ids.append(xg_ids[i])
+                out_gam_names.append(gam_names[i] + tag_string)
             
-        # make sure associated lists are extended to fit new paired end mappings
-        out_xg_ids += xg_ids
-        out_gam_names += [n + '-pe' for n in gam_names]
-
-    # Do the paired-ended multipath mapping
-    if do_vg_mapping and do_paired and multipath:
-        assert reads_fastq_paired_for_vg_ids
-        interleaved = len(reads_fastq_paired_for_vg_ids) == 1
-        for opt_num, mpmap_opts in enumerate(mpmap_opts_list):
-            mp_context = copy.deepcopy(context)
-            mp_context.config.mpmap_opts = mpmap_opts
-            for i, indexes in enumerate(index_ids):
-                map_job = job.addChildJobFn(run_mapping, mp_context, fq_names(reads_fastq_paired_for_vg_ids),
-                                            None, None, 'aligned-{}-mp-pe'.format(gam_names[i]),
-                                            interleaved, True, indexes,
-                                            reads_fastq_paired_for_vg_ids,
-                                            cores=mp_context.config.misc_cores,
-                                            memory=mp_context.config.misc_mem, disk=mp_context.config.misc_disk)
-                gam_file_ids.append(map_job.rv(0))
-                map_times.append(map_job.rv(1))            
-
-            # make sure associated lists are extended to fit new paired end mappings
-            out_xg_ids += xg_ids
-            out_gam_names += [n + '-mp{}-pe'.format(opt_num if opt_num > 0 else '') for n in gam_names]
-    
-    # run bwa if requested
-    bwa_bam_file_ids, bwa_mem_times = [None, None], [None, None]
-    if do_bwa:
-        bwa_start_job = Job()
-        job.addChild(bwa_start_job)
-        bwa_index_job = bwa_start_job.addChildJobFn(run_bwa_index, context,
-                                                    fasta_file_id, bwa_index_ids,
-                                                    cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                    disk=context.config.alignment_disk)
-        bwa_index_ids = bwa_index_job.rv()
-                
-        if do_single:
-            assert reads_fastq_single_ids
-            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_single_ids, bwa_index_ids, False,
-                                                         cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                         disk=context.config.alignment_disk)
-            bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
-            bwa_mem_times[0] = bwa_mem_job.rv(1)
-        if do_paired:
-            assert reads_fastq_paired_ids
-            bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_paired_ids, bwa_index_ids, True,
-                                                         cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                         disk=context.config.alignment_disk)
-            bwa_bam_file_ids[1] = bwa_mem_job.rv(0)
-            bwa_mem_times[1] = bwa_mem_job.rv(1)
+            
+        elif condition["aligner"] == "bwa":
+            # Run BWA.
+            if bwa_start_job is None:
+                # If we do any BWA we need this job to exist
+                bwa_start_job = Job()
+                job.addChild(bwa_start_job)
+                bwa_index_job = bwa_start_job.addChildJobFn(run_bwa_index, context,
+                                                            fasta_file_id, bwa_index_ids,
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                            disk=context.config.alignment_disk)
+                bwa_index_ids = bwa_index_job.rv()
+                    
+            if condition["paired"]:
+                # Do paired-end BWA
+                assert reads_fastq_paired_ids
+                bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_paired_ids, bwa_index_ids, True,
+                                                             cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                             disk=context.config.alignment_disk)
+                bwa_bam_file_ids[1] = bwa_mem_job.rv(0)
+                bwa_mem_times[1] = bwa_mem_job.rv(1)
+            else:
+                # Do single-ended
+                assert reads_fastq_single_ids
+                bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_single_ids, bwa_index_ids, False,
+                                                             cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                             disk=context.config.alignment_disk)
+                bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
+                bwa_mem_times[0] = bwa_mem_job.rv(1)
 
     return out_gam_names, gam_file_ids, out_xg_ids, map_times, bwa_bam_file_ids, bwa_mem_times
     
@@ -1588,16 +1677,37 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
                                                                  True, True,
                                                                  disk=context.config.alignment_disk).rv()
 
-    do_single_path = not options.multipath_only
-    do_multi_path = options.multipath or options.multipath_only
-                              
+    # Compose a condition matrix to specify what independent variable values to run in the alignment experiment
+    matrix = {
+        "aligner": ["vg"],
+        "paired": [],
+        "multipath": [],
+        "gbwt": [True]
+    }
+    
+    if not options.multipath_only:
+        # Allow the single-path vg map aligner
+        matrix["multipath"].append(False)
+    if options.multipath or options.multipath_only:
+        # Run the multipath vg mpmap aligner
+        matrix["multipath"].append(True)
+        
+    if not options.paired_only:
+        # Allow unpaired read mapping
+        matrix["paired"].append(False)
+    if not options.single_only:
+        # Allow paired read mapping
+        matrix["paired"].append(True)
+        
+    if options.bwa:
+        # Make sure to run the BWA aligner too
+        matrix["aligner"].append("bwa")
+    
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
                                                options.gam_names, gam_file_ids,
                                                fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids,
-                                               fasta_file_id, bwa_index_ids, options.bwa,
-                                               not options.paired_only, not options.single_only,
-                                               do_single_path, do_multi_path, 
+                                               fasta_file_id, bwa_index_ids, matrix,
                                                options.ignore_quals)
                                                
     # Unpack the alignment job's return values
