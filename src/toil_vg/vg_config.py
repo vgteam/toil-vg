@@ -268,13 +268,13 @@ construct-mem: '32G'
 construct-disk: '32G'
 
 # Resources allotted for xg indexing.
-xg-index-cores: 2
+xg-index-cores: 16
 xg-index-mem: '200G'
-xg-index-disk: '200G'
+xg-index-disk: '100G'
 
 # Resources allotted for xg indexing by chromosome (used for GBWT).
-gbwt-index-cores: 2
-gbwt-index-mem: '64G'
+gbwt-index-cores: 6
+gbwt-index-mem: '60G'
 gbwt-index-disk: '100G'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
@@ -284,10 +284,9 @@ prune-mem: '60G'
 prune-disk: '60G'
 
 # Resources allotted gcsa indexing
-# Note for a whole genome 1kg graph, need about 3000G of disk
-gcsa-index-cores: 32
-gcsa-index-mem: '200G'
-gcsa-index-disk: '200G'
+gcsa-index-cores: 16
+gcsa-index-mem: '110G'
+gcsa-index-disk: '2200G'
 gcsa-index-preemptable: 'False'
 
 # Resources for fastq splitting and gam merging
