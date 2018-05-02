@@ -299,9 +299,7 @@ to do: Should go somewhere more central """
                     # While there still might be data in the pipe
                     
                     # Select on the pipe with a timeout, so we don't spin constantly waiting for data
-                    RealtimeLogger.debug("Selecting")
                     can_read, can_write, had_error = select.select([fifo_fd], [], [fifo_fd], 10)
-                    RealtimeLogger.debug("Selected {} readable and {} exceptional".format(len(can_read), len(had_error)))
                     
                     if len(can_read) > 0 or len(had_error) > 0:
                         # There is data available or something else weird about our FIFO.
@@ -309,8 +307,6 @@ to do: Should go somewhere more central """
                         try:
                             # Do a nonblocking read. Since we checked with select we never should get "" unless there's an EOF.
                             data = os.read(fifo_fd, 4096)
-                            
-                            RealtimeLogger.debug("Got {} bytes".format(len(data)))
                             
                             if data == "":
                                 # We didn't throw and we got nothing, so it must be EOF.
@@ -320,7 +316,6 @@ to do: Should go somewhere more central """
                         except OSError as err:
                             if err.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
                                 # There is no data right now
-                                RealtimeLogger.debug("Got EAGAIN/EWOULDBLOCK")
                                 data = None
                             else:
                                 # Something else has gone wrong
