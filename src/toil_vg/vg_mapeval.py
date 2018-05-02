@@ -976,7 +976,11 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
             # VG alignments get a tag string to distinguish the output GAMs.
             # It comes out something like "-mp-pe".
             tag_string = ""
-            
+           
+            if condition["gbwt"]:
+                # Mark as gbwt first if applicable
+                tag_string += "-gbwt"
+           
             if condition["multipath"]:
                 # Doing multipath mapping
                 tag_string += "-mp"
@@ -1009,9 +1013,6 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 # It is never interleaved
                 interleaved = False
                 
-            if condition["gbwt"]:
-                tag_string += "-gbwt"
-                    
             # We collect all the map jobs in a list for each index, so we can update all our output lists ofr them
             map_jobs = []
                     
@@ -1266,11 +1267,8 @@ def run_process_position_comparisons(job, context, names, compare_ids):
             it to the combined results file.
             """
             
-            # TODO: Adjust method names so they all have the same number of
-            # -pe, -gbwt tags by adding -se, etc. to give a semsible sort in
-            # the plot legends. Or do it where the condition names are
-            # generated.
-            
+            # The vg R scripts are responsible for determining a smart method name sort order now.
+           
             with open(comp_file) as comp_in:
                 for line in comp_in:
                     toks = line.rstrip().split(', ')
