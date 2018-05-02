@@ -423,6 +423,9 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
     during runs of the run_xg_indexing job function.
+
+    Note: the resources assigned to indexing come from those assigned to this parent job
+    (as they can get toggled between xg and gbwt modes in the caller)
     """
     
     # to encapsulate everything under this job
@@ -437,9 +440,10 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       [vg_concat_job.rv(1)], index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
                                       make_gbwt,
-                                      cores=context.config.xg_index_cores,
-                                      memory=context.config.xg_index_mem,
-                                      disk=context.config.xg_index_disk).rv()
+                                      cores=job.cores,
+                                      memory=job.memory,
+                                      disk=job.disk,
+                                      preemptable=job.preemptable).rv()
     
 def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
     """
