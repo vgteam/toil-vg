@@ -76,6 +76,8 @@ def add_mapeval_options(parser):
                         '<index-base>.gcsa, <index-base>.lcp and <index-base>.xg to exist')
     parser.add_argument('--use-gbwt', action='store_true',
                         help='also import <index-base>.gbwt and use it during alignment')
+    parser.add_argument('--strip-gbwt', action='store_true',
+                        help='run gbwt-free control runs')
     parser.add_argument('--use-snarls', action='store_true',
                         help='also import <index-base>.snarls and use it during multipath alignment')
     parser.add_argument('--vg-graphs', nargs='+', type=make_url, default=[],
@@ -122,6 +124,9 @@ def add_mapeval_options(parser):
 
     parser.add_argument('--gam-input-xg', type=make_url, default=None,
                         help= 'If extracting truth positions from --input_gam_reads, specify corresponding xg for annotation')
+                        
+    parser.add_argument('--plot-sets', nargs='+', default=[],
+                        help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) to plot together')
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -826,10 +831,10 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     
     Run alignments, if alignment files have not already been provided.
     
-    Returns a list of graph/gam names, a list of associated gam file IDs, a
-    list of associated xg index IDs, and a list of BAM file IDs (or Nones) for
-    realigned read BAMs, and a list of running times (for map commands not
-    including toil-vg overhead)
+    Returns a list of graph/gam names (with condition tags), a list of
+    associated gam file IDs, a list of associated xg index IDs, and a list of
+    BAM file IDs (or Nones) for realigned read BAMs, and a list of running
+    times (for map commands not including toil-vg overhead)
     
     We need to modify the name and index lists because we synthesize paired-end
     versions of existing entries.
@@ -873,7 +878,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
         mpmap_opts_list += context.config.more_mpmap_opts
 
     if ignore_quals:
-        # Make sure we don't use quality adjusted alignment since simulation doesn't make qualities
+        # Make sure we don't use quality adjusted alignment 
         for mpmap_opts in mpmap_opts_list:
             if '-A' not in mpmap_opts and '--no-qual-adjust' not in mpmap_opts:
                 mpmap_opts.append('-A')
@@ -1214,9 +1219,9 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
     Compare the read positions for each read across the different aligmment
     methods.
     
-    Produces a bunch of individual comparison files against the truth, a
-    combined "positions.results.tsv" across all aligners, and a statistics file
-    "stats.tsv" in the out_store.
+    Produces a bunch of individual comparison files against the truth (in CSV
+    format), a combined "positions.results.tsv" across all aligners, and a
+    statistics file "stats.tsv" in the out_store.
     
     Returns the list of comparison files, and the stats file ID.
     """
@@ -1260,8 +1265,6 @@ def run_process_position_comparisons(job, context, names, compare_ids):
             Read the given comparison CSV for the given condition name, and dump
             it to the combined results file.
             """
-            # tack on '-se' to single endings to make more consistent ordering in r plots
-            method = a + '-se' if not (a.endswith('-pe') or a.endswith('-se')) else a
             
             with open(comp_file) as comp_in:
                 for line in comp_in:
@@ -1693,7 +1696,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         "aligner": ["vg"],
         "paired": [],
         "multipath": [],
-        "gbwt": [False]
+        "gbwt": []
     }
     
     if not options.multipath_only:
@@ -1710,8 +1713,12 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         # Allow paired read mapping
         matrix["paired"].append(True)
         
-    if options.use_gbwt:
+    if gbwt_file_ids:
+        # We have GBWTs to use
         matrix["gbwt"].append(True)
+    if (not gbwt_file_ids) or options.strip_gbwt:
+        # We have no GBWTs or we want to run without them too
+        matrix["gbwt"].append(False)
         
     if options.bwa:
         # Make sure to run the BWA aligner too
@@ -1743,41 +1750,91 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
                      disk=context.config.misc_disk)
 
     # Then do the R plotting
+    
+    # What do we plot together?
+    plot_sets = [spec.split(',') for spec in options.plot_sets]
+    if len(plot_sets) == 0:
+        # We want to plot everything together
+        # We use the special None value to request that.
+        plot_sets = [None]
+    
+    # What actual results do we plot?
     position_comparison_results = comparison_job.rv(0)
     score_comparison_results= comparison_job.rv(1)
-    plot_job = comparison_parent_job.addFollowOnJobFn(run_map_eval_plot, context,  position_comparison_results, score_comparison_results)
+    plot_job = comparison_parent_job.addFollowOnJobFn(run_map_eval_plot, context,
+                                                      position_comparison_results, score_comparison_results, plot_sets)
 
     # Dump out the running times into map_times.tsv
     comparison_parent_job.addChildJobFn(run_write_map_times, context, gam_names, vg_map_times, bwa_map_times)
                      
     return comparison_job.rv()
 
-def run_map_eval_plot(job, context, position_comp_results, score_comp_results):
+def run_map_eval_plot(job, context, position_comp_results, score_comp_results, plot_sets):
     """
+    
     Make the PR and QQ plots with R
+    
+    position_comp_results is a tuple, where the first element is a list of CSV
+    stats file IDs, one per condition, and the second element is a combined TSV
+    stats file ID across all conditions.
+    
+    The combined stats TSV has one header line, and format:
+    
+    correct flag, mapping quality, condition name, read name
+    
+    The CSV files follow the same format, but are CSVs and lack a header.
+    
+    score_comp_results is ignored.
+    
+    plot_sets gives a list of collections of condition names to plot together.
+    If None is in the list, all conditions are plotted.
+    
+    outputs plot-pr.svg, plot-qq.svg, and plot-roc.svg for the first set, and
+    plot-pr-1.svg, etc. for subsequent sets.
+    
+    Returns a list of pairs of plot file name and plot file ID.
+    
     """
     work_dir = job.fileStore.getLocalTempDir()
 
+    # The individual files in position_comp_results[0] are in a particular
+    # condition name order, but we don't have access to those condition names.
+    # So we have to work from the big TSV.
     position_stats_file_id = position_comp_results[1]
     position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
     job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
 
     out_name_id_pairs = []
-    for rscript in ['pr', 'qq', 'roc']:
-
-        plot_name = 'plot-{}.svg'.format(rscript)
-        script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
-        cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
-               plot_name]
-        try:
-            context.runner.call(job, cmd, work_dir = work_dir)
-            out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
-        except Exception as e:
-            if rscript == 'roc':
-                logger.warning('plot-roc.R failed: '.format(str(e)))
+    
+    for i, plot_set in enumerate(plot_sets):
+        # For each set of graphs to plot together
+        
+        for rscript in ['pr', 'qq', 'roc']:
+            # For each kind of plot
+            
+            if i == 0:
+                # First plot of each kind looks like this
+                plot_name = 'plot-{}.svg'.format(rscript)
             else:
-                # We insist that the R scripts execute successfully (except plot-roc)
-                raise e
+                # Additional plots look like this
+                plot_name = 'plot-{}-{}.svg'.format(rscript, i)
+            
+            script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
+            cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
+                   plot_name]
+            if plot_set is not None:
+                # Subset to specific conditions. The R scripts know how to do it.
+                cmd.append(','.join(plot_set))
+            
+            try:
+                context.runner.call(job, cmd, work_dir = work_dir)
+                out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
+            except Exception as e:
+                if rscript == 'roc':
+                    logger.warning('plot-roc.R failed: '.format(str(e)))
+                else:
+                    # We insist that the R scripts execute successfully (except plot-roc)
+                    raise e
             
     return out_name_id_pairs
 
