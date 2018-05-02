@@ -1260,11 +1260,16 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     with open(results_file, 'w') as out_results:
         out_results.write('correct\tmq\taligner\tread\n')
 
-        def write_tsv(comp_file, a):
+        def write_tsv(comp_file, method):
             """
             Read the given comparison CSV for the given condition name, and dump
             it to the combined results file.
             """
+            
+            # TODO: Adjust method names so they all have the same number of
+            # -pe, -gbwt tags by adding -se, etc. to give a semsible sort in
+            # the plot legends. Or do it where the condition names are
+            # generated.
             
             with open(comp_file) as comp_in:
                 for line in comp_in:
