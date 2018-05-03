@@ -99,6 +99,8 @@ def calleval_parse_args(parser):
                         help='run both vg call and vg genotype')
     parser.add_argument('--filter_opts_gt',
                         help='override filter-opts for genotype only')
+    parser.add_argument('--clip_only', action='store_true',
+                        help='only compute accuracy clipped to --vcfeval_bed_regions')
         
 def validate_calleval_options(options):
     """
@@ -116,6 +118,8 @@ def validate_calleval_options(options):
             'one sequence must be specified with --chroms')
     require(options.vcfeval_baseline, '--vcfeval_baseline required')
     require(options.vcfeval_fasta, '--vcfeval_fasta required')
+    
+    require(options.vcfeval_bed_regions is not None or not options.clip_only, '--vcfeval_bed_regions must be given with --clip_only')
 
 def run_bam_index(job, context, bam_file_id, bam_name):
     """
@@ -196,7 +200,14 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
             timer)
 
 def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timing_results):
-    """ output the calleval results"""
+    """
+    
+    output the calleval results
+    
+    Requires that, if any result in eval_results has clipped results, all
+    results have clipped results, and similarly for unclipped results.
+    
+    """
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
@@ -208,20 +219,37 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
     stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
     with open(stats_path, 'w') as stats_file:
         for name, eval_result, in zip(names, eval_results):
-            stats_file.write('{}\t{}\n'.format(name, eval_result[result_idx][0]))
+            # Find the best result (clipped if present, unclipped if not).
+            # The best is the last non-None one.
+            best_result = [r for r in eval_result if r is not None][-1]
+        
+            # Output the F1 score (first element)
+            stats_file.write('{}\t{}\n'.format(name, best_result[0]))
 
     # make some roc plots
     roc_plot_ids = []
     for i, roc_type in zip(range(3,6), ['snp', 'non_snp', 'weighted']):
-        roc_table_ids = [eval_result[0][i] for eval_result in eval_results]
-        roc_title = roc_type if not has_clipped_results else roc_type + '-unclipped'
-        roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_ids, names=names,
-                                              title=roc_title).rv())
-        
-        if has_clipped_results:
-            roc_table_clip_ids = [eval_result[1][i] for eval_result in eval_results]
-            roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_clip_ids, names=names,
-                                                  title=roc_type).rv())
+    
+        for mode in range(2):
+            # Mode can be unclipped (0) or clipped (1)
+            
+            # Get all the eval results for this mode
+            mode_results = [eval_result[mode] for eval_result in eval_results]
+            
+            if None in mode_results:
+                # We can't do this mode since it wasn't run
+                continue
+                
+            # Extract out all the stats file IDs for this ROC type
+            roc_table_ids = [result[i] for result in mode_results]
+            # What should we title the plot?
+            # It should be this unless there is a clipped mode for this ROC and we are the unclipped one.
+            roc_title = roc_type
+            if mode == 0 and None in [eval_result[1] for eval_result in eval_results]:
+                # We are the unclipped mode and there will be a clipped mode
+                roc_title += '-unclipped'
+            roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_ids, names=names,
+                                                  title=roc_title).rv())
 
     # write some times
     times_path = os.path.join(work_dir, 'call_times.tsv')
@@ -254,14 +282,22 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
                              
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
-                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
+                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
                  call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field,
                  filter_opts_gt):
-    """ top-level call-eval function.  runs the caller and genotype on every gam,
-    and freebayes on every bam.  the resulting vcfs are put through vcfeval
-    and the accuracies are tabulated in the output
     """
-    vcf_tbi_id_pairs = [] 
+    top-level call-eval function. Runs the caller and genotype on every
+    gam, and freebayes on every bam. The resulting vcfs are put through
+    vcfeval and the accuracies are tabulated in the output
+    
+    Returns the output of run_calleval results, a list of condition names, a
+    list of corresponding called VCF.gz and index ID pairs, and a list of
+    corresponding pairs of run_vcfeval output tuples for bed-clipped and
+    bed-unclipped modes. Either of those tuples may be None.
+    
+    """
+    
+    vcf_tbi_id_pairs = []
     names = []
     eval_results = []
     timing_results = []
@@ -303,12 +339,16 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                            score_field='GQ').rv()
             else:
                 eval_clip_result = None
-                
-            eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
-                                                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                  fasta_id, None,
-                                                  out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
-                                                  score_field='GQ').rv()
+            
+            if clip_only:
+                # Don't do unclipped, only do the BED-clipped version
+                eval_result = None
+            else:
+                eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
+                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                      fasta_id, None,
+                                                      out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
+                                                      score_field='GQ').rv()
             
             vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)            
             names.append(fb_out_name)
@@ -351,11 +391,15 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                     else:
                         eval_clip_result = None
                         
-                    eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
-                                                            vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                            fasta_id, None,
-                                                            out_name=out_name if not bed_id else out_name + '-unclipped',
-                                                            score_field=score_field).rv()
+                    if clip_only:
+                        # Don't do unclipped, only do the BED-clipped version
+                        eval_result = None
+                    else:
+                        eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
+                                                                vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                fasta_id, None,
+                                                                out_name=out_name if not bed_id else out_name + '-unclipped',
+                                                                score_field=score_field).rv()
                         
                     names.append(out_name)            
                     vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
@@ -417,6 +461,7 @@ def calleval_main(context, options):
             vcfeval_baseline_tbi_id = toil.importFile(options.vcfeval_baseline + '.tbi')
             fasta_id = toil.importFile(options.vcfeval_fasta)
             bed_id = toil.importFile(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
+            clip_only = options.clip_only
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -435,7 +480,7 @@ def calleval_main(context, options):
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
                                      inputBamIdxIds,
                                      options.gam_names, options.bam_names, 
-                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id,
+                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
                                      do_call,
                                      do_genotype,
                                      options.sample_name,
