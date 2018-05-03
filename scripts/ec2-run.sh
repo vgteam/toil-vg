@@ -17,15 +17,16 @@ MAX_NODES="8"
 usage() {
     # Print usage to stderr
     exec 1>&2
-    printf "Usage: $0 [Options] CLUSTER_NAME QUOTED-TOIL-VG-ARGS \n"
+    printf "Usage: $0 [Options] QUOTED-TOIL-VG-ARGS \n"
     printf "Options:\n"
 	 printf "    -n NODE_TYPE use this node_type (default ${NODE_TYPE})\n"
 	 printf "    -m MAX_NODES use this max_nodes (default ${MAX_NODES})\n"
+	 printf "    -l CLUSTER_NAME run on this leader via toil ssh-cluster (instead of current machine)\n"
 	 printf "\n"
     exit 1
 }
 
-while getopts "hn:m:" o; do
+while getopts "hn:m:l:" o; do
     case "${o}" in
         n)
             NODE_TYPE=$OPTARG
@@ -33,6 +34,10 @@ while getopts "hn:m:" o; do
         m)
             MAX_NODES=$OPTARG
             ;;
+        l)
+            CLUSTER_NAME=$OPTARG
+            ;;
+		  
         *)
             usage
             ;;
@@ -41,13 +46,11 @@ done
 
 shift $((OPTIND-1))
 
-if [[ "$#" -lt "2" ]]; then
+if [[ "$#" -lt "1" ]]; then
     # Too few arguments
     usage
 fi
 
-CLUSTER_NAME="${1}"
-shift
 TOIL_VG_ARGS="${1}"
 shift
 
@@ -60,13 +63,25 @@ RETRY_OPTS="--retryCount 3"
 LOG_OPTS="--realTimeLogging --logInfo --realTimeStderr"
 TOIL_VG_OPTS=""
 # We need the master's IP to make Mesos go
-MASTER_IP="$($PREFIX toil ssh-cluster --insecure --zone=us-west-2a --logOff "${CLUSTER_NAME}" hostname -i)"
+if [ -z ${CLUSTER_NAME} ]
+then
+	 MASTER_IP="$(hostname -i)"
+else
+	 MASTER_IP="$($PREFIX toil ssh-cluster --insecure --zone=us-west-2a --logOff "${CLUSTER_NAME}" hostname -i)"
+fi
 MASTER_IP="$(printf $MASTER_IP | sed -e 's/\r$//' -e 's/\n//')"
 MESOS_OPTS="--batchSystem=mesos --mesosMaster=${MASTER_IP}:5050"
 # Put together our Toil Options
 TOIL_OPTS="--provisioner aws ${NODE_OPTS} ${RETRY_OPTS} ${LOG_OPTS} ${MESOS_OPTS} ${TOIL_VG_OPTS}"
 
+if [ -z ${CLUSTER_NAME} ]
+then
+	 EVAL_PREFIX="toil-vg"
+else
+	 EVAL_PREFIX="eval $PREFIX toil ssh-cluster --insecure --zone=us-west-2a "${CLUSTER_NAME}" venv/bin/toil-vg"
+fi
+
 # Run our toil command
-eval $PREFIX toil ssh-cluster --insecure --zone=us-west-2a "${CLUSTER_NAME}" venv/bin/toil-vg ${TOIL_VG_ARGS} ${TOIL_OPTS}
+${EVAL_PREFIX} ${TOIL_VG_ARGS} ${TOIL_OPTS}
 TOIL_ERROR="$?"
 
