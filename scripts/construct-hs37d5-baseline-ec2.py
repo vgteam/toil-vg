@@ -10,9 +10,9 @@ import os, sys, subprocess, argparse
 def parse_args(args):
     parser = argparse.ArgumentParser(description=__doc__, 
         formatter_class=argparse.RawDescriptionHelpFormatter)    
-    parser.add_argument("leader", help="name of leader created with create-ec2-leader.sh")
     parser.add_argument("job_store")
     parser.add_argument("out_store")
+    parser.add_argument("--leader", help="name of leader created with create-ec2-leader.sh")    
     parser.add_argument("--chroms", nargs='+', default=[str(x) for x in range(1,23)],
                         help="chromosome(s) (default: 1-22)")
     parser.add_argument("--config", help="path of config on leader")
@@ -39,7 +39,7 @@ if not options.out_store.startswith('aws:'):
 out_name = 'baseline'
 if options.chroms != [str(x) for x in range(1,23)]:
     out_name += '_' + '_'.join(options.chroms)
-log_name = '/construct_{}.log'.format(out_name)
+log_name = 'construct_{}.log'.format(out_name)
 os_log_name = os.path.join(options.out_store[options.out_store.rfind(':')+1:], os.path.basename(log_name))
 
 cmd = ['construct', options.job_store, options.out_store,
@@ -61,13 +61,19 @@ if options.restart:
     cmd += ['--restart']
 else:
     subprocess.check_call(['toil', 'clean', options.job_store])
-    
-print ' '.join(cmd)
-subprocess.check_call(['scripts/ec2-run.sh', options.leader, ' '.join(cmd)])
+
+ec2_cmd = ['scripts/ec2-run.sh']
+if options.leader:
+    ec2_cmd += ['-l', options.leader]
+ec2_cmd += [' '.join(cmd)]
+
+print ' '.join(ec2_cmd)
+subprocess.check_call(ec2_cmd)
 
 #copy the log to the out store
-cmd = ['toil', 'ssh-cluster',  '--insecure', '--zone=us-west-2a', options.leader,
-       '/venv/bin/aws', 's3', 'cp', log_name, 's3://{}'.format(os_log_name)]
-print ' '.join(cmd)
-subprocess.check_call(cmd)
+if options.leader:
+    cmd = ['toil', 'ssh-cluster',  '--insecure', '--zone=us-west-2a', options.leader,
+           '/venv/bin/aws', 's3', 'cp', log_name, 's3://{}'.format(os_log_name)]
+    print ' '.join(cmd)
+    subprocess.check_call(cmd)
 
