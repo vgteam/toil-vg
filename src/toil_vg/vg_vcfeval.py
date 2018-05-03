@@ -197,6 +197,10 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                 del cmd[opt_idx]
                 del cmd[opt_idx]
         cmd += ['--vcf-score-field', score_field]
+        
+    if sample:
+        # Pass the sample name along, since it is needed if the truth VCF has multiple samples
+        cmd += ['--sample', sample]
 
     context.runner.call(job, cmd, work_dir=work_dir)
 
