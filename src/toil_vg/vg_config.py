@@ -274,8 +274,8 @@ xg-index-mem: '200G'
 xg-index-disk: '100G'
 
 # Resources allotted for xg indexing by chromosome (used for GBWT).
-gbwt-index-cores: 6
-gbwt-index-mem: '60G'
+gbwt-index-cores: 4
+gbwt-index-mem: '50G'
 gbwt-index-disk: '100G'
 gbwt-index-preemptable: 'False'
 
