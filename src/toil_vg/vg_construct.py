@@ -347,8 +347,20 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
         if not regions:
             chroms = []
+            gbwt_regions = []
         else:
+            # We have regions specified to restrict to.
+            
+            # Get the chromosome names
             chroms = [p.split(':')[0] for p in regions]
+            
+            # Make sure we have no more than 1 region per chromosome.
+            # Otherwise GBWT region restriction will mess things up.
+            assert(len(chroms) == len(set(chroms)))
+            
+            # Get the regions that are restrictions smaller than a whole chromosome to hint the GBWT.
+            # Otherwise running a small region of a big VCF means a very slow GBWT construction step.
+            gbwt_regions = [p for p in regions if ':' in p]
 
         # strip nones out of vcf list            
         input_vcf_ids = []
@@ -367,7 +379,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                       node_mapping_id = mapping_id,
                                                       skip_xg=not xg_index, skip_gcsa=not gcsa_index,
                                                       skip_id_ranges=True, skip_snarls=not snarls_index,
-                                                      make_gbwt=gbwt_index, gbwt_prune=gbwt_prune)
+                                                      make_gbwt=gbwt_index, gbwt_prune=gbwt_prune, gbwt_regions=gbwt_regions)
         indexes = indexing_job.rv()    
 
         if gpbwt:
