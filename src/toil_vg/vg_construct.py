@@ -72,8 +72,8 @@ def construct_subparser(parser):
                         help="Make the primary graph (no variants)")
     parser.add_argument("--no_base", action="store_true",
                         help="Do not construct base graph from input vcf.  Only make optional controls")
-    parser.add_argument("--min_af", type=float, default=None,
-                        help="Create a control using the given minium allele frequency")
+    parser.add_argument("--min_af", type=float, default=[], nargs='+',
+                        help="Create a control using the given minium allele frequency(ies)")
 
     # Add common indexing options shared with vg_index
     index_toggle_parse_args(parser)
@@ -152,7 +152,7 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
         
 def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name, filter_samples = None,
-                            haplo_sample = None, do_primary = False, min_af = None,
+                            haplo_sample = None, do_primary = False, min_afs = [],
                             make_base_graph = True):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
@@ -274,7 +274,7 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
         primary_output_name = 'primary.vg' if '_' not in output_name else 'primary' + output_name[output_name.find('_')+1:]
         output['primary'] = [[], [], [], primary_output_name, primary_region_names]
 
-    if min_af is not None:
+    for min_af in min_afs:
         af_vcf_ids, af_tbi_ids = [], []
         af_vcf_names = []
 
@@ -291,12 +291,12 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
             af_vcf_names.append('{}_minaf_{}.vcf.gz'.format(vcf_base, min_af))
         if regions:
-            af_region_names = [output_name + '_af' + '_' + c.replace(':','-') for c in regions]
+            af_region_names = [output_name + '_minaf_{}'.format(min_af) + '_' + c.replace(':','-') for c in regions]
         else:
             af_region_names = None
         af_output_name = remove_ext(output_name, '.vg') + '_minaf_{}.vg'.format(min_af)
 
-        output['minaf'] = [af_vcf_ids, af_vcf_names, af_tbi_ids,
+        output['minaf-{}'.format(min_af)] = [af_vcf_ids, af_vcf_names, af_tbi_ids,
                            af_output_name, af_region_names]
 
     # pad out vcf lists with nones so they are the same size as regions

@@ -24,7 +24,7 @@ def parse_args(args):
     parser.add_argument("--snarls", action="store_true", help="make snarls")
     parser.add_argument("--control", help="control sample")
     parser.add_argument("--primary", action="store_true", help="make primary graph")
-    parser.add_argument("--minaf", type=float, help="make min allele filter graph")
+    parser.add_argument("--minaf", type=float, nargs='+', help="make min allele filter graph")
     parser.add_argument("--alt_paths", action="store_true", help="force alt paths")
     parser.add_argument("--filter_ceph", action="store_true", help="filter private CEPH variants")    
     parser.add_argument("--node", help="toil node type(s) (i3.8xlarge:0.90,i3.8xlarge). can be comma-separated list", default="i3.8xlarge:0.90,i3.8xlarge")
@@ -70,7 +70,7 @@ cmd = ['construct', options.job_store, options.out_store,
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
 
 if options.minaf:
-    cmd += ['--min_af', str(options.minaf)]
+    cmd += ['--min_af', ' '.join([str(minaf) for minaf in options.minaf])]
 
 if options.primary:
     cmd += ['--primary']
