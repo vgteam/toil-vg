@@ -83,13 +83,13 @@ class VGCGLTest(TestCase):
         self.baseline = self._ci_input_path('small.vcf.gz')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
 
-        self._run(self.base_command, self.jobStoreLocal, 'sample',
+        self._run(self.base_command, self.jobStoreLocal, '1',
                   self.local_outstore,  '--fastq', self.sample_reads,
                   '--graphs', self.test_vg_graph,
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy')
         
-        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
+        self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_02_sim_small_standalone(self):
         ''' 
@@ -194,7 +194,7 @@ class VGCGLTest(TestCase):
                   '--gam_names', 'vg', 'vg-pe',
                   '--vcfeval_fasta', self.chrom_fa_nz,
                   '--vcfeval_baseline', self.baseline,
-                  '--sample_name', 'x',
+                  '--sample_name', '1',
                   '--calling_cores', '2',
                   '--genotype', '--genotype_opts', '-P 0', 
                   '--freebayes',
@@ -337,14 +337,14 @@ class VGCGLTest(TestCase):
         self.baseline = self._ci_input_path('small.vcf.gz')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
 
-        self._run(self.base_command, self.jobStoreLocal, 'sample',
+        self._run(self.base_command, self.jobStoreLocal, '1',
                   self.local_outstore,  '--fastq', self.sample_reads,
                   '--graphs', self.test_vg_graph,
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
                   '--force_outstore')
 
-        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
+        self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_07_construct(self):
         '''
@@ -400,14 +400,14 @@ class VGCGLTest(TestCase):
         self.baseline = self._ci_input_path('small.vcf.gz')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
 
-        self._run(self.base_command, self.jobStoreLocal, 'sample',
+        self._run(self.base_command, self.jobStoreLocal, '1',
                   self.local_outstore,  '--fastq', self.sample_reads,
                   '--graphs', self.test_vg_graph,
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
                   '--genotype', '--genotype_opts', ' -Q -A')
 
-        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
+        self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_09_sim_small_genotype_no_augment(self):
         ''' 
@@ -418,14 +418,14 @@ class VGCGLTest(TestCase):
         self.baseline = self._ci_input_path('small.vcf.gz')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
 
-        self._run(self.base_command, self.jobStoreLocal, 'sample',
+        self._run(self.base_command, self.jobStoreLocal, '1',
                   self.local_outstore,  '--fastq', self.sample_reads,
                   '--graphs', self.test_vg_graph,
                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
                   '--genotype', '--no_augment', '--genotype_opts', ' -Q -A')
 
-        self._assertOutput('sample', self.local_outstore, f1_threshold=0.95)
+        self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_10_gbwt(self):
         '''
