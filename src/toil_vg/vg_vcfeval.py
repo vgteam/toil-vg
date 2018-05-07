@@ -202,7 +202,20 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         # Pass the sample name along, since it is needed if the truth VCF has multiple samples
         cmd += ['--sample', sample]
 
-    context.runner.call(job, cmd, work_dir=work_dir)
+    
+    try:
+        context.runner.call(job, cmd, work_dir=work_dir)
+    except:
+        # Dump everything we need to replicate the alignment
+        logging.error("VCF evaluation failed. Dumping files.")
+        context.write_output_file(job, os.path.join(work_dir, call_vcf_name))
+        context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name))
+        # TODO: Dumping the sdf folder doesn't seem to work right. But we can dump the fasta
+        context.write_output_file(job, os.path.join(work_dir, fasta_name))
+        if bed_name is not None:
+            context.write_output_file(job, os.path.join(work_dir, bed_name))
+        
+        raise
 
 
     # copy results to outstore 

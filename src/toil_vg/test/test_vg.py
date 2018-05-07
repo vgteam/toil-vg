@@ -49,7 +49,11 @@ class VGCGLTest(TestCase):
             shutil.copyfileobj(connection, f)
 
     def setUp(self):
-        self.workdir = tempfile.mkdtemp()
+        # Set this to True to poke around in the outsores for debug purposes
+        self.saveWorkDir = False
+        self.workdir = './toil-vgci_work' if self.saveWorkDir else tempfile.mkdtemp()
+        if not os.path.exists(self.workdir):
+            os.makedirs(self.workdir)
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
 
         # input files all in same bucket folder, which is specified (only) here:
@@ -192,6 +196,7 @@ class VGCGLTest(TestCase):
                   '--gams', os.path.join(self.local_outstore, 'aligned-vg_default.gam'),
                    os.path.join(self.local_outstore, 'aligned-vg-pe_default.gam'),
                   '--gam_names', 'vg', 'vg-pe',
+                  '--realTimeLogging', '--logInfo',
                   '--vcfeval_fasta', self.chrom_fa_nz,
                   '--vcfeval_baseline', self.baseline,
                   '--sample_name', '1',
@@ -514,6 +519,7 @@ class VGCGLTest(TestCase):
         self.assertEqual(headers, set(names))
         
     def tearDown(self):
-        shutil.rmtree(self.workdir)
+        if not self.saveWorkDir:
+            shutil.rmtree(self.workdir)
         subprocess.check_call(['toil', 'clean', self.jobStoreLocal])
         

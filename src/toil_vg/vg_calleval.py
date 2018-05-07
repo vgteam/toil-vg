@@ -182,12 +182,20 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     
     # apply offset and sample name
     vcf_reader = vcf.Reader(open(vcf_path))
+    if sample_name:
+        # Freebayes always outputs "unknown" for the sample if the BAM
+        # doesn't specify a name, and can't be convinced to do otherwise:
+        # https://github.com/ekg/freebayes/issues/471
+        # So we hack the VCFReader to think the sample names are what we want them to be
+        assert(len(vcf_reader.samples) == 1)
+        assert(vcf_reader.samples[0] == 'unknown')
+        vcf_reader.samples = [sample_name]
+        # Rebuild the secret sample index
+        vcf_reader._sample_indexes = {sample_name: 0}
     vcf_writer = vcf.Writer(open(vcf_fix_path, 'w'), vcf_reader)
     for record in vcf_reader:
         if offset:
             record.POS += int(offset)
-        if sample_name:
-            pass
         vcf_writer.write_record(record)
     vcf_writer.flush()
     vcf_writer.close()
