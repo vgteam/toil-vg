@@ -90,6 +90,8 @@ def index_parse_args(parser):
 
     parser.add_argument("--vcf_phasing", nargs='+', type=make_url, default=[],
                         help="Import phasing information from VCF(s) into xg (or GBWT with --gbwt_index)")
+    parser.add_argument("--vcf_phasing_regions", nargs='+', default=[],
+                        help="Hint the relevant chrom:start-end regions to the GBWT indexer, for subregion graphs")
     parser.add_argument("--gbwt_input", type=make_url,
                         help="Use given GBWT for GCSA2 pruning")
     parser.add_argument("--gbwt_prune", action='store_true',
@@ -122,6 +124,8 @@ def validate_index_options(options):
             'only one of --gbwt_index and --gbwt_input can be used at a time')
     if options.gbwt_input:
         require(options.gbwt_prune == 'gbwt', '--gbwt_prune required with --gbwt_input')
+    if options.vcf_phasing_regions:
+        require(options.gbwt_index, "cannot hint regions to GBWT indexer without building a GBWT index")
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id):
     """
@@ -340,13 +344,21 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
     return (cat_graph_file_id, os.path.basename(cat_graph_filename))
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                    vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
+                    vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False, gbwt_regions=[]):
     """
+    
     Make the xg index and optional GBWT haplotype index.
     
-    Saves the xg in the outstore as <index_name>.xg and the GBWT, if requested, as <index_name>.gbwt.
+    Saves the xg in the outstore as <index_name>.xg and the GBWT, if requested,
+    as <index_name>.gbwt.
     
-    Return a pair of file IDs, (xg_id, gbwt_id). The GBWT ID will be None if no GBWT is generated.
+    If gbwt_regions is specified, it is a list of chrom:start-end region
+    specifiers, restricting, on each specified chromosome, the region of the
+    VCF that GBWT indexing will examine.
+    
+    Return a pair of file IDs, (xg_id, gbwt_id). The GBWT ID will be None if no
+    GBWT is generated.
+    
     """
     
     RealtimeLogger.info("Starting xg indexing...")
@@ -377,6 +389,10 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         if make_gbwt and vcf_phasing_file_id:
             # Write the haplotype index to its own file
             phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
+            
+            for region in gbwt_regions:
+                phasing_opts += ['--region', region]
+            
     else:
         phasing_opts = []
 
@@ -418,7 +434,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     return (xg_file_id, gbwt_file_id)
 
 def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                        vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False):
+                        vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False, gbwt_regions=[]):
     """
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
@@ -439,7 +455,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       context, [vg_concat_job.rv(0)],
                                       [vg_concat_job.rv(1)], index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
-                                      make_gbwt,
+                                      make_gbwt, gbwt_regions,
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
@@ -589,9 +605,13 @@ def run_indexing(job, context, inputGraphFileIDs,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [], gbwt_id = None,
                  node_mapping_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
-                 skip_snarls=False, make_gbwt=False, gbwt_prune=False):
+                 skip_snarls=False, make_gbwt=False, gbwt_prune=False, gbwt_regions=[]):
     """
+    
     Run indexing logic by itself.
+    
+    gbwt_regions is a list of chrom:start-end regions pecifiers to restrict, on
+    those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
     Return a dict from index type ('xg','chrom_xg', 'gcsa', 'lcp', 'gbwt',
     'chrom_gbwt', 'id_ranges', or 'snarls') to index file ID(s) if created.
@@ -649,7 +669,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
-                                                                     make_gbwt = make_gbwt,
+                                                                     make_gbwt = make_gbwt, gbwt_regions=gbwt_regions,
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
@@ -794,6 +814,7 @@ def index_main(context, options):
                                      skip_id_ranges = not options.id_ranges_index and not options.all_index,
                                      skip_snarls = not options.snarls_index and not options.all_index,
                                      make_gbwt=options.gbwt_index, gbwt_prune=options.gbwt_prune,
+                                     gbwt_regions=options.vcf_phasing_regions,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
