@@ -113,6 +113,7 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
         # its own dir
         os.makedirs(os.path.join(work_dir, name))
         job.fileStore.readGlobalFile(file_id, table_path)
+        RealtimeLogger.info('Downloaded {} to {}'.format(file_id, table_path))
 
     plot_filename = 'roc{}.svg'.format('-{}'.format(title) if title else '')
     out_roc_path = os.path.join(work_dir, plot_filename)

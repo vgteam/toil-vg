@@ -225,6 +225,9 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
     
     """
 
+
+    RealtimeLogger.info('Handling results for conditions {} in sets {}'.format(names, plot_sets))
+
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -271,6 +274,10 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
 
                 # Make sure the names and tables go together properly
                 assert(len(roc_table_ids) == len(names))
+
+                for name in subset_names:
+                    # Make sure all the names in the subset are conditions that actually ran
+                    assert(name in names)
 
                 # Subset down to just the ROC tables for the names that were selected.
                 # TODO: do this in a less n^2 way.
