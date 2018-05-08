@@ -101,6 +101,8 @@ def calleval_parse_args(parser):
                         help='override filter-opts for genotype only')
     parser.add_argument('--clip_only', action='store_true',
                         help='only compute accuracy clipped to --vcfeval_bed_regions')
+    parser.add_argument('--plot_sets', nargs='+', default=[],
+                        help='comma-separated lists of condition-tagged GAM/BAM names (primary-mp-pe-call, bwa-fb, etc.) to plot together')
         
 def validate_calleval_options(options):
     """
@@ -207,21 +209,24 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
             context.write_output_file(job, vcf_fix_path + '.gz.tbi'),
             timer)
 
-def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timing_results):
+def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timing_results, plot_sets=[None]):
     """
     
     output the calleval results
     
     Requires that, if any result in eval_results has clipped results, all
     results have clipped results, and similarly for unclipped results.
+
+    If specified, plot_sets gives a list of lists of condition names that
+    appear in names. Each list of conditions will be plotted together, instead
+    of making one big plot for all conditions. Output files will be named
+    sequentially (roc-snp.svg, roc-snp-1.svg, roc-snp-2.svg, etc.). A None in
+    the list specifies a plot holding all condition names.
     
     """
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
-
-    has_clipped_results = all([eval_result[1] is not None for eval_result in eval_results])
-    result_idx = 1 if has_clipped_results else 0
 
     # make a simple tsv
     stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
@@ -234,12 +239,22 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
             # Output the F1 score (first element)
             stats_file.write('{}\t{}\n'.format(name, best_result[0]))
 
+    # Replace Nones in the list of plot sets with "subsets" of all the condition names
+    plot_sets = [plot_set if plot_set is not None else names for plot_set in plot_sets]
+
     # make some roc plots
     roc_plot_ids = []
     for i, roc_type in zip(range(3,6), ['snp', 'non_snp', 'weighted']):
     
         for mode in range(2):
             # Mode can be unclipped (0) or clipped (1)
+
+            # What should we title the plot?
+            # It should be this unless there is a clipped mode for this ROC and we are the unclipped one.
+            roc_title = roc_type
+            if mode == 0 and None in [eval_result[1] for eval_result in eval_results]:
+                # We are the unclipped mode and there will be a clipped mode
+                roc_title += '-unclipped'
             
             # Get all the eval results for this mode
             mode_results = [eval_result[mode] for eval_result in eval_results]
@@ -250,14 +265,23 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
                 
             # Extract out all the stats file IDs for this ROC type
             roc_table_ids = [result[i] for result in mode_results]
-            # What should we title the plot?
-            # It should be this unless there is a clipped mode for this ROC and we are the unclipped one.
-            roc_title = roc_type
-            if mode == 0 and None in [eval_result[1] for eval_result in eval_results]:
-                # We are the unclipped mode and there will be a clipped mode
-                roc_title += '-unclipped'
-            roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, roc_table_ids, names=names,
-                                                  title=roc_title).rv())
+            
+            for subset_number, subset_names in enumerate(plot_sets):
+                # For each collection of condition names to plot agaisnt each other
+
+                # Make sure the names and tables go together properly
+                assert(len(roc_table_ids) == len(names))
+
+                # Subset down to just the ROC tables for the names that were selected.
+                # TODO: do this in a less n^2 way.
+                subset_roc_table_ids = [roc_table_ids[i] for i in range(len(roc_table_ids)) if names[i] in subset_names]
+
+                # Append the number to the title (and output filename) for all subsets except the first
+                subset_roc_title = roc_title + ('' if subset_number == 0 else '-{}'.format(subset_number))
+
+                # Make the plot
+                roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, subset_roc_table_ids, names=subset_names,
+                                                      title=subset_roc_title).rv())
 
     # write some times
     times_path = os.path.join(work_dir, 'call_times.tsv')
@@ -292,7 +316,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
                  call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field,
-                 filter_opts_gt):
+                 plot_sets, filter_opts_gt):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -302,6 +326,10 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     list of corresponding called VCF.gz and index ID pairs, and a list of
     corresponding pairs of run_vcfeval output tuples for bed-clipped and
     bed-unclipped modes. Either of those tuples may be None.
+
+    plot_sets is a list of lists of condition names (like "bwa-pe-fb" or
+    "snp1kg-pe-gt") to plot against each other. If any sublist is None, all
+    conditions appear on one plot.
     
     """
     
@@ -414,7 +442,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                     eval_results.append((eval_result, eval_clip_result))
 
     calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names,
-                                                  vcf_tbi_id_pairs, eval_results, timing_results,
+                                                  vcf_tbi_id_pairs, eval_results, timing_results, plot_sets,
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem,
                                                   disk=context.config.misc_disk).rv()
@@ -471,6 +499,13 @@ def calleval_main(context, options):
             bed_id = toil.importFile(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
             clip_only = options.clip_only
 
+            # What do we plot together?
+            plot_sets = [spec.split(',') for spec in options.plot_sets]
+            if len(plot_sets) == 0:
+                # We want to plot everything together
+                # We use the special None value to request that.
+                plot_sets = [None]
+
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
@@ -494,6 +529,7 @@ def calleval_main(context, options):
                                      options.sample_name,
                                      options.chroms[0], options.vcf_offsets[0] if options.vcf_offsets else 0,
                                      options.vcfeval_score_field,
+                                     plot_sets,
                                      options.filter_opts_gt,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
