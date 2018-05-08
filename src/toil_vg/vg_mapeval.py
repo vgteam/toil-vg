@@ -246,8 +246,8 @@ def validate_options(options):
     require(options.gam_input_reads is None or options.bam_input_reads is None,
             '--gam_input_reads and --bam_input_reads cannot both be specified')
 
-    require(options.truth or options.bam_input_reads or options.gam_input_xg,
-            '--gam-input-xg must be used to specify xg index to annotate --gam_input_reads')
+    require(options.truth or options.skip_eval or options.bam_input_reads or options.gam_input_xg,
+            '--gam-input-xg must be provided to annotate reads, or reads must be input in BAM format or with associated truth')
     
 def parse_int(value):
     """
