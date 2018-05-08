@@ -503,8 +503,8 @@ class VGCGLTest(TestCase):
             #self.assertTrue(qqur > -10)
         self.assertEqual(headers, set(names))
         # make sure plots get drawn
-        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plot-pr.svg')), 0)
-        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plot-qq.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-pr.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-qq.svg')), 0)
 
     def _assertCallEvalOutput(self, outstore, names, f1_threshold):
         with open(os.path.join(outstore, 'calleval_stats.tsv')) as stats:
