@@ -114,7 +114,8 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
         os.makedirs(os.path.join(work_dir, name))
         job.fileStore.readGlobalFile(file_id, table_path)
 
-    out_roc_path = os.path.join(work_dir, 'roc{}.svg'.format('-{}'.format(title) if title else ''))
+    plot_filename = 'roc{}.svg'.format('-{}'.format(title) if title else '')
+    out_roc_path = os.path.join(work_dir, plot_filename)
 
     roc_opts = []
     if title:
@@ -133,7 +134,7 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
     
     context.runner.call(job, roc_cmd, work_dir = work_dir)
 
-    return context.write_output_file(job, out_roc_path)
+    return context.write_output_file(job, out_roc_path, os.path.join('plots', plot_filename))
     
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
     fasta_path, fasta_id, bed_id, out_name = None, score_field=None):

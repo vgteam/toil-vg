@@ -136,14 +136,14 @@ class Context(object):
         to the out_store if one is in use.
         
         In the out_store, the file is saved under its basename, in the root
-        directory.
+        directory. If out_store_path is set, the file is saved there instead.
         
         Returns the Toil file ID for the written file.
         """
         
         out_store = self.get_out_store()
         if out_store is not None:
-            name = os.path.basename(out_store_path if out_store_path else path)
+            name = out_store_path if out_store_path else os.path.basename(path)
             # Save to the out_store if it exists
             out_store.write_output_file(path, name)
         
