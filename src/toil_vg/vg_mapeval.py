@@ -1792,8 +1792,8 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results, p
     plot_sets gives a list of collections of condition names to plot together.
     If None is in the list, all conditions are plotted.
     
-    outputs plot-pr.svg, plot-qq.svg, and plot-roc.svg for the first set, and
-    plot-pr-1.svg, etc. for subsequent sets.
+    outputs plots/plot-pr.svg, plots/plot-qq.svg, and plots/plot-roc.svg for
+    the first set, and plots/plot-pr-1.svg, etc. for subsequent sets.
     
     Returns a list of pairs of plot file name and plot file ID.
     
@@ -1831,7 +1831,7 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results, p
             
             try:
                 context.runner.call(job, cmd, work_dir = work_dir)
-                out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name))))
+                out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name), os.path.join('plots', plot_name))))
             except Exception as e:
                 if rscript == 'roc':
                     logger.warning('plot-roc.R failed: '.format(str(e)))
