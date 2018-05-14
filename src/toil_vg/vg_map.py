@@ -154,19 +154,29 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
     # Make sure we have exactly one kind of file IDs
     assert(bool(reads_file_ids) + bool(reads_chunk_ids) == 1)
 
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)
+    # We may have to have a job to chunk the reads
+    chunk_job = None
 
     if reads_chunk_ids is None:
         # If the reads are not pre-chunked for us, we have to chunk them.
-        reads_chunk_ids = child_job.addChildJobFn(run_split_reads_if_needed, context, fastq, gam_input_reads, bam_input_reads,
-                                                  reads_file_ids, cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                  disk=context.config.misc_disk)
+        chunk_job = job.addChildJobFn(run_split_reads_if_needed, context, fastq, gam_input_reads, bam_input_reads,
+                                      reads_file_ids, cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                      disk=context.config.misc_disk)
+        reads_chunk_ids = chunk_job.rv()
         
-    return child_job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                                      interleaved, multipath, indexes, reads_chunk_ids, cores=context.config.misc_cores,
-                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()    
+    # We need a job to do the alignment
+    align_job = Job.wrapJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
+                              interleaved, multipath, indexes, reads_chunk_ids, cores=context.config.misc_cores,
+                              memory=context.config.misc_mem, disk=context.config.misc_disk)
+                 
+    if chunk_job is not None:
+        # Alignment must happen after chunking
+        chunk_job.addFollowOn(align_job)
+    else:
+        # Alignment can happen now
+        job.addChild(align_job)
+                 
+    return align_job.rv()
 
 def run_split_reads(job, context, fastq, gam_input_reads, bam_input_reads, reads_file_ids):
     """
