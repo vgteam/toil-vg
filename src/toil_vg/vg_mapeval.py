@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script
-from toil_vg.vg_map import map_parse_args, run_mapping
+from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing
 from toil_vg.context import Context, run_write_info_to_outstore
 
@@ -970,6 +970,13 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     # And if it is run it will all run under this job, which starts out as None
     bwa_start_job = None
     
+    # Because we run multiple rounds of mapping the same reads, we want to
+    # split the reads in advance. But we don't want to split reads in ways that
+    # are unnecessary (e.g. single-end when we are only doing paired end). So
+    # this dict maps from tuples of FASTQ IDs to the Toil job for splitting
+    # those FASTQs with run_split_reads_if_needed.
+    read_chunk_jobs = {}
+    
     for condition in condition_generator([{}]):
         # For each condition
         if condition["aligner"] == "vg" and do_vg_mapping:
@@ -1015,7 +1022,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 # It is never interleaved
                 interleaved = False
                 
-            # We collect all the map jobs in a list for each index, so we can update all our output lists ofr them
+            # We collect all the map jobs in a list for each index, so we can update all our output lists for them
             map_jobs = []
                     
             for i, indexes in enumerate(index_ids):
@@ -1028,12 +1035,26 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                     if indexes.has_key("gbwt"):
                         del indexes["gbwt"]
                 
-                map_jobs.append(job.addChildJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
-                                                  None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
-                                                  interleaved, condition["multipath"], indexes,
-                                                  fastq_ids,
-                                                  cores=mapping_context.config.misc_cores,
-                                                  memory=mapping_context.config.misc_mem, disk=mapping_context.config.misc_disk))
+                if not read_chunk_jobs.has_key(tuple(fastq_ids)):
+                    # We have not yet asked to split the appropriate FASTQs.
+                    # Make a job to do that, and save it so we can grab its rv later.
+                    read_chunk_jobs[tuple(fastq_ids)] = job.addChildJobFn(run_split_reads_if_needed, context, fq_names(fastq_ids),
+                                                                          None, None, fastq_ids,
+                                                                          cores=context.config.misc_cores,
+                                                                          memory=context.config.misc_mem,
+                                                                          disk=context.config.misc_disk)
+                    
+                # Find the appropriate read chunking job that the mapping needs to come after.
+                read_chunk_job = read_chunk_jobs[tuple(fastq_ids)]
+                
+                # After the reads we need are split into chunks, map them.
+                map_jobs.append(read_chunk_job.addFollowOnJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
+                                                                None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
+                                                                interleaved, condition["multipath"], indexes,
+                                                                reads_chunk_ids=read_chunk_job.rv(),
+                                                                cores=mapping_context.config.misc_cores,
+                                                                memory=mapping_context.config.misc_mem,
+                                                                disk=mapping_context.config.misc_disk))
                                     
             for i, map_job in enumerate(map_jobs):
                 # Update our output lists for every mapping job we are running

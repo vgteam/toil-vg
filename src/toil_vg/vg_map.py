@@ -103,32 +103,66 @@ def validate_map_options(context, options):
     if options.multipath:
         require('-S' in context.config.mpmap_opts,
                 '-S must be used with multipath aligner to produce GAM output')
+
+def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_reads, reads_file_ids):
+    """
+    Return a list of lists of read chunk file IDs, one list per read files.
     
+    If the workflow is in single_reads_chunk mode (according to
+    context.options.single_read_chunk), produce one chunk per file.
+    
+    Otherwise, produce several chunks per file.
+    """
+    
+    if not context.config.single_reads_chunk:
+        reads_chunk_ids = job.addChildJobFn(run_split_reads, context, fastq, gam_input_reads, bam_input_reads,
+                                            reads_file_ids,
+                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                            disk=context.config.misc_disk).rv()
+    else:
+        RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
+        reads_chunk_ids = [[r] for r in reads_file_ids]
+        
+    return reads_chunk_ids
+    
+
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                indexes, reads_file_ids):
+                indexes, reads_file_ids=None, reads_chunk_ids=None):
     """
     split the fastq, then align each chunk.
     
-    Takes a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges', 'gbwt',
-    'snarls') to index file ID. Some indexes are extra and specifying them will
-    change mapping behavior.
+    Exactly one of fastq, gam_input_reads, or bam_input_reads should be
+    non-falsey, to indicate what kind of data the file IDs in reads_file_ids or
+    reads_chunk_ids correspond to.
     
-    returns outputgams, paired with total map time
-    (excluding toil-vg overhead such as transferring and splitting files )
+    Exactly one of reads_file_ids or read_chunks_ids should be specified.
+    reads_file_ids holds a list of file IDs of non-chunked input read files,
+    which will be chunked if necessary. reads_chunk_ids holds lists of chunk
+    IDs for each read file, as produced by run_split_reads_if_needed.
+    
+    indexes is a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges',
+    'gbwt', 'snarls') to index file ID. Some indexes are extra and specifying
+    them will change mapping behavior.
+    
+    returns outputgams, paired with total map time (excluding toil-vg overhead
+    such as transferring and splitting files )
     """
+    
+    # Make sure we have exactly one type of input
+    assert (bool(fastq) + bool(gam_input_reads) + bool(bam_input_reads) == 1)
+    
+    # Make sure we have exactly one kind of file IDs
+    assert(bool(reads_file_ids) + bool(reads_chunk_ids) == 1)
 
     # to encapsulate everything under this job
     child_job = Job()
     job.addChild(child_job)
 
-    if not context.config.single_reads_chunk:
-        reads_chunk_ids = child_job.addChildJobFn(run_split_reads, context, fastq, gam_input_reads, bam_input_reads,
-                                                  reads_file_ids,
-                                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                  disk=context.config.misc_disk).rv()
-    else:
-        RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
-        reads_chunk_ids = [[r] for r in reads_file_ids]
+    if reads_chunk_ids is None:
+        # If the reads are not pre-chunked for us, we have to chunk them.
+        reads_chunk_ids = child_job.addChildJobFn(run_split_reads_if_needed, context, fastq, gam_input_reads, bam_input_reads,
+                                                  reads_file_ids, cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                  disk=context.config.misc_disk)
         
     return child_job.addFollowOnJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
                                       interleaved, multipath, indexes, reads_chunk_ids, cores=context.config.misc_cores,
@@ -648,7 +682,7 @@ def map_main(context, options):
                                      options.gam_input_reads, options.bam_input_reads,
                                      options.sample_name,
                                      options.interleaved, options.multipath,
-                                     indexes, inputReadsFileIDs,
+                                     indexes, reads_file_ids=inputReadsFileIDs,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
