@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script
-from toil_vg.vg_map import map_parse_args, run_mapping
+from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing
 from toil_vg.context import Context, run_write_info_to_outstore
 
@@ -68,7 +68,9 @@ def add_mapeval_options(parser):
     # General options
     parser.add_argument('--truth', type=make_url, default=None,
                         help='list of true positions of reads as output by toil-vg sim'
-                        ' (by default positions extracted from --gam_input_reads or --bam_input_reads)')        
+                        ' (by default positions extracted from --gam_input_reads or --bam_input_reads)')
+    parser.add_argument('--skip-eval', action='store_true',
+                        help='skip evaluation, ignore --truth, and just map reads')
     parser.add_argument('--gams', nargs='+', type=make_url, default=[],
                         help='aligned reads to compare to truth.  specify xg index locations with --index-bases')
     parser.add_argument("--index-bases", nargs='+', type=make_url, default=[],
@@ -174,9 +176,9 @@ def validate_options(options):
     # Note that we have to accept --gams along with unaligned reads; in that
     # case we ignore the unaligned reads and use the pre-aligned GAMs.
 
-    # annotation is not an option when reading fastq
-    require(not options.fastq or options.truth,
-            '--truth required with --fastq input')
+    # annotation is not an option when reading fastq and doing evaluation
+    require(not options.fastq or (options.truth or options.skip_eval),
+            '--truth (or --skip-eval) required with --fastq input')
 
     # only one or two fastqs accepted
     require(not options.fastq or len(options.fastq) in [1,2],
@@ -244,8 +246,8 @@ def validate_options(options):
     require(options.gam_input_reads is None or options.bam_input_reads is None,
             '--gam_input_reads and --bam_input_reads cannot both be specified')
 
-    require(options.truth or options.bam_input_reads or options.gam_input_xg,
-            '--gam-input-xg must be used to specify xg index to annotate --gam_input_reads')
+    require(options.truth or options.skip_eval or options.bam_input_reads or options.gam_input_xg,
+            '--gam-input-xg must be provided to annotate reads, or reads must be input in BAM format or with associated truth')
     
 def parse_int(value):
     """
@@ -968,6 +970,13 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     # And if it is run it will all run under this job, which starts out as None
     bwa_start_job = None
     
+    # Because we run multiple rounds of mapping the same reads, we want to
+    # split the reads in advance. But we don't want to split reads in ways that
+    # are unnecessary (e.g. single-end when we are only doing paired end). So
+    # this dict maps from tuples of FASTQ IDs to the Toil job for splitting
+    # those FASTQs with run_split_reads_if_needed.
+    read_chunk_jobs = {}
+    
     for condition in condition_generator([{}]):
         # For each condition
         if condition["aligner"] == "vg" and do_vg_mapping:
@@ -1013,7 +1022,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 # It is never interleaved
                 interleaved = False
                 
-            # We collect all the map jobs in a list for each index, so we can update all our output lists ofr them
+            # We collect all the map jobs in a list for each index, so we can update all our output lists for them
             map_jobs = []
                     
             for i, indexes in enumerate(index_ids):
@@ -1026,12 +1035,26 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                     if indexes.has_key("gbwt"):
                         del indexes["gbwt"]
                 
-                map_jobs.append(job.addChildJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
-                                                  None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
-                                                  interleaved, condition["multipath"], indexes,
-                                                  fastq_ids,
-                                                  cores=mapping_context.config.misc_cores,
-                                                  memory=mapping_context.config.misc_mem, disk=mapping_context.config.misc_disk))
+                if not read_chunk_jobs.has_key(tuple(fastq_ids)):
+                    # We have not yet asked to split the appropriate FASTQs.
+                    # Make a job to do that, and save it so we can grab its rv later.
+                    read_chunk_jobs[tuple(fastq_ids)] = job.addChildJobFn(run_split_reads_if_needed, context, fq_names(fastq_ids),
+                                                                          None, None, fastq_ids,
+                                                                          cores=context.config.misc_cores,
+                                                                          memory=context.config.misc_mem,
+                                                                          disk=context.config.misc_disk)
+                    
+                # Find the appropriate read chunking job that the mapping needs to come after.
+                read_chunk_job = read_chunk_jobs[tuple(fastq_ids)]
+                
+                # After the reads we need are split into chunks, map them.
+                map_jobs.append(read_chunk_job.addFollowOnJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
+                                                                None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
+                                                                interleaved, condition["multipath"], indexes,
+                                                                reads_chunk_ids=read_chunk_job.rv(),
+                                                                cores=mapping_context.config.misc_cores,
+                                                                memory=mapping_context.config.misc_mem,
+                                                                disk=mapping_context.config.misc_disk))
                                     
             for i, map_job in enumerate(map_jobs):
                 # Update our output lists for every mapping job we are running
@@ -1623,13 +1646,14 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     
     TODO: Refactor to use a list of dicts/dict of listys for the indexes.
     
-    Return the file IDs of result files.
-    
     Returns a pair of the position comparison results and the score comparison
     results.
     
     Each result set is itself a pair, consisting of a list of per-graph file
     IDs, and an overall statistics file ID.
+
+    If evaluation is skipped (options.skip_eval is True), returns None instead
+    and just runs the mapping.
     
     """
     
@@ -1740,11 +1764,19 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         alignment_job.rv(0), alignment_job.rv(1), alignment_job.rv(2),
         alignment_job.rv(3), alignment_job.rv(4), alignment_job.rv(5))
 
+
     # We make a root for comparison here to encapsulate its follow-on chain
     comparison_parent_job = Job()
     alignment_job.addFollowOn(comparison_parent_job)
+
+    # Dump out the running times into map_times.tsv
+    comparison_parent_job.addChildJobFn(run_write_map_times, context, gam_names, vg_map_times, bwa_map_times)
+
+    if options.skip_eval:
+        # Skip evaluation
+        return None
     
-    # Then do mapping evaluation comparison (the rest of the workflow)
+    # Otherwise, do mapping evaluation comparison (the rest of the workflow)
     comparison_job = comparison_parent_job.addChildJobFn(run_map_eval_comparison, context, xg_ids,
                      gam_names, gam_file_ids, options.bam_names, bam_file_ids,
                      options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids,
@@ -1767,9 +1799,6 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     plot_job = comparison_parent_job.addFollowOnJobFn(run_map_eval_plot, context,
                                                       position_comparison_results, score_comparison_results, plot_sets)
 
-    # Dump out the running times into map_times.tsv
-    comparison_parent_job.addChildJobFn(run_write_map_times, context, gam_names, vg_map_times, bwa_map_times)
-                     
     return comparison_job.rv()
 
 def run_map_eval_plot(job, context, position_comp_results, score_comp_results, plot_sets):
