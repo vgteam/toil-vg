@@ -22,6 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_surject import *
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,11 @@ def map_parse_args(parser, stand_alone = False):
                         help="use vg mpmap instead of vg map")
     parser.add_argument("--mpmap_opts", type=str,
                         help="arguments for vg mpmap (wrapped in \"\")")
+    parser.add_argument("--bam_output", action="store_true",
+                        help="write BAM output directly")
+    parser.add_argument("--surject", action="store_true",
+                        help="surject output, producing BAM in addition to GAM alignments")
     
-
 def validate_map_options(context, options):
     """
     Throw an error if an invalid combination of options has been selected.
@@ -103,6 +107,13 @@ def validate_map_options(context, options):
     if options.multipath:
         require('-S' in context.config.mpmap_opts,
                 '-S must be used with multipath aligner to produce GAM output')
+        require(not options.bam_output,
+                '--bam_output not currently supported with multipath aligner (--multipath)')
+    require (not options.bam_output or not options.surject,
+             '--bam_output cannot be used in combination with --surject')
+    require (not options.id_ranges or not opitons.surject,
+             '--surject not currently supported with --id_ranges')
+        
 
 def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_reads, reads_file_ids):
     """
@@ -127,7 +138,7 @@ def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_re
     
 
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                indexes, reads_file_ids=None, reads_chunk_ids=None):
+                indexes, bam_output, surject, reads_file_ids=None, reads_chunk_ids=None):
     """
     split the fastq, then align each chunk.
     
@@ -166,7 +177,8 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
         
     # We need a job to do the alignment
     align_job = Job.wrapJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                              interleaved, multipath, indexes, reads_chunk_ids, cores=context.config.misc_cores,
+                              interleaved, multipath, indexes, reads_chunk_ids, bam_output, surject,
+                              cores=context.config.misc_cores,
                               memory=context.config.misc_mem, disk=context.config.misc_disk)
                  
     if chunk_job is not None:
@@ -335,7 +347,7 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
 
     
 def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                        indexes, reads_chunk_ids):
+                        indexes, reads_chunk_ids, bam_output, surject):
     """
     align all fastq chunks in parallel
     
@@ -349,6 +361,8 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     # for the ith gam chunk (generated from fastq shard i)
     gam_chunk_file_ids = []
     gam_chunk_running_times = []
+    # depending on bam_output and surject options, we can make bam_output too
+    bam_chunk_file_ids = []
 
     # to encapsulate everything under this job
     child_job = Job()
@@ -359,20 +373,47 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
         chunk_alignment_job = child_job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
                                                       sample_name,
                                                       interleaved, multipath, chunk_filename_ids, chunk_id,
-                                                      indexes,
+                                                      indexes, bam_output,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
-        gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
+        if not bam_output:
+            gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
+        else:
+            bam_chunk_file_ids.append(chunk_alignment_job.rv(0))
         gam_chunk_running_times.append(chunk_alignment_job.rv(1))
 
-    return child_job.addFollowOnJobFn(run_merge_gams, context, sample_name, indexes.get('id_ranges'), gam_chunk_file_ids,
-                                      gam_chunk_running_times,
-                                      cores=context.config.misc_cores,
-                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+
+    if not bam_output:
+        merge_gams_job = child_job.addFollowOnJobFn(run_merge_gams, context, sample_name, indexes.get('id_ranges'), gam_chunk_file_ids,
+                                                    gam_chunk_running_times,
+                                                    cores=context.config.misc_cores,
+                                                    memory=context.config.misc_mem, disk=context.config.misc_disk)
+        gam_chrom_ids = merge_gams_job.rv(0)
+        gam_chunk_time = merge_gams_job.rv(1)
+        bam_chrom_ids = []
+    else:
+        gam_chrom_ids = []
+        gam_chunk_time = None
+        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, bam_chunk_file_ids)
+        bam_chrom_ids = [merge_bams_job.rv()]
+
+    if surject:
+        zip_job = child_job.addFollowOnJobFn(run_zip_surject_input, context, gam_chunk_file_ids)
+        bam_chrom_ids = [zip_job.addFollowOnJobFn(run_whole_surject, context, zip_job.rv(),
+                                                  interleaved, indexes.get('xg'), []).rv()]
+
+    return gam_chrom_ids, gam_chunk_time, bam_chrom_ids
+    
+def run_zip_surject_input(job, context, gam_chunk_file_ids):
+    """
+    run_whole_surject takes input in different format than what we have above, so we shuffle the 
+    promised lists around here to avoid a (probably-needed) refactor of the existing interface
+    """
+    return zip(*gam_chunk_file_ids)
 
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                        chunk_filename_ids, chunk_id, indexes):
+                        chunk_filename_ids, chunk_id, indexes, bam_output):
                         
     """
     Align a chunk of reads.
@@ -467,6 +508,14 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             del vg_parts[vg_parts.index('-i')]
         if interleaved is False and '--interleaved' in vg_parts:
             del vg_parts[vg_parts.index('--interleaved')]
+
+        # Override the --surject-to option
+        if bam_output is True and '--surject-to' not in vg_parts:
+            vg_parts += ['--surject-to', 'bam']
+        elif bam_output is False and '--surject-to' in vg_parts:
+            sidx = vg_parts.index('--surject-to')
+            del vg_parts[sidx]
+            del vg_parts[sidx]
 
         vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file)]
         if gbwt_file is not None:
@@ -613,7 +662,6 @@ def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_
     
     return chr_gam_ids, total_running_time
 
-
 def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
     """
     Make a chromosome gam by merging up a bunch of gam ids, one 
@@ -691,8 +739,9 @@ def map_main(context, options):
             root_job = Job.wrapJobFn(run_mapping, context, options.fastq,
                                      options.gam_input_reads, options.bam_input_reads,
                                      options.sample_name,
-                                     options.interleaved, options.multipath,
-                                     indexes, reads_file_ids=inputReadsFileIDs,
+                                     options.interleaved, options.multipath, indexes,
+                                     options.bam_output, options.surject,
+                                     reads_file_ids=inputReadsFileIDs,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
