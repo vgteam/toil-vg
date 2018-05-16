@@ -1826,30 +1826,39 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         # We use the special None value to request that.
         plot_sets = [None]
     
-    # What actual results do we plot?
-    position_comparison_results = comparison_job.rv(0)
-    score_comparison_results= comparison_job.rv(1)
-    plot_job = comparison_parent_job.addFollowOnJobFn(run_map_eval_plot, context,
-                                                      position_comparison_results, score_comparison_results, plot_sets)
+    # Fetch out the combined TSV from the return value for plotting
+    lookup_job = comparison_parent_job.addFollowOnJobFn(lookup_key_path, comparison_job.rv(), [0, 1])
+    position_stats_file_id = lookup_job.rv()
+    plot_job = lookup_job.addFollowOnJobFn(run_map_eval_plot, context, position_stats_file_id, plot_sets)
 
     return comparison_job.rv()
-
-def run_map_eval_plot(job, context, position_comp_results, score_comp_results, plot_sets):
+    
+def lookup_key_path(job, obj, path):
     """
     
-    Make the PR and QQ plots with R
+    Get the item at the given path of keys by repeated [] lookups in obj.
     
-    position_comp_results is a tuple, where the first element is a list of CSV
-    stats file IDs, one per condition, and the second element is a combined TSV
-    stats file ID across all conditions.
+    Work around https://github.com/BD2KGenomics/toil/issues/2214
     
-    The combined stats TSV has one header line, and format:
+    """
+    
+    for key in path:
+        obj = obj[key]
+        
+    return obj
+    
+
+def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
+    """
+    
+    Make the PR and QQ plots with R, based on a single combined position stats
+    TSV in position_stats_file_id.
+    
+    The combined position stats TSV has one header line, and format:
     
     correct flag, mapping quality, condition name, read name
     
     The CSV files follow the same format, but are CSVs and lack a header.
-    
-    score_comp_results is ignored.
     
     plot_sets gives a list of collections of condition names to plot together.
     If None is in the list, all conditions are plotted.
@@ -1862,10 +1871,6 @@ def run_map_eval_plot(job, context, position_comp_results, score_comp_results, p
     """
     work_dir = job.fileStore.getLocalTempDir()
 
-    # The individual files in position_comp_results[0] are in a particular
-    # condition name order, but we don't have access to those condition names.
-    # So we have to work from the big TSV.
-    position_stats_file_id = position_comp_results[1]
     position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
     job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
 
