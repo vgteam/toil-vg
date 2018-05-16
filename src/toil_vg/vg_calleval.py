@@ -37,6 +37,7 @@ from toil_vg.vg_call import chunked_call_parse_args, run_all_calling
 from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
+from toil_vg.vg_surject import run_surjecting
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +92,9 @@ def calleval_parse_args(parser):
                         help='xg indexes for the different graphs')
     parser.add_argument('--freebayes', action='store_true',
                         help='run freebayes as a baseline')
-    parser.add_argument('--bam_names', nargs='+',
+    parser.add_argument('--bam_names', nargs='+', default=[],
                         help='names of bwa runs (corresponds to bams)')
-    parser.add_argument('--bams', nargs='+', type=make_url,
+    parser.add_argument('--bams', nargs='+', type=make_url, default=[],
                         help='bam inputs for freebayes')
     parser.add_argument('--call_and_genotype', action='store_true',
                         help='run both vg call and vg genotype')
@@ -103,6 +104,10 @@ def calleval_parse_args(parser):
                         help='only compute accuracy clipped to --vcfeval_bed_regions')
     parser.add_argument('--plot_sets', nargs='+', default=[],
                         help='comma-separated lists of condition-tagged GAM/BAM names (primary-mp-pe-call, bwa-fb, etc.) to plot together')
+    parser.add_argument("--surject", action="store_true",
+                        help="surject GAMs to BAMs, adding the latter to the comparison")
+    parser.add_argument("--interleaved", action="store_true", default=False,
+                        help="assume GAM files are interleaved when surjecting")
         
 def validate_calleval_options(options):
     """
@@ -323,7 +328,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
                  call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field,
-                 plot_sets, filter_opts_gt):
+                 plot_sets, filter_opts_gt, surject, interleaved):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -348,6 +353,19 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     # to encapsulate everything under this job
     child_job = Job()
     job.addChild(child_job)
+
+    # optionally surject all the gams into bams
+    if surject:
+        head_job = child_job
+        child_job = Job()
+        head_job.addFollowOn(child_job)
+        for xg_id, gam_name, gam_id in zip(xg_ids, gam_names, gam_ids):
+            surject_job = head_job.addChildJobFn(run_surjecting, context, gam_id, gam_name + '-surject',
+                                                 interleaved, xg_id, [chrom], cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem, disk=context.config.misc_disk)
+            bam_ids.append(surject_job.rv())
+            bam_idx_ids.append(None)
+            bam_names.append(gam_name + '-surject')
     
     if bam_ids:
         for bam_id, bam_idx_id, bam_name in zip(bam_ids, bam_idx_ids, bam_names):
@@ -538,6 +556,8 @@ def calleval_main(context, options):
                                      options.vcfeval_score_field,
                                      plot_sets,
                                      options.filter_opts_gt,
+                                     options.surject,
+                                     options.interleaved,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
