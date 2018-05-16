@@ -59,7 +59,7 @@ def surject_subparser(parser):
     add_container_tool_parse_args(parser)
 
     
-def run_surjecting(job, context, gam_input_reads_id, interleaved, xg_file_id, paths):
+def run_surjecting(job, context, gam_input_reads_id, output_name, interleaved, xg_file_id, paths):
     """ split the fastq, then surject each chunk.  returns outputgams, paired with total surject time
     (excluding toil-vg overhead such as transferring and splitting files )"""
 
@@ -76,11 +76,11 @@ def run_surjecting(job, context, gam_input_reads_id, interleaved, xg_file_id, pa
         RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
         reads_chunk_ids = [[r] for r in [gam_input_reads_id]]
 
-    return child_job.addFollowOnJobFn(run_whole_surject, context, reads_chunk_ids, 
+    return child_job.addFollowOnJobFn(run_whole_surject, context, reads_chunk_ids, output_name, 
                                       interleaved, xg_file_id, paths, cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
     
-def run_whole_surject(job, context, reads_chunk_ids, interleaved, xg_file_id, paths):
+def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, xg_file_id, paths):
     """ surject all gam chunks in parallel
     """
     
@@ -104,7 +104,7 @@ def run_whole_surject(job, context, reads_chunk_ids, interleaved, xg_file_id, pa
         bam_chunk_file_ids.append(chunk_surject_job.rv(0))
         bam_chunk_running_times.append(chunk_surject_job.rv(1))
 
-    return child_job.addFollowOnJobFn(run_merge_bams, context, bam_chunk_file_ids,
+    return child_job.addFollowOnJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
                                       cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
@@ -157,7 +157,7 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
     return [context.write_intermediate_file(job, output_file)], run_time
 
 
-def run_merge_bams(job, context, bam_chunk_file_ids):
+def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
     """
     Merge together bams
     """
@@ -171,7 +171,7 @@ def run_merge_bams(job, context, bam_chunk_file_ids):
         job.fileStore.readGlobalFile(bam_chunk_file_id[0], chunk_paths[i])
 
     # todo: option to give name
-    surject_path = os.path.join(work_dir, 'surject.bam')
+    surject_path = os.path.join(work_dir, '{}.bam'.format(output_name))
 
     cmd = ['samtools', 'cat'] + [os.path.basename(chunk_path) for chunk_path in chunk_paths]
     cmd += ['-o', os.path.basename(surject_path)]
@@ -204,7 +204,8 @@ def surject_main(context, options):
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_surjecting, context, inputGAMFileID, options.interleaved,
+            root_job = Job.wrapJobFn(run_surjecting, context, inputGAMFileID, 'surject',
+                                     options.interleaved,
                                      inputXGFileID, options.paths,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,

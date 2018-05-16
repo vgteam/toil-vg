@@ -828,7 +828,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
 
 def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                        reads_fastq_single_ids, reads_fastq_paired_ids, reads_fastq_paired_for_vg_ids,
-                       fasta_file_id, bwa_index_ids, matrix, ignore_quals):
+                       fasta_file_id, bwa_index_ids, matrix, ignore_quals, surject):
     """
     
     Run alignments, if alignment files have not already been provided.
@@ -969,6 +969,12 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
     bwa_bam_file_ids, bwa_mem_times = [None, None], [None, None]
     # And if it is run it will all run under this job, which starts out as None
     bwa_start_job = None
+
+    # If --surject option used, keep track of the various surjection output in one dict
+    surjected_results = {'bam_file_ids' : [],
+                         'pe_bam_file_ids' : [],
+                         'bam_names' : [],
+                         'pe_bam_names' : [] }
     
     # Because we run multiple rounds of mapping the same reads, we want to
     # split the reads in advance. But we don't want to split reads in ways that
@@ -1051,7 +1057,7 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 map_jobs.append(read_chunk_job.addFollowOnJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
                                                                 None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
                                                                 interleaved, condition["multipath"], indexes,
-                                                                False, False,
+                                                                False, surject,
                                                                 reads_chunk_ids=read_chunk_job.rv(),
                                                                 cores=mapping_context.config.misc_cores,
                                                                 memory=mapping_context.config.misc_mem,
@@ -1063,7 +1069,12 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 map_times.append(map_job.rv(1))
                 out_xg_ids.append(xg_ids[i])
                 out_gam_names.append(gam_names[i] + tag_string)
-            
+                if interleaved:
+                    surjected_results['pe_bam_file_ids'].append(map_job.rv(2))
+                    surjected_results['pe_bam_names'].append(out_gam_names[-1] + '-surject')
+                else:
+                    surjected_results['bam_file_ids'].append(map_job.rv(2))
+                    surjected_results['bam_names'].append(out_gam_names[-1] + '-surject')
             
         elif condition["aligner"] == "bwa":
             # Run BWA.
@@ -1094,12 +1105,13 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
                 bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
                 bwa_mem_times[0] = bwa_mem_job.rv(1)
 
-    return out_gam_names, gam_file_ids, out_xg_ids, map_times, bwa_bam_file_ids, bwa_mem_times
+    return (out_gam_names, gam_file_ids, out_xg_ids, map_times, bwa_bam_file_ids,
+            bwa_mem_times, surjected_results)
     
 def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
-                            bwa_bam_file_ids, true_read_stats_file_id, mapeval_threshold,
-                            score_baseline_name=None, original_read_gam=None):
+                            bwa_bam_file_ids, surjected_results, true_read_stats_file_id,
+                            mapeval_threshold, score_baseline_name=None, original_read_gam=None):
     """
     run the mapping comparison.  Dump some tables into the outstore.
     
@@ -1128,6 +1140,26 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         pe_bam_file_ids.append(bwa_bam_file_ids[1])
         pe_bam_names.append('bwa-mem-pe')
 
+    # and also in the surjected BAMs to the lists we're passing along to comparison
+    for bam_name, surjected_bam_file_id in zip(surjected_results['bam_names'],
+                                               surjected_results['bam_file_ids']):
+        if surjected_bam_file_id:
+            if type(surjected_bam_file_id) is list:
+                assert len(surjected_bam_file_id) == 1
+                bam_file_ids.append(surjected_bam_file_id[0])
+            else:
+                bam_file_ids.append(surjected_bam_file_id)
+            bam_names.append(bam_name)
+    for pe_bam_name, surjected_pe_bam_file_id in zip(surjected_results['pe_bam_names'],
+                                                     surjected_results['pe_bam_file_ids']):
+        if surjected_pe_bam_file_id:
+            if type(surjected_pe_bam_file_id) is list:
+                assert len(surjected_pe_bam_file_id) == 1
+                pe_bam_file_ids.append(surjected_pe_bam_file_id[0])
+            else:
+                pe_bam_file_ids.append(surjected_pe_bam_file_id)
+            pe_bam_names.append(pe_bam_name)
+        
     # We need to keep the BAM stats jobs around to wait on them
     bam_stats_jobs = []
 
@@ -1757,14 +1789,14 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
                                                options.gam_names, gam_file_ids,
                                                fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids,
                                                fasta_file_id, bwa_index_ids, matrix,
-                                               options.ignore_quals)
+                                               options.ignore_quals, options.surject)
                                                
     # Unpack the alignment job's return values
     # TODO: we're clobbering input values...
-    (gam_names, gam_file_ids, xg_ids, vg_map_times, bwa_bam_file_ids, bwa_map_times) = (
-        alignment_job.rv(0), alignment_job.rv(1), alignment_job.rv(2),
-        alignment_job.rv(3), alignment_job.rv(4), alignment_job.rv(5))
-
+    (gam_names, gam_file_ids, xg_ids, vg_map_times, bwa_bam_file_ids, bwa_map_times, surjected_results) = (
+         alignment_job.rv(0), alignment_job.rv(1), alignment_job.rv(2),
+         alignment_job.rv(3), alignment_job.rv(4), alignment_job.rv(5),
+         alignment_job.rv(6))
 
     # We make a root for comparison here to encapsulate its follow-on chain
     comparison_parent_job = Job()
@@ -1776,11 +1808,11 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     if options.skip_eval:
         # Skip evaluation
         return None
-    
+
     # Otherwise, do mapping evaluation comparison (the rest of the workflow)
     comparison_job = comparison_parent_job.addChildJobFn(run_map_eval_comparison, context, xg_ids,
                      gam_names, gam_file_ids, options.bam_names, bam_file_ids,
-                     options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids,
+                     options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids, surjected_results,
                      true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores, reads_gam_file_id,
                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                      disk=context.config.misc_disk)
