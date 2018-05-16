@@ -265,7 +265,7 @@ def run_pipeline_map(job, context, options, indexes, fastq_chunk_ids,
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
                                     options.fastq, options.gam_input_reads, options.bam_input_reads,
                                     options.sample_name, options.interleaved, options.multipath,
-                                    indexes, fastq_chunk_ids,
+                                    indexes, fastq_chunk_ids, options.bam_output, options.surject,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,
                                     disk=context.config.misc_disk).rv(0)
 
