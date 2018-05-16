@@ -1677,7 +1677,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     
     Run the analysis on the given files.
     
-    TODO: Refactor to use a list of dicts/dict of listys for the indexes.
+    TODO: Refactor to use a list of dicts/dict of lists for the indexes.
     
     Returns a pair of the position comparison results and the score comparison
     results.
@@ -1829,7 +1829,9 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     # Fetch out the combined TSV from the return value for plotting
     lookup_job = comparison_parent_job.addFollowOnJobFn(lookup_key_path, comparison_job.rv(), [0, 1])
     position_stats_file_id = lookup_job.rv()
-    plot_job = lookup_job.addFollowOnJobFn(run_map_eval_plot, context, position_stats_file_id, plot_sets)
+    plot_job = lookup_job.addFollowOnJobFn(run_map_eval_plot, context, position_stats_file_id, plot_sets,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=context.config.misc_disk)
 
     return comparison_job.rv()
     

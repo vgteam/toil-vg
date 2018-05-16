@@ -34,7 +34,7 @@ from toil_vg.vg_config import *
 from toil_vg.vg_sim import *
 from toil_vg.vg_mapeval import *
 from toil_vg.vg_calleval import *
-from toil_vg.vg_call import *
+from toil_vg.vg_plot import plot_subparser, plot_main
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import *
 from toil_vg.vg_surject import *
@@ -99,12 +99,16 @@ def parse_args(args=None):
     calleval_subparser(parser_calleval)
 
     # construct subparser
-    parser_construct = subparsers.add_parser('construct', help="Construct graphs from VCF")
+    parser_construct = subparsers.add_parser('construct', help='Construct graphs from VCF')
     construct_subparser(parser_construct)
 
     # surject subparser
-    parser_surject = subparsers.add_parser('surject', help="Surject GAM to BAM")
+    parser_surject = subparsers.add_parser('surject', help='Surject GAM to BAM')
     surject_subparser(parser_surject)
+    
+    # plot subparser
+    parser_plot = subparsers.add_parser('plot', help='Plot the results of mapping and calling experiments')
+    plot_subparser(parser_plot)
 
     return parser.parse_args(args)
 
@@ -373,6 +377,10 @@ def main():
         construct_main(context, args)
     elif args.command == 'surject':
         surject_main(context, args)
+    elif args.command == 'plot':
+        plot_main(context, args)
+    else:
+        raise RuntimeError('Unimplemented subcommand {}'.format(args.command))
         
     
 def pipeline_main(context, options):
