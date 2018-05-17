@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling
-from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot
+from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
 from toil_vg.vg_surject import run_surjecting
@@ -214,7 +214,7 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
             context.write_output_file(job, vcf_fix_path + '.gz.tbi'),
             timer)
 
-def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timing_results, plot_sets=[None]):
+def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy_results, timing_results, plot_sets=[None]):
     """
     
     output the calleval results
@@ -348,6 +348,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     vcf_tbi_id_pairs = []
     names = []
     eval_results = []
+    happy_results = []
     timing_results = []
 
     # to encapsulate everything under this job
@@ -398,22 +399,33 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                            vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                            fasta_id, bed_id, out_name=fb_out_name,
                                                            score_field='GQ').rv()
+                happy_clip_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
+                                                           vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                           fasta_id, bed_id, out_name=fb_out_name).rv()
             else:
                 eval_clip_result = None
+                happy_clip_result = None
             
             if clip_only:
                 # Don't do unclipped, only do the BED-clipped version
                 eval_result = None
+                happy_result = None
             else:
                 eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                                       vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                       fasta_id, None,
                                                       out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
                                                       score_field='GQ').rv()
+                happy_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
+                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                      fasta_id, None,
+                                                      out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped').rv()
+
             
             vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)            
             names.append(fb_out_name)
             eval_results.append((eval_result, eval_clip_result))
+            happy_results.append((happy_result, happy_clip_result))
 
     # optional override to filter-opts when running genotype
     # this is allows us to run different filter-opts for call and genotype
@@ -449,25 +461,35 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                                      fasta_id, bed_id, out_name=out_name,
                                                                      score_field=score_field).rv()
+                        happy_clip_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                     fasta_id, bed_id, out_name=out_name).rv()
+                        
                     else:
                         eval_clip_result = None
+                        happy_clip_result = None
                         
                     if clip_only:
                         # Don't do unclipped, only do the BED-clipped version
                         eval_result = None
+                        happy_result = None
                     else:
                         eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
                                                                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                                 fasta_id, None,
                                                                 out_name=out_name if not bed_id else out_name + '-unclipped',
                                                                 score_field=score_field).rv()
-                        
+                        happy_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                                vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                fasta_id, None,
+                                                                out_name=out_name if not bed_id else out_name + '-unclipped').rv()                        
                     names.append(out_name)            
                     vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
                     eval_results.append((eval_result, eval_clip_result))
+                    happy_results.append((happy_result, happy_clip_result))
 
     calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names,
-                                                  vcf_tbi_id_pairs, eval_results, timing_results, plot_sets,
+                                                  vcf_tbi_id_pairs, eval_results, happy_results, timing_results, plot_sets,
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem,
                                                   disk=context.config.misc_disk).rv()
