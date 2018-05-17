@@ -134,6 +134,8 @@ class VGCGLTest(TestCase):
     def test_03_sim_small_mapeval(self):
         ''' 
         Same generate and align some simulated reads
+        
+        TODO: This should be multiple test cases
         '''
         self.test_vg_graph = self._ci_input_path('small.vg')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
@@ -186,6 +188,19 @@ class VGCGLTest(TestCase):
                   '--maxCores', '8', '--bwa', '--fasta', self.chrom_fa)
         
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.8)
+        
+        # check running plot on the mapeval output
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-pr.svg'))
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-qq.svg'))
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.svg'))
+        self._run('toil-vg', 'plot', self.jobStoreLocal,
+                  self.local_outstore,
+                  '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
+                  '--realTimeLogging', '--logInfo',
+                  '--maxCores', '8')
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-pr.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-qq.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-roc.svg')), 0)
 
         # check running calleval on the mapeval output
         self._run('toil-vg', 'calleval', self.jobStoreLocal,
