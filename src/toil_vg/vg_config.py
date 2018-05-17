@@ -316,9 +316,9 @@ call-chunk-mem: '100G'
 call-chunk-disk: '100G'
 
 # Resources for calling each chunk (currently includes augment/call/genotype)
-calling-cores: 2
-calling-mem: '32G'
-calling-disk: '8G'
+calling-cores: 4
+calling-mem: '64G'
+calling-disk: '16G'
 
 # Resources for vcfeval
 vcfeval-cores: 32
