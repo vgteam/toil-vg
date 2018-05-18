@@ -58,11 +58,13 @@ def vcfeval_parse_args(parser):
                         help="Cores to use for vcfeval")
     parser.add_argument("--vcfeval_score_field", default=None,
                         help="vcf FORMAT field to use for ROC score.  overrides vcfeval_opts")
+    parser.add_argument("--happy", action="store_true",
+                        help="run hap.py comparison in addition to rtg vcfeval")
 
 def validate_vcfeval_options(options):
     """ check some options """
     # we can relax this down the road by optionally doing some compression/indexing
-    assert options.vcfeval_baseline.endswith(".vcf.gz")
+    assert options.vcfeval_baseline and options.vcfeval_baseline.endswith(".vcf.gz")
     assert options.call_vcf.endswith(".vcf.gz")
 
     assert options.vcfeval_fasta
@@ -88,6 +90,22 @@ def parse_f1(summary_path):
             if f1 is None or line_f1 > f1:
                 f1 = line_f1
     return f1
+
+def parse_happy_summary(summary_path):
+    """ Turn the happy summary into a dictionary we can easily get F1 scores etc. from """
+    results = {}  # make something like: results[INDEL][METRIC.F1_Score] = 0.9x
+    with open(summary_path) as sum_file:
+        header = sum_file.readline().split(',')
+        for line in sum_file:
+            row = line.split(',')
+            cat = row[0]
+            if row[1] == 'ALL':
+                cat += '.ALL'
+            assert cat not in results
+            results[cat] = {}
+            for column in range(1, len(header)):
+                results[cat][header[column]] = row[column] if len(row[column]) else '0'
+        return results
 
 def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show_scores=False,
                           line_width=2, ps_plot=False):
@@ -136,7 +154,8 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
     context.runner.call(job, roc_cmd, work_dir = work_dir)
 
     return context.write_output_file(job, out_roc_path, os.path.join('plots', plot_filename))
-    
+
+
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
     fasta_path, fasta_id, bed_id, out_name = None, score_field=None):
     """ run vcf_eval, return (f1 score, summary id, output archive id, snp-id, nonsnp-id, weighted-id)"""
@@ -252,6 +271,92 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
 
     return [f1, out_summary_id, out_archive_id] + out_roc_ids
 
+def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
+              fasta_path, fasta_id, bed_id, fasta_idx_id = None, out_name = None):
+    """ run vcf_eval, return (f1 score, summary id, output archive id, snp-id, nonsnp-id, weighted-id)"""
+
+    # make a local work directory
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # download the vcf
+    call_vcf_id, call_tbi_id = vcf_tbi_id_pair[0], vcf_tbi_id_pair[1]
+    call_vcf_name = "calls.vcf.gz"
+    job.fileStore.readGlobalFile(vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
+    job.fileStore.readGlobalFile(vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
+
+    # and the truth vcf
+    vcfeval_baseline_name = 'truth.vcf.gz'
+    job.fileStore.readGlobalFile(vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
+    job.fileStore.readGlobalFile(vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
+    
+    # download the fasta (make sure to keep input extension)
+    fasta_name = "fa_" + os.path.basename(fasta_path)
+    job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
+
+    # download or create the fasta index which is required by hap.py
+    if fasta_idx_id:
+        job.fileStore.readGlobalFile(fasta_idx_id, os.path.join(work_dir, fasta_name + '.fai'))
+    else:
+        context.runner.call(job, ['samtools', 'faidx', fasta_name], work_dir=work_dir)
+
+    # download the bed regions
+    bed_name = "bed_regions.bed" if bed_id else None
+    if bed_id:
+        job.fileStore.readGlobalFile(bed_id, os.path.join(work_dir, bed_name))
+
+    # use out_name if specified, otherwise sample
+    if sample and not out_name:
+        out_name = sample        
+    if out_name:
+        out_tag = '{}_happy'.format(out_name)
+    else:
+        out_tag = 'happy_output'
+        
+    # output directory
+    out_name = os.path.join(out_tag, 'happy')
+    os.makedirs(os.path.join(work_dir, out_tag))
+    
+    # run the vcf_eval command
+    cmd = ['hap.py', vcfeval_baseline_name, call_vcf_name,
+           '--report-prefix', out_name, '--reference', fasta_name, '--write-vcf', '--write-counts', '--no-roc']
+
+    if bed_name:
+        cmd += ['--false-positives', bed_name]
+        
+    try:
+        context.runner.call(job, cmd, work_dir=work_dir)
+    except:
+        # Dump everything we need to replicate the alignment
+        logging.error("hap.py VCF evaluation failed. Dumping files.")
+        context.write_output_file(job, os.path.join(work_dir, call_vcf_name))
+        context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name))
+        # TODO: Dumping the sdf folder doesn't seem to work right. But we can dump the fasta
+        context.write_output_file(job, os.path.join(work_dir, fasta_name))
+        if bed_name is not None:
+            context.write_output_file(job, os.path.join(work_dir, bed_name))
+        
+        raise
+
+
+    # copy results to outstore 
+    
+    # happy_output_summary.csv
+    out_summary_id = context.write_output_file(job, os.path.join(work_dir, out_name + '.summary.csv'),
+                                               out_store_path = '{}_summary.csv'.format(out_tag))
+
+    # happy_output.tar.gz -- whole shebang
+    context.runner.call(job, ['tar', 'czf', out_tag + '.tar.gz', out_tag], work_dir = work_dir)
+    out_archive_id = context.write_output_file(job, os.path.join(work_dir, out_tag + '.tar.gz'))
+
+    # happy_output_f1.txt Snp1-F1 TAB Indel-F1 (of variants marked as PASS)
+    happy_results = parse_happy_summary(os.path.join(work_dir, out_name + '.summary.csv'))
+    f1_path = os.path.join(work_dir, "happy_f1.txt")    
+    with open(f1_path, "w") as f:
+        f.write('{}\t{}\n'.format(happy_results['SNP']['METRIC.F1_Score'], happy_results['INDEL']['METRIC.F1_Score']))
+    context.write_output_file(job, f1_path, out_store_path = '{}_f1.txt'.format(out_tag))
+    
+    return happy_results, out_summary_id, out_archive_id
+
 def vcfeval_main(context, options):
     """ command line access to toil vcf eval logic"""
 
@@ -280,17 +385,25 @@ def vcfeval_main(context, options):
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_vcfeval, context, None,
-                                     (call_vcf_id, call_tbi_id),
-                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                                     options.vcfeval_fasta, fasta_id, bed_id,
-                                     score_field=options.vcfeval_score_field,
-                                     cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
-                                     disk=context.config.vcfeval_disk)
+            vcfeval_job = Job.wrapJobFn(run_vcfeval, context, None,
+                                        (call_vcf_id, call_tbi_id),
+                                        vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                                        options.vcfeval_fasta, fasta_id, bed_id,
+                                        score_field=options.vcfeval_score_field,
+                                        cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                        disk=context.config.vcfeval_disk)
 
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
-            init_job.addFollowOn(root_job)            
+            init_job.addFollowOn(vcfeval_job)
+            if options.happy:
+                happy_job = Job.wrapJobFn(run_happy, context, None,
+                                          (call_vcf_id, call_tbi_id),
+                                          vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                                          options.vcfeval_fasta, fasta_id, bed_id,
+                                          cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                          disk=context.config.vcfeval_disk)
+                init_job.addFollowOn(happy_job)
 
             # Run the job
             f1 = toil.start(init_job)

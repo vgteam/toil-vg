@@ -161,6 +161,9 @@ vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
 # Docker image to use for Freebayes
 freebayes-docker: 'maxulysse/freebayes:1.2.5'
 
+# Docker image to use for hap.py
+happy-docker: 'donfreed12/hap.py:v0.3.9'
+
 ##########################
 ### vg_index Arguments ###
 
@@ -379,6 +382,9 @@ vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
 
 # Docker image to use for Freebayes
 freebayes-docker: 'maxulysse/freebayes:1.2.5'
+
+# Docker image to use for hap.py
+happy-docker: 'donfreed12/hap.py:v0.3.9'
 
 ##########################
 ### vg_index Arguments ###

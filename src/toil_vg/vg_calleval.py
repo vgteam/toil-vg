@@ -34,9 +34,10 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling
-from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot
+from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
+from toil_vg.vg_surject import run_surjecting
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +92,9 @@ def calleval_parse_args(parser):
                         help='xg indexes for the different graphs')
     parser.add_argument('--freebayes', action='store_true',
                         help='run freebayes as a baseline')
-    parser.add_argument('--bam_names', nargs='+',
+    parser.add_argument('--bam_names', nargs='+', default=[],
                         help='names of bwa runs (corresponds to bams)')
-    parser.add_argument('--bams', nargs='+', type=make_url,
+    parser.add_argument('--bams', nargs='+', type=make_url, default=[],
                         help='bam inputs for freebayes')
     parser.add_argument('--call_and_genotype', action='store_true',
                         help='run both vg call and vg genotype')
@@ -103,6 +104,10 @@ def calleval_parse_args(parser):
                         help='only compute accuracy clipped to --vcfeval_bed_regions')
     parser.add_argument('--plot_sets', nargs='+', default=[],
                         help='comma-separated lists of condition-tagged GAM/BAM names (primary-mp-pe-call, bwa-fb, etc.) to plot together')
+    parser.add_argument("--surject", action="store_true",
+                        help="surject GAMs to BAMs, adding the latter to the comparison")
+    parser.add_argument("--interleaved", action="store_true", default=False,
+                        help="assume GAM files are interleaved when surjecting")
         
 def validate_calleval_options(options):
     """
@@ -209,7 +214,7 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
             context.write_output_file(job, vcf_fix_path + '.gz.tbi'),
             timer)
 
-def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timing_results, plot_sets=[None]):
+def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy_results, timing_results, plot_sets=[None]):
     """
     
     output the calleval results
@@ -234,13 +239,21 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
     # make a simple tsv
     stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
     with open(stats_path, 'w') as stats_file:
-        for name, eval_result, in zip(names, eval_results):
+        for name, eval_result, happy_result in zip(names, eval_results, happy_results):
             # Find the best result (clipped if present, unclipped if not).
             # The best is the last non-None one.
             best_result = [r for r in eval_result if r is not None][-1]
-        
+
+            # Same for the happy results
+            happy_non_none_results = [r for r in happy_result if r is not None]
+            if happy_non_none_results:
+                happy_snp_f1 = happy_non_none_results[-1][0]['SNP']['METRIC.F1_Score']
+                happy_indel_f1 = happy_non_none_results[-1][0]['INDEL']['METRIC.F1_Score']
+            else:
+                happy_snp_f1, happy_indel_f1 = -1, -1
+                
             # Output the F1 score (first element)
-            stats_file.write('{}\t{}\n'.format(name, best_result[0]))
+            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result[0], happy_snp_f1, happy_indel_f1))
 
     # Replace Nones in the list of plot sets with "subsets" of all the condition names
     plot_sets = [plot_set if plot_set is not None else names for plot_set in plot_sets]
@@ -323,7 +336,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, timin
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
                  call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field,
-                 plot_sets, filter_opts_gt):
+                 plot_sets, filter_opts_gt, surject, interleaved):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -343,11 +356,25 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     vcf_tbi_id_pairs = []
     names = []
     eval_results = []
+    happy_results = []
     timing_results = []
 
     # to encapsulate everything under this job
     child_job = Job()
     job.addChild(child_job)
+
+    # optionally surject all the gams into bams
+    if surject:
+        head_job = child_job
+        child_job = Job()
+        head_job.addFollowOn(child_job)
+        for xg_id, gam_name, gam_id in zip(xg_ids, gam_names, gam_ids):
+            surject_job = head_job.addChildJobFn(run_surjecting, context, gam_id, gam_name + '-surject',
+                                                 interleaved, xg_id, [chrom], cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem, disk=context.config.misc_disk)
+            bam_ids.append(surject_job.rv())
+            bam_idx_ids.append(None)
+            bam_names.append(gam_name + '-surject')
     
     if bam_ids:
         for bam_id, bam_idx_id, bam_name in zip(bam_ids, bam_idx_ids, bam_names):
@@ -380,22 +407,33 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                            vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                            fasta_id, bed_id, out_name=fb_out_name,
                                                            score_field='GQ').rv()
+                happy_clip_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
+                                                           vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                           fasta_id, bed_id, out_name=fb_out_name).rv()
             else:
                 eval_clip_result = None
+                happy_clip_result = None
             
             if clip_only:
                 # Don't do unclipped, only do the BED-clipped version
                 eval_result = None
+                happy_result = None
             else:
                 eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                                       vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                       fasta_id, None,
                                                       out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
                                                       score_field='GQ').rv()
+                happy_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
+                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                      fasta_id, None,
+                                                      out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped').rv()
+
             
             vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)            
             names.append(fb_out_name)
             eval_results.append((eval_result, eval_clip_result))
+            happy_results.append((happy_result, happy_clip_result))
 
     # optional override to filter-opts when running genotype
     # this is allows us to run different filter-opts for call and genotype
@@ -431,25 +469,35 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                                      fasta_id, bed_id, out_name=out_name,
                                                                      score_field=score_field).rv()
+                        happy_clip_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                     fasta_id, bed_id, out_name=out_name).rv()
+                        
                     else:
                         eval_clip_result = None
+                        happy_clip_result = None
                         
                     if clip_only:
                         # Don't do unclipped, only do the BED-clipped version
                         eval_result = None
+                        happy_result = None
                     else:
                         eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
                                                                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
                                                                 fasta_id, None,
                                                                 out_name=out_name if not bed_id else out_name + '-unclipped',
                                                                 score_field=score_field).rv()
-                        
+                        happy_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                                vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                fasta_id, None,
+                                                                out_name=out_name if not bed_id else out_name + '-unclipped').rv()                        
                     names.append(out_name)            
                     vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
                     eval_results.append((eval_result, eval_clip_result))
+                    happy_results.append((happy_result, happy_clip_result))
 
     calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names,
-                                                  vcf_tbi_id_pairs, eval_results, timing_results, plot_sets,
+                                                  vcf_tbi_id_pairs, eval_results, happy_results, timing_results, plot_sets,
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem,
                                                   disk=context.config.misc_disk).rv()
@@ -538,6 +586,8 @@ def calleval_main(context, options):
                                      options.vcfeval_score_field,
                                      plot_sets,
                                      options.filter_opts_gt,
+                                     options.surject,
+                                     options.interleaved,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
