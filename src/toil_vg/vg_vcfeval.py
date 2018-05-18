@@ -104,7 +104,7 @@ def parse_happy_summary(summary_path):
             assert cat not in results
             results[cat] = {}
             for column in range(1, len(header)):
-                results[cat][header[column]] = row[column]
+                results[cat][header[column]] = row[column] if len(row[column]) else '0'
         return results
 
 def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show_scores=False,

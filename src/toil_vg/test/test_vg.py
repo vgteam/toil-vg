@@ -70,9 +70,8 @@ class VGCGLTest(TestCase):
                                    '--call_opts', '-E 0')
         
         # default output store
-        self.outstore = 'aws:us-west-2:toilvg-jenkinstest-outstore-{}'.format(uuid4())
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
-
+        
     def test_01_sim_small(self):
         ''' 
         This test uses simulated reads from the small dataset from vg, created as follows:
@@ -205,9 +204,11 @@ class VGCGLTest(TestCase):
                   '--freebayes',
                   '--bams', os.path.join(self.local_outstore, 'bwa-mem.bam'),
                   os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),
-                  '--bam_names', 'bwa-mem', 'bwa-mem-pe')
+                  '--bam_names', 'bwa-mem', 'bwa-mem-pe',
+                  '--happy', '--surject')
 
-        self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb'], 0.02)
+        self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb',
+                                                         'vg-pe-surject-fb', 'vg-surject-fb'], 0.02, 0.02)
 
         # check running mapeval on the vg graph
         
@@ -506,16 +507,19 @@ class VGCGLTest(TestCase):
         self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-pr.svg')), 0)
         self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-qq.svg')), 0)
 
-    def _assertCallEvalOutput(self, outstore, names, f1_threshold):
+    def _assertCallEvalOutput(self, outstore, names, f1_threshold, happy_snp_f1_threshold=-1,
+                              happy_indel_f1_threshold=-1):
         with open(os.path.join(outstore, 'calleval_stats.tsv')) as stats:
             table = [line for line in stats]
         headers = set()
         for row in table:
             toks = row.split()
-            self.assertEqual(len(toks), 2)
-            name, f1 = toks[0], toks[1]
+            self.assertEqual(len(toks), 4)
+            name, f1, happy_snp_f1, happy_indel_f1, = toks[0], toks[1], toks[2], toks[3]
             headers.add(name)
-            self.assertGreater(float(f1), f1_threshold)
+            self.assertGreaterEqual(float(f1), f1_threshold)
+            self.assertGreaterEqual(float(happy_snp_f1), happy_snp_f1_threshold)
+            self.assertGreaterEqual(float(happy_indel_f1), happy_indel_f1_threshold)
         self.assertEqual(headers, set(names))
         
     def tearDown(self):
