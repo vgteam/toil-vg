@@ -91,6 +91,22 @@ def parse_f1(summary_path):
                 f1 = line_f1
     return f1
 
+def parse_happy_summary(summary_path):
+    """ Turn the happy summary into a dictionary we can easily get F1 scores etc. from """
+    results = {}  # make something like: results[INDEL][METRIC.F1_Score] = 0.9x
+    with open(summary_path) as sum_file:
+        header = sum_file.readline().split(',')
+        for line in sum_file:
+            row = line.split(',')
+            cat = row[0]
+            if row[1] == 'ALL':
+                cat += '.ALL'
+            assert cat not in results
+            results[cat] = {}
+            for column in range(1, len(header)):
+                results[cat][header[column]] = row[column]
+        return results
+
 def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show_scores=False,
                           line_width=2, ps_plot=False):
     """
@@ -332,11 +348,14 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
     context.runner.call(job, ['tar', 'czf', out_tag + '.tar.gz', out_tag], work_dir = work_dir)
     out_archive_id = context.write_output_file(job, os.path.join(work_dir, out_tag + '.tar.gz'))
 
-    # truth VCF
-    context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name))
-    context.write_output_file(job, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
+    # happy_output_f1.txt Snp1-F1 TAB Indel-F1 (of variants marked as PASS)
+    happy_results = parse_happy_summary(os.path.join(work_dir, out_name + '.summary.csv'))
+    f1_path = os.path.join(work_dir, "happy_f1.txt")    
+    with open(f1_path, "w") as f:
+        f.write('{}\t{}\n'.format(happy_results['SNP']['METRIC.F1_Score'], happy_results['INDEL']['METRIC.F1_Score']))
+    context.write_output_file(job, f1_path, out_store_path = '{}_f1.txt'.format(out_tag))
     
-    return out_summary_id, out_archive_id
+    return happy_results, out_summary_id, out_archive_id
 
 def vcfeval_main(context, options):
     """ command line access to toil vcf eval logic"""

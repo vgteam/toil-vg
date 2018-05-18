@@ -239,13 +239,21 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
     # make a simple tsv
     stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
     with open(stats_path, 'w') as stats_file:
-        for name, eval_result, in zip(names, eval_results):
+        for name, eval_result, happy_result in zip(names, eval_results, happy_results):
             # Find the best result (clipped if present, unclipped if not).
             # The best is the last non-None one.
             best_result = [r for r in eval_result if r is not None][-1]
-        
+
+            # Same for the happy results
+            happy_non_none_results = [r for r in happy_result if r is not None]
+            if happy_non_none_results:
+                happy_snp_f1 = happy_non_none_results[-1][0]['SNP']['METRIC.F1_Score']
+                happy_indel_f1 = happy_non_none_results[-1][0]['INDEL']['METRIC.F1_Score']
+            else:
+                happy_snp_f1, happy_indel_f1 = -1, -1
+                
             # Output the F1 score (first element)
-            stats_file.write('{}\t{}\n'.format(name, best_result[0]))
+            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result[0], happy_snp_f1, happy_indel_f1))
 
     # Replace Nones in the list of plot sets with "subsets" of all the condition names
     plot_sets = [plot_set if plot_set is not None else names for plot_set in plot_sets]
