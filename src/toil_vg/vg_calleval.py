@@ -33,7 +33,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_vg.vg_call import chunked_call_parse_args, run_all_calling
+from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_merge_vcf
 from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
@@ -56,16 +56,14 @@ def calleval_subparser(parser):
                         help='output store.  All output written here. Path specified using same syntax as toil jobStore')
 
     parser.add_argument("--chroms", nargs='+', required=True,
-                        help="Name(s) of reference path in graph(s) (separated by space)."
-                        " Must be same length/order as --gams")
+                        help="Name(s) of reference path in graph(s) (separated by space).")
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
-                        help="GAMs to call.  One per chromosome. Must be same length/order as --chroms")
+                        help="GAMs to call.  Each GAM treated as separate input (and must contain all chroms)")
     parser.add_argument("--sample_name", type=str, required=True,
                         help="sample name (ex NA12878)")
     parser.add_argument("--gam_index_cores", type=int,
                         help="number of threads used for gam indexing")
-
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -120,9 +118,6 @@ def validate_calleval_options(options):
     if options.bams or options.bam_names:
         require(options.bams and options.bam_names and len(options.bams) == len(options.bam_names),
                 '--bams and --bam_names must be same length')
-    # todo: generalize.  
-    require(options.chroms and len(options.chroms) == 1,
-            'one sequence must be specified with --chroms')
     require(options.vcfeval_baseline, '--vcfeval_baseline required')
     require(options.vcfeval_fasta, '--vcfeval_fasta required')
     
@@ -150,9 +145,37 @@ def run_bam_index(job, context, bam_file_id, bam_name):
     out_idx_id = context.write_intermediate_file(job, sort_bam_path + '.bai')
     return out_bam_id, out_idx_id
     
+def run_all_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
+                      sample_name, chroms, offsets, out_name, freebayes_opts = ['--genotype-qualities']):
+    """
+    run freebayes on a set of chromosomal regions.  this is done by sending each region to a 
+    child job and farming off the entire input to each (ie not splitting the input)
+    """
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
+    fb_vcf_ids = []
+    fb_tbi_ids = []
+    fb_timers = []
+    assert chroms
+    if not offsets:
+        offsets = [None] * len(chroms)
+    for chrom, offset in zip(chroms, offsets):
+        fb_job = child_job.addChildJobFn(run_freebayes, context, fasta_file_id, bam_file_id, bam_idx_id,
+                                         sample_name, chrom, offset, out_name, freebayes_opts,
+                                         cores=context.config.calling_cores,
+                                         memory=context.config.calling_mem,
+                                         disk=context.config.calling_disk)
+        fb_vcf_ids.append(fb_job.rv(0))
+        fb_tbi_ids.append(fb_job.rv(1))
+        fb_timers.append([fb_job.rv(2)])
+
+    merge_vcf_job = child_job.addFollowOnJobFn(run_merge_vcf, context, out_name, zip(fb_vcf_ids, fb_tbi_ids), fb_timers)
+    return merge_vcf_job.rv()
     
 def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
-                  sample_name, region, offset, out_name,
+                  sample_name, chrom, offset, out_name,
                   freebayes_opts = ['--genotype-qualities']):
     """
     run freebayes to make a vcf
@@ -174,8 +197,8 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     if freebayes_opts:
         fb_cmd += freebayes_opts
 
-    if region:
-        fb_cmd += ['-r', region]
+    if chrom:
+        fb_cmd += ['-r', chrom]
 
     vcf_path = os.path.join(work_dir, '{}-raw.vcf'.format(out_name))
     timer = TimeTracker('freebayes')
@@ -335,7 +358,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
-                 call, genotype, sample_name, chrom, vcf_offset, vcfeval_score_field,
+                 call, genotype, sample_name, chroms, vcf_offsets, vcfeval_score_field,
                  plot_sets, filter_opts_gt, surject, interleaved):
     """
     top-level call-eval function. Runs the caller and genotype on every
@@ -370,7 +393,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
         head_job.addFollowOn(child_job)
         for xg_id, gam_name, gam_id in zip(xg_ids, gam_names, gam_ids):
             surject_job = head_job.addChildJobFn(run_surjecting, context, gam_id, gam_name + '-surject',
-                                                 interleaved, xg_id, [chrom], cores=context.config.misc_cores,
+                                                 interleaved, xg_id, chroms, cores=context.config.misc_cores,
                                                  memory=context.config.misc_mem, disk=context.config.misc_disk)
             bam_ids.append(surject_job.rv())
             bam_idx_ids.append(None)
@@ -392,13 +415,13 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 sorted_bam_idx_id = bam_idx_id                
 
             fb_out_name = '{}-fb'.format(bam_name)
-            fb_job = bam_index_job.addFollowOnJobFn(run_freebayes, context, fasta_id,
+            fb_job = bam_index_job.addFollowOnJobFn(run_all_freebayes, context, fasta_id,
                                                     sorted_bam_id, sorted_bam_idx_id, sample_name,
-                                                    chrom, vcf_offset,
+                                                    chroms, vcf_offsets,
                                                     out_name = fb_out_name,
-                                                    cores=context.config.calling_cores,
-                                                    memory=context.config.calling_mem,
-                                                    disk=context.config.calling_disk)
+                                                    cores=context.config.misc_cores,
+                                                    memory=context.config.misc_mem,
+                                                    disk=context.config.misc_disk)
             fb_vcf_tbi_id_pair = (fb_job.rv(0), fb_job.rv(1))
             timing_results.append(fb_job.rv(2))
 
@@ -450,7 +473,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 if (call and not gt) or (genotype and gt):
                     out_name = '{}{}'.format(gam_name, '-gt' if gt else '-call')
                     call_job = child_job.addChildJobFn(run_all_calling, gt_context if gt else context,
-                                                       xg_id, [gam_id], [chrom], [vcf_offset],
+                                                       xg_id, [gam_id], chroms, vcf_offsets,
                                                        sample_name, genotype=gt,
                                                        out_name=out_name,
                                                        cores=context.config.misc_cores,
@@ -582,7 +605,7 @@ def calleval_main(context, options):
                                      do_call,
                                      do_genotype,
                                      options.sample_name,
-                                     options.chroms[0], options.vcf_offsets[0] if options.vcf_offsets else 0,
+                                     options.chroms, options.vcf_offsets,
                                      options.vcfeval_score_field,
                                      plot_sets,
                                      options.filter_opts_gt,

@@ -100,14 +100,14 @@ if options.filter_ceph:
 if options.chroms:
     # restrict to specified chromosome(s)
     cmd += ['--regions'] + options.chroms
-    if options.gbwt or options.alt_paths or options.filter_ceph:
+    if options.gbwt or options.alt_paths or options.filter_ceph or options.control:
         cmd += ['--vcf'] + [get_vcf_path_hs37d5(chrom) for chrom in options.chroms]
     else:
         cmd += ['--vcf'] + [get_unphased_vcf_path_hs37d5()]
 else:
     # do all chromsomes as well as decoys
     cmd += ['--fasta_regions', '--vcf']
-    if options.gbwt or options.alt_paths or options.filter_ceph:
+    if options.gbwt or options.alt_paths or options.filter_ceph or options.control:
         cmd += [get_vcf_path_hs37d5(chrom) for chrom in range(1, 23) + ['X', 'Y']]
     else:
         cmd += [get_unphased_vcf_path_hs37d5()]
