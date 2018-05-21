@@ -1826,12 +1826,12 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
         # We use the special None value to request that.
         plot_sets = [None]
     
-    # Fetch out the combined TSV from the return value for plotting
+    # Fetch out the combined TSV from the return value for summarizing/plotting
     lookup_job = comparison_parent_job.addFollowOnJobFn(lookup_key_path, comparison_job.rv(), [0, 1])
     position_stats_file_id = lookup_job.rv()
-    plot_job = lookup_job.addFollowOnJobFn(run_map_eval_plot, context, position_stats_file_id, plot_sets,
-                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                           disk=context.config.misc_disk)
+    summarize_job = lookup_job.addFollowOnJobFn(run_map_eval_summarize, context, position_stats_file_id, plot_sets,
+                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                disk=context.config.misc_disk)
 
     return comparison_job.rv()
     
@@ -1848,7 +1848,46 @@ def lookup_key_path(job, obj, path):
         obj = obj[key]
         
     return obj
+
+def run_map_eval_summarize(job, context, position_stats_file_id, plot_sets):
+    """
     
+    Make the summary plots and tables, based on a single combined position
+    stats TSV in position_stats_file_id.
+    
+    Returns a list of file name and file ID pairs for plots and tables.
+    
+    plot_sets is a list of lists of condition names to analyze together. A None
+    instead of a list means to do all conditions. The first condition in each
+    list is the comparison baseline.
+    
+    """
+    
+    # Do plots
+    plot_job = job.addChildJobFn(run_map_eval_plot, context, position_stats_file_id, plot_sets,
+        cores=context.config.misc_cores, memory=context.config.misc_mem,
+        disk=context.config.misc_disk)
+    # And tables
+    table_job = job.addChildJobFn(run_map_eval_table, context, position_stats_file_id, plot_sets,
+        cores=context.config.misc_cores, memory=context.config.misc_mem,
+        disk=context.config.misc_disk)
+        
+    # Concat file lists
+    merge_job = plot_job.addFollowOnJobFn(run_concat_lists, plot_job.rv(), table_job.rv(),
+        cores=context.config.misc_cores, memory=context.config.misc_mem,
+        disk=context.config.misc_disk)
+    table_job.addFollowOn(merge_job)
+    return merge_job.rv()
+    
+def run_concat_lists(job, *args):
+    """
+    Join all the given lists and return the merged list.
+    """
+    
+    concat = []
+    for input_list in args:
+        concat += input_list
+    return concat
 
 def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     """
@@ -1859,8 +1898,6 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     The combined position stats TSV has one header line, and format:
     
     correct flag, mapping quality, condition name, read name
-    
-    The CSV files follow the same format, but are CSVs and lack a header.
     
     plot_sets gives a list of collections of condition names to plot together.
     If None is in the list, all conditions are plotted.
@@ -1900,7 +1937,8 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
             
             try:
                 context.runner.call(job, cmd, work_dir = work_dir)
-                out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name), os.path.join('plots', plot_name))))
+                out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name),
+                    os.path.join('plots', plot_name))))
             except Exception as e:
                 if rscript == 'roc':
                     logger.warning('plot-roc.R failed: '.format(str(e)))
@@ -1908,6 +1946,181 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
                     # We insist that the R scripts execute successfully (except plot-roc)
                     raise e
             
+    return out_name_id_pairs
+    
+def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
+    """
+    
+    Make table TSVs of wrong/correct/improved read counts.
+    
+    The combined position stats TSV has one header line, and format:
+    
+    correct flag, mapping quality, condition name, read name
+    
+    plot_sets gives a list of collections of condition names to compare
+    together. If None is in the list, all conditions are plotted.
+    
+    outputs plots/table.tsv for the first set, and plots/table-1.svg, etc. for
+    subsequent sets.
+    
+    Returns a list of pairs of table file name and table file ID.
+    
+    """
+    
+    RealtimeLogger.info('Downloading mapeval stats for table...')
+    
+    # Find our working directory and download the stats file
+    work_dir = job.fileStore.getLocalTempDir()
+    position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
+    job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
+   
+    RealtimeLogger.info('Making mapeval summary table...')
+   
+    # Parse the table out into actual statistics.
+    
+    # This creates an empty stats dict for a condition
+    dict_for_condition = lambda: {
+        'wrong': 0, # Total wrong reads
+        'wrong60': 0, # Wrong reads with MAPQ 60
+        'wrong0': 0, # Wring reads with MAPQ 0
+        'wrong>0': 0, # Wrong reads with nonzero MAPQ
+        'correct': 0, # Total correct reads
+        'correct0': 0, # Correct reads with MAPQ 0
+        'correctMapqTotal': 0, # Total MAPQ of all correct reads, for averaging
+        'wrongNames': set() # Names of all wrong reads (which should be in the 1000s to 10ks in size)
+    }
+    
+    # This holds, by condition name, a bunch of stat values by stat name.
+    condition_stats = collections.defaultdict(dict_for_condition)
+    
+    # We will need to drop the first line (a header)
+    line_num = 0
+    with open(position_stats_path) as stats_stream:
+        # Open the stats file
+        for line in tsv.TsvReader(stats_stream):
+            # And read all the lines.
+            
+            if line_num == 0:
+                # Skip the header
+                line_num += 1
+                continue
+                
+            line_num += 1
+            
+            if line_num % 1000000 == 0:
+                RealtimeLogger.info('Processed {} alignments for table in {} conditions'.format(line_num, len(condition_stats)))
+            
+            # Line format is:
+            # correct flag, mapping quality, condition name, read name
+            if len(line) == 0:
+                # Skip blank
+                continue
+            
+            # Everything else must have all the fields
+            assert(len(line) >= 4)
+            # Unpack
+            correct, mapq, condition, read = line[0:4]
+            # And parse
+            correct = (correct == '1')
+            mapq = int(mapq)
+            
+            # Find the stats dict to update
+            stats = condition_stats[condition]
+            
+            # Update stats
+            # TODO: Make stats be lambda-defined instead of manual?
+            if correct:
+                stats['correct'] += 1
+                stats['correct0'] += (mapq == 0)
+                stats['correctMapqTotal'] += mapq
+            else:
+                stats['wrong'] += 1
+                stats['wrong60'] += (mapq == 60)
+                stats['wrong0'] += (mapq == 0)
+                stats['wrong>0'] += (mapq > 0)
+                stats['wrongNames'].add(read)
+                
+    # Now we have aggregated all the stats for all the conditions. We need to make the tables.
+
+    # Hold the list of file name and file ID pairs to return
+    out_name_id_pairs = []
+    
+    for i, plot_set in enumerate(plot_sets):
+        # For each set of graphs to look at together
+        
+        RealtimeLogger.info('Create table for plot set {}'.format(i))
+        
+        if i == 0:
+            # First table looks like this
+            table_name = 'table.tsv'
+        else:
+            # Additional tables look like this
+            table_name = 'table-{}.tsv'.format(i)
+            
+        if plot_set is None:
+            # Special value for running everything together.
+            # Make sure the plot set actually has names in it.
+            plot_set = list(condition_stats.keys())
+            
+        assert(len(plot_set) > 0)
+            
+        # Decide on our baseline condition.
+        # It will just be the first condition specified.
+        baseline_condition = plot_set[0]
+        
+        # Start the output file.
+        writer = tsv.TsvWriter(open(os.path.join(work_dir, table_name), 'w'))
+        header = ['Condition', 'Wrong reads total', 'At MAPQ 60', 'At MAPQ 0', 'At MAPQ >0',
+            'New vs. ' + baseline_condition, 'Fixed vs. ' + baseline_condition, 'Avg. Correct MAPQ', 'Correct MAPQ 0']
+        writer.list_line(header)
+        
+        for condition in plot_set:
+            # For each condition to plot, look up its stats
+            stats = condition_stats[condition]
+            
+            # Start a line
+            line = [condition]
+            line.append(stats['wrong'])
+            line.append(stats['wrong60'])
+            line.append(stats['wrong0'])
+            line.append(stats['wrong>0'])
+            
+            # Sum up the reads wrong in this condition but not in the baseline
+            new_vs_baseline = 0
+            for read in stats['wrongNames']:
+                if read not in condition_stats[baseline_condition]['wrongNames']:
+                    new_vs_baseline += 1
+            line.append(new_vs_baseline)
+            
+            # Sum up the reads wrong in the baseline but not in this condition
+            fixed_vs_baseline = 0
+            for read in condition_stats[baseline_condition]['wrongNames']:
+                if read not in stats['wrongNames']:
+                    fixed_vs_baseline += 1
+            line.append(fixed_vs_baseline)
+            
+            # Compute average MAPQ of correct reads
+            if stats['correct'] != 0:
+                # Can do division
+                avg_correct_mapq = float(stats['correctMapqTotal']) / stats['correct']
+            else:
+                avg_correct_mapq = None
+            line.append(avg_correct_mapq)
+            
+            line.append(stats['correct0'])
+            
+            writer.list_line(line)
+            
+        # Now the file is done
+        writer.close()
+        
+        # Save it
+        out_name_id_pairs.append((table_name, context.write_output_file(job, os.path.join(work_dir, table_name),
+            os.path.join('plots', table_name))))
+            
+    RealtimeLogger.info('Tables complete')
+            
+    # Return our pairs of file names and file IDS
     return out_name_id_pairs
 
 def run_write_map_times(job, context, gam_names, vg_map_times, bwa_map_times):
