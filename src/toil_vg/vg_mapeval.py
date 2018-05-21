@@ -1315,7 +1315,7 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     # make the position.results.tsv and position.stats.tsv
     results_file = os.path.join(work_dir, 'position.results.tsv')
     with open(results_file, 'w') as out_results:
-        out_results.write('correct\tmq\taligner\tread\n')
+        out_results.write('correct\tmq\taligner\tread\tcount\n')
 
         def write_tsv(comp_file, method):
             """
@@ -1326,9 +1326,22 @@ def run_process_position_comparisons(job, context, names, compare_ids):
             # The vg R scripts are responsible for determining a smart method name sort order now.
            
             with open(comp_file) as comp_in:
+                # This will hold counts for (correct, mq, method) tuples.
+                # We only summarize correct reads.
+                summary_counts = Counter()
+                # Wrong reads are just dumped as they occur with count 1
                 for line in comp_in:
                     toks = line.rstrip().split(', ')
-                    out_results.write('{}\t{}\t{}\t{}\n'.format(toks[1], toks[2], method, toks[0]))
+                    if toks[1] == '1':
+                        # Correct, so summarize
+                        summary_counts[(toks[1], toks[2], method)] += 1
+                    else:
+                        # Incorrect, write the whole line
+                        out_results.write('{}\t{}\t{}\t{}\t{}\n'.format(toks[1], toks[2], method, toks[0], 1))
+                for parts, count in summary_counts.iteritems():
+                    # Write summary lines with empty read names
+                    # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
+                    out_results.write('{}\t{}\t{}\t{}\t{}\n'.format(parts[0], parts[1], parts[2], '.', count))
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
@@ -1897,7 +1910,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     
     The combined position stats TSV has one header line, and format:
     
-    correct flag, mapping quality, condition name, read name
+    correct flag, mapping quality, condition name, read name, count
     
     plot_sets gives a list of collections of condition names to plot together.
     If None is in the list, all conditions are plotted.
@@ -1955,7 +1968,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     
     The combined position stats TSV has one header line, and format:
     
-    correct flag, mapping quality, condition name, read name
+    correct flag, mapping quality, condition name, read name, count
     
     plot_sets gives a list of collections of condition names to compare
     together. If None is in the list, all conditions are plotted.
@@ -2017,12 +2030,13 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 continue
             
             # Everything else must have all the fields
-            assert(len(line) >= 4)
+            assert(len(line) >= 5)
             # Unpack
-            correct, mapq, condition, read = line[0:4]
+            correct, mapq, condition, read, count = line[0:5]
             # And parse
             correct = (correct == '1')
             mapq = int(mapq)
+            count = int(count)
             
             # Find the stats dict to update
             stats = condition_stats[condition]
@@ -2030,14 +2044,14 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
             # Update stats
             # TODO: Make stats be lambda-defined instead of manual?
             if correct:
-                stats['correct'] += 1
-                stats['correct0'] += (mapq == 0)
-                stats['correctMapqTotal'] += mapq
+                stats['correct'] += count
+                stats['correct0'] += (mapq == 0) * count
+                stats['correctMapqTotal'] += mapq * count
             else:
-                stats['wrong'] += 1
-                stats['wrong60'] += (mapq == 60)
-                stats['wrong0'] += (mapq == 0)
-                stats['wrong>0'] += (mapq > 0)
+                stats['wrong'] += count
+                stats['wrong60'] += (mapq == 60) * count
+                stats['wrong0'] += (mapq == 0) * count
+                stats['wrong>0'] += (mapq > 0) * count
                 stats['wrongNames'].add(read)
                 
     # Now we have aggregated all the stats for all the conditions. We need to make the tables.
