@@ -12,7 +12,7 @@ def parse_args(args):
     parser.add_argument("out_store")
     parser.add_argument("basename", help="input file prefix.  will look for [outstore]/[basename].xg/gcsa,"
                         " [basename]_primary.xg/gcsa etc. as made by construct-hs37d5-ec2.py")
-    parser.add_argument("truth_reads", help="annotated gam or bam to use as truth. if gam, .pos file needed too")
+    parser.add_argument("truth_reads", help="annotated gam or bam or fastq to use as truth. if not bam, .pos file needed too")
     parser.add_argument("--leader", help="name of leader created with create-ec2-leader.sh")    
     parser.add_argument("--config", help="path of config on leader")
     parser.add_argument("--fasta", help="fasta. ideally already indexed with bwa index", required=True)
@@ -48,7 +48,10 @@ absolute_truth = os.path.join(s3_outstore, options.truth_reads)
 if options.truth_reads.endswith('.bam'):
     cmd += ['--bam_input_reads', absolute_truth]
 else:
-    cmd += ['--gam_input_reads', absolute_truth]
+    if options.truth_reads.endswith('.gam'):
+        cmd += ['--gam_input_reads', absolute_truth]
+    else:
+        cmd += ['--fastq', absolute_truth]
     cmd += ['--truth', os.path.splitext(absolute_truth)[0] + '.pos']
 
 cmd += ['--index-bases', absolute_basename]

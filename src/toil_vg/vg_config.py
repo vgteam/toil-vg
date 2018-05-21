@@ -330,7 +330,7 @@ vcfeval-disk: '64G'
 
 # Resources for vg sim
 sim-cores: 2
-sim-mem: '60G'
+sim-mem: '20G'
 sim-disk: '200G'
 
 ###########################################
