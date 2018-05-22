@@ -20,8 +20,8 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
-    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script
-from toil_vg.vg_mapeval import run_map_eval_summarize, run_map_eval_table
+    add_common_vg_parse_args, add_container_tool_parse_args
+from toil_vg.vg_mapeval import run_map_eval_summarize, run_map_eval_table, run_map_eval_plot
 from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,8 @@ def add_plot_options(parser):
                         help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) to plot together')
     parser.add_argument('--tables-only', action='store_true',
                         help='make only summary tables and not plots')
+    parser.add_argument('--plots-only', action='store_true',
+                        help='make only plots and not summary tables')
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -82,7 +84,11 @@ def run_plot(job, context, options, position_stats_file_id, plot_sets):
     """
     
     # Do plots and tables, unless we want to do just tables
-    job_fn = run_map_eval_summarize if not options.tables_only else run_map_eval_table
+    job_fn = run_map_eval_summarize
+    if options.tables_only:
+        job_fn = run_map_eval_table
+    if options.plots_only:
+        job_fn = run_map_eval_plot
     
     plot_job = job.addChildJobFn(job_fn, context, position_stats_file_id, plot_sets,
                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
