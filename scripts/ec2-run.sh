@@ -12,7 +12,7 @@ if ! [ -x "$(command -v toil)" ]; then
 	 exit 1
 fi
 
-NODE_TYPE="r3.8xlarge:0.85"
+NODE_TYPE="i3.8xlarge:0.90,i3.8xlarge"
 MAX_NODES="8"
 usage() {
     # Print usage to stderr

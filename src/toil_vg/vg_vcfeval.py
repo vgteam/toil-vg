@@ -316,9 +316,10 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
     out_name = os.path.join(out_tag, 'happy')
     os.makedirs(os.path.join(work_dir, out_tag))
     
-    # run the vcf_eval command
+    # run the hap.py command
     cmd = ['hap.py', vcfeval_baseline_name, call_vcf_name,
-           '--report-prefix', out_name, '--reference', fasta_name, '--write-vcf', '--write-counts', '--no-roc']
+           '--report-prefix', out_name, '--reference', fasta_name, '--write-vcf', '--write-counts', '--no-roc',
+           '--threads', str(job.cores)]
 
     if bed_name:
         cmd += ['--false-positives', bed_name]

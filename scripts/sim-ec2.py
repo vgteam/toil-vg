@@ -71,7 +71,7 @@ cmd = ['sim', options.job_store,
        '--annotate_xg', options.basename + '.xg',       
        '--seed', str(options.seed),
        '--sim_chunks', str(int(max(1, options.num_reads / 500000))),
-       '--gam']
+       '--gam', '--fastq_out']
 if options.fastq:
     cmd += ['--fastq', options.fastq]
 if sim_opts:
