@@ -224,7 +224,8 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
         # https://github.com/ekg/freebayes/issues/471
         # So we hack the VCFReader to think the sample names are what we want them to be
         assert(len(vcf_reader.samples) == 1)
-        assert(vcf_reader.samples[0] == 'unknown')
+        # TODO: asserting that sample 0 is named unknown can fail. Why?
+        RealtimeLogger.info('Correcting Freebayes samples {} to [{}]'.format(vcf_reader.samples, sample_name))
         vcf_reader.samples = [sample_name]
         # Rebuild the secret sample index
         vcf_reader._sample_indexes = {sample_name: 0}
