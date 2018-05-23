@@ -58,7 +58,7 @@ def calleval_subparser(parser):
     parser.add_argument("--chroms", nargs='+', required=True,
                         help="Name(s) of reference path in graph(s) (separated by space).")
     # todo: move to chunked_call_parse_args and share with toil-vg run
-    parser.add_argument("--gams", nargs='+', required=True, type=make_url,
+    parser.add_argument("--gams", nargs='+', type=make_url,
                         help="GAMs to call.  Each GAM treated as separate input (and must contain all chroms)")
     parser.add_argument("--sample_name", type=str, required=True,
                         help="sample name (ex NA12878)")
@@ -84,9 +84,9 @@ def calleval_parse_args(parser):
     """
     Add the calleval options to the given argparse parser.
     """
-    parser.add_argument('--gam_names', nargs='+', required=True,
+    parser.add_argument('--gam_names', nargs='+',
                         help='names of vg runs (corresponds to gams and xg_paths)')
-    parser.add_argument('--xg_paths', nargs='+', required=True, type=make_url,
+    parser.add_argument('--xg_paths', nargs='+', type=make_url,
                         help='xg indexes for the different graphs')
     parser.add_argument('--freebayes', action='store_true',
                         help='run freebayes as a baseline')
@@ -94,14 +94,14 @@ def calleval_parse_args(parser):
                         help='names of bwa runs (corresponds to bams)')
     parser.add_argument('--bams', nargs='+', type=make_url, default=[],
                         help='bam inputs for freebayes')
-    parser.add_argument('--call_and_genotype', action='store_true',
-                        help='run both vg call and vg genotype')
     parser.add_argument('--filter_opts_gt',
                         help='override filter-opts for genotype only')
     parser.add_argument('--clip_only', action='store_true',
                         help='only compute accuracy clipped to --vcfeval_bed_regions')
     parser.add_argument('--plot_sets', nargs='+', default=[],
                         help='comma-separated lists of condition-tagged GAM/BAM names (primary-mp-pe-call, bwa-fb, etc.) to plot together')
+    parser.add_argument('--call', action='store_true',
+                        help='run vg call (even if --genotype used)')    
     parser.add_argument("--surject", action="store_true",
                         help="surject GAMs to BAMs, adding the latter to the comparison")
     parser.add_argument("--interleaved", action="store_true", default=False,
@@ -111,17 +111,23 @@ def validate_calleval_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    require(len(options.gam_names) == len(options.xg_paths) == len(options.gams),
-            '--gam_names, --xg_paths, --gams must all contain same number of elements')
+    if options.gams or options.gam_names or options.xg_paths:        
+        require(options.gams and options.gam_names and options.xg_paths and
+                len(options.gam_names) == len(options.xg_paths) == len(options.gams),
+                '--gam_names, --xg_paths, --gams must all contain same number of elements')
+        require(options.call or options.genotype or options.surject,
+                '--call and/or --genotype and/or --surject required with --gams')
     if options.freebayes:
         require(options.bams, '--bams must be given for use with freebayes')
     if options.bams or options.bam_names:
         require(options.bams and options.bam_names and len(options.bams) == len(options.bam_names),
                 '--bams and --bam_names must be same length')
     require(options.vcfeval_baseline, '--vcfeval_baseline required')
-    require(options.vcfeval_fasta, '--vcfeval_fasta required')
-    
-    require(options.vcfeval_bed_regions is not None or not options.clip_only, '--vcfeval_bed_regions must be given with --clip_only')
+    require(options.vcfeval_fasta, '--vcfevael_fasta required')
+    if options.call or options.genotype or options.surject:
+        require(options.gams, '--gams must be given with --call, --genotype, and --surject')
+    require(options.vcfeval_bed_regions is not None or not options.clip_only,
+            '--vcfeval_bed_regions must be given with --clip_only')
 
 def run_bam_index(job, context, bam_file_id, bam_name):
     """
@@ -252,7 +258,6 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
     the list specifies a plot holding all condition names.
     
     """
-
 
     RealtimeLogger.info('Handling results for conditions {} in sets {}'.format(names, plot_sets))
 
@@ -596,14 +601,12 @@ def calleval_main(context, options):
                                                   os.path.basename(options.vcfeval_fasta)).rv()
 
             # Make a root job
-            do_call = options.call_and_genotype or not options.genotype
-            do_genotype = options.call_and_genotype or options.genotype
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
                                      inputBamIdxIds,
                                      options.gam_names, options.bam_names, 
                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
-                                     do_call,
-                                     do_genotype,
+                                     options.call,
+                                     options.genotype,
                                      options.sample_name,
                                      options.chroms, options.vcf_offsets,
                                      options.vcfeval_score_field,
