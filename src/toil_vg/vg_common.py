@@ -342,7 +342,6 @@ to do: Should go somewhere more central """
                         
                         # Otherwise, check on it
                         container.reload()
-                        RealtimeLogger.warning("Container {} has never sent us output. Status: {}".format(container.id, container.status))
                         
                         if container.status not in ['created', 'restarting', 'running', 'removing']:
                             # The container has stopped. So what are we doing waiting around for it?
