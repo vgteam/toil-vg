@@ -72,6 +72,11 @@ gcsa-index-mem: '4G'
 gcsa-index-disk: '2G'
 gcsa-index-preemptable: 'True'
 
+# Resources allotted for snarl indexing.
+snarl-index-cores: 1
+snarl-index-mem: '4G'
+snarl-index-disk: '2G'
+
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs
 fq-split-cores: 1
@@ -293,6 +298,11 @@ gcsa-index-cores: 16
 gcsa-index-mem: '110G'
 gcsa-index-disk: '2200G'
 gcsa-index-preemptable: 'False'
+
+# Resources alloted to snarl indexing
+snarl-index-cores: 1
+snarl-index-mem: '200G'
+snarl-index-disk: '100G'
 
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs
