@@ -155,6 +155,39 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
 
     return context.write_output_file(job, out_roc_path, os.path.join('plots', plot_filename))
 
+def run_extract_sample_truth_vcf(job, context, sample, input_baseline_id, input_baseline_tbi_id):
+    """
+    
+    Extract a single-sample truth VCF from the given truth VCF .vcf.gz and .vcf.gz.tbi.
+    
+    Returns a pair of file IDs for the resulting .vcf.gz and .vcf.gz.tbi.
+    
+    Filtering the truth down is useful because it can save memory.
+    
+    TODO: use this in toil-vg vcfeval, instead of just providing it as a utility.
+    
+    """
+    
+    # Make a local work directory
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    # Download the truth vcf
+    vcfeval_baseline_name = 'full-truth.vcf.gz'
+    job.fileStore.readGlobalFile(input_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
+    job.fileStore.readGlobalFile(input_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))    
+    
+    # Make the single-sample VCF
+    single_name = 'single-truth-{}.vcf.gz'.format(sample)
+    context.runner.call(job, ['bcftools', 'view', vcfeval_baseline_name, '-s', sample, '-o', single_name, '-O', 'z'], work_dir=work_dir)
+    
+    # Index it
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', single_name], work_dir=work_dir)
+    
+    # Upload file and index
+    single_vcf_id = context.write_output_file(job, os.path.join(work_dir, single_name))
+    single_vcf_tbi_id = context.write_output_file(job, os.path.join(work_dir, single_name + '.tbi'))
+    
+    return single_vcf_id, single_vcf_tbi_id
 
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
     fasta_path, fasta_id, bed_id, out_name = None, score_field=None):

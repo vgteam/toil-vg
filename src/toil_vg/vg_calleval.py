@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_merge_vcf
-from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy
+from toil_vg.vg_vcfeval import vcfeval_parse_args, run_extract_sample_truth_vcf, run_vcfeval, run_vcfeval_roc_plot, run_happy
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
 from toil_vg.vg_surject import run_surjecting
@@ -388,15 +388,27 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     happy_results = []
     timing_results = []
 
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)
+    # Some prep work (surjection and truth extraction) will happen under this head job
+    head_job = Job()
+    job.addChild(head_job)
 
-    # optionally surject all the gams into bams
+    # Most of our work will run under this child job
+    child_job = Job()
+    head_job.addFollowOn(child_job)
+    
+    
+    # We always extract a single-sample VCF from the truth, to save time
+    # picking through all its samples multiple times over later. This should
+    # also save memory. TODO: should we define a separate disk/memory requirement set?
+    sample_extract_job = head_job.addChildJobFn(run_extract_sample_truth_vcf, context, sample_name, vcfeval_baseline_id,
+                                                vcfeval_baseline_tbi_id, cores=context.config.vcfeval_cores,
+                                                memory=context.config.vcfeval_mem,
+                                                disk=context.config.vcfeval_disk)
+    truth_vcf_id = sample_extract_job.rv(0)
+    truth_vcf_tbi_id = sample_extract_job.rv(1)
+    
     if surject:
-        head_job = child_job
-        child_job = Job()
-        head_job.addFollowOn(child_job)
+        # optionally surject all the gams into bams
         for xg_id, gam_name, gam_id in zip(xg_ids, gam_names, gam_ids):
             surject_job = head_job.addChildJobFn(run_surjecting, context, gam_id, gam_name + '-surject',
                                                  interleaved, xg_id, chroms, cores=context.config.misc_cores,
@@ -433,12 +445,17 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
 
             if bed_id:
                 eval_clip_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
-                                                           vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                           truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                            fasta_id, bed_id, out_name=fb_out_name,
-                                                           score_field='GQ').rv()
+                                                           score_field='GQ', cores=context.config.vcfeval_cores,
+                                                           memory=context.config.vcfeval_mem,
+                                                           disk=context.config.vcfeval_disk).rv()
                 happy_clip_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
-                                                           vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
-                                                           fasta_id, bed_id, out_name=fb_out_name).rv()
+                                                           truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                           fasta_id, bed_id, out_name=fb_out_name,
+                                                           cores=context.config.vcfeval_cores,
+                                                           memory=context.config.vcfeval_mem,
+                                                           disk=context.config.vcfeval_disk).rv()
             else:
                 eval_clip_result = None
                 happy_clip_result = None
@@ -449,14 +466,19 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 happy_result = None
             else:
                 eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
-                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                       fasta_id, None,
                                                       out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
-                                                      score_field='GQ').rv()
+                                                      score_field='GQ', cores=context.config.vcfeval_cores,
+                                                      memory=context.config.vcfeval_mem,
+                                                      disk=context.config.vcfeval_disk).rv()
                 happy_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
-                                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                       fasta_id, None,
-                                                      out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped').rv()
+                                                      out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
+                                                      cores=context.config.vcfeval_cores,
+                                                      memory=context.config.vcfeval_mem,
+                                                      disk=context.config.vcfeval_disk).rv()
 
             
             vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)            
@@ -495,11 +517,11 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
 
                     if bed_id:
                         eval_clip_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
-                                                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                     truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                                      fasta_id, bed_id, out_name=out_name,
                                                                      score_field=score_field).rv()
                         happy_clip_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
-                                                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                     truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                                      fasta_id, bed_id, out_name=out_name).rv()
                         
                     else:
@@ -512,12 +534,12 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                         happy_result = None
                     else:
                         eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
-                                                                vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                                 fasta_id, None,
                                                                 out_name=out_name if not bed_id else out_name + '-unclipped',
                                                                 score_field=score_field).rv()
                         happy_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
-                                                                vcfeval_baseline_id, vcfeval_baseline_tbi_id, 'ref.fasta',
+                                                                truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                                 fasta_id, None,
                                                                 out_name=out_name if not bed_id else out_name + '-unclipped').rv()                        
                     names.append(out_name)            
