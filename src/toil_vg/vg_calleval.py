@@ -323,8 +323,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
 
                 # Subset down to just the ROC tables for the names that were selected.
                 # TODO: do this in a less n^2 way.
-                subset_roc_table_ids = [roc_table_ids[i] for i in range(len(roc_table_ids)) if names[i] in subset_names]
-
+                subset_roc_table_ids = [roc_table_ids[j] for j in range(len(roc_table_ids)) if names[j] in subset_names]
                 # Append the number to the title (and output filename) for all subsets except the first
                 subset_roc_title = roc_title + ('' if subset_number == 0 else '-{}'.format(subset_number))
 
