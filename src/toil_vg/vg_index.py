@@ -751,9 +751,9 @@ def run_indexing(job, context, inputGraphFileIDs,
     if not skip_snarls:
         indexes['snarls'] = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
                                               graph_names, index_name,
-                                              cores=context.config.misc_cores,
-                                              memory=context.config.misc_mem,
-                                              disk=context.config.misc_disk).rv()
+                                              cores=context.config.snarl_index_cores,
+                                              memory=context.config.snarl_index_mem,
+                                              disk=context.config.snarl_index_disk).rv()
     
 
     return indexes
