@@ -346,7 +346,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
             stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result['f1'], happy_snp_f1, happy_indel_f1))
 
     # Make the roc plots
-    roc_plot_job = job.addChildJob(run_calleval_plots, context, names, eval_results_dict, plot_sets=plot_sets)
+    roc_plot_job = job.addChildJobFn(run_calleval_plots, context, names, eval_results_dict, plot_sets=plot_sets)
     roc_plot_ids = roc_plot_job.rv()
 
     # write some times
