@@ -141,6 +141,7 @@ class VGCGLTest(TestCase):
         self.chrom_fa_nz = self._ci_input_path('small.fa')
         self._download_input('NA12877.brca1.bam_1.fq.gz')
         self.baseline = self._ci_input_path('small.vcf.gz')
+        self.bed_regions = self._ci_input_path('small_regions.bed')
 
         self._run('toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                   '--graphs', self.test_vg_graph, '--chroms', 'x',
@@ -213,6 +214,7 @@ class VGCGLTest(TestCase):
                   '--realTimeLogging', '--logInfo',
                   '--vcfeval_fasta', self.chrom_fa_nz,
                   '--vcfeval_baseline', self.baseline,
+                  '--vcfeval_bed_regions', self.bed_regions,
                   '--sample_name', '1',
                   '--calling_cores', '2',
                   '--genotype', '--genotype_opts', '-P 0', 
