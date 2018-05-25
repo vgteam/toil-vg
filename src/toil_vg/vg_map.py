@@ -105,7 +105,7 @@ def validate_map_options(context, options):
     require(options.multipath or options.snarls_index is None,
             'snarls cannot be used with the single-path mapper') 
     if options.multipath:
-        require('-S' in context.config.mpmap_opts,
+        require('-S' in context.config.mpmap_opts or '--single-path-mode' in context.config.mpmap_opts,
                 '-S must be used with multipath aligner to produce GAM output')
         require(not options.bam_output,
                 '--bam_output not currently supported with multipath aligner (--multipath)')
