@@ -191,7 +191,24 @@ def run_extract_sample_truth_vcf(job, context, sample, input_baseline_id, input_
 
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
     fasta_path, fasta_id, bed_id, out_name = None, score_field=None):
-    """ run vcf_eval, return (f1 score, summary id, output archive id, snp-id, nonsnp-id, weighted-id)"""
+    """
+    
+    Run RTG vcf_eval to compare VCFs.
+    
+    Return a results dict like:
+    
+    {
+        "f1": f1 score as float,
+        "summary": summary file ID,
+        "archive": output archive ID,
+        "snp": ROC .tsv.gz data file ID for SNPs,
+        "non_snp": ROC .tsv.gz data file ID for non-SNP variants,
+        "weighted": ROC .tsv.gz data file ID for a weighted combination of SNP and non-SNP variants
+    }
+    
+    Some ROC data file IDs may not be present if they were not calculated.
+    
+    """
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
@@ -293,21 +310,41 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         f.write(str(f1))
     context.write_output_file(job, f1_path, out_store_path = '{}_f1.txt'.format(out_tag))
 
+    # Start the output dict
+    out_dict = {
+        "f1": f1, 
+        "summary": out_summary_id, 
+        "archive": out_archive_id
+    }
+
     #  roc data (written to outstore to allow re-plotting)
-    out_roc_ids = []
     for roc_name in ['snp', 'non_snp', 'weighted']:
         roc_file = os.path.join(work_dir, out_tag, '{}_roc.tsv.gz'.format(roc_name))
         if os.path.isfile(roc_file):
-            out_roc_ids.append(context.write_output_file(job, roc_file,
-                               os.path.join('roc', out_tag, '{}_roc.tsv.gz'.format(roc_name))))
-        else:
-            out_roc_ids.append(None)
+            # Save this one
+            dest_file = os.path.join('roc', out_tag, '{}_roc.tsv.gz'.format(roc_name))
+            out_dict[roc_name] = context.write_output_file(job, roc_file, dest_file)
 
-    return [f1, out_summary_id, out_archive_id] + out_roc_ids
+    return out_dict
 
 def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
               fasta_path, fasta_id, bed_id, fasta_idx_id = None, out_name = None):
-    """ run vcf_eval, return (f1 score, summary id, output archive id, snp-id, nonsnp-id, weighted-id)"""
+    """
+    
+    Run hap.py to compare VCFs.
+    
+    Return a results dict like:
+    
+    {
+        "parsed_summary": parsed summary file dict, including F1 scores,
+        "summary": summary file ID,
+        "archive": output archive ID
+    }
+    
+    The parsed summary dict is by variant type ('SNP', 'INDEL'), and then by metric name (like 'METRIC.F1_Score').
+    
+    """
+    
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
@@ -390,7 +427,11 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
         f.write('{}\t{}\n'.format(happy_results['SNP']['METRIC.F1_Score'], happy_results['INDEL']['METRIC.F1_Score']))
     context.write_output_file(job, f1_path, out_store_path = '{}_f1.txt'.format(out_tag))
     
-    return happy_results, out_summary_id, out_archive_id
+    return {
+        "parsed_summary": happy_results,
+        "summary": out_summary_id,
+        "archive": out_archive_id
+    }
 
 def vcfeval_main(context, options):
     """ command line access to toil vcf eval logic"""
@@ -441,12 +482,10 @@ def vcfeval_main(context, options):
                 init_job.addFollowOn(happy_job)
 
             # Run the job
-            f1 = toil.start(init_job)
+            toil.start(init_job)
         else:
-            f1 = toil.restart()
+            toil.restart()
 
-        print("F1 Score : {}".format(f1))
-                
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  

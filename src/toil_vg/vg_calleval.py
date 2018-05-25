@@ -14,7 +14,6 @@ import pdb
 import gzip
 import logging
 import copy
-from collections import Counter
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -244,46 +243,19 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
             context.write_output_file(job, vcf_fix_path + '.gz.tbi'),
             timer)
 
-def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy_results, timing_results, plot_sets=[None]):
+def run_calleval_plots(job, context, eval_result_dict, plot_sets=[None]):
     """
     
-    output the calleval results
+    Make and output calleval ROC plots.
     
-    Requires that, if any result in eval_results has clipped results, all
-    results have clipped results, and similarly for unclipped results.
-
-    If specified, plot_sets gives a list of lists of condition names that
-    appear in names. Each list of conditions will be plotted together, instead
-    of making one big plot for all conditions. Output files will be named
-    sequentially (roc-snp.svg, roc-snp-1.svg, roc-snp-2.svg, etc.). A None in
-    the list specifies a plot holding all condition names.
+    Takes a nested dict by condition name, then clipping status ("clipped",
+    "unclipped"), and then variant type ("snp", "non_snp", "weighted").
+    Eventual entries are to ROC data file ids (.tsv.gz).
+    
+    Returns a list of created plot file IDs.
     
     """
-
-    RealtimeLogger.info('Handling results for conditions {} in sets {}'.format(names, plot_sets))
-
-    # make a local work directory
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # make a simple tsv
-    stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
-    with open(stats_path, 'w') as stats_file:
-        for name, eval_result, happy_result in zip(names, eval_results, happy_results):
-            # Find the best result (clipped if present, unclipped if not).
-            # The best is the last non-None one.
-            best_result = [r for r in eval_result if r is not None][-1]
-
-            # Same for the happy results
-            happy_non_none_results = [r for r in happy_result if r is not None]
-            if happy_non_none_results:
-                happy_snp_f1 = happy_non_none_results[-1][0]['SNP']['METRIC.F1_Score']
-                happy_indel_f1 = happy_non_none_results[-1][0]['INDEL']['METRIC.F1_Score']
-            else:
-                happy_snp_f1, happy_indel_f1 = -1, -1
-                
-            # Output the F1 score (first element)
-            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result[0], happy_snp_f1, happy_indel_f1))
-
+    
     # Replace Nones in the list of plot sets with "subsets" of all the condition names
     plot_sets = [plot_set if plot_set is not None else names for plot_set in plot_sets]
 
@@ -330,6 +302,51 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
                 # Make the plot
                 roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, subset_roc_table_ids, names=subset_names,
                                                       title=subset_roc_title).rv())
+    
+
+def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy_results, timing_results, plot_sets=[None]):
+    """
+    
+    output the calleval results
+    
+    Requires that, if any result in eval_results has clipped results, all
+    results have clipped results, and similarly for unclipped results.
+
+    If specified, plot_sets gives a list of lists of condition names that
+    appear in names. Each list of conditions will be plotted together, instead
+    of making one big plot for all conditions. Output files will be named
+    sequentially (roc-snp.svg, roc-snp-1.svg, roc-snp-2.svg, etc.). A None in
+    the list specifies a plot holding all condition names.
+    
+    """
+
+    RealtimeLogger.info('Handling results for conditions {} in sets {}'.format(names, plot_sets))
+
+    # make a local work directory
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # make a simple tsv
+    stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
+    with open(stats_path, 'w') as stats_file:
+        for name, eval_result, happy_result in zip(names, eval_results, happy_results):
+            # Find the best result (clipped if present, unclipped if not).
+            # The best is the last non-None one.
+            best_result = [r for r in eval_result if r is not None][-1]
+
+            # Same for the happy results
+            happy_non_none_results = [r for r in happy_result if r is not None]
+            if happy_non_none_results:
+                happy_snp_f1 = happy_non_none_results[-1][0]['SNP']['METRIC.F1_Score']
+                happy_indel_f1 = happy_non_none_results[-1][0]['INDEL']['METRIC.F1_Score']
+            else:
+                happy_snp_f1, happy_indel_f1 = -1, -1
+                
+            # Output the F1 score (first element)
+            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result[0], happy_snp_f1, happy_indel_f1))
+
+    # Make the roc plots
+    roc_plot_job = job.addChildJob(run_calleval_plots, context, plot_sets, eval_results_dict)
+    roc_plot_ids = roc_plot_job.rv()
 
     # write some times
     times_path = os.path.join(work_dir, 'call_times.tsv')
@@ -357,8 +374,11 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
                 times_file.write('\t{}'.format(timer.total([other_label])))
             times_file.write('\n')
                         
-    return [context.write_output_file(job, stats_path),
-            context.write_output_file(job, times_path)] + roc_plot_ids
+    return roc_plot_job.addFollowOnJobFn(run_concat_lists,
+                                         [context.write_output_file(job, stats_path), context.write_output_file(job, times_path)],
+                                         roc_plot_ids).rv()
+            
+
                              
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
@@ -381,11 +401,17 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     
     """
     
-    vcf_tbi_id_pairs = []
+    # We store the name of each condition we run
     names = []
-    eval_results = []
-    happy_results = []
+    # And we build up these result lists in sync with the name list
+    vcf_tbi_id_pairs = []
     timing_results = []
+    
+    # Here we accumulate vcf_eval comparison results in a dict by condition name, then clipping status ("clipped", "unclipped").
+    # Each contained dict is the output dict from run_vcfeval
+    eval_results = collections.defaultdict(dict)
+    # And here we store similarly the output dicts from run_happy
+    happy_results = collections.defaultdict(dict)
 
     # Some prep work (surjection and truth extraction) will happen under this head job
     head_job = Job()
