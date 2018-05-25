@@ -293,12 +293,13 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         f.write(str(f1))
     context.write_output_file(job, f1_path, out_store_path = '{}_f1.txt'.format(out_tag))
 
-    #  roc data (not written to out store, but returned)
+    #  roc data (written to outstore to allow re-plotting)
     out_roc_ids = []
     for roc_name in ['snp', 'non_snp', 'weighted']:
         roc_file = os.path.join(work_dir, out_tag, '{}_roc.tsv.gz'.format(roc_name))
         if os.path.isfile(roc_file):
-            out_roc_ids.append(context.write_intermediate_file(job, roc_file))
+            out_roc_ids.append(context.write_output_file(job, roc_file,
+                               os.path.join('roc', out_tag, '{}_roc.tsv.gz'.format(roc_name))))
         else:
             out_roc_ids.append(None)
 
