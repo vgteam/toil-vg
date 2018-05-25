@@ -302,6 +302,8 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
                 # Make the plot
                 roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, subset_ids, names=subset_names,
                                                       title=subset_roc_title).rv())
+                                                      
+    return roc_plot_ids
     
 
 def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, happy_results_dict, timing_results, plot_sets=[None]):
