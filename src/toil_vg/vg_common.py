@@ -652,3 +652,15 @@ class TimeTracker:
         return sum([self.times[name] for name in names])
     def names(self):
         return self.times.keys()
+        
+        
+def run_concat_lists(job, *args):
+    """
+    Toil job to join all the given lists and return the merged list.
+    """
+    
+    concat = []
+    for input_list in args:
+        concat += input_list
+    return concat
+

@@ -33,7 +33,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
-    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script
+    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -1892,16 +1892,6 @@ def run_map_eval_summarize(job, context, position_stats_file_id, plot_sets):
     table_job.addFollowOn(merge_job)
     return merge_job.rv()
     
-def run_concat_lists(job, *args):
-    """
-    Join all the given lists and return the merged list.
-    """
-    
-    concat = []
-    for input_list in args:
-        concat += input_list
-    return concat
-
 def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     """
     

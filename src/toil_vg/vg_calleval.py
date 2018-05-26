@@ -14,7 +14,6 @@ import pdb
 import gzip
 import logging
 import copy
-from collections import Counter
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -244,7 +243,70 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
             context.write_output_file(job, vcf_fix_path + '.gz.tbi'),
             timer)
 
-def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy_results, timing_results, plot_sets=[None]):
+def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None]):
+    """
+    
+    Make and output calleval ROC plots.
+    
+    Takes a nested dict by condition name, then clipping status ("clipped",
+    "unclipped"), and then variant type ("snp", "non_snp", "weighted").
+    Eventual entries are to ROC data file ids (.tsv.gz).
+    
+    Returns a list of created plot file IDs.
+    
+    """
+    
+    # Replace Nones in the list of plot sets with "subsets" of all the condition names
+    plot_sets = [plot_set if plot_set is not None else names for plot_set in plot_sets]
+
+    # make some roc plots
+    roc_plot_ids = []
+    for roc_type in ['snp', 'non_snp', 'weighted']:
+        # For each type of ROC to plot
+    
+        for mode in ['unclipped', 'clipped']:
+            # For each clipping mode
+
+            # What should we title the plot?
+            # It should be this unless there is a clipped mode for this ROC and we are the unclipped one.
+            roc_title = roc_type
+            if mode == 'unclipped' and True in [eval_results_dict.has_key('clipped') for eval_result in eval_results_dict.itervalues()]:
+                # We are the unclipped mode and there will be a clipped mode
+                roc_title += '-unclipped'
+            
+            # Get all the eval results for this mode, by condition name
+            mode_results = {name: eval_result.get(mode) for name, eval_result in eval_results_dict.iteritems()}
+            
+            if None in mode_results.itervalues():
+                # We can't do this mode since it wasn't run
+                continue
+                
+            # Extract out all the stats file IDs for this ROC type, by condition name
+            roc_table_ids = {name: result.get(roc_type) for name, result in mode_results.iteritems()}
+            
+            for subset_number, subset_names in enumerate(plot_sets):
+                # For each collection of condition names to plot agaisnt each other
+
+                for name in subset_names:
+                    # Make sure all the names in the subset are conditions that actually ran
+                    assert(name in names)
+                    # And that they have ROC data
+                    assert(roc_table_ids.has_key(name))
+
+                # Make a list of roc table IDs for the subset, in subset_names order
+                subset_ids = [roc_table_ids[name] for name in subset_names]
+
+                # Append the number to the title (and output filename) for all subsets except the first
+                subset_roc_title = roc_title + ('' if subset_number == 0 else '-{}'.format(subset_number))
+
+                # Make the plot
+                roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, subset_ids, names=subset_names,
+                                                      title=subset_roc_title).rv())
+                                                      
+    return roc_plot_ids
+    
+
+def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, happy_results_dict, timing_results, plot_sets=[None]):
     """
     
     output the calleval results
@@ -268,68 +330,26 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
     # make a simple tsv
     stats_path = os.path.join(work_dir, 'calleval_stats.tsv')
     with open(stats_path, 'w') as stats_file:
-        for name, eval_result, happy_result in zip(names, eval_results, happy_results):
+        for name in names:
+            eval_result = eval_results_dict[name]
+            happy_result = happy_results_dict[name]
             # Find the best result (clipped if present, unclipped if not).
-            # The best is the last non-None one.
-            best_result = [r for r in eval_result if r is not None][-1]
+            best_result = eval_result.get("clipped", eval_result.get("unclipped", None))
 
             # Same for the happy results
-            happy_non_none_results = [r for r in happy_result if r is not None]
-            if happy_non_none_results:
-                happy_snp_f1 = happy_non_none_results[-1][0]['SNP']['METRIC.F1_Score']
-                happy_indel_f1 = happy_non_none_results[-1][0]['INDEL']['METRIC.F1_Score']
+            best_happy_result = happy_result.get("clipped", happy_result.get("unclipped", None))
+            if best_happy_result is not None:
+                happy_snp_f1 = best_happy_result['parsed_summary']['SNP']['METRIC.F1_Score']
+                happy_indel_f1 =  best_happy_result['parsed_summary']['INDEL']['METRIC.F1_Score']
             else:
                 happy_snp_f1, happy_indel_f1 = -1, -1
                 
-            # Output the F1 score (first element)
-            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result[0], happy_snp_f1, happy_indel_f1))
+            # Output the F1 scores
+            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result['f1'], happy_snp_f1, happy_indel_f1))
 
-    # Replace Nones in the list of plot sets with "subsets" of all the condition names
-    plot_sets = [plot_set if plot_set is not None else names for plot_set in plot_sets]
-
-    # make some roc plots
-    roc_plot_ids = []
-    for i, roc_type in zip(range(3,6), ['snp', 'non_snp', 'weighted']):
-    
-        for mode in range(2):
-            # Mode can be unclipped (0) or clipped (1)
-
-            # What should we title the plot?
-            # It should be this unless there is a clipped mode for this ROC and we are the unclipped one.
-            roc_title = roc_type
-            if mode == 0 and None in [eval_result[1] for eval_result in eval_results]:
-                # We are the unclipped mode and there will be a clipped mode
-                roc_title += '-unclipped'
-            
-            # Get all the eval results for this mode
-            mode_results = [eval_result[mode] for eval_result in eval_results]
-            
-            if None in mode_results:
-                # We can't do this mode since it wasn't run
-                continue
-                
-            # Extract out all the stats file IDs for this ROC type
-            roc_table_ids = [result[i] for result in mode_results]
-            
-            for subset_number, subset_names in enumerate(plot_sets):
-                # For each collection of condition names to plot agaisnt each other
-
-                # Make sure the names and tables go together properly
-                assert(len(roc_table_ids) == len(names))
-
-                for name in subset_names:
-                    # Make sure all the names in the subset are conditions that actually ran
-                    assert(name in names)
-
-                # Subset down to just the ROC tables for the names that were selected.
-                # TODO: do this in a less n^2 way.
-                subset_roc_table_ids = [roc_table_ids[j] for j in range(len(roc_table_ids)) if names[j] in subset_names]
-                # Append the number to the title (and output filename) for all subsets except the first
-                subset_roc_title = roc_title + ('' if subset_number == 0 else '-{}'.format(subset_number))
-
-                # Make the plot
-                roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, subset_roc_table_ids, names=subset_names,
-                                                      title=subset_roc_title).rv())
+    # Make the roc plots
+    roc_plot_job = job.addChildJobFn(run_calleval_plots, context, names, eval_results_dict, plot_sets=plot_sets)
+    roc_plot_ids = roc_plot_job.rv()
 
     # write some times
     times_path = os.path.join(work_dir, 'call_times.tsv')
@@ -357,8 +377,11 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results, happy
                 times_file.write('\t{}'.format(timer.total([other_label])))
             times_file.write('\n')
                         
-    return [context.write_output_file(job, stats_path),
-            context.write_output_file(job, times_path)] + roc_plot_ids
+    return roc_plot_job.addFollowOnJobFn(run_concat_lists,
+                                         [context.write_output_file(job, stats_path), context.write_output_file(job, times_path)],
+                                         roc_plot_ids).rv()
+            
+
                              
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
@@ -371,9 +394,9 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     vcfeval and the accuracies are tabulated in the output
     
     Returns the output of run_calleval results, a list of condition names, a
-    list of corresponding called VCF.gz and index ID pairs, and a list of
-    corresponding pairs of run_vcfeval output tuples for bed-clipped and
-    bed-unclipped modes. Either of those tuples may be None.
+    list of corresponding called VCF.gz and index ID pairs, and dicts of
+    vcfeval and happy result dicts, by condition name and clipped/unclipped
+    status.
 
     plot_sets is a list of lists of condition names (like "bwa-pe-fb" or
     "snp1kg-pe-gt") to plot against each other. If any sublist is None, all
@@ -381,11 +404,17 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     
     """
     
-    vcf_tbi_id_pairs = []
+    # We store the name of each condition we run
     names = []
-    eval_results = []
-    happy_results = []
+    # And we build up these result lists in sync with the name list
+    vcf_tbi_id_pairs = []
     timing_results = []
+    
+    # Here we accumulate vcf_eval comparison results in a dict by condition name, then clipping status ("clipped", "unclipped").
+    # Each contained dict is the output dict from run_vcfeval
+    eval_results = collections.defaultdict(dict)
+    # And here we store similarly the output dicts from run_happy
+    happy_results = collections.defaultdict(dict)
 
     # Some prep work (surjection and truth extraction) will happen under this head job
     head_job = Job()
@@ -440,50 +469,50 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                     memory=context.config.misc_mem,
                                                     disk=context.config.misc_disk)
             fb_vcf_tbi_id_pair = (fb_job.rv(0), fb_job.rv(1))
-            timing_results.append(fb_job.rv(2))
+            timing_result = fb_job.rv(2)
 
             if bed_id:
-                eval_clip_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
-                                                           truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                           fasta_id, bed_id, out_name=fb_out_name,
-                                                           score_field='GQ', cores=context.config.vcfeval_cores,
-                                                           memory=context.config.vcfeval_mem,
-                                                           disk=context.config.vcfeval_disk).rv()
-                happy_clip_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
-                                                           truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                           fasta_id, bed_id, out_name=fb_out_name,
-                                                           cores=context.config.vcfeval_cores,
-                                                           memory=context.config.vcfeval_mem,
-                                                           disk=context.config.vcfeval_disk).rv()
-            else:
-                eval_clip_result = None
-                happy_clip_result = None
+                 
             
-            if clip_only:
-                # Don't do unclipped, only do the BED-clipped version
-                eval_result = None
-                happy_result = None
-            else:
-                eval_result = fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      fasta_id, None,
-                                                      out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
-                                                      score_field='GQ', cores=context.config.vcfeval_cores,
-                                                      memory=context.config.vcfeval_mem,
-                                                      disk=context.config.vcfeval_disk).rv()
-                happy_result = fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      fasta_id, None,
-                                                      out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
-                                                      cores=context.config.vcfeval_cores,
-                                                      memory=context.config.vcfeval_mem,
-                                                      disk=context.config.vcfeval_disk).rv()
+                eval_results[fb_out_name]["clipped"] = \
+                    fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
+                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                            fasta_id, bed_id, out_name=fb_out_name,
+                                            score_field='GQ', cores=context.config.vcfeval_cores,
+                                            memory=context.config.vcfeval_mem,
+                                            disk=context.config.vcfeval_disk).rv()
+                happy_results[fb_out_name]["clipped"] = \
+                    fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
+                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                            fasta_id, bed_id, out_name=fb_out_name,
+                                            cores=context.config.vcfeval_cores,
+                                            memory=context.config.vcfeval_mem,
+                                            disk=context.config.vcfeval_disk).rv()
+            
+            if not clip_only:
+                # Also do unclipped
+                
+                eval_results[fb_out_name]["unclipped"] = \
+                    fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
+                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                            fasta_id, None,
+                                            out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
+                                            score_field='GQ', cores=context.config.vcfeval_cores,
+                                            memory=context.config.vcfeval_mem,
+                                            disk=context.config.vcfeval_disk).rv()
+                happy_results[fb_out_name]["unclipped"] = \
+                    fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
+                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                            fasta_id, None,
+                                            out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
+                                            cores=context.config.vcfeval_cores,
+                                            memory=context.config.vcfeval_mem,
+                                            disk=context.config.vcfeval_disk).rv()
 
             
-            vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)            
+            vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)
+            timing_results.append(timing_result)
             names.append(fb_out_name)
-            eval_results.append((eval_result, eval_clip_result))
-            happy_results.append((happy_result, happy_clip_result))
 
     # optional override to filter-opts when running genotype
     # this is allows us to run different filter-opts for call and genotype
@@ -507,7 +536,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                        memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk)
                     vcf_tbi_id_pair = (call_job.rv(0), call_job.rv(1))
-                    timing_results.append(call_job.rv(2))
+                    timing_result = call_job.rv(2)
 
                     if not vcfeval_score_field:
                         score_field = 'GQ' if gt else 'QUAL'
@@ -515,36 +544,35 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                         score_field = vcfeval_score_field
 
                     if bed_id:
-                        eval_clip_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
-                                                                     truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                                     fasta_id, bed_id, out_name=out_name,
-                                                                     score_field=score_field).rv()
-                        happy_clip_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
-                                                                     truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                                     fasta_id, bed_id, out_name=out_name).rv()
+                        eval_results[out_name]["clipped"] = \
+                            call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
+                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                      fasta_id, bed_id, out_name=out_name,
+                                                      score_field=score_field).rv()
+                        happy_results[out_name]["clipped"] = \
+                            call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                      fasta_id, bed_id, out_name=out_name).rv()
                         
-                    else:
-                        eval_clip_result = None
-                        happy_clip_result = None
                         
-                    if clip_only:
-                        # Don't do unclipped, only do the BED-clipped version
-                        eval_result = None
-                        happy_result = None
-                    else:
-                        eval_result = call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
-                                                                truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                                fasta_id, None,
-                                                                out_name=out_name if not bed_id else out_name + '-unclipped',
-                                                                score_field=score_field).rv()
-                        happy_result = call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
-                                                                truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                                fasta_id, None,
-                                                                out_name=out_name if not bed_id else out_name + '-unclipped').rv()                        
-                    names.append(out_name)            
+                    if not clip_only:
+                        # Also do unclipped
+                        eval_results[out_name]["unclipped"] = \
+                            call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
+                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                      fasta_id, None,
+                                                      out_name=out_name if not bed_id else out_name + '-unclipped',
+                                                      score_field=score_field).rv()
+                        happy_results[out_name]["unclipped"] = \
+                            call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                      fasta_id, None,
+                                                      out_name=out_name if not bed_id else out_name + '-unclipped').rv()                        
+                    
                     vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
-                    eval_results.append((eval_result, eval_clip_result))
-                    happy_results.append((happy_result, happy_clip_result))
+                    timing_results.append(timing_result)
+                    names.append(out_name)            
+                    
 
     calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names,
                                                   vcf_tbi_id_pairs, eval_results, happy_results, timing_results, plot_sets,
