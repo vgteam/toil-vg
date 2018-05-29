@@ -460,12 +460,38 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       memory=job.memory,
                                       disk=job.disk,
                                       preemptable=job.preemptable).rv()
+                                      
+def run_concat_files(job, context, file_ids, name=None):
+    """
+    Utility job to concatenate some files. Returns the concatenated file ID.
+    If given a name, writes the result to the out store with the given name.
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Download all the files
+    file_names = [job.fileStore.readGlobalFile(file_id) for file_id in file_ids]
+
+    out_name = os.path.join(work_dir, 'output.dat')
+
+    # Concatenate all the files
+    # TODO: We don't use the trick where we append to the first file to save a copy. Should we?
+    with open(out_name, 'w') as out_file:
+        for file_name in file_names:
+            with open(file_name) as in_file:
+                shutil.copyfileobj(in_file, out_file)
+
+    if name is None:
+        # Send back an intermediate file
+        return context.write_intermediate_file(job, out_name)
+    else:
+        # Write to outstore under the given name.
+        return context.write_output_file(job, out_name, name)
     
-def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name):
+def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None):
     """
     Compute the snarls of the graph.
     
-    Saves the snarls file in the outstore as <index_name>.snarls.
+    Saves the snarls file in the outstore as <index_name>.snarls, unless index_name is None.
     
     Removes trivial snarls, which are not really useful and which snarl cutting
     in mpmap can go overboard with.
@@ -473,40 +499,75 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name)
     Return the file ID of the snarls file.
     """
     
-    RealtimeLogger.info("Starting snarl computation...")
-    start_time = timeit.default_timer()
+    assert(len(inputGraphFileIDs) == len(graph_names))
     
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Our local copy of the graphs
-    graph_filenames = []
-    for i, graph_id in enumerate(inputGraphFileIDs):
-        graph_filename = os.path.join(work_dir, graph_names[i])
-        job.fileStore.readGlobalFile(graph_id, graph_filename)
-        graph_filenames.append(os.path.basename(graph_filename))
-
-    # Where do we put the snarls?
-    snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name))
-
-    # Now run the indexer.
-    RealtimeLogger.info("Computing Snarls for {}".format(str(graph_filenames)))
-
-    pipeline = [['cat'] + graph_filenames, ['vg', 'snarls', '-']]
+    if len(inputGraphFileIDs) > 1:
+        # We have been given multiple chromosome graphs. Since snarl indexing
+        # can take a lot of memory, we are going to process each one separately
+        # and then concatenate the results.
+        
+        RealtimeLogger.info("Breaking up snarl computation for {}".format(str(graph_names)))
+        
+        snarl_jobs = []
+        for file_id, file_name in itertools.izip(inputGraphFileIDs, graph_names):
+            # For each input graph, make a child job to index it.
+            snarl_jobs.append(job.addChildJobFn(run_snarl_indexing, context, [file_id], [file_name],
+                                                cores=context.config.snarl_index_cores,
+                                                memory=context.config.snarl_index_mem,
+                                                disk=context.config.snarl_index_disk))
+        
+        # Make a job to concatenate the indexes all together                                        
+        concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
+                                                    index_name + '.snarls' if index_name is not None else None,
+                                                    cores=context.config.snarl_index_cores,
+                                                    memory=context.config.snarl_index_mem,
+                                                    disk=context.config.snarl_index_disk)
+        
+        for i in xrange(1, len(snarl_jobs)):
+            # And make it wait for all of them
+            snarl_jobs[i].addFollowOn(concat_job)
+            
+        return concat_job.rv()
+        
+    else:
+        # Base case: single graph
    
-    with open(snarl_filename, "w") as snarl_file:
-        # Concatenate all the graphs and compute the snarls.
-        # Make sure to do it all in the container for vg (and not for 'cat')
-        context.runner.call(job, pipeline, work_dir=work_dir, tool_name='vg', outfile=snarl_file)
+        RealtimeLogger.info("Starting snarl computation...")
+        start_time = timeit.default_timer()
+        
+        # Define work directory for docker calls
+        work_dir = job.fileStore.getLocalTempDir()
 
-    # Checkpoint index to output store
-    snarl_file_id = context.write_output_file(job, snarl_filename)
-    
-    end_time = timeit.default_timer()
-    run_time = end_time - start_time
-    RealtimeLogger.info("Finished Computing Snarls. Process took {} seconds.".format(run_time))
+        # Download the one graph
+        graph_id = inputGraphFileIDs[0]
+        graph_filename = graph_names[0]
+        job.fileStore.readGlobalFile(graph_id, os.path.join(work_dir, graph_filename))
 
-    return snarl_file_id
+        # Where do we put the snarls?
+        snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name if index_name is not None else "part"))
+
+        # Now run the indexer.
+        RealtimeLogger.info("Computing snarls for {}".format(graph_filename))
+
+        cmd = ['vg', 'snarls', graph_filename]
+        with open(snarl_filename, "w") as snarl_file:
+            # Compute snarls to the correct file
+            context.runner.call(job, cmd, work_dir=work_dir, outfile=snarl_file)
+
+        
+        if index_name is not None:
+            # Checkpoint index to output store
+            snarl_file_id = context.write_output_file(job, snarl_filename)
+        else:
+            # Just save the index as an intermediate
+            snarl_file_id = context.write_intermediate_file(job, snarl_filename)
+            
+        
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+        RealtimeLogger.info("Finished computing snarls. Process took {} seconds.".format(run_time))
+
+        return snarl_file_id
 
 
 def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chroms):
