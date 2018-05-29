@@ -71,7 +71,7 @@ class VGCGLTest(TestCase):
         
         # default output store
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
-        
+
     def test_01_sim_small(self):
         ''' 
         This test uses simulated reads from the small dataset from vg, created as follows:
@@ -390,8 +390,8 @@ class VGCGLTest(TestCase):
         # Todo: better correctness checks (maybe compare to hand-generated data?
         prev_vg_size = None
         prev_vcf_size = None
-        for ext in ['', '_filter', '_minus_HG00096', '_HG00096_haplo', '_HG00096', '_minaf_0.6']:
-            if ext and ext not in ['_HG00096_haplo', '_minaf_0.6']:
+        for ext in ['', '_filter', '_minus_HG00096', '_HG00096_sample', '_HG00096_haplo', '_minaf_0.6']:
+            if ext and ext not in ['_HG00096_haplo', '_minaf_0.6', '_HG00096_sample']:
                 vcf_file = os.path.join(self.local_outstore, '1kg_hg38-BRCA1{}.vcf.gz'.format(ext))
 
                 assert os.path.isfile(vcf_file)

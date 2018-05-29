@@ -108,7 +108,14 @@ def validate_construct_options(options):
     # in parallel, but the indexing code always indexes them together.
     require(not options.gbwt_index or len(options.vcf) >= 1,
             '--gbwt_index requires --vcf')
-            
+    # TODO: Part of the logic is there to support different samples here, but it's a pretty
+    # weird use case to spend too much time on now
+    require(not options.haplo_sample or not options.control_sample or
+            (options.haplo_sample == options.control_sample),
+            '--haplo_sample and --control_sample must be the same')
+    require(not options.control_sample or options.regions,
+            '--regions required with --control_sample')
+
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
     """
@@ -317,7 +324,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       max_node_size, alt_paths, flat_alts, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       gcsa_index = False, xg_index = False, gbwt_index = False, snarls_index = False,
-                      haplo_sample = None, haplotypes = [0,1], gbwt_prune = False):
+                      haplo_sample = None, control_sample = None, haplotypes = [0,1], gbwt_prune = False):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -332,7 +339,9 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
     for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
         output_name_base = remove_ext(output_name, '.vg')
-        gpbwt = name == 'haplo'
+        gpbwt = name in ['haplo', 'pos-control']
+        gpbwt_sample = haplo_sample if name == 'haplo' else control_sample if name == 'pos-control' else None
+        # todo: if haplo and control samples are the same, then we're constructing the same graph twice below
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gbwt_index or gpbwt or alt_paths,
@@ -372,22 +381,55 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                     input_tbi_ids.append(tbi_id)
                 else:
                     assert vcf_id == None and tbi_id == None
-        
-        indexing_job = construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
-                                                      vg_names, output_name_base, chroms,
-                                                      input_vcf_ids, input_tbi_ids,
-                                                      node_mapping_id = mapping_id,
-                                                      skip_xg=not xg_index, skip_gcsa=not gcsa_index,
-                                                      skip_id_ranges=True, skip_snarls=not snarls_index,
-                                                      make_gbwt=gbwt_index, gbwt_prune=gbwt_prune, gbwt_regions=gbwt_regions)
-        indexes = indexing_job.rv()    
 
         if gpbwt:
-            assert(haplo_sample is not None)
-            haplo_job = construct_job.addFollowOnJobFn(run_make_haplo_graphs, context,
+            gpbwt_job = construct_job.addFollowOnJobFn(run_make_gpbwts, context,
                                                        input_vcf_ids, input_tbi_ids,
-                                                       vcf_names, vg_ids, vg_names, output_name_base, regions,
-                                                       haplo_sample, haplotypes)
+                                                       vcf_names, vg_ids, vg_names, output_name_base,
+                                                       regions, gpbwt_sample)
+            gpbwt_ids = gpbwt_job.rv()
+        else:
+            gpbwt_ids = None
+            
+        if name == 'pos-control':
+            # Extract out a positive control from our haplo-graphs
+            assert gpbwt_sample == control_sample
+            gpbwt_sample_job = gpbwt_job.addFollowOnJobFn(run_make_sample_graphs, context, vg_ids, vg_names,
+                                                          gpbwt_ids, output_name_base + '_sample', regions,
+                                                          control_sample)
+            vg_ids_with_ref = vg_ids
+            # Make an extra xg index that we can use for comparison that includese our sample graph along
+            # with a reference path
+            # TODO: its id never gets returned
+            sample_with_ref_xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context,
+                                                                    vg_ids_with_ref,
+                                                                    vg_names,
+                                                                    output_name_base,
+                                                                    cores=context.config.xg_index_cores,
+                                                                    memory=context.config.xg_index_mem,
+                                                                    disk=context.config.xg_index_disk)
+            index_prev_job = gpbwt_sample_job
+            # in the indexing step below, we want to index our haplo-extracted sample graph
+            vg_ids = gpbwt_sample_job.rv()
+            output_name_base += '_sample'
+        else:
+            index_prev_job = construct_job
+            
+        indexing_job = index_prev_job.addFollowOnJobFn(run_indexing, context, vg_ids,
+                                                       vg_names, output_name_base, chroms,
+                                                       input_vcf_ids, input_tbi_ids,
+                                                       node_mapping_id = mapping_id,
+                                                       skip_xg=not xg_index, skip_gcsa=not gcsa_index,
+                                                       skip_id_ranges=True, skip_snarls=not snarls_index,
+                                                       make_gbwt=gbwt_index, gbwt_prune=gbwt_prune, gbwt_regions=gbwt_regions)
+        indexes = indexing_job.rv()    
+
+        if name == 'haplo':
+            assert(haplo_sample is not None and haplo_sample == gpbwt_sample)
+            
+            haplo_job = gpbwt_job.addFollowOnJobFn(run_make_haplo_graphs, context,
+                                                  vg_ids, vg_names, gpbwt_ids, output_name_base, regions,
+                                                  haplo_sample, haplotypes)
 
             # we want an xg index from our thread graphs to pass to vg sim for each haplotype
             for haplotype in haplotypes:
@@ -477,7 +519,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         merge_output_name = remove_ext(merge_output_name, '.vg') + '.vg'
 
     # if there's nothing to do, just write the files and return
-    if not join_ids:
+    if not join_ids or len(region_graph_ids) == 1:
         out_ids = []
         for region_file in region_files:
             out_ids.append(context.write_output_file(job, os.path.join(work_dir, region_file),
@@ -679,7 +721,44 @@ def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, mi
     
     return out_vcf_id, out_tbi_id
 
-def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_names,
+def run_make_gpbwts(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_names,
+                   output_name, regions, sample):
+    """
+    make gpbwt (baked into xg) for each input (chromosome) graph.  the gpbwt can be used
+    for extracting haplotype thread graphs (to simulate from) or sample graphs (as positive control)
+    """
+    assert(sample is not None)
+
+    # make sure we're only dealing with chrom names (should probably be error otherwise)
+    chroms = [region[0:region.find(':')] if ':' in region else region for region in regions]
+
+    # validate options should enforce this but check to be sure assumptions met to avoid
+    # returning nonsense
+    assert len(vg_ids) == len(regions)
+    assert len(vcf_ids) == 1 or len(vcf_ids) == len(regions)
+    assert len(tbi_ids) == len(vcf_ids)
+    
+    logger.info('Making gbwt for chromosomes {}'.format(chroms))
+
+    gpbwt_ids = []
+    
+    for i, (vg_id, vg_name, region) in enumerate(zip(vg_ids, vg_names, chroms)):
+        vcf_name = vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
+        vcf_id = vcf_ids[0] if len(vcf_names) == 1 else vcf_ids[i]
+        tbi_id = tbi_ids[0] if len(vcf_names) == 1 else tbi_ids[i]
+            
+        # index the graph and vcf to make the gpbwt
+        gpbwt_name = '{}-gpbwt'.format(remove_ext(vg_name, '.vg'))
+        gpbwt_job = job.addChildJobFn(run_xg_indexing, context, [vg_id], [vg_name],
+                                      gpbwt_name, vcf_id, tbi_id,
+                                      cores=context.config.xg_index_cores,
+                                      memory=context.config.xg_index_mem,
+                                      disk=context.config.xg_index_disk)
+        gpbwt_ids.append(gpbwt_job.rv(0))
+
+    return gpbwt_ids
+
+def run_make_haplo_graphs(job, context, vg_ids, vg_names, gbwt_ids,
                           output_name, regions, sample, haplotypes):
     """
     make some haplotype graphs for threads in a gpbwt.  regions must be defined since we use the
@@ -699,32 +778,16 @@ def run_make_haplo_graphs(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_
     # validate options should enforce this but check to be sure assumptions met to avoid
     # returning nonsense
     assert len(vg_ids) == len(regions)
-    assert len(vcf_ids) == 1 or len(vcf_ids) == len(regions)
-    assert len(tbi_ids) == len(vcf_ids)
     
     logger.info('Making haplo graphs for chromosomes {}'.format(chroms))
     
-    for i, (vg_id, vg_name, region) in enumerate(zip(vg_ids, vg_names, chroms)):
-        vcf_name = vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
-        vcf_id = vcf_ids[0] if len(vcf_names) == 1 else vcf_ids[i]
-        tbi_id = tbi_ids[0] if len(vcf_names) == 1 else tbi_ids[i]
-            
-        # index the graph and vcf to make the gpbwt
-        gpbwt_name = '{}-gpbwt'.format(remove_ext(vg_name, '.vg'))
-        gpbwt_job = job.addChildJobFn(run_xg_indexing, context, [vg_id], [vg_name],
-                                      gpbwt_name, vcf_id, tbi_id,
-                                      cores=context.config.xg_index_cores,
-                                      memory=context.config.xg_index_mem,
-                                      disk=context.config.xg_index_disk)
-        xg_id = gpbwt_job.rv(0)
-        
-
+    for i, (vg_id, vg_name, region, gbwt_id) in enumerate(zip(vg_ids, vg_names, chroms, gbwt_ids)):
         # make a thread graph from the xg
-        hap_job = gpbwt_job.addFollowOnJobFn(run_make_haplo_thread_graphs, context, vg_id, vg_name,
-                                             output_name, [region], xg_id, sample, haplotypes,
-                                             cores=context.config.construct_cores,
-                                             memory=context.config.construct_mem,
-                                             disk=context.config.construct_disk)
+        hap_job = job.addChildJobFn(run_make_haplo_thread_graphs, context, vg_id, vg_name,
+                                    output_name, [region], gbwt_id, sample, haplotypes,
+                                    cores=context.config.construct_cores,
+                                    memory=context.config.construct_mem,
+                                    disk=context.config.construct_disk)
         for j in range(len(haplotypes)):
             thread_vg_ids[j].append(hap_job.rv(j))
 
@@ -792,6 +855,81 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
     logger.info('Got {} thread file IDs'.format(len(thread_vg_ids)))
 
     return thread_vg_ids
+
+def run_make_sample_graphs(job, context, vg_ids, vg_names, gbwt_ids,
+                           output_name, regions, sample):
+    """
+    make some haplotype graphs for threads in a gpbwt.  regions must be defined since we use the
+    chromosome name to get the threads
+    """
+
+    assert(sample is not None)
+
+    # ith element will be a sample graph for region i
+    sample_vg_ids = []
+
+    # make sure we're only dealing with chrom names (should probably be error otherwise)
+    chroms = [region[0:region.find(':')] if ':' in region else region for region in regions]
+
+    # validate options should enforce this but check to be sure assumptions met to avoid
+    # returning nonsense
+    assert len(vg_ids) == len(regions)
+    
+    logger.info('Making sample graphs for chromosomes {}'.format(chroms))
+    
+    for i, (vg_id, vg_name, region, gbwt_id) in enumerate(zip(vg_ids, vg_names, chroms, gbwt_ids)):
+        # make a thread graph from the xg
+        hap_job = job.addChildJobFn(run_make_sample_region_graph, context, vg_id, vg_name,
+                                    output_name, region, gbwt_id, sample, [0,1],
+                                    cores=context.config.construct_cores,
+                                    memory=context.config.construct_mem,
+                                    disk=context.config.construct_disk)
+        sample_vg_ids.append(hap_job.rv())
+
+    return sample_vg_ids
+
+def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chrom, xg_id,
+                                 sample, haplotypes, leave_thread_paths=True):
+    """
+    make a sample graph using the gpbwt
+    """
+
+    # This can't work if the sample is None and we want any haplotypes
+    assert(sample is not None)
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    xg_path = os.path.join(work_dir, vg_name[:-3] + '-gpbwt.xg')
+    job.fileStore.readGlobalFile(xg_id, xg_path)
+
+    vg_path = os.path.join(work_dir, vg_name)
+    job.fileStore.readGlobalFile(vg_id, vg_path)
+
+    extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
+    logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
+    with open(extract_graph_path, 'w') as extract_graph_file:
+        # strip paths from our original graph            
+        cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+
+        for hap in haplotypes:
+            # get haplotype thread paths from the gpbwt
+            cmd = ['vg', 'find', '-x', os.path.basename(xg_path)]
+            cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+
+    sample_graph_path = os.path.join(work_dir, '{}.vg'.format(output_name))
+    logger.info('Creating sample graph {}'.format(sample_graph_path))
+    with open(sample_graph_path, 'w') as sample_graph_file:
+        # Then we trim out anything other than our thread paths
+        cmd = [['vg', 'mod', '-N', os.path.basename(extract_graph_path)]]
+        if not leave_thread_paths:
+            cmd.append(['vg', 'mod', '-', '-D'])
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
+
+    sample_vg_id = context.write_output_file(job, sample_graph_path)
+            
+    return sample_vg_id
 
 def construct_main(context, options):
     """
@@ -884,6 +1022,7 @@ def construct_main(context, options):
                                      gbwt_index = options.gbwt_index or options.all_index,
                                      snarls_index = options.snarls_index or options.all_index,
                                      haplo_sample = options.haplo_sample,
+                                     control_sample = options.control_sample,
                                      gbwt_prune = options.gbwt_prune)
             
             # Run the workflow

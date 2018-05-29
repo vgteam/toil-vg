@@ -75,7 +75,9 @@ def add_mapeval_options(parser):
                         help='aligned reads to compare to truth.  specify xg index locations with --index-bases')
     parser.add_argument("--index-bases", nargs='+', type=make_url, default=[],
                         help='use in place of gams to perform alignment.  will expect '
-                        '<index-base>.gcsa, <index-base>.lcp and <index-base>.xg to exist')
+                        '<index-base>.gcsa, <index-base>.lcp and <index-base>.xg to exist.'
+                        'Provide a comma-separated pair to use the first index for alignment and'
+                        ' the second (.xg only) for annotation in the comparison')
     parser.add_argument('--use-gbwt', action='store_true',
                         help='also import <index-base>.gbwt and use it during alignment')
     parser.add_argument('--strip-gbwt', action='store_true',
@@ -826,7 +828,7 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
     
     return index_ids
 
-def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
+def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, gam_file_ids,
                        reads_fastq_single_ids, reads_fastq_paired_ids, reads_fastq_paired_for_vg_ids,
                        fasta_file_id, bwa_index_ids, matrix, ignore_quals, surject):
     """
@@ -866,6 +868,13 @@ def run_map_eval_align(job, context, index_ids, gam_names, gam_file_ids,
 
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id['xg'] for index_id in index_ids]
+
+    # these indexes are passed out (not used for mapping), so we can
+    # override them with our comparison indexes here
+    if xg_comparison_ids:
+        # optional override of downstream xg indexes via command line
+        assert len(xg_comparison_ids) == len(xg_ids)
+        xg_ids = xg_comparison_ids
 
     # the ids and names we pass forward
     out_xg_ids = xg_ids if gam_file_ids else []
@@ -1680,7 +1689,8 @@ def run_portion_worse(job, context, name, compare_id):
     portion = float(worse) / float(total) if total > 0 else 0
     return total, portion
 
-def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids, snarl_file_ids,
+def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file_ids, gbwt_file_ids,
+                id_range_file_ids, snarl_file_ids,
                 vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
                 reads_fastq_file_ids,
                 fasta_file_id, bwa_index_ids, bam_file_ids,
@@ -1706,7 +1716,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     # This should be the only Toil job that actually uses options (in order to
     # orchestrate the right shape of workflow depending on whether we want
     # particular analyses done).
-    
+
     # Make an indexing job
     index_job = job.addChildJobFn(run_map_eval_index,
                                   context,
@@ -1799,6 +1809,7 @@ def run_mapeval(job, context, options, xg_file_ids, gcsa_file_ids, gbwt_file_ids
     
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
+                                               xg_comparison_ids,
                                                options.gam_names, gam_file_ids,
                                                fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids,
                                                fasta_file_id, bwa_index_ids, matrix,
@@ -2177,6 +2188,7 @@ def make_mapeval_plan(toil, options):
             plan.vg_file_ids.append(toil.importFile(graph))
 
     plan.xg_file_ids = []
+    plan.xg_comparison_ids = [] # optional override xg_file_ids for comparison
     plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
     plan.gbwt_file_ids = []
     plan.id_range_file_ids = []
@@ -2184,8 +2196,15 @@ def make_mapeval_plan(toil, options):
     imported_xgs = {}
     if options.index_bases:
         for ib in options.index_bases:
+            if ',' in ib:
+                ib, cib = ib.split(',')[0], make_url(ib.split(',')[1])
+            else:
+                cib = ib
             imported_xgs[ib + '.xg'] = toil.importFile(ib + '.xg')
             plan.xg_file_ids.append(imported_xgs[ib + '.xg'])
+            if cib and cib + '.xg' not in imported_xgs:
+                imported_xgs[cib + '.xg'] = toil.importFile(cib + '.xg')
+            plan.xg_comparison_ids.append(imported_xgs[cib + '.xg'])
             if not options.gams:
                 plan.gcsa_file_ids.append(
                     (toil.importFile(ib + '.gcsa'),
@@ -2295,6 +2314,7 @@ def mapeval_main(context, options):
                                      context, 
                                      options, 
                                      plan.xg_file_ids,
+                                     plan.xg_comparison_ids,
                                      plan.gcsa_file_ids,
                                      plan.gbwt_file_ids,
                                      plan.id_range_file_ids,
