@@ -517,7 +517,8 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
                                                 disk=context.config.snarl_index_disk))
         
         # Make a job to concatenate the indexes all together                                        
-        concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs], index_name,
+        concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
+                                                    index_name + '.snarls' if index_name is not None else None,
                                                     cores=context.config.snarl_index_cores,
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk)
@@ -537,25 +538,21 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         # Define work directory for docker calls
         work_dir = job.fileStore.getLocalTempDir()
 
-        # Our local copy of the graphs
-        graph_filenames = []
-        for i, graph_id in enumerate(inputGraphFileIDs):
-            graph_filename = os.path.join(work_dir, graph_names[i])
-            job.fileStore.readGlobalFile(graph_id, graph_filename)
-            graph_filenames.append(os.path.basename(graph_filename))
+        # Download the one graph
+        graph_id = inputGraphFileIDs[0]
+        graph_filename = graph_names[0]
+        job.fileStore.readGlobalFile(graph_id, os.path.join(work_dir, graph_filename))
 
         # Where do we put the snarls?
         snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name if index_name is not None else "part"))
 
         # Now run the indexer.
-        RealtimeLogger.info("Computing snarls for {}".format(str(graph_filenames)))
+        RealtimeLogger.info("Computing snarls for {}".format(graph_filename))
 
-        pipeline = [['cat'] + graph_filenames, ['vg', 'snarls', '-']]
-       
+        cmd = ['vg', 'snarls', graph_filename]
         with open(snarl_filename, "w") as snarl_file:
-            # Concatenate all the graphs and compute the snarls.
-            # Make sure to do it all in the container for vg (and not for 'cat')
-            context.runner.call(job, pipeline, work_dir=work_dir, tool_name='vg', outfile=snarl_file)
+            # Compute snarls to the correct file
+            context.runner.call(job, cmd, work_dir=work_dir, outfile=snarl_file)
 
         
         if index_name is not None:
