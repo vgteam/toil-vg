@@ -89,6 +89,8 @@ def calleval_parse_args(parser):
                         help='xg indexes for the different graphs')
     parser.add_argument('--freebayes', action='store_true',
                         help='run freebayes as a baseline')
+    parser.add_argument("--freebayes_fasta", type=make_url,
+                        help="Use this FASTA instead of the vcfeval fasta for Freebayes. Maybe be gzipped")
     parser.add_argument('--bam_names', nargs='+', default=[],
                         help='names of bwa runs (corresponds to bams)')
     parser.add_argument('--bams', nargs='+', type=make_url, default=[],
@@ -122,7 +124,7 @@ def validate_calleval_options(options):
         require(options.bams and options.bam_names and len(options.bams) == len(options.bam_names),
                 '--bams and --bam_names must be same length')
     require(options.vcfeval_baseline, '--vcfeval_baseline required')
-    require(options.vcfeval_fasta, '--vcfevael_fasta required')
+    require(options.vcfeval_fasta, '--vcfeval_fasta required')
     if options.call or options.genotype or options.surject:
         require(options.gams, '--gams must be given with --call, --genotype, and --surject')
     require(options.vcfeval_bed_regions is not None or not options.clip_only,
@@ -385,13 +387,13 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
                              
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
-                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
-                 call, genotype, sample_name, chroms, vcf_offsets, vcfeval_score_field,
-                 plot_sets, filter_opts_gt, surject, interleaved):
+                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, freebayes_fasta_id, vcfeval_fasta_id,
+                 bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
+                 vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
-    vcfeval and the accuracies are tabulated in the output
+    vcfeval and the accuracies are tabulated in the output.
     
     Returns the output of run_calleval results, a list of condition names, a
     list of corresponding called VCF.gz and index ID pairs, and dicts of
@@ -461,7 +463,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 sorted_bam_idx_id = bam_idx_id                
 
             fb_out_name = '{}-fb'.format(bam_name)
-            fb_job = bam_index_job.addFollowOnJobFn(run_all_freebayes, context, fasta_id,
+            fb_job = bam_index_job.addFollowOnJobFn(run_all_freebayes, context, freebayes_fasta_id,
                                                     sorted_bam_id, sorted_bam_idx_id, sample_name,
                                                     chroms, vcf_offsets,
                                                     out_name = fb_out_name,
@@ -477,14 +479,14 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 eval_results[fb_out_name]["clipped"] = \
                     fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                             truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            fasta_id, bed_id, out_name=fb_out_name,
+                                            vcfeval_fasta_id, bed_id, out_name=fb_out_name,
                                             score_field='GQ', cores=context.config.vcfeval_cores,
                                             memory=context.config.vcfeval_mem,
                                             disk=context.config.vcfeval_disk).rv()
                 happy_results[fb_out_name]["clipped"] = \
                     fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
                                             truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            fasta_id, bed_id, out_name=fb_out_name,
+                                            vcfeval_fasta_id, bed_id, out_name=fb_out_name,
                                             cores=context.config.vcfeval_cores,
                                             memory=context.config.vcfeval_mem,
                                             disk=context.config.vcfeval_disk).rv()
@@ -495,7 +497,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 eval_results[fb_out_name]["unclipped"] = \
                     fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
                                             truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            fasta_id, None,
+                                            vcfeval_fasta_id, None,
                                             out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
                                             score_field='GQ', cores=context.config.vcfeval_cores,
                                             memory=context.config.vcfeval_mem,
@@ -503,7 +505,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 happy_results[fb_out_name]["unclipped"] = \
                     fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
                                             truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            fasta_id, None,
+                                            vcfeval_fasta_id, None,
                                             out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
                                             cores=context.config.vcfeval_cores,
                                             memory=context.config.vcfeval_mem,
@@ -547,12 +549,12 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                         eval_results[out_name]["clipped"] = \
                             call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
                                                       truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      fasta_id, bed_id, out_name=out_name,
+                                                      vcfeval_fasta_id, bed_id, out_name=out_name,
                                                       score_field=score_field).rv()
                         happy_results[out_name]["clipped"] = \
                             call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
                                                       truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      fasta_id, bed_id, out_name=out_name).rv()
+                                                      vcfeval_fasta_id, bed_id, out_name=out_name).rv()
                         
                         
                     if not clip_only:
@@ -560,13 +562,13 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                         eval_results[out_name]["unclipped"] = \
                             call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
                                                       truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      fasta_id, None,
+                                                      vcfeval_fasta_id, None,
                                                       out_name=out_name if not bed_id else out_name + '-unclipped',
                                                       score_field=score_field).rv()
                         happy_results[out_name]["unclipped"] = \
                             call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
                                                       truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      fasta_id, None,
+                                                      vcfeval_fasta_id, None,
                                                       out_name=out_name if not bed_id else out_name + '-unclipped').rv()                        
                     
                     vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
@@ -628,9 +630,16 @@ def calleval_main(context, options):
 
             vcfeval_baseline_id = toil.importFile(options.vcfeval_baseline)
             vcfeval_baseline_tbi_id = toil.importFile(options.vcfeval_baseline + '.tbi')
-            fasta_id = toil.importFile(options.vcfeval_fasta)
+            vcfeval_fasta_id = toil.importFile(options.vcfeval_fasta)
             bed_id = toil.importFile(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
             clip_only = options.clip_only
+            
+            if options.freebayes_fasta is not None:
+                # Calling uses a different FASTA (for a subregion)
+                freebayes_fasta_id = toil.importFile(options.freebayes_fasta)
+            else:
+                # Use the same FASTA as evaluation
+                freebayes_fasta_id = vcfeval_fasta_id
 
             # What do we plot together?
             plot_sets = [spec.split(',') for spec in options.plot_sets]
@@ -646,15 +655,18 @@ def calleval_main(context, options):
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
 
             if options.vcfeval_fasta.endswith('.gz'):
-                # unzip the fasta
-                fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, fasta_id,
-                                                  os.path.basename(options.vcfeval_fasta)).rv()
+                # unzip the fasta for evaluation
+                vcfeval_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, vcfeval_fasta_id,
+                                                       os.path.basename(options.vcfeval_fasta)).rv()
+                                                       
+            # Zipped FASTAs are fine for Freebayes
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
                                      inputBamIdxIds,
                                      options.gam_names, options.bam_names, 
-                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, fasta_id, bed_id, clip_only,
+                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, freebayes_fasta_id, vcfeval_fasta_id,
+                                     bed_id, clip_only,
                                      options.call,
                                      options.genotype,
                                      options.sample_name,
