@@ -656,10 +656,23 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
         return context.write_output_file(job, gbwt_chrom_filenames[0],
                                          out_store_path = index_name + '.gbwt')
     else:
+        # Merge the GBWT files together
         cmd = ['vg', 'gbwt', '--merge', '--fast', '--output', index_name + '.gbwt']
         cmd += [os.path.basename(f) for f in gbwt_chrom_filenames]
-        context.runner.call(job, cmd, work_dir=work_dir)
+        
+        try:
+            context.runner.call(job, cmd, work_dir=work_dir)
+        except:
+            # Dump everything we need to replicate the merge
+            logging.error("GBWT merge failed. Dumping files.")
+            for f in gbwt_chrom_filenames:
+                context.write_output_file(job, f)
+            
+            raise
+
         return context.write_output_file(job, os.path.join(work_dir, index_name + '.gbwt'))
+        
+        
 
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
