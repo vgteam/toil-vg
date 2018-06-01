@@ -285,12 +285,8 @@ def run_split_gam_reads(job, context, gam_input_reads, gam_reads_file_id):
     if chunk_size % 2 != 0:
         chunk_size += 1
 
-    # 1 line per read
-    chunk_lines = chunk_size * 1
-
-    cmd = [['vg', 'view', '-a', os.path.basename(gam_path)]]
-    cmd.append(['split', '-l', str(chunk_lines),
-                '--filter=vg view -JaG - > $FILE.gam', '-', 'gam_reads_chunk.'])
+    cmd = ['vg', 'chunk', '-a', os.path.basename(gam_path), '--gam-split-size', str(chunk_size),
+           '--prefix', 'gam_reads_chunk']
 
     context.runner.call(job, cmd, work_dir = work_dir)
 
