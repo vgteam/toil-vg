@@ -919,7 +919,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
             context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
 
-    sample_graph_path = os.path.join(work_dir, '{}.vg'.format(output_name))
+    sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
     logger.info('Creating sample graph {}'.format(sample_graph_path))
     with open(sample_graph_path, 'w') as sample_graph_file:
         # Then we trim out anything other than our thread paths
