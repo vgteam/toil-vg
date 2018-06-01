@@ -51,29 +51,41 @@ def construct_subparser(parser):
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
-                        help="Save paths for alts with variant ID (required for GPBWT)")
+                        help="Save paths for alts with variant ID")
     parser.add_argument("--flat_alts", action="store_true",
                         help="flat alts")
-    parser.add_argument("--control_sample", default=None,
-                        help="Make a positive and negative control using this sample")
     parser.add_argument("--construct_cores", type=int,
                         help="Number of cores for vg construct")
     parser.add_argument("--out_name", required=True,
                         help="Name used for output graphs and indexes")
     parser.add_argument("--merge_graphs", action="store_true",
                         help="Merge all regions into one graph")
-    parser.add_argument("--filter_ceph", action="store_true",
-                        help="Filter out all variants specific to the CEPH pedigree, which includes NA12878")
-    parser.add_argument("--filter_samples", nargs='+',
-                        help="Filter out all variants specific to given samples")
-    parser.add_argument("--haplo_sample", type=str,
-                        help="Make haplotype thread graphs (for simulating from) for this sample")
+    
+    # Toggles for the different types of graph(s) that can be made.  Indexing and above options
+    # will be applied to each one.  The output names will be prefixed with out_name. 
     parser.add_argument("--primary", action="store_true",
-                        help="Make the primary graph (no variants)")
-    parser.add_argument("--no_base", action="store_true",
-                        help="Do not construct base graph from input vcf.  Only make optional controls")
+                        help="Make the primary graph (no variants) using just the FASTA")
+    parser.add_argument("--pangenome", action="store_true",
+                        help="Make the pangenome graph using the input VCF(s)")
+    parser.add_argument("--pos_control", type=str,
+                        help="Make a positive control (ref path plus sample variants) using this sample")
+    parser.add_argument("--neg_control", type=str,
+                        help="Make a negative control (exclude all sample variants) using this sample")
+    parser.add_argument("--sample_graph", type=str,
+                        help="Make a sample graph (only contains sample haplotypes) using this sample.  Only "
+                        " phased variants will be included.  Will also make a _withref version that includes reference")
+    parser.add_argument("--haplo_sample", type=str,
+                        help="Make two haplotype thread graphs (for simulating from) for this sample.  Phasing"
+                        " information required in the input vcf.")    
+    parser.add_argument("--filter_ceph", action="store_true",
+                        help="Make a graph where all variants private to the CEPH pedigree, which includes "
+                        "NA12878 are excluded")
+    parser.add_argument("--filter_samples", nargs='+',
+                        help="Make a graph where all variants private to the CEPH pedigree, which includes "
+                        "NA12878 are excluded")
     parser.add_argument("--min_af", type=float, default=[], nargs='+',
-                        help="Create a control using the given minium allele frequency(ies)")
+                        help="Create a graph including only variants with given minium allele frequency."
+                        " If multiple frequencies given, a graph will be made for each one")
 
     # Add common indexing options shared with vg_index
     index_toggle_parse_args(parser)
@@ -108,13 +120,27 @@ def validate_construct_options(options):
     # in parallel, but the indexing code always indexes them together.
     require(not options.gbwt_index or len(options.vcf) >= 1,
             '--gbwt_index requires --vcf')
-    # TODO: Part of the logic is there to support different samples here, but it's a pretty
-    # weird use case to spend too much time on now
-    require(not options.haplo_sample or not options.control_sample or
-            (options.haplo_sample == options.control_sample),
-            '--haplo_sample and --control_sample must be the same')
-    require(not options.control_sample or options.regions,
-            '--regions required with --control_sample')
+    require(not options.sample_graph or options.regions,
+            '--regions required with --sample_graph')
+    require(options.primary or options.pangenome or options.pos_control or options.neg_control or
+            options.sample_graph or options.haplo_sample or options.filter_ceph or options.filter_samples or
+            options.min_af,
+            'At least one kind of graph must be specified for construction')
+    require(not options.vcf or options.pangenome or options.pos_control or options.neg_control or
+            options.sample_graph or options.haplo_sample or options.filter_ceph or options.filter_samples or
+            options.min_af,
+            'At least one kind of non-primary graph must be specified for construction with --vcf')
+    require(options.vcf or not (options.pangenome or options.pos_control or options.neg_control or
+                                options.sample_graph or options.haplo_sample or options.filter_ceph or
+                                options.filter_samples or options.min_af),
+            '--vcf required for construction of non-primary graph')
+    # TODO: support new, more general CLI properly
+    require(options.pos_control is None or options.neg_control is None or
+            options.pos_control == options.neg_control,
+            '--pos_control_sample and --neg_control_sample must be the same')
+    require(not options.haplo_sample or not options.sample_graph or
+            (options.haplo_sample == options.sample_graph),
+            '--haplo_sample and --sample_graph must be the same')
 
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
@@ -157,10 +183,16 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
     
     return seq_names    
         
-def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
-                            regions, output_name, filter_samples = None,
-                            haplo_sample = None, do_primary = False, min_afs = [],
-                            make_base_graph = True):
+def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
+                            regions, output_name,
+                            do_primary = False,
+                            do_pan = False,
+                            pos_control_sample = None,
+                            neg_control_sample = None,
+                            sample_graph = None,
+                            haplo_sample = None,
+                            filter_samples = [],
+                            min_afs = []):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
     - positive control
@@ -171,20 +203,37 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
     returns a dictionary of name -> (vcf_id, vcf_name, tbi_id, merge_name, region_names) tuples
     where name can be used to, ex, tell the controls apart
     """
-    # our input vcf
+
     output = dict()
-    if make_base_graph:
+
+    # primary graph, containing just the input fasta
+    if do_primary:
+        if regions:
+            primary_region_names = ['primary'  + '_' + c.replace(':','-') for c in regions]
+        else:
+            primary_region_names = None
+
+        primary_output_name = 'primary.vg' if '_' not in output_name else 'primary' + output_name[output_name.find('_')+1:]
+        output['primary'] = [[], [], [], primary_output_name, primary_region_names]
+
+    # a straight-up pangenome graph from the input vcf
+    if do_pan:
         output[output_name] = [vcf_ids, vcf_names, tbi_ids, output_name,
                                [output_name + '_' + c.replace(':','-') for c in regions] if regions else None]
-    
-    # our positive and negative controls
-    if sample:
+        
+    # our positive control consists of the reference path and any variant in the sample
+    if pos_control_sample or neg_control_sample:
+        control_sample = pos_control_sample if pos_control_sample else neg_control_sample
+        assert not neg_control_sample or neg_control_sample == control_sample
+        assert not pos_control_sample or pos_control_sample == control_sample
         pos_control_vcf_ids, pos_control_tbi_ids = [], []
         neg_control_vcf_ids, neg_control_tbi_ids = [], []
         pos_control_vcf_names, neg_control_vcf_names = [], []
         
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
-            make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample,
+            make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id,
+                                              control_sample,
+                                              pos_only = not neg_control_sample,
                                               cores=context.config.construct_cores,
                                               memory=context.config.construct_mem,
                                               disk=context.config.construct_disk)
@@ -194,26 +243,87 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
             neg_control_tbi_ids.append(make_controls.rv(3))
 
             vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
-            pos_control_vcf_names.append('{}_{}.vcf.gz'.format(vcf_base, sample))
-            neg_control_vcf_names.append('{}_minus_{}.vcf.gz'.format(vcf_base, sample))
+            pos_control_vcf_names.append('{}_{}.vcf.gz'.format(vcf_base, control_sample))
+            neg_control_vcf_names.append('{}_minus_{}.vcf.gz'.format(vcf_base, control_sample))
         if regions:
-            pos_region_names = [output_name + '_{}'.format(sample)  + '_' + c.replace(':','-') for c in regions]
-            neg_region_names = [output_name + '_minus_{}'.format(sample) + '_' + c.replace(':','-')  for c in regions]
+            pos_region_names = [output_name + '_{}'.format(control_sample)  + '_' + c.replace(':','-') for c in regions]
+            neg_region_names = [output_name + '_minus_{}'.format(control_sample) + '_' + c.replace(':','-')  for c in regions]
         else:
             pos_region_names = None
             neg_region_names = None
-        pos_output_name = remove_ext(output_name, '.vg') + '_{}.vg'.format(sample)
-        neg_output_name = remove_ext(output_name, '.vg') + '_minus_{}.vg'.format(sample)
+        pos_output_name = remove_ext(output_name, '.vg') + '_{}.vg'.format(control_sample)
+        neg_output_name = remove_ext(output_name, '.vg') + '_minus_{}.vg'.format(control_sample)
 
-        output['pos-control'] = [pos_control_vcf_ids, pos_control_vcf_names, pos_control_tbi_ids,
-                                 pos_output_name, pos_region_names]
+        if pos_control_sample:
+            output['pos-control'] = [pos_control_vcf_ids, pos_control_vcf_names, pos_control_tbi_ids,
+                                     pos_output_name, pos_region_names]
 
-        output['neg-control'] = [neg_control_vcf_ids, neg_control_vcf_names, neg_control_tbi_ids,
-                                 neg_output_name, neg_region_names]
+        if neg_control_sample:
+            output['neg-control'] = [neg_control_vcf_ids, neg_control_vcf_names, neg_control_tbi_ids,
+                                     neg_output_name, neg_region_names]
 
-        if haplo_sample and haplo_sample == sample:
+        if haplo_sample and haplo_sample == control_sample:
             output['haplo'] = output['pos-control']
 
+    # For our sample graph, we're going to need to start by making someing like the positive control, but
+    # filtering for phased variants.  Note that making the actual graphs from these vcfs is a two step
+    # process, where a graph is constructed then haplotypes extracted.
+    if sample_graph:
+        sample_graph_vcf_ids, sample_graph_tbi_ids = [], []
+        sample_graph_vcf_names = []
+
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            make_sample = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample_graph,
+                                            pos_only = True, phase_only = True,
+                                            cores=context.config.construct_cores,
+                                            memory=context.config.construct_mem,
+                                            disk=context.config.construct_disk)
+            sample_graph_vcf_ids.append(make_sample.rv(0))
+            sample_graph_tbi_ids.append(make_sample.rv(1))
+            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+            sample_graph_vcf_names.append('{}_{}_sample_withref.vcf.gz'.format(vcf_base, sample_graph))
+        if regions:
+            sample_graph_region_names = [output_name + '_{}'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
+        else:
+            sample_graph_region_names = None
+        sample_graph_output_name = remove_ext(output_name, '.vg') + '_{}_sample_withref.vg'.format(sample_graph)
+        
+        output['sample-graph'] = [sample_graph_vcf_ids, sample_graph_vcf_names, sample_graph_tbi_ids,
+                                  sample_graph_output_name, sample_graph_region_names]
+
+
+    # we want a vcf to make a gpbwt out of for making haplo graphs
+    # we re-use the vcf from the positive control if available, but we give it a
+    # different name and construct different .vg graphs going forward to allow for
+    # different construction (ie the haplo graph will always get alt paths that we don't
+    # necessarily want in the control)
+    if haplo_sample:
+        hap_control_vcf_ids, hap_control_tbi_ids = [], []
+        hap_control_vcf_names = []
+
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            if haplo_sample != pos_control_sample:
+                make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
+                                                  pos_only = True,
+                                                  cores=context.config.construct_cores,
+                                                  memory=context.config.construct_mem,
+                                                  disk=context.config.construct_disk)
+                hap_control_vcf_ids.append(make_controls.rv(0))
+                hap_control_tbi_ids.append(make_controls.rv(1))
+            else:
+                hap_control_vcf_ids = pos_control_vcf_ids
+                hap_control_tbi_ids = pos_control_tbi_ids
+            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+            hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
+        if regions:
+            hap_region_names = [output_name + '_{}'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
+        else:
+            hap_region_names = None
+        hap_output_name = remove_ext(output_name, '.vg') + '_{}_haplo.vg'.format(haplo_sample)
+        
+        output['haplo'] = [hap_control_vcf_ids, hap_control_vcf_names, hap_control_tbi_ids,
+                           hap_output_name, hap_region_names]
+        
     # our family filter
     if filter_samples:
         filter_vcf_ids, filter_tbi_ids = [], []
@@ -240,47 +350,7 @@ def run_generate_input_vcfs(job, context, sample, vcf_ids, vcf_names, tbi_ids,
         output['filter'] = [filter_vcf_ids, filter_vcf_names, filter_tbi_ids,
                             filter_output_name, filter_region_names]
 
-    # we want a vcf to make a gpbwt out of for making haplo graphs
-    # we re-use the vcf from the positive control if available, but we give it a
-    # different name and construct different .vg graphs going forward to allow for
-    # different construction (ie the haplo graph will always get alt paths that we don't
-    # necessarily want in the control)
-    if haplo_sample:
-        hap_control_vcf_ids, hap_control_tbi_ids = [], []
-        hap_control_vcf_names = []
-
-        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
-            if haplo_sample != sample:
-                make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
-                                                  pos_only = True,
-                                                  cores=context.config.construct_cores,
-                                                  memory=context.config.construct_mem,
-                                                  disk=context.config.construct_disk)
-                hap_control_vcf_ids.append(make_controls.rv(0))
-                hap_control_tbi_ids.append(make_controls.rv(1))
-            else:
-                hap_control_vcf_ids = pos_control_vcf_ids
-                hap_control_tbi_ids = pos_control_tbi_ids
-            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
-            hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
-        if regions:
-            hap_region_names = [output_name + '_{}'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
-        else:
-            hap_region_names = None
-        hap_output_name = remove_ext(output_name, '.vg') + '_{}_haplo.vg'.format(haplo_sample)
-        
-        output['haplo'] = [hap_control_vcf_ids, hap_control_vcf_names, hap_control_tbi_ids,
-                           hap_output_name, hap_region_names]
-
-    if do_primary:
-        if regions:
-            primary_region_names = ['primary'  + '_' + c.replace(':','-') for c in regions]
-        else:
-            primary_region_names = None
-
-        primary_output_name = 'primary.vg' if '_' not in output_name else 'primary' + output_name[output_name.find('_')+1:]
-        output['primary'] = [[], [], [], primary_output_name, primary_region_names]
-
+    # and one for each minimum allele frequency filter
     for min_af in min_afs:
         af_vcf_ids, af_tbi_ids = [], []
         af_vcf_names = []
@@ -324,7 +394,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       max_node_size, alt_paths, flat_alts, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       gcsa_index = False, xg_index = False, gbwt_index = False, snarls_index = False,
-                      haplo_sample = None, control_sample = None, haplotypes = [0,1], gbwt_prune = False):
+                      gpbwt_sample = None, haplotypes = [0,1], gbwt_prune = False):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -339,9 +409,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
     for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
         output_name_base = remove_ext(output_name, '.vg')
-        gpbwt = name in ['haplo', 'pos-control']
-        gpbwt_sample = haplo_sample if name == 'haplo' else control_sample if name == 'pos-control' else None
-        # todo: if haplo and control samples are the same, then we're constructing the same graph twice below
+        gpbwt = name in ['haplo', 'sample-graph']
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gbwt_index or gpbwt or alt_paths,
@@ -391,27 +459,20 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         else:
             gpbwt_ids = None
             
-        if name == 'pos-control':
-            # Extract out a positive control from our haplo-graphs
-            assert gpbwt_sample == control_sample
+        if name == 'sample-graph':
+            # ugly hack to distinguish the graphs with reference and our extracted sample graph
+            sample_name_base = output_name_base.replace('_withref', '')
+            sample_merge_output_name = merge_output_name.replace('_withref', '') if merge_output_name else None
+            # Extract out our real sample graph using the gpbwt            
             gpbwt_sample_job = gpbwt_job.addFollowOnJobFn(run_make_sample_graphs, context, vg_ids, vg_names,
-                                                          gpbwt_ids, output_name_base + '_sample', regions,
-                                                          control_sample)
-            vg_ids_with_ref = vg_ids
-            # Make an extra xg index that we can use for comparison that includese our sample graph along
-            # with a reference path
-            # TODO: its id never gets returned
-            sample_with_ref_xg_job = construct_job.addFollowOnJobFn(run_xg_indexing, context,
-                                                                    vg_ids_with_ref,
-                                                                    vg_names,
-                                                                    output_name_base,
-                                                                    cores=context.config.xg_index_cores,
-                                                                    memory=context.config.xg_index_mem,
-                                                                    disk=context.config.xg_index_disk)
-            index_prev_job = gpbwt_sample_job
+                                                          gpbwt_ids, sample_name_base, regions,
+                                                          gpbwt_sample)
+            gpbwt_join_job = gpbwt_sample_job.addFollowOnJobFn(run_join_graphs, context, gpbwt_sample_job.rv(),
+                                                               join_ids, region_names, name, sample_merge_output_name)
+            index_prev_job = gpbwt_join_job
             # in the indexing step below, we want to index our haplo-extracted sample graph
-            vg_ids = gpbwt_sample_job.rv()
-            output_name_base += '_sample'
+            vg_ids = gpbwt_join_job.rv(0)
+            output_name_base = sample_name_base
         else:
             index_prev_job = construct_job
             
@@ -426,11 +487,11 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         indexes = indexing_job.rv()    
 
         if name == 'haplo':
-            assert(haplo_sample is not None and haplo_sample == gpbwt_sample)
+            assert gpbwt_sample is not None
             
             haplo_job = gpbwt_job.addFollowOnJobFn(run_make_haplo_graphs, context,
                                                   vg_ids, vg_names, gpbwt_ids, output_name_base, regions,
-                                                  haplo_sample, haplotypes)
+                                                  gpbwt_sample, haplotypes)
 
             # we want an xg index from our thread graphs to pass to vg sim for each haplotype
             for haplotype in haplotypes:
@@ -460,7 +521,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
     # encapsulate follow-on
     child_job = Job()
     job.addChild(child_job)
-    
+
     work_dir = job.fileStore.getLocalTempDir()
 
     if not regions:
@@ -642,12 +703,13 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     
     return out_vcf_id, out_tbi_id
     
-def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False):
+def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False, phase_only = False):
     """ make a positive and negative control vcf 
     The positive control has only variants in the sample, the negative
     control has only variants not in the sample
     """
 
+    assert sample is not None
     work_dir = job.fileStore.getLocalTempDir()
 
     vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
@@ -656,6 +718,8 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
 
     # filter down to sample in question
     cmd = [['bcftools', 'view', os.path.basename(vcf_file), '-s', sample]]
+    if phase_only:
+        cmd[0] += ['-p']
     
     # remove anything that's not alt (probably cleaner way to do this)
     gfilter = 'GT="0" || GT="0|0" || GT="0/0"'
@@ -919,7 +983,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
             context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
 
-    sample_graph_path = os.path.join(work_dir, '{}.vg'.format(output_name))
+    sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
     logger.info('Creating sample graph {}'.format(sample_graph_path))
     with open(sample_graph_path, 'w') as sample_graph_file:
         # Then we trim out anything other than our thread paths
@@ -928,7 +992,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             cmd.append(['vg', 'mod', '-', '-D'])
         context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
 
-    sample_vg_id = context.write_output_file(job, sample_graph_path)
+    sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
             
     return sample_vg_id
 
@@ -977,6 +1041,9 @@ def construct_main(context, options):
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
+            # We only support one gpbwt sample (enforced by validate) despire what CLI implies
+            gpbwt_sample = options.haplo_sample if options.haplo_sample else options.sample_graph       
+                   
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
 
@@ -998,18 +1065,21 @@ def construct_main(context, options):
             else:
                 cur_job = init_job
                 regions = options.regions
-
+                
             # Automatically make and name a bunch of vcfs
-            vcf_job = cur_job.addFollowOnJobFn(run_generate_input_vcfs, context, options.control_sample,
+            vcf_job = cur_job.addFollowOnJobFn(run_generate_input_vcfs, context, 
                                                inputVCFFileIDs, inputVCFNames,
                                                inputTBIFileIDs, 
                                                regions,
                                                options.out_name,
-                                               filter_samples,
-                                               options.haplo_sample,
-                                               options.primary,
-                                               options.min_af,
-                                               not options.no_base)
+                                               do_primary = options.primary,
+                                               do_pan = options.pangenome,
+                                               pos_control_sample = options.pos_control,
+                                               neg_control_sample = options.neg_control,
+                                               sample_graph = options.sample_graph,
+                                               haplo_sample = options.haplo_sample,
+                                               filter_samples = filter_samples,
+                                               min_afs = options.min_af)
                 
             # Cosntruct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
@@ -1022,8 +1092,7 @@ def construct_main(context, options):
                                      xg_index = options.xg_index or options.all_index,
                                      gbwt_index = options.gbwt_index or options.all_index,
                                      snarls_index = options.snarls_index or options.all_index,
-                                     haplo_sample = options.haplo_sample,
-                                     control_sample = options.control_sample,
+                                     gpbwt_sample = gpbwt_sample,
                                      gbwt_prune = options.gbwt_prune)
             
             # Run the workflow

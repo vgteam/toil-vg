@@ -381,7 +381,8 @@ class VGCGLTest(TestCase):
         
         self._run('toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                   '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
-                  '--out_name', 'snp1kg-BRCA1', '--control_sample', 'HG00096',
+                  '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
+                  '--neg_control', 'HG00096', '--sample_graph', 'HG00096',
                   '--filter_ceph', '--realTimeLogging', '--logInfo',
                   '--haplo_sample', 'HG00096', '--min_af', '0.6')
 
@@ -463,7 +464,7 @@ class VGCGLTest(TestCase):
         # make a snp1kg graph with alt paths
         self._run('toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                   '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
-                  '--out_name', 'snp1kg-BRCA1', '--alt_paths')
+                  '--out_name', 'snp1kg-BRCA1', '--alt_paths', '--pangenome')
 
         # check graph exists
         vg_path = os.path.join(self.local_outstore, 'snp1kg-BRCA1.vg')
