@@ -47,13 +47,14 @@ cmd = ['construct', options.job_store, options.out_store,
        '--out_name', out_name,
        '--logFile', log_name,
        '--haplo_sample', options.control,
-       '--control_sample', options.control,
+       '--sample_graph', options.control,
+       '--pos_control', options.control,
+       '--neg_control', options.control,       
        '--alt_paths',
        '--xg_index']
 
 # Note config file path is on the leader!!!!  Should fix to copy it over, but not sure how.
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
-cmd += ['--control_sample', options.control]
 cmd += ['--regions'] + options.chroms
 cmd += ['--vcf'] + get_vcf_paths_hs37d5(options.chroms, options.control)
 

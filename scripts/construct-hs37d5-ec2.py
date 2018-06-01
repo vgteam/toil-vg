@@ -69,6 +69,8 @@ cmd = ['construct', options.job_store, options.out_store,
 # Note config file path is on the leader!!!!  Should fix to copy it over, but not sure how.
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
 
+cmd += ['--pangenome']
+
 if options.minaf:
     cmd += ['--min_af', ' '.join([str(minaf) for minaf in options.minaf])]
 
@@ -91,7 +93,7 @@ if options.snarls:
     cmd += ['--snarls_index']
 
 if options.control:
-    cmd += ['--control_sample', options.control]
+    cmd += ['--pos_control', options.control, '--neg_control', options.control]
     cmd += ['--filter_sample', options.control]
 
 if options.filter_ceph:
