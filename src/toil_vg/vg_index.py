@@ -452,7 +452,8 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     return (xg_file_id, gbwt_file_id)
 
 def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                        vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False, gbwt_regions=[]):
+                        vcf_phasing_file_id = None, tbi_phasing_file_id = None,
+                        make_gbwt = False, gbwt_regions=[], use_gbwts=None):
     """
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
@@ -473,7 +474,8 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       context, [vg_concat_job.rv(0)],
                                       [vg_concat_job.rv(1)], index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
-                                      make_gbwt, gbwt_regions,
+                                      make_gbwt=make_gbwt, gbwt_regions=gbwt_regions,
+                                      use_gbwts=use_gbwts,
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
