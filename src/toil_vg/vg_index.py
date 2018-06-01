@@ -402,13 +402,18 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         if make_gbwt and vcf_phasing_file_id:
             # Write the haplotype index to its own file
             phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
-            
+           
             if separate_threads:
-                 # And also the thread db, for merging into an XG later, but *only*
+                # And also the thread db, for merging into an XG later, but *only*
                 # if we aren't a whole-genome XG (or going to get used as one),
                 # because if the thread names go to the thread DB they don't go to
                 # the XG.
+                
+                RealtimeLogger.info("Making XG with separate thread database")
+                
                 phasing_opts += ['--thread-db', os.path.basename(thread_db_filename)]
+            else:
+                RealtimeLogger.info("Making XG with integrated thread database")
             
             for region in gbwt_regions:
                 phasing_opts += ['--region', region]
@@ -499,7 +504,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       [vg_concat_job.rv(1)], index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
                                       make_gbwt=make_gbwt, gbwt_regions=gbwt_regions,
-                                      separate_threads=False,
+                                      separate_threads=separate_threads,
                                       use_thread_dbs=use_thread_dbs,
                                       cores=job.cores,
                                       memory=job.memory,
