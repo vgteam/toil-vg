@@ -434,6 +434,11 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         if vcf_phasing_file_id:
             context.write_output_file(job, phasing_file)
             context.write_output_file(job, phasing_file + '.tbi')
+        if use_gbwts is not None:
+            for i, file_id in enumerate(use_gbwts):
+                # Dump the GBWTs
+                file_name = os.path.join(work_dir, "input{}.gbwt".format(i))
+                context.write_output_file(job, file_name)
 
         raise
 
