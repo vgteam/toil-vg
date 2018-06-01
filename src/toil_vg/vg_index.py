@@ -344,7 +344,8 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
     return (cat_graph_file_id, os.path.basename(cat_graph_filename))
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                    vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False, gbwt_regions=[]):
+                    vcf_phasing_file_id = None, tbi_phasing_file_id = None,
+                    make_gbwt = False, gbwt_regions=[], use_gbwts=None):
     """
     
     Make the xg index and optional GBWT haplotype index.
@@ -355,6 +356,12 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     If gbwt_regions is specified, it is a list of chrom:start-end region
     specifiers, restricting, on each specified chromosome, the region of the
     VCF that GBWT indexing will examine.
+    
+    If use_gbwts is not None, it must be a list of file IDs. All the GBWT
+    indexes in the list will be considered when creating the xg index. Their
+    haplotype names will be incorporated, and the maximum haplotype count in
+    any of them will be sued as the XG index's expected haplotype count per
+    chromosome. It cannot be specified along with make_gbwt. 
     
     Return a pair of file IDs, (xg_id, gbwt_id). The GBWT ID will be None if no
     GBWT is generated.
@@ -395,6 +402,17 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
             
     else:
         phasing_opts = []
+        
+    if use_gbwts is not None:
+        # It doesn't make sense to build a GBWT ourselves and consume others
+        assert(not make_gbwt)
+        for i, file_id in enumerate(use_gbwts):
+            # Download the GBWTs
+            file_name = os.path.join(work_dir, "input{}.gbwt".format(i))
+            job.fileStore.readGlobalFile(file_id, file_name)
+            
+            # Use each as an input to XG construction (-F)
+            phasing_opts += ['-F', os.path.basename(file_name)]
 
     # Where do we put the XG index?
     xg_filename = "{}.xg".format(index_name)
@@ -784,14 +802,23 @@ def run_indexing(job, context, inputGraphFileIDs,
                     tbi_phasing_file_id = None
 
             if not skip_xg:
+                # Build an xg index for the whole genome. We need to have
+                # access to all the per-chromosome GBWT files, if used, so we
+                # can set the haplotype names and per-chromosome haplotype
+                # count field in the xg.
+                
                 xg_index_job = concat_job.addChildJobFn(run_cat_xg_indexing,
                                                         context, inputGraphFileIDs,
                                                         graph_names, index_name,
                                                         vcf_phasing_file_id, tbi_phasing_file_id,
-                                                        make_gbwt=False,
+                                                        make_gbwt=False, use_gbwts=indexes.get('chrom_gbwt'),
                                                         cores=context.config.xg_index_cores,
                                                         memory=context.config.xg_index_mem,
                                                         disk=context.config.xg_index_disk)
+                
+                # Constrain to happen after chrom XGs and GCSAs
+                chrom_xg_root_job.addFollowOn(xg_index_job)
+                
                 indexes['xg'] = xg_index_job.rv(0)
 
 
