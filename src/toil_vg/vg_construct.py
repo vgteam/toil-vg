@@ -74,6 +74,12 @@ def construct_subparser(parser):
     parser.add_argument("--sample_graph", type=str,
                         help="Make a sample graph (only contains sample haplotypes) using this sample.  Only "
                         " phased variants will be included.  Will also make a _withref version that includes reference")
+    parser.add_argument("--sample_graph_unphased", default='skip',
+                        choices=['skip', 'keep', 'arbitrary'],
+                        help='How to handle unphased variants in the VCF when creating the sample graph. \"skip\": '
+                        'ignore variants, just using the reference allele. \"keep\": keep the unphased variants, '
+                        'breaking up the haplotype paths (potential downstream effects on indexing). \"arbitrary\": '
+                        'choose an arbitrary phasing for the unphased variants')
     parser.add_argument("--haplo_sample", type=str,
                         help="Make two haplotype thread graphs (for simulating from) for this sample.  Phasing"
                         " information required in the input vcf.")    
@@ -190,6 +196,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             pos_control_sample = None,
                             neg_control_sample = None,
                             sample_graph = None,
+                            sample_graph_unphased = None,
                             haplo_sample = None,
                             filter_samples = [],
                             min_afs = []):
@@ -274,7 +281,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
 
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             make_sample = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample_graph,
-                                            pos_only = True, phase_only = True,
+                                            pos_only = True, unphased_handling=sample_graph_unphased,
                                             cores=context.config.construct_cores,
                                             memory=context.config.construct_mem,
                                             disk=context.config.construct_disk)
@@ -703,7 +710,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     
     return out_vcf_id, out_tbi_id
     
-def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False, phase_only = False):
+def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False, unphased_handling = None):
     """ make a positive and negative control vcf 
     The positive control has only variants in the sample, the negative
     control has only variants not in the sample
@@ -717,17 +724,21 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
     # filter down to sample in question
-    cmd = [['bcftools', 'view', os.path.basename(vcf_file), '-s', sample]]
-    if phase_only:
-        cmd[0] += ['-p']
+    cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample]]
+    if unphased_handling == 'skip':
+        cmd[0] += ['--phased']
     
     # remove anything that's not alt (probably cleaner way to do this)
     gfilter = 'GT="0" || GT="0|0" || GT="0/0"'
     gfilter += ' || GT="." || GT=".|." || GT="./."'
     gfilter += ' || GT=".|0" || GT="0/."'
     gfilter += ' || GT="0|." || GT="./0"'
+
+    if unphased_handling == 'arbitrary':
+        # just phase unphased variants.  so 1/1 --> 1|1 etc
+        cmd.append(['sed', '-e', 's/\\([0-9,.]\\)\\/\\([0-9,.]\\)/\\1\\|\\2/g'])
     
-    cmd.append(['bcftools', 'view', '-', '-O', 'z', '-e', gfilter])
+    cmd.append(['bcftools', 'view', '-', '--output-type', 'z', '--exclude', gfilter])
 
     out_pos_name = remove_ext(remove_ext(os.path.basename(vcf_name), '.gz'), '.vcf')
     out_neg_name = out_pos_name + '_minus_{}.vcf.gz'.format(sample)
@@ -1077,6 +1088,7 @@ def construct_main(context, options):
                                                pos_control_sample = options.pos_control,
                                                neg_control_sample = options.neg_control,
                                                sample_graph = options.sample_graph,
+                                               sample_graph_unphased = options.sample_graph_unphased,
                                                haplo_sample = options.haplo_sample,
                                                filter_samples = filter_samples,
                                                min_afs = options.min_af)
