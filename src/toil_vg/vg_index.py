@@ -344,9 +344,10 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
     return (cat_graph_file_id, os.path.basename(cat_graph_filename))
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                    vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False, gbwt_regions=[]):
+                    vcf_phasing_file_id = None, tbi_phasing_file_id = None,
+                    make_gbwt = False, gbwt_regions=[], separate_threads=False, use_thread_dbs=None):
     """
-    
+
     Make the xg index and optional GBWT haplotype index.
     
     Saves the xg in the outstore as <index_name>.xg and the GBWT, if requested,
@@ -356,8 +357,18 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     specifiers, restricting, on each specified chromosome, the region of the
     VCF that GBWT indexing will examine.
     
-    Return a pair of file IDs, (xg_id, gbwt_id). The GBWT ID will be None if no
-    GBWT is generated.
+    If separate_threads is specified, thread names will be siphoned off to a
+    separate thread DB file instead of being saved in the XG.
+    
+    If use_thread_dbs is not None, it must be a list of file IDs. All the
+    thread DBs in the list will be considered when creating the xg index. Their
+    haplotype names will be incorporated, and the maximum haplotype count in
+    any of them will be used as the XG index's expected haplotype count per
+    chromosome. It cannot be specified along with make_gbwt. 
+    
+    Return a tuple of file IDs, (xg_id, gbwt_id, thread_db_id). The GBWT ID
+    will be None if no GBWT is generated. The thread DB ID will be None if no
+    thread DB is generated.
     
     """
     
@@ -378,7 +389,9 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 
     # If we have a separate GBWT it will go here
     gbwt_filename = os.path.join(work_dir, "{}.gbwt".format(index_name))
-
+    # And if we ahve a separate thread db it will go here
+    thread_db_filename = os.path.join(work_dir, "{}.threads".format(index_name))
+    
     # Get the vcf file for loading phasing info
     if vcf_phasing_file_id:
         phasing_file = os.path.join(work_dir, 'phasing.vcf.gz')
@@ -389,12 +402,35 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         if make_gbwt and vcf_phasing_file_id:
             # Write the haplotype index to its own file
             phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
+           
+            if separate_threads:
+                # And also the thread db, for merging into an XG later, but *only*
+                # if we aren't a whole-genome XG (or going to get used as one),
+                # because if the thread names go to the thread DB they don't go to
+                # the XG.
+                
+                RealtimeLogger.info("Making XG with separate thread database")
+                
+                phasing_opts += ['--thread-db', os.path.basename(thread_db_filename)]
+            else:
+                RealtimeLogger.info("Making XG with integrated thread database")
             
             for region in gbwt_regions:
                 phasing_opts += ['--region', region]
             
     else:
         phasing_opts = []
+        
+    if use_thread_dbs is not None:
+        # It doesn't make sense to build a GBWT ourselves and consume threads
+        assert(not make_gbwt)
+        for i, file_id in enumerate(use_thread_dbs):
+            # Download the thread DBs
+            file_name = os.path.join(work_dir, "threads{}.threads".format(i))
+            job.fileStore.readGlobalFile(file_id, file_name)
+            
+            # Use each as an input to XG construction
+            phasing_opts += ['--thread-db', os.path.basename(file_name)]
 
     # Where do we put the XG index?
     xg_filename = "{}.xg".format(index_name)
@@ -416,6 +452,11 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         if vcf_phasing_file_id:
             context.write_output_file(job, phasing_file)
             context.write_output_file(job, phasing_file + '.tbi')
+        if use_thread_dbs is not None:
+            for i, file_id in enumerate(use_thread_dbs):
+                # Dump the thread DBs
+                file_name = os.path.join(work_dir, "threads{}.threads".format(i))
+                context.write_output_file(job, file_name)
 
         raise
 
@@ -423,18 +464,25 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     xg_file_id = context.write_output_file(job, os.path.join(work_dir, xg_filename))
     
     gbwt_file_id = None
+    thread_db_file_id = None
     if make_gbwt and vcf_phasing_file_id:
         # Also save the GBWT if it was generated
         gbwt_file_id = context.write_output_file(job, gbwt_filename)
+        
+        if separate_threads:
+            # And the separate thread db
+            thread_db_file_id = context.write_output_file(job, thread_db_filename)
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
     RealtimeLogger.info("Finished XG index. Process took {} seconds.".format(run_time))
 
-    return (xg_file_id, gbwt_file_id)
+    # TODO: convert to a dict
+    return (xg_file_id, gbwt_file_id, thread_db_file_id)
 
 def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
-                        vcf_phasing_file_id = None, tbi_phasing_file_id = None, make_gbwt = False, gbwt_regions=[]):
+                        vcf_phasing_file_id = None, tbi_phasing_file_id = None,
+                        make_gbwt = False, gbwt_regions=[], separate_threads=False, use_thread_dbs=None):
     """
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
@@ -455,7 +503,9 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       context, [vg_concat_job.rv(0)],
                                       [vg_concat_job.rv(1)], index_name,
                                       vcf_phasing_file_id, tbi_phasing_file_id,
-                                      make_gbwt, gbwt_regions,
+                                      make_gbwt=make_gbwt, gbwt_regions=gbwt_regions,
+                                      separate_threads=separate_threads,
+                                      use_thread_dbs=use_thread_dbs,
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
@@ -688,11 +738,12 @@ def run_indexing(job, context, inputGraphFileIDs,
     those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
     Return a dict from index type ('xg','chrom_xg', 'gcsa', 'lcp', 'gbwt',
-    'chrom_gbwt', 'id_ranges', or 'snarls') to index file ID(s) if created.
+    'chrom_gbwt', 'chrom_thread', 'id_ranges', or 'snarls') to index file ID(s)
+    if created.
     
-    For 'chrom_xg' and 'chrom_gbwt', the value is a list of one XG or GBWT per
-    chromosome in chroms, to support `vg prune`. The others are all single file
-    IDs
+    For 'chrom_xg', 'chrom_gbwt' and 'chrom_thread', the value is a list of one
+    XG or GBWT or thread DB per chromosome in chroms, to support `vg prune`.
+    The others are all single file IDs
     
     """
     child_job = Job()
@@ -735,7 +786,13 @@ def run_indexing(job, context, inputGraphFileIDs,
             if not chroms or len(chroms) == 1:
                 chroms = [index_name]
             indexes['chrom_xg'] = []
-            indexes['chrom_gbwt'] = []                                        
+            indexes['chrom_gbwt'] = []
+            
+            # Should we use separate thread DBs, for generating a final merged XG?
+            separate_threads = (len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt)
+            if separate_threads:
+                indexes['chrom_thread'] = []
+            
             for i, chrom in enumerate(chroms):
                 vcf_id = vcf_phasing_file_ids[i] if i < len(vcf_phasing_file_ids) else None
                 tbi_id = tbi_phasing_file_ids[i] if i < len(tbi_phasing_file_ids) else None
@@ -743,13 +800,16 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
-                                                                     make_gbwt = make_gbwt, gbwt_regions=gbwt_regions,
+                                                                     make_gbwt = make_gbwt, separate_threads=separate_threads, 
+                                                                     gbwt_regions=gbwt_regions,
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
                                                                      preemptable=not make_gbwt or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
+                if separate_threads:
+                    indexes['chrom_thread'].append(xg_chrom_index_job.rv(2))
 
             if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
                 indexes['gbwt'] = chrom_xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
@@ -784,14 +844,23 @@ def run_indexing(job, context, inputGraphFileIDs,
                     tbi_phasing_file_id = None
 
             if not skip_xg:
+                # Build an xg index for the whole genome. We need to have
+                # access to all the per-chromosome GBWT files, if used, so we
+                # can set the haplotype names and per-chromosome haplotype
+                # count field in the xg.
+                
                 xg_index_job = concat_job.addChildJobFn(run_cat_xg_indexing,
                                                         context, inputGraphFileIDs,
                                                         graph_names, index_name,
                                                         vcf_phasing_file_id, tbi_phasing_file_id,
-                                                        make_gbwt=False,
+                                                        make_gbwt=False, use_thread_dbs=indexes.get('chrom_thread'),
                                                         cores=context.config.xg_index_cores,
                                                         memory=context.config.xg_index_mem,
                                                         disk=context.config.xg_index_disk)
+                
+                # Constrain to happen after chrom XGs and GCSAs
+                chrom_xg_root_job.addFollowOn(xg_index_job)
+                
                 indexes['xg'] = xg_index_job.rv(0)
 
 
