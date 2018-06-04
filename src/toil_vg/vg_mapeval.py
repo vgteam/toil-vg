@@ -1078,7 +1078,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 map_times.append(map_job.rv(1))
                 out_xg_ids.append(xg_ids[i])
                 out_gam_names.append(gam_names[i] + tag_string)
-                if interleaved:
+                if condition['paired']:
                     surjected_results['pe_bam_file_ids'].append(map_job.rv(2))
                     surjected_results['pe_bam_names'].append(out_gam_names[-1] + '-surject')
                 else:
