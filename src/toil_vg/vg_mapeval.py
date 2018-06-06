@@ -1922,6 +1922,9 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     Returns a list of pairs of plot file name and plot file ID.
     
     """
+    
+    RealtimeLogger.info('Starting plotting...')
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
@@ -1935,6 +1938,8 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
         for rscript in ['pr', 'qq', 'roc']:
             # For each kind of plot
             
+            RealtimeLogger.info('Plotting {} for plot set {}'.format(rscript, i))
+           
             if i == 0:
                 # First plot of each kind looks like this
                 plot_name = 'plot-{}.svg'.format(rscript)
@@ -1955,11 +1960,13 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
                     os.path.join('plots', plot_name))))
             except Exception as e:
                 if rscript == 'roc':
-                    logger.warning('plot-roc.R failed: '.format(str(e)))
+                    RealtimeLogger.warning('plot-roc.R failed: '.format(str(e)))
                 else:
                     # We insist that the R scripts execute successfully (except plot-roc)
                     raise e
             
+    RealtimeLogger.info('Plotting complete')
+    
     return out_name_id_pairs
     
 def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
