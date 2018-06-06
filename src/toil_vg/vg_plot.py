@@ -52,23 +52,26 @@ def add_plot_options(parser):
     Add the mapeval options to the given argparse parser.
     """
     
-    # General options
+    # Mapeval plotting options
     parser.add_argument('--position-stats', type=make_url, default=None,
                         help='position.results.tsv file from a mapeval run')
-                        
+    parser.add_argument('--tables-only', action='store_true',
+                        help='make only summary tables and not plots')
+    parser.add_argument('--plots-only', action='store_true',
+                        help='make only plots and not summary tables')
+    
+    # Calleval plotting options
     parser.add_argument('--roc-base',
                         help='ROC file base URL, under which <condition>_vcfeval_output/<type>_roc.tsv.gz files exist')
     parser.add_argument('--names', nargs='+',
                         help='condition names for ROC files to load')
     parser.add_argument('--clipping', nargs='+', default=['clipped'],
                         help='clipping modes to load')
-                        
+    
+    # General options
     parser.add_argument('--plot-sets', nargs='+', default=[],
                         help='comma-separated lists of condition names (primary-mp-pe, etc.) to plot together')
-    parser.add_argument('--tables-only', action='store_true',
-                        help='make only summary tables and not plots')
-    parser.add_argument('--plots-only', action='store_true',
-                        help='make only plots and not summary tables')
+    
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -143,12 +146,13 @@ def make_plot_plan(toil, options):
             
     # Upload local files to the remote IO Store
     
+    plan.position_stats_file_id = None
     if options.position_stats:
         # We will use a position stats file with all the reads to re-plot and
         # their correctness statuses and MAPQs
         plan.position_stats_file_id = toil.importFile(options.position_stats)
     
-    
+    plan.eval_results_dict = None
     if options.roc_base:
         # We will load up a bunch of ROCs
         
@@ -215,8 +219,9 @@ def plot_main(context, options):
             main_job = Job.wrapJobFn(run_plot,
                                      context, 
                                      options, 
-                                     plan.position_stats_file_id,
-                                     plan.plot_sets)
+                                     position_stats_file_id=plan.position_stats_file_id,
+                                     eval_results_dict=plan.eval_results_dict,
+                                     plot_sets=plan.plot_sets)
                 
             # Output files all live in the out_store, but if we wanted to we could export them also/instead.
 

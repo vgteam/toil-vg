@@ -1887,6 +1887,8 @@ def run_map_eval_summarize(job, context, position_stats_file_id, plot_sets):
     
     """
     
+    RealtimeLogger.info("Running summary for {}".format(plot_sets))
+    
     # Do plots
     plot_job = job.addChildJobFn(run_map_eval_plot, context, position_stats_file_id, plot_sets,
         cores=context.config.misc_cores, memory=context.config.misc_mem,
