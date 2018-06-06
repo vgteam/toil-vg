@@ -81,7 +81,15 @@ def run_surjecting(job, context, gam_input_reads_id, output_name, interleaved, x
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
     
 def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, xg_file_id, paths):
-    """ surject all gam chunks in parallel
+    """
+    Surject all gam chunks in parallel.
+    
+    surject all the GAM file IDs in read_chunk_ids, saving the merged BAM as output_name.
+    
+    If interleaved is true, expects paired-interleaved GAM input and writes paired BAM output.
+    
+    Surjects against the given collection of paths in the given XG file.
+    
     """
     
     # this will be a list of lists.
@@ -97,7 +105,7 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
     for chunk_id, chunk_filename_ids in enumerate(zip(*reads_chunk_ids)):
         #Run graph surject on each gam chunk
         chunk_surject_job = child_job.addChildJobFn(run_chunk_surject, context, interleaved, xg_file_id,
-                                                    paths, chunk_filename_ids, chunk_id,
+                                                    paths, chunk_filename_ids, '{}_chunk{}'.format(output_name, chunk_id),
                                                     cores=context.config.alignment_cores,
                                                     memory=context.config.alignment_mem,
                                                     disk=context.config.alignment_disk)
@@ -110,7 +118,14 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
 
 
 def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filename_ids, chunk_id):
-    """ run surject on a chunk.  interface mostly copied from run_chunk_alignment.  
+    """ run surject on a chunk.  interface mostly copied from run_chunk_alignment.
+    
+    Takes an xg file and path colleciton to surject against, a list of chunk
+    file IDs (must be just one possibly-interleaved chunk for now), and an
+    identifying name/number/string (chunk_id) for the chunk.
+    
+    If interleaved is true, expects paired-interleaved GAM input and writes paired BAM output.
+    
     """
 
     # we can toggle this off if dual gams ever get supported by surject (unlikely)
@@ -146,9 +161,18 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
             cmd += ['--into-path', surject_path]
         cmd += ['-t', str(context.config.alignment_cores)]
         
-        # Mark when we start the alignment
+        # Mark when we start the surjection
         start_time = timeit.default_timer()
-        context.runner.call(job, cmd, work_dir = work_dir, outfile=surject_file)
+        try:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile=surject_file)
+        except:
+            # Dump everything we need to replicate the surjection
+            logging.error("Surjection failed. Dumping files.")
+            context.write_output_file(job, xg_file)
+            for gam_file in gam_files:
+                context.write_output_file(job, gam_file)
+            
+            raise
         
         # Mark when it's done
         end_time = timeit.default_timer()
