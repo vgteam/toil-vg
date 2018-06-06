@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # create-leader.sh: launch a Toil leader node with everything needed to run toil-vg
 # (basically a subset of  vg/scripts/compare-graphs.sh)
-# Tested with Toil 3.11.0.  Will not work on earlier versions
+# Tested with Toil 3.13.0.  Will not work on earlier versions
 
 # Need Toil installed
 if ! [ -x "$(command -v toil)" ]; then
@@ -9,7 +9,7 @@ if ! [ -x "$(command -v toil)" ]; then
 	 printf "ex:\n"
 	 printf "virtualenv venv\n"
 	 printf ". venv/bin/activate\n"
-	 printf "pip install -U toil[aws,mesos]==3.11.0\n"
+	 printf "pip install -U toil[aws,mesos]==3.16.0\n"
 	 exit 1
 fi
 

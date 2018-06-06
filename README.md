@@ -22,7 +22,7 @@ Installation requires Python and Toil.  We recommend installing within virtualen
 
     virtualenv toilvenv
     source toilvenv/bin/activate
-    pip install toil[aws,mesos]==3.13.0
+    pip install toil[aws,mesos]==3.16.0
     pip install --pre toil-vg
     
 ## WIKI
