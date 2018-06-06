@@ -97,7 +97,7 @@ check_build_reqs:
 prepare: check_venv
 	# TODO: numpy cannot build from source correctly on some systems, and installing in a virtualenv fails with --only-binary :all:
 	$(pip) install numpy scipy scikit-learn==0.18.2
-	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.13.0' biopython==1.67 pyvcf==0.6.8
+	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.16.0' biopython==1.67 pyvcf==0.6.8
 	pip list
 clean_prepare: check_venv
 	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf
