@@ -15,7 +15,6 @@ import logging
 import subprocess
 import pipes
 import os
-from bd2k.util.exceptions import require
 
 _logger = logging.getLogger(__name__)
 
