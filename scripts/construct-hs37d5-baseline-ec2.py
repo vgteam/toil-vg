@@ -18,6 +18,9 @@ def parse_args(args):
     parser.add_argument("--config", help="path of config on leader")
     parser.add_argument("--restart", action="store_true", help="resume toil workflow")
     parser.add_argument("--control", help="control sample", required=True)
+    parser.add_argument("--gcsa", help="gcsa index", action="store_true")
+    parser.add_argument("--handle_unphased", help="see same option in toil-vg construct")
+    
     args = args[1:]        
     return parser.parse_args(args)
 options = parse_args(sys.argv)
@@ -52,6 +55,11 @@ cmd = ['construct', options.job_store, options.out_store,
        '--neg_control', options.control,       
        '--alt_paths',
        '--xg_index']
+
+if options.gcsa:
+    cmd += ['--gcsa_index']
+if options.handle_unphased:
+    cmd += ['--handle_unphased', options.handle_unphased]
 
 # Note config file path is on the leader!!!!  Should fix to copy it over, but not sure how.
 cmd += ['--config', options.config] if options.config else ['--whole_genome_config']
