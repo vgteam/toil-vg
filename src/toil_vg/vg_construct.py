@@ -294,7 +294,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
             sample_graph_vcf_names.append('{}_{}_sample_withref.vcf.gz'.format(vcf_base, sample_graph))
         if regions:
-            sample_graph_region_names = [output_name + '_{}'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
+            sample_graph_region_names = [output_name + '_{}_sample_withref'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
         else:
             sample_graph_region_names = None
         sample_graph_output_name = remove_ext(output_name, '.vg') + '_{}_sample_withref.vg'.format(sample_graph)
@@ -327,7 +327,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
             hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
         if regions:
-            hap_region_names = [output_name + '_{}'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
+            hap_region_names = [output_name + '_{}_haplo'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
         else:
             hap_region_names = None
         hap_output_name = remove_ext(output_name, '.vg') + '_{}_haplo.vg'.format(haplo_sample)
@@ -482,6 +482,13 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                               haplo_extraction_sample, gbwt_ids)
                 join_job = sample_job.addFollowOnJobFn(run_join_graphs, context, sample_job.rv(),
                                                        join_ids, region_names, name, sample_merge_output_name)
+                # Want to keep a whole-genome withref xg index around for mapeval purposes
+                if len(regions) > 1 and xg_index:
+                    construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
+                                                   vg_names, output_name_base, chroms, [], [], 
+                                                   skip_xg=not xg_index, skip_gcsa=True,
+                                                   skip_id_ranges=True, skip_snarls=True)
+                
                 index_prev_job = join_job
                 # in the indexing step below, we want to index our haplo-extracted sample graph
                 vg_ids = join_job.rv(0)
