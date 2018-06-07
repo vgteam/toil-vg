@@ -87,7 +87,7 @@ def construct_subparser(parser):
                         help="Create a graph including only variants with given minium allele frequency."
                         " If multiple frequencies given, a graph will be made for each one")
 
-    parser.add_argument("--handle_unphased", default='skip',
+    parser.add_argument("--handle_unphased", default='arbitrary',
                         choices=['skip', 'keep', 'arbitrary'],
                         help='How to handle unphased variants in the VCF when creating the sample or haplo graph. \"skip\": '
                         'ignore variants, just using the reference allele. \"keep\": keep the unphased variants, '
