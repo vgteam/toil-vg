@@ -481,7 +481,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                               haplo_xg_ids, sample_name_base, regions,
                                                               haplo_extraction_sample, gbwt_ids)
                 join_job = sample_job.addFollowOnJobFn(run_join_graphs, context, sample_job.rv(),
-                                                       join_ids, region_names, name, sample_merge_output_name)
+                                                       False, region_names, name, sample_merge_output_name)
                 # Want to keep a whole-genome withref xg index around for mapeval purposes
                 if len(regions) > 1 and xg_index:
                     construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
