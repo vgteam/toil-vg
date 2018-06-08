@@ -31,7 +31,7 @@ if options.fastq.lower() == "none":
     options.fastq = None
     default_sim_opts = None
 else:
-    default_sim_opts = '-p 570 -v 65 -S 4 -i 0.002 -I'
+    default_sim_opts = '-p 570 -v 65 -i 0.002 -I'
 sim_opts = options.sim_opts if options.sim_opts else default_sim_opts
     
 def print_num(n):
