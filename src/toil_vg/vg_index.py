@@ -601,9 +601,14 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
 
         cmd = ['vg', 'snarls', graph_filename]
         with open(snarl_filename, "w") as snarl_file:
-            # Compute snarls to the correct file
-            context.runner.call(job, cmd, work_dir=work_dir, outfile=snarl_file)
-
+            try:
+                # Compute snarls to the correct file
+                context.runner.call(job, cmd, work_dir=work_dir, outfile=snarl_file)
+            except:
+                # Dump everything we need to replicate the indexing
+                logging.error("Snarl indexing failed. Dumping files.")
+                context.write_output_file(job, os.path.join(work_dir, graph_filename))
+                raise
         
         if index_name is not None:
             # Checkpoint index to output store
