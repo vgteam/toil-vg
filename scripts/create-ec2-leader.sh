@@ -57,11 +57,10 @@ fi
 set -x
 
 if [ ! -z "${TOIL_APPLIANCE_SELF}" ]; then
-	 APP_SET_PREFIX="TOIL_APPLIANCE_SELF=${TOIL_APPLIANCE_SELF}"
+	 TOIL_APPLIANCE_SELF="${TOIL_APPLIANCE_SELF}" $PREFIX toil launch-cluster "${CLUSTER_NAME}" --leaderNodeType=t2.medium -z us-west-2a "--keyPairName=${KEYPAIR_NAME}"
 else
-	 APP_SET_PREFIX=""
+	 $PREFIX toil launch-cluster "${CLUSTER_NAME}" --leaderNodeType=t2.medium -z us-west-2a "--keyPairName=${KEYPAIR_NAME}"
 fi
-$APP_SET_PREFIX $PREFIX toil launch-cluster "${CLUSTER_NAME}" --leaderNodeType=t2.medium -z us-west-2a "--keyPairName=${KEYPAIR_NAME}"
 
 # We need to manually install git to make pip + git work...
 $PREFIX toil ssh-cluster --insecure --zone=us-west-2a "${CLUSTER_NAME}" apt update
