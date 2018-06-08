@@ -294,7 +294,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
             sample_graph_vcf_names.append('{}_{}_sample_withref.vcf.gz'.format(vcf_base, sample_graph))
         if regions:
-            sample_graph_region_names = [output_name + '_{}_sample_withref'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
+            sample_graph_region_names = [output_name + '_{}_sample_withref'.format(sample_graph)  + '_' + c.replace(':','-') for c in regions]
         else:
             sample_graph_region_names = None
         sample_graph_output_name = remove_ext(output_name, '.vg') + '_{}_sample_withref.vg'.format(sample_graph)
