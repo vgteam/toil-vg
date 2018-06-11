@@ -571,7 +571,14 @@ def annotate_gam(job, context, xg_file_id, gam_file_id):
     
     cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
     with open(annotated_gam_file, 'w') as out_file:
-        context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
+        try:
+            context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
+        except:
+            # Dump everything we need to replicate the annotation call
+            logging.error("GAM annotation failed. Dumping files.")
+            context.write_output_file(job, gam_file)
+            context.write_output_file(job, xg_file)
+            raise
     
     return context.write_intermediate_file(job, annotated_gam_file)
     
@@ -874,7 +881,17 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     if xg_comparison_ids:
         # optional override of downstream xg indexes via command line
         assert len(xg_comparison_ids) == len(xg_ids)
+
+        # Count up how many xg IDs will actually be replaced
+        overridden = 0
+        for item in xg_comparison_ids:
+            if item not in xg_ids:
+                overridden += 1
+
         xg_ids = xg_comparison_ids
+        RealtimeLogger.info('Applied {} xg overrides'.format(overridden))
+    else:
+        RealtimeLogger.info('No xg overrides applied')
 
     # the ids and names we pass forward
     out_xg_ids = xg_ids if gam_file_ids else []

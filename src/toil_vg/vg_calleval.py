@@ -231,12 +231,24 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
         # Rebuild the secret sample index
         vcf_reader._sample_indexes = {sample_name: 0}
     vcf_writer = vcf.Writer(open(vcf_fix_path, 'w'), vcf_reader)
+    
+    # We insist that Freebayes produce at least one record, or we will abort and dump files.
+    have_records = False
     for record in vcf_reader:
+        have_records = True
         if offset:
             record.POS += int(offset)
         vcf_writer.write_record(record)
     vcf_writer.flush()
     vcf_writer.close()
+    
+    if not have_records:
+        # This is a problem. Stop here for debugging.
+        RealtimeLogger.error('Freebayes produced no calls. Dumping files...')
+        for dump_path in [fasta_path, bam_path, bam_idx_path]:
+            if dump_path and os.path.isfile(dump_path):
+                context.write_output_file(job, dump_path)
+        raise RuntimeError('Freebayes produced no calls')
 
     context.runner.call(job, ['bgzip', os.path.basename(vcf_fix_path)], work_dir = work_dir)
     context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_fix_path) + '.gz'], work_dir = work_dir)
