@@ -889,6 +889,11 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 overridden += 1
 
         xg_ids = xg_comparison_ids
+
+        # Stick the override xg into our index dictionary so it can be used for surjection
+        for index_id, comparison_xg_id in zip(index_ids, xg_comparison_ids):
+            index_id['xg-surject'] = comparison_xg_id
+            
         RealtimeLogger.info('Applied {} xg overrides'.format(overridden))
     else:
         RealtimeLogger.info('No xg overrides applied')

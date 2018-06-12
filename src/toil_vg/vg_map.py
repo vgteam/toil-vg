@@ -396,8 +396,9 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     if surject:
         interleaved_surject = interleaved or (fastq and len(fastq) == 2)
         zip_job = child_job.addFollowOnJobFn(run_zip_surject_input, context, gam_chunk_file_ids)
+        xg_id = indexes['xg-surject'] if 'xg-surject' in indexes else indexes['xg']
         bam_chrom_ids = [zip_job.addFollowOnJobFn(run_whole_surject, context, zip_job.rv(), sample_name + '-surject',
-                                                  interleaved_surject, indexes.get('xg'), []).rv()]
+                                                  interleaved_surject, xg_id, []).rv()]
 
     return gam_chrom_ids, gam_chunk_time, bam_chrom_ids
     
