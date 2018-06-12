@@ -262,6 +262,10 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
     
     Make and output calleval ROC plots.
     
+    Takes a "names" list of all conditions. Condition names in the list (or in
+    plot-sets) do not include an "-unclipped" tag; both clipped and unclipped
+    plots are made if the data is available.
+    
     Takes a nested dict by condition name, then clipping status ("clipped",
     "unclipped"), and then variant type ("snp", "non_snp", "weighted").
     Eventual entries are to ROC data file ids (.tsv.gz).
@@ -295,7 +299,10 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
                 # We can't do this mode since it wasn't run
                 continue
                 
-            # Extract out all the stats file IDs for this ROC type, by condition name
+            # Extract out all the stats file IDs for this ROC type, by
+            # condition name. This dict is implicitly for the clipped or
+            # unclipped mode, depending on which mode we are doing. The
+            # condition name keys don't have clipping tags.
             roc_table_ids = {name: result.get(roc_type) for name, result in mode_results.iteritems()}
             
             for subset_number, subset_names in enumerate(plot_sets):
