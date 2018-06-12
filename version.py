@@ -17,7 +17,6 @@ version = '1.4.1a1'
 required_versions = {'pyyaml': '>=3.11',
                      'tsv': '==1.2',
                      'scikit-learn': '==0.18.2',
-                     'pyvcf': '==0.6.8',
-                     'bd2k-python-lib': '==1.14a1.dev48'}
+                     'pyvcf': '==0.6.8'}
 
 dependency_links = []
