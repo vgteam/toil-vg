@@ -302,10 +302,16 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
                 # For each collection of condition names to plot agaisnt each other
 
                 for name in subset_names:
-                    # Make sure all the names in the subset are conditions that actually ran
-                    assert(name in names)
-                    # And that they have ROC data
-                    assert(roc_table_ids.has_key(name))
+                    if name not in names:
+                        # Complain if any of the names in the subset aren't conditions that actually ran
+                        message = 'Condition {} not found in list of available conditions {}'.format(name, names)
+                        RealtimeLogger.error(message)
+                        raise RuntimeError(message)
+                    if not roc_table_ids.has_key(name):
+                        # Complain if any of the names in the subset lacks ROC data
+                        message = 'Condition {} has no ROC data; data only available for {}'.format(name, roc_table_ids.keys())
+                        RealtimeLogger.error(message)
+                        raise RuntimeError(message)
 
                 # Make a list of roc table IDs for the subset, in subset_names order
                 subset_ids = [roc_table_ids[name] for name in subset_names]
