@@ -646,13 +646,6 @@ def calleval_main(context, options):
             bed_id = toil.importFile(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
             clip_only = options.clip_only
             
-            if options.freebayes_fasta is not None:
-                # Calling uses a different FASTA (for a subregion)
-                freebayes_fasta_id = toil.importFile(options.freebayes_fasta)
-            else:
-                # Use the same FASTA as evaluation
-                freebayes_fasta_id = vcfeval_fasta_id
-
             # What do we plot together?
             plot_sets = [spec.split(',') for spec in options.plot_sets]
             if len(plot_sets) == 0:
@@ -670,8 +663,17 @@ def calleval_main(context, options):
                 # unzip the fasta for evaluation
                 vcfeval_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, vcfeval_fasta_id,
                                                        os.path.basename(options.vcfeval_fasta)).rv()
-                                                       
-            # Zipped FASTAs are fine for Freebayes
+
+            if options.freebayes_fasta is not None:
+                # Calling uses a different FASTA (for a subregion)
+                freebayes_fasta_id = toil.importFile(options.freebayes_fasta)
+                if options.freebayes_fasta.endswith('.gz'):
+                    # unzip the fasta for freebayes
+                    freebayes_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, freebayes_fasta_id,
+                                                                os.path.basename(options.vcfeval_fasta)).rv()
+            else:
+                # Use the same FASTA as evaluation
+                freebayes_fasta_id = vcfeval_fasta_id
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
