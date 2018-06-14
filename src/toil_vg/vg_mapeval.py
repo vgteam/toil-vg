@@ -1200,7 +1200,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         name = '{}-{}.bam'.format(bam_names[bam_i], bam_i)
         bam_stats_jobs.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, False,
                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                disk=context.config.misc_disk))
+                                                disk=context.config.alignment_disk))
         bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
     # separate flow for paired end bams because different logic used
     pe_bam_stats_file_ids = []
@@ -1208,7 +1208,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         name = '{}-{}.bam'.format(pe_bam_names[bam_i], bam_i)
         bam_stats_jobs.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, True,
                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                disk=context.config.misc_disk))
+                                                disk=context.config.alignment_disk))
         pe_bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
 
     # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
@@ -1227,14 +1227,14 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         # Make a job to annotate the GAM
         annotate_job = job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
-                                         cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                         disk=context.config.misc_disk)
+                                         cores=context.config.misc_cores, memory=context.config.alignment_mem,
+                                         disk=context.config.alignment_disk)
         
         # Then compute stats on the annotated GAM
         gam_stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
                                                             name, annotate_job.rv(),
                                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                            disk=context.config.misc_disk))
+                                                            disk=context.config.alignment_disk))
         
         gam_stats_file_ids.append(gam_stats_jobs[-1].rv())
 
@@ -1282,7 +1282,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         stats_job = job.addChildJobFn(extract_gam_read_stats, context,
                                       name, original_read_gam,
                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                      disk=context.config.misc_disk)
+                                      disk=context.config.alignment_disk)
         
         # compare all our scores against this other baseline, and dump results
         # to the out store.
@@ -1323,11 +1323,11 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
         compare_ids.append(job.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
                                              stats_file_id, mapeval_threshold,
                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                             disk=context.config.misc_disk).rv())
+                                             disk=context.config.alignment_disk).rv())
 
     position_comp_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                            disk=context.config.misc_disk).rv(1)
+                                            disk=context.config.alignment_disk).rv(1)
                                          
     return compare_ids, position_comp_file_id
 
@@ -1754,12 +1754,16 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
 
     # Extract our truth positions if no true_read_stats_file_id
     if not true_read_stats_file_id and reads_gam_file_id:
-        annotate_job = index_job.addChildJobFn(annotate_gam, context, reads_xg_file_id, reads_gam_file_id)
+        annotate_job = index_job.addChildJobFn(annotate_gam, context, reads_xg_file_id, reads_gam_file_id,
+                                               memory=context.config.alignment_mem,
+                                               disk=context.config.alignment_disk)
         true_read_stats_file_id = annotate_job.addFollowOnJobFn(extract_gam_read_stats,
-                                                                context, 'truth', annotate_job.rv()).rv()
+                                                                context, 'truth', annotate_job.rv(),
+                                                                disk=context.config.alignment_disk).rv()
     elif not true_read_stats_file_id and reads_bam_file_id:
         true_read_stats_file_id = index_job.addChildJobFn(extract_bam_read_stats,
-                                                          context, 'truth', reads_bam_file_id, True).rv()
+                                                          context, 'truth', reads_bam_file_id, True,
+                                                          disk=context.config.alignment_disk).rv()
 
     # Extract our fastq reads so that all aligners get the exact same inputs    
     # todo: should be able to use same reads, interleaved, for both
