@@ -57,6 +57,7 @@ else:
     out_name += 'ekg'
 if sim_opts:
     out_name += sim_opts.replace(' ', '')
+out_name += '-s{}'.format(options.seed)
     
 log_name = 'sim_{}.log'.format(out_name)
 os_log_name = os.path.join(options.out_store[options.out_store.rfind(':')+1:], os.path.basename(log_name))
