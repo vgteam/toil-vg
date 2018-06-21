@@ -508,15 +508,21 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                               cores=context.config.xg_index_cores,
                                                               memory=context.config.xg_index_mem,
                                                               disk=context.config.xg_index_disk)
-    
+                    
+        # some indexes should never get built for haplo/sample graphs
+        skip_gcsa = not gcsa_index or name == 'haplo'
+        skip_snarls = not snarls_index or haplo_extraction
+        make_gbwt = gbwt_index and not haplo_extraction
+        
         indexing_job = index_prev_job.addFollowOnJobFn(run_indexing, context, vg_ids,
                                                        vg_names, output_name_base, chroms,
-                                                       input_vcf_ids if gbwt_index else [],
-                                                       input_tbi_ids if gbwt_index else [],
+                                                       input_vcf_ids if make_gbwt else [],
+                                                       input_tbi_ids if make_gbwt else [],
                                                        node_mapping_id = mapping_id,
-                                                       skip_xg=not xg_index, skip_gcsa=not gcsa_index,
-                                                       skip_id_ranges=True, skip_snarls=not snarls_index,
-                                                       make_gbwt=gbwt_index, gbwt_prune=gbwt_prune, gbwt_regions=gbwt_regions)
+                                                       skip_xg=not xg_index, skip_gcsa=skip_gcsa,
+                                                       skip_id_ranges=True, skip_snarls=skip_snarls,
+                                                       make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
+                                                       gbwt_regions=gbwt_regions)
         indexes = indexing_job.rv()    
 
         output.append((vg_ids, vg_names, indexes))
