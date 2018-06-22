@@ -476,6 +476,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 # ugly hack to distinguish the graphs with reference and our extracted sample graph
                 sample_name_base = output_name_base.replace('_withref', '')
                 sample_merge_output_name = merge_output_name.replace('_withref', '') if merge_output_name else None
+                region_names = [r.replace('_withref', '') for r in region_names]
                 # Extract out our real sample graph using the gpbwt            
                 sample_job = haplo_index_job.addFollowOnJobFn(run_make_sample_graphs, context, vg_ids, vg_names,
                                                               haplo_xg_ids, sample_name_base, regions,
