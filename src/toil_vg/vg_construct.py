@@ -493,6 +493,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 # in the indexing step below, we want to index our haplo-extracted sample graph
                 vg_ids = join_job.rv(0)
                 output_name_base = sample_name_base
+                vg_names = [n.replace('_withref', '') for n in vg_names]
             
             elif name == 'haplo':
                 assert haplo_extraction_sample is not None            
