@@ -361,11 +361,10 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     separate thread DB file instead of being saved in the XG.
     
     If use_thread_dbs is not None, it must be a list of file IDs. All the
-    non-None thread DBs in the list will be considered when creating the xg
-    index. Their haplotype names will be incorporated, and the maximum
-    haplotype count in any of them will be used as the XG index's expected
-    haplotype count per chromosome. It cannot be specified along with
-    make_gbwt. 
+    thread DBs in the list will be considered when creating the xg index. Their
+    haplotype names will be incorporated, and the maximum haplotype count in
+    any of them will be used as the XG index's expected haplotype count per
+    chromosome. It cannot be specified along with make_gbwt. 
     
     Return a tuple of file IDs, (xg_id, gbwt_id, thread_db_id). The GBWT ID
     will be None if no GBWT is generated. The thread DB ID will be None if no
@@ -428,10 +427,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         # It doesn't make sense to build a GBWT ourselves and consume threads
         assert(not make_gbwt)
         for i, file_id in enumerate(use_thread_dbs):
-            if file_id is None:
-                # Skip nones that may come from files with no thread DB available
-                continue
-                
+            assert(file_id is not None)
             # Download the thread DBs
             file_name = os.path.join(work_dir, "threads{}.threads".format(i))
             job.fileStore.readGlobalFile(file_id, file_name)
