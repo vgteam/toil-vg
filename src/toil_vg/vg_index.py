@@ -746,6 +746,10 @@ def run_indexing(job, context, inputGraphFileIDs,
     
     Run indexing logic by itself.
     
+    vcf_phasing_file_ids and tbi_phasing_file_ids are phasing data VCFs. There
+    can be 0 of them, 1 for all chromosomes, or one for each chromosome in
+    chroms order.
+    
     gbwt_regions is a list of chrom:start-end regions pecifiers to restrict, on
     those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
@@ -805,9 +809,24 @@ def run_indexing(job, context, inputGraphFileIDs,
             if separate_threads:
                 indexes['chrom_thread'] = []
             
+            
             for i, chrom in enumerate(chroms):
-                vcf_id = vcf_phasing_file_ids[i] if i < len(vcf_phasing_file_ids) else None
-                tbi_id = tbi_phasing_file_ids[i] if i < len(tbi_phasing_file_ids) else None
+                # For each chromosome
+                
+                # Find the phasing VCF
+                if len(vcf_phasing_file_ids) == 0:
+                    # There may be 0
+                    vcf_id = None
+                    tbi_id = None
+                if len(vcf_phasing_file_ids) == 1:
+                    # There may be one for all chromosomes
+                    vcf_id = vcf_phasing_file_ids[0]
+                    tbi_id = tbi_phasing_file_ids[0]
+                else:
+                    # Otherwise there must be one for each chromosome.
+                    # Ano other pattern requires complex matching of VCFs to chromosomes.
+                    vcf_id = vcf_phasing_file_ids[i]
+                    tbi_id = tbi_phasing_file_ids[i]
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
