@@ -380,6 +380,8 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     
     RealtimeLogger.info("inputGraphFileIDs: {}".format(str(inputGraphFileIDs)))
     RealtimeLogger.info("graph_names: {}".format(str(graph_names)))
+    RealtimeLogger.info("separate_threads: {}".format(str(separate_threads)))
+    RealtimeLogger.info("use_thread_dbs: {}".format(str(use_thread_dbs)))
     # Our local copy of the graphs
     graph_filenames = []
     for i, graph_id in enumerate(inputGraphFileIDs):
@@ -425,6 +427,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         # It doesn't make sense to build a GBWT ourselves and consume threads
         assert(not make_gbwt)
         for i, file_id in enumerate(use_thread_dbs):
+            assert(file_id is not None)
             # Download the thread DBs
             file_name = os.path.join(work_dir, "threads{}.threads".format(i))
             job.fileStore.readGlobalFile(file_id, file_name)
@@ -739,6 +742,10 @@ def run_indexing(job, context, inputGraphFileIDs,
     
     Run indexing logic by itself.
     
+    vcf_phasing_file_ids and tbi_phasing_file_ids are phasing data VCFs. There
+    can be 0 of them, 1 for all chromosomes, or one for each chromosome in
+    chroms order.
+    
     gbwt_regions is a list of chrom:start-end regions pecifiers to restrict, on
     those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
@@ -798,9 +805,24 @@ def run_indexing(job, context, inputGraphFileIDs,
             if separate_threads:
                 indexes['chrom_thread'] = []
             
+            
             for i, chrom in enumerate(chroms):
-                vcf_id = vcf_phasing_file_ids[i] if i < len(vcf_phasing_file_ids) else None
-                tbi_id = tbi_phasing_file_ids[i] if i < len(tbi_phasing_file_ids) else None
+                # For each chromosome
+                
+                # Find the phasing VCF
+                if len(vcf_phasing_file_ids) == 0:
+                    # There may be 0
+                    vcf_id = None
+                    tbi_id = None
+                if len(vcf_phasing_file_ids) == 1:
+                    # There may be one for all chromosomes
+                    vcf_id = vcf_phasing_file_ids[0]
+                    tbi_id = tbi_phasing_file_ids[0]
+                else:
+                    # Otherwise there must be one for each chromosome.
+                    # Ano other pattern requires complex matching of VCFs to chromosomes.
+                    vcf_id = vcf_phasing_file_ids[i]
+                    tbi_id = tbi_phasing_file_ids[i]
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
