@@ -2258,7 +2258,16 @@ def make_mapeval_plan(toil, options):
                         
                     
                 if options.use_snarls:
-                    plan.snarl_file_ids.append(toil.importFile(ib + '.snarls'))
+                    try:
+                        # If the file exists/imports successfully, we use it
+                        plan.snarl_file_ids.append(toil.importFile(ib + '.snarls'))
+                    except:
+                        # If it doesn't exist, it won't import. And we want to
+                        # tolerate absent snarl indexes for some graphs (like
+                        # the sample graph positive control) where they aren't
+                        # available.
+                        plan.snarl_file_ids.append(None)
+                    
                     
                 # multiple gam outputs not currently supported by evaluation pipeline
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
