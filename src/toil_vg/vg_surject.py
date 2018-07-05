@@ -112,9 +112,11 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
         bam_chunk_file_ids.append(chunk_surject_job.rv(0))
         bam_chunk_running_times.append(chunk_surject_job.rv(1))
 
+    # TODO: track file sizes and make sure to give BAM merging enough disk
     return child_job.addFollowOnJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
-                                      cores=context.config.misc_cores,
-                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+                                      cores=context.config.alignment_cores,
+                                      memory=context.config.alignment_mem,
+                                      disk=context.config.alignment_disk).rv()
 
 
 def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filename_ids, chunk_id):
@@ -183,8 +185,26 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
 
 def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
     """
-    Merge together bams
+    Merge together bams.
+    
+    TODO: Context ought to always be the second argument, after job.
     """
+    
+    # How much disk do we think we will need to have the merged and unmerged copies of these BAMs.
+    # TODO: get this from file sizes somehow
+    required_disk = 2 * 300 * 1024 * 1024 * 1024
+    
+    if job.disk < required_disk:
+        # We need to re-queue ourselves with more disk.
+        RealtimeLogger.info("Re-queueing run_merge_bams with more disk!")
+        requeued = job.addChildJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
+            cores=job.cores,
+            memory=job.memory,
+            disk = required_disk)
+        
+        return requeued.rv()
+        
+    # Otherwise, we have enough disk
 
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
