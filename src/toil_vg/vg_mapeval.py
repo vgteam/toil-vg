@@ -423,9 +423,36 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
     return out_ids
     
 def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
-    """ run bwa-mem on reads in a gam.  optionally run in paired mode
+    """ run bwa-mem on reads in a fastq.  optionally run in paired mode
     return id of bam file
     """
+
+    # We need to compute the total size of our inputs, expected intermediates,
+    # and outputs, and re-queue ourselves if we don't have enough disk.
+    required_disk = 0
+    for fastq_id in fq_reads_ids:
+        # We need all the FASTQs downloaded
+        required_disk += fastq_id.size
+        
+    # Say we need room for the aligned BAM, and the intermediate SAM file.
+    # TODO: Is this factor sufficient?
+    required_disk *= 8
+    
+    for idx_id in bwa_index_ids.values():
+        # We also need room for the indexes
+        required_disk += idx_id.size
+    
+    # Add some padding
+    required_disk += 1024 ** 3
+        
+    if job.disk < required_disk:
+        # Re-queue with more disk
+        RealtimeLogger.info("Re-queueing run_bwa_mem with {} bytes of disk; originally had {}".format(required_disk, job.disk))
+        requeued = job.addChildJobFn(run_bwa_mem, context, fq_reads_ids, bwa_index_ids, paired_mode,
+            cores=job.cores, memory=job.memory,
+            disk=required_disk)
+        return requeued.rv()
+            
 
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -455,8 +482,8 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
                 os.path.basename(fq_file_names[0])]
         if len(fq_file_names) == 2:
             cmd += [os.path.basename(fq_file_names[1])]
-        # if one file comes in, it had better be interleaved            
         else:
+            # if one file comes in, it had better be interleaved
             cmd += ['-p']
         cmd += context.config.bwa_opts
         
