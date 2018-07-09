@@ -566,7 +566,7 @@ def subsample_gam(job, context, gam_file_id, fraction):
     in_file = os.path.join(work_dir, 'full.gam')
     out_file = os.path.join(work_dir, 'subsampled.gam')
     
-    job.fileStore.readGlobalFile(gam_file_id, 'full.gam')
+    job.fileStore.readGlobalFile(gam_file_id, in_file)
     
     cmd = ['vg', 'filter', '-t', str(job.cores), '--downsample', str(fraction), os.path.basename(in_file)]
     with open(out_file, 'w') as out_gam:
