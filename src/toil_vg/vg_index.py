@@ -805,8 +805,6 @@ def run_indexing(job, context, inputGraphFileIDs,
             if separate_threads:
                 indexes['chrom_thread'] = []
             
-            RealtimeLogger.info("VCFs: {} TBIs: {}".format(vcf_phasing_file_ids, tbi_phasing_file_ids))
-            
             # Check our input phasing VCF set for plausibility
             if len(vcf_phasing_file_ids) != len(tbi_phasing_file_ids):
                 # Each VCF needs an index
@@ -824,15 +822,12 @@ def run_indexing(job, context, inputGraphFileIDs,
             for i, chrom in enumerate(chroms):
                 # For each chromosome
                 
-                RealtimeLogger.info("Consider chrom {}: {} with vcf {} of {} and tbi {} of {}".format(i, chrom,
-                    i, len(vcf_phasing_file_ids), i, len(tbi_phasing_file_ids)))
-                
                 # Find the phasing VCF
                 if len(vcf_phasing_file_ids) == 0:
                     # There may be 0
                     vcf_id = None
                     tbi_id = None
-                if len(vcf_phasing_file_ids) == 1:
+                elif len(vcf_phasing_file_ids) == 1:
                     # There may be one for all chromosomes
                     vcf_id = vcf_phasing_file_ids[0]
                     tbi_id = tbi_phasing_file_ids[0]
