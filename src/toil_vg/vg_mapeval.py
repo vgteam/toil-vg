@@ -535,6 +535,43 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     bam_file_id = context.write_output_file(job, bam_file)
 
     return bam_file_id, run_time
+    
+def subsample_bam(job, context, bam_file_id, fraction):
+    """
+    Extract the given fraction of reads from the given BAM file. Return the
+    file ID for the new BAM file.
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    out_file = os.path.join(work_dir, 'subsampled.bam')
+    
+    job.fileStore.readGlobalFile(bam_file_id, 'full.bam')
+    
+    cmd = ['samtools', 'view', '-b', '-s', str(fraction), 'full.bam']
+    with open(out_file, 'w') as out_bam:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+        
+    return context.write_intermediate_file(job, out_file)
+    
+def subsample_gam(job, context, gam_file_id, fraction):
+    """
+    Extract the given fraction of reads from the given GAM file. Return the
+    file ID for the new GAM file.
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    out_file = os.path.join(work_dir, 'subsampled.gam')
+    
+    job.fileStore.readGlobalFile(gam_file_id, 'full.gam')
+    
+    cmd = ['vg', 'filter', '-t', str(job.cores), '--subsample', str(fraction), 'full.gam']
+    with open(out_file, 'w') as out_gam:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_gam)
+        
+    return context.write_intermediate_file(job, out_file)
+    
 
 def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
     """
@@ -1169,11 +1206,13 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
 def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
                             bwa_bam_file_ids, surjected_results, true_read_stats_file_id,
-                            mapeval_threshold, score_baseline_name=None, original_read_gam=None):
+                            mapeval_threshold, score_baseline_name=None, original_read_gam=None,
+                            subsample_portion=0.02):
     """
     run the mapping comparison.  Dump some tables into the outstore.
     
-    Returns a pair of the position comparison results and the score comparison results.
+    Returns a pair of the position comparison results and the score comparison
+    results.
     
     The score comparison results are a dict from baseline name to comparison
     against that baseline. Each comparison's data is a tuple of a list of
@@ -1186,7 +1225,10 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     If original_read_gam is specified, all GAMs have their scores compared
     against that GAM's scores as a baseline.
     
-    Each result set is itself a pair, consisting of a list of per-graph file IDs, and an overall statistics file ID.
+    Each result set is itself a pair, consisting of a list of per-graph file
+    IDs, and an overall statistics file ID.
+    
+    By default runs the comparison on a subsampled 2% of the reads.
     
     """
     
@@ -1224,18 +1266,38 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     # get the bwa read alignment statistics, one id for each bam_name
     bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(bam_file_ids):
+        
+        # What job ensures we have the alignments to evaluate?
+        parent_job = job
+        if subsample_portion is not None and subsample_portion != 1.0:
+            # Downsample the BAM
+            parent_job = job.addChildJobFn(subsample_bam, context, bam_id, subsample_portion,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=bam_id.size * 2)
+            bam_id = parent_job.rv()
+    
         name = '{}-{}.bam'.format(bam_names[bam_i], bam_i)
-        bam_stats_jobs.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, False,
-                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                disk=context.config.alignment_disk))
+        bam_stats_jobs.append(parent_job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, False,
+                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                       disk=context.config.alignment_disk))
         bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
     # separate flow for paired end bams because different logic used
     pe_bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(pe_bam_file_ids):
+        
+        # What job ensures we have the alignments to evaluate?
+        parent_job = job
+        if subsample_portion is not None and subsample_portion != 1.0:
+            # Downsample the BAM
+            parent_job = job.addChildJobFn(subsample_bam, context, bam_id, subsample_portion,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=bam_id.size * 2)
+            bam_id = parent_job.rv()
+    
         name = '{}-{}.bam'.format(pe_bam_names[bam_i], bam_i)
-        bam_stats_jobs.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, True,
-                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                disk=context.config.alignment_disk))
+        bam_stats_jobs.append(parent_job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, True,
+                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                       disk=context.config.alignment_disk))
         pe_bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
 
     # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
@@ -1252,10 +1314,19 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
             gam = gam_id[0]
         RealtimeLogger.info('Work on GAM {} = {} named {} with XG id {}'.format(gam_i, gam, gam_names[gam_i], xg_file_ids[gam_i]))
         
+        # What job ensures we have the alignments to evaluate?
+        parent_job = job
+        if subsample_portion is not None and subsample_portion != 1.0:
+            # Downsample the GAM
+            parent_job = job.addChildJobFn(subsample_gam, context, gam, subsample_portion,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=gam.size * 2)
+            gam = parent_job.rv()
+        
         # Make a job to annotate the GAM
-        annotate_job = job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
-                                         cores=context.config.misc_cores, memory=context.config.alignment_mem,
-                                         disk=context.config.alignment_disk)
+        annotate_job = parent_job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
+                                                cores=context.config.misc_cores, memory=context.config.alignment_mem,
+                                                disk=context.config.alignment_disk)
         
         # Then compute stats on the annotated GAM
         gam_stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
@@ -2016,7 +2087,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
                     os.path.join('plots', plot_name))))
             except Exception as e:
                 if rscript == 'roc':
-                    RealtimeLogger.warning('plot-roc.R failed: '.format(str(e)))
+                    RealtimeLogger.warning('plot-roc.R failed: {}'.format(str(e)))
                 else:
                     # We insist that the R scripts execute successfully (except plot-roc)
                     raise e
