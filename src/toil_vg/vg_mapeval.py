@@ -544,11 +544,12 @@ def subsample_bam(job, context, bam_file_id, fraction):
     
     work_dir = job.fileStore.getLocalTempDir()
     
+    in_file = os.path.join(work_dir, 'full.bam')
     out_file = os.path.join(work_dir, 'subsampled.bam')
     
-    job.fileStore.readGlobalFile(bam_file_id, 'full.bam')
+    job.fileStore.readGlobalFile(bam_file_id, in_file)
     
-    cmd = ['samtools', 'view', '-b', '-s', str(fraction), 'full.bam']
+    cmd = ['samtools', 'view', '-b', '-s', str(fraction), os.path.basename(in_file)]
     with open(out_file, 'w') as out_bam:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
         
@@ -562,11 +563,12 @@ def subsample_gam(job, context, gam_file_id, fraction):
     
     work_dir = job.fileStore.getLocalTempDir()
     
+    in_file = os.path.join(work_dir, 'full.gam')
     out_file = os.path.join(work_dir, 'subsampled.gam')
     
     job.fileStore.readGlobalFile(gam_file_id, 'full.gam')
     
-    cmd = ['vg', 'filter', '-t', str(job.cores), '--subsample', str(fraction), 'full.gam']
+    cmd = ['vg', 'filter', '-t', str(job.cores), '--downsample', str(fraction), os.path.basename(in_file)]
     with open(out_file, 'w') as out_gam:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_gam)
         
