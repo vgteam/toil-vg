@@ -715,6 +715,10 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     And the file under test is a read stats TSV with the format:
     read name, contig aligned to, alignment position, alignment score, MAPQ
     
+    The input files must be in lexicographically sorted order by name, but may
+    not contain the same number of entries each. The stats file may be a subset
+    of the truth.
+    
     Produces a CSV (NOT TSV) of the form:
     read name, correctness flag (0/1), MAPQ
     
@@ -731,74 +735,85 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
-    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, \
-         open(out_file, 'w') as out:
-        line_no = 0
-        for true_fields, test_fields in itertools.izip(tsv.TsvReader(truth), tsv.TsvReader(test)):
-            # Zip everything up and assume that the reads correspond
-            line_no += 1
-            # every input has a true position
-            true_read_name = true_fields[0]
-            if len(true_fields) < 3:
-                # This seems to come up about one-in-a-million times from vg annotate as called
-                # by toil-vg sim.  Once it is fixed, we can turn this back into an error
-                logger.warning('Incorrect (< 3) true field counts on line {} for {}: {} and {}'.format(
-                    line_no, name, true_fields, test_fields))
-                true_fields = [true_read_name, '0', '0']
-            if len(test_fields) < 5:
-                # With the new TSV reader, the files should always have the
-                # correct field counts. Some fields just might be empty.
-                raise RuntimeError('Incorrect (<5) test field counts on line {} for {}: {} and {}'.format(
-                    line_no, name, true_fields, test_fields))
-
-            # map seq name->position
-            true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
-            aln_read_name = test_fields[0]
-            if aln_read_name !=true_read_name:
-                raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
-                    line_no, true_read_stats_file, test_read_stats_file, true_read_name, aln_read_name))
-            aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
-            # Skip over score field
-            aln_mapq = parse_int(test_fields[-1])
-            aln_correct = 0
-            for aln_chr, aln_pos in aln_pos_dict.items():
-                if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
-                    aln_correct = 1
-                    break
-
-            out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
+    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out:
         
-        # make sure same length
-        has_next = False
-        try:
-            iter(truth).next()
-            has_next = True
-        except:
-            pass
-        try:
-            iter(test).next()
-            has_next = True
-        except:
-            pass
-        if has_next:
-            raise RuntimeError('read stats files have different lengths')
+        # Make readers for the files
+        truth_reader = iter(tsv.TsvReader(truth))
+        test_reader = iter(tsv.TsvReader(test))
+        
+        # Start an iteration over them
+        true_fields = next(truth_reader, None)
+        test_fields = next(test_reader, None)
+        
+        # Track line numbers for error reporting
+        true_line = 1
+        test_line = 1
+        
+        while true_fields is not None and test_fields is not None:
+            # We still have data on both sides
+            
+            if len(true_fields) < 3:
+                raise RuntimeError('Incorrect (<3) true field count on line {}: {}'.format(
+                    true_line, true_fields))
+            
+            if len(test_fields) < 5:
+                raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(
+                    test_line, test_fields))
+            
+            true_read_name = true_fields[0]
+            aln_read_name = test_fields[0]
+            
+            if true_read_name < aln_read_name:
+                # We need to advance the true read
+                true_fields = next(truth_reader, None)
+                true_line += 1
+                continue
+            elif aln_read_name < true_read_name:
+                # We need to advance the aligned read
+                test_fields = next(test_reader, None)
+                test_line += 1
+                continue
+            else:
+                # The reads correspond. Check if the positions are right.
+                
+                # map seq name->position
+                true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
+                aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
+                # Skip over score field
+                aln_mapq = parse_int(test_fields[-1])
+                aln_correct = 0
+                for aln_chr, aln_pos in aln_pos_dict.items():
+                    if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
+                        aln_correct = 1
+                        break
+
+                out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
+        
+                # Advance both reads
+                true_fields = next(truth_reader, None)
+                true_line += 1
+                test_fields = next(test_reader, None)
+                test_line += 1
         
     out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
     
 def compare_scores(job, context, baseline_name, baseline_file_id, name, score_file_id):
-    """
-    Compares scores from TSV files. The baseline and file under test both have
-    the format:
-    read name, contig aligned to, alignment position, alignment score, MAPQ
+    """ Compares scores from TSV files. The baseline and file under test both
+    have the format: read name, contig aligned to, alignment position,
+    alignment score, MAPQ
     
-    Produces a CSV (NOT TSV) of the form:
-    read name, score difference, aligned score, baseline score
+    Both must be in lexicographical order by read name, but they need not have
+    the same length. The score file may be a subset of the baseline.
     
-    If saved to the out store it will be:
-    <condition name>.compare.<baseline name>.scores
+    Produces a CSV (NOT TSV) of the form: read name, score difference, aligned
+    score, baseline score
     
-    Uses the given (condition) name as a file base name for the file under test.
+    If saved to the out store it will be: <condition name>.compare.<baseline
+    name>.scores
+    
+    Uses the given (condition) name as a file base name for the file under
+    test.
     
     """
     work_dir = job.fileStore.getLocalTempDir()
@@ -810,21 +825,46 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
 
     out_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
 
-    with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test:
-        with open(out_file, 'w') as out:
-            line_no = 0
-            for baseline_fields, test_fields in itertools.izip(tsv.TsvReader(baseline), tsv.TsvReader(test)):
-                # Zip everything up and assume that the reads correspond
-                line_no += 1
-                
-                if len(baseline_fields) < 5 or len(test_fields) < 5:
-                    raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
-                        line_no, name, baseline_fields, test_fields))
-                
-                if baseline_fields[0] != test_fields[0]:
-                    # Read names must correspond or something has gone wrong
-                    raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
-                        line_no, baseline_read_stats_file, test_read_stats_file, baseline_fields[0], test_fields[0]))
+    with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test, open(out_file, 'w') as out:
+        
+        # Make readers for the files
+        baseline_reader = iter(tsv.TsvReader(baseline))
+        test_reader = iter(tsv.TsvReader(test))
+        
+        # Start an iteration over them
+        baseline_fields = next(baseline_reader, None)
+        test_fields = next(test_reader, None)
+        
+        # Track line numbers for error reporting
+        baseline_line = 1
+        test_line = 1
+        
+        while baseline_fields is not None and test_fields is not None:
+            # We still have data on both sides
+            
+            if len(baseline_fields) < 5:
+                raise RuntimeError('Incorrect (<5) baseline field count on line {}: {}'.format(
+                    baseline_line, baseline_fields))
+            
+            if len(test_fields) < 5:
+                raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(
+                    test_line, test_fields))
+            
+            baseline_read_name = baseline_fields[0]
+            aln_read_name = test_fields[0]
+            
+            if baseline_read_name < aln_read_name:
+                # We need to advance the baseline read
+                baseline_fields = next(baseline_reader, None)
+                baseline_line += 1
+                continue
+            elif aln_read_name < baseline_read_name:
+                # We need to advance the aligned read
+                test_fields = next(test_reader, None)
+                test_line += 1
+                continue
+            else:
+                # The reads correspond. Check if the positions are right.
                 
                 # Order is: name, conting, pos, score, mapq
                 aligned_score = test_fields[-2]
@@ -834,26 +874,16 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
                 
                 # Report the score difference            
                 out.write('{}, {}, {}, {}\n'.format(baseline_fields[0], score_diff, aligned_score, baseline_score))
+
+                # Advance both reads
+                baseline_fields = next(baseline_reader, None)
+                baseline_line += 1
+                test_fields = next(test_reader, None)
+                test_line += 1
+                
         
         # Save stats file for inspection
         out_file_id = context.write_intermediate_file(job, out_file)
-        
-        # make sure same length
-        has_next = False
-        found_line1 = None
-        found_line2 = None
-        try:
-            found_line1 = iter(baseline).next().rstrip()
-            has_next = True
-        except:
-            pass
-        try:
-            found_line2 = iter(test).next().rstrip()
-            has_next = True
-        except:
-            pass
-        if has_next:
-            raise RuntimeError('read stats files have different lengths ({}, {})'.format(found_line1, found_line2))
         
     return out_file_id
 
