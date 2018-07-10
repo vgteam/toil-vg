@@ -679,7 +679,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     # we're going to use a different docker container.  (Note, would be nice to
     # avoid writing the json to disk)        
     jq_cmd = [['jq', '-c', '-r', '[.name, '
-               'if .refpos != null then (.refpos[] | .name, .offset) else (null, null) end, '
+               'if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end, '
                '.score, '
                'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
                os.path.basename(gam_annot_json)]]
@@ -753,8 +753,13 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
             # We still have data on both sides
             
             if len(true_fields) < 3:
-                raise RuntimeError('Incorrect (<3) true field count on line {}: {}'.format(
-                    true_line, true_fields))
+                if len(true_fields == 2):
+                    # Probably dropped the reference position in the jq-to-tsv step because it was 0
+                    # TODO: Remove this after the fix to toil_vg sim to not do that is in common usage.
+                    true_fields.append('0')
+                else:
+                    raise RuntimeError('Incorrect (<3) true field count on line {}: {}'.format(
+                        true_line, true_fields))
             
             if len(test_fields) < 5:
                 raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(

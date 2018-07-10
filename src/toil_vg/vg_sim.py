@@ -218,7 +218,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, pa
         # avoid writing the json to disk)
         # note: in the following, we are writing the read name as the first column,
         # then a path-name, path-offset in each successive pair of columns
-        jq_cmd = ['jq', '-c', '-r', '[ .name, if .refpos != null then (.refpos[] | .name, .offset) else (null, null) end ] | @tsv',
+        jq_cmd = ['jq', '-c', '-r', '[ .name, if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end ] | @tsv',
                   os.path.basename(gam_annot_json)]
 
         # output truth positions
