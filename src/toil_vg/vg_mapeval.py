@@ -115,6 +115,9 @@ def add_mapeval_options(parser):
     # We can compare all the scores against those from a particular GAM, if asked.
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
+                        
+    parser.add_argument('--downsample', type=float, default=None,
+                        help='downsample alignment files to the given portion of reads for evaluation')
 
     parser.add_argument('--ignore-quals', action='store_true',
                         help='never use quality adjusted alignment. ' 
@@ -536,7 +539,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
 
     return bam_file_id, run_time
     
-def subsample_bam(job, context, bam_file_id, fraction):
+def downsample_bam(job, context, bam_file_id, fraction):
     """
     Extract the given fraction of reads from the given BAM file. Return the
     file ID for the new BAM file.
@@ -545,7 +548,7 @@ def subsample_bam(job, context, bam_file_id, fraction):
     work_dir = job.fileStore.getLocalTempDir()
     
     in_file = os.path.join(work_dir, 'full.bam')
-    out_file = os.path.join(work_dir, 'subsampled.bam')
+    out_file = os.path.join(work_dir, 'downsampled.bam')
     
     job.fileStore.readGlobalFile(bam_file_id, in_file)
     
@@ -555,7 +558,7 @@ def subsample_bam(job, context, bam_file_id, fraction):
         
     return context.write_intermediate_file(job, out_file)
     
-def subsample_gam(job, context, gam_file_id, fraction):
+def downsample_gam(job, context, gam_file_id, fraction):
     """
     Extract the given fraction of reads from the given GAM file. Return the
     file ID for the new GAM file.
@@ -564,7 +567,7 @@ def subsample_gam(job, context, gam_file_id, fraction):
     work_dir = job.fileStore.getLocalTempDir()
     
     in_file = os.path.join(work_dir, 'full.gam')
-    out_file = os.path.join(work_dir, 'subsampled.gam')
+    out_file = os.path.join(work_dir, 'downsampled.gam')
     
     job.fileStore.readGlobalFile(gam_file_id, in_file)
     
@@ -1244,7 +1247,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
                             bwa_bam_file_ids, surjected_results, true_read_stats_file_id,
                             mapeval_threshold, score_baseline_name=None, original_read_gam=None,
-                            subsample_portion=0.02):
+                            downsample_portion=None):
     """
     run the mapping comparison.  Dump some tables into the outstore.
     
@@ -1265,7 +1268,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     Each result set is itself a pair, consisting of a list of per-graph file
     IDs, and an overall statistics file ID.
     
-    By default runs the comparison on a subsampled 2% of the reads.
+    By default runs the comparison on a downsampled 2% of the reads.
     
     """
     
@@ -1306,9 +1309,9 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         # What job ensures we have the alignments to evaluate?
         parent_job = job
-        if subsample_portion is not None and subsample_portion != 1.0:
+        if downsample_portion is not None and downsample_portion != 1.0:
             # Downsample the BAM
-            parent_job = job.addChildJobFn(subsample_bam, context, bam_id, subsample_portion,
+            parent_job = job.addChildJobFn(downsample_bam, context, bam_id, downsample_portion,
                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
                                            disk=bam_id.size * 2)
             bam_id = parent_job.rv()
@@ -1324,9 +1327,9 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         # What job ensures we have the alignments to evaluate?
         parent_job = job
-        if subsample_portion is not None and subsample_portion != 1.0:
+        if downsample_portion is not None and downsample_portion != 1.0:
             # Downsample the BAM
-            parent_job = job.addChildJobFn(subsample_bam, context, bam_id, subsample_portion,
+            parent_job = job.addChildJobFn(downsample_bam, context, bam_id, downsample_portion,
                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
                                            disk=bam_id.size * 2)
             bam_id = parent_job.rv()
@@ -1353,9 +1356,9 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         # What job ensures we have the alignments to evaluate?
         parent_job = job
-        if subsample_portion is not None and subsample_portion != 1.0:
+        if downsample_portion is not None and downsample_portion != 1.0:
             # Downsample the GAM
-            parent_job = job.addChildJobFn(subsample_gam, context, gam, subsample_portion,
+            parent_job = job.addChildJobFn(downsample_gam, context, gam, downsample_portion,
                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
                                            disk=gam.size * 2)
             gam = parent_job.rv()
@@ -2000,6 +2003,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                      gam_names, gam_file_ids, options.bam_names, bam_file_ids,
                      options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids, surjected_results,
                      true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores, reads_gam_file_id,
+                     downsample_portion=options.downsample,
                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                      disk=context.config.misc_disk)
 
