@@ -753,7 +753,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
             # We still have data on both sides
             
             if len(true_fields) < 3:
-                if len(true_fields == 2):
+                if len(true_fields) == 2:
                     # Probably dropped the reference position in the jq-to-tsv step because it was 0
                     # TODO: Remove this after the fix to toil_vg sim to not do that is in common usage.
                     true_fields.append('0')
