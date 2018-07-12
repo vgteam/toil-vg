@@ -775,14 +775,20 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 # We need to advance the true read
                 true_fields = next(truth_reader, None)
                 true_line += 1
+                # Make sure we went forward
+                assert(true_fields == None or true_fields[0] > true_read_name)
                 continue
             elif aln_read_name < true_read_name:
                 # We need to advance the aligned read
                 test_fields = next(test_reader, None)
                 test_line += 1
+                # Make sure we went forward
+                assert(test_fields == None or test_fields[0] > aln_read_name)
                 continue
             else:
                 # The reads correspond. Check if the positions are right.
+                
+                assert(aln_read_name == true_read_name)
                 
                 # map seq name->position
                 true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
@@ -2260,7 +2266,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         
         # Start the output file.
         writer = tsv.TsvWriter(open(os.path.join(work_dir, table_name), 'w'))
-        header = ['Condition', 'Wrong reads total', 'At MAPQ 60', 'At MAPQ 0', 'At MAPQ >0',
+        header = ['Condition', 'Reads', 'Wrong', 'Precision', 'At MAPQ 60', 'At MAPQ 0', 'At MAPQ >0',
             'New vs. ' + baseline_condition, 'Fixed vs. ' + baseline_condition, 'Avg. Correct MAPQ', 'Correct MAPQ 0']
         writer.list_line(header)
         
@@ -2270,7 +2276,9 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
             
             # Start a line
             line = [condition]
+            line.append(stats['wrong'] + stats['correct'])
             line.append(stats['wrong'])
+            line.append(float(stats['correct']) / (stats['wrong'] + stats['correct']))
             line.append(stats['wrong60'])
             line.append(stats['wrong0'])
             line.append(stats['wrong>0'])
