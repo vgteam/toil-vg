@@ -82,6 +82,9 @@ def get_container_tool_map(options):
     cmap[0]["Rscript"] = options.r_docker
     cmap[0]["vcfremovesamples"] = options.vcflib_docker
     cmap[0]["freebayes"] = options.freebayes_docker
+    # I can't find any images with Platypus as an executable in the path.  Hacking something
+    # that works here and below by byassing the config's usual docker interface. 
+    cmap[0]["Platypus.py"] = 'quay.io/biocontainers/platypus-variant:0.8.1.1--htslib1.7_1'
     cmap[0]['hap.py'] = options.happy_docker
      
     # to do: could be a good place to do an existence check on these tools
@@ -176,8 +179,14 @@ to do: Should go somewhere more central """
                 rfile.close()
                 # note that only call_directly below actually does anything with errfile at the moment
                 errfile = wfile
-                
+
         container_type = self.container_for_tool(name)
+        
+        # ugly hack for platypus hardcodes container (see get_container_tool_map()) and associated executable
+        if args[0][0] == 'Platypus.py' and container_type in ['Docker', 'Singularity']:
+            tool_name = 'Platypus.py'
+            args[0][0] = '/usr/local/share/platypus-variant-0.8.1.1-1/Platypus.py'
+        
         if container_type == 'Docker':
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
         elif container_type == 'Singularity':
@@ -232,7 +241,7 @@ to do: Should go somewhere more central """
 
         if name == 'vg':
             environment['VG_FULL_TRACEBACK'] = '1'
-            
+
         # Force all dockers to run sort in a consistent way
         environment['LC_ALL'] = 'C'
 
