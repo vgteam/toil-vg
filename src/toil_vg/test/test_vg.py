@@ -218,14 +218,15 @@ class VGCGLTest(TestCase):
                    '--sample_name', '1',
                    '--calling_cores', '2',
                    '--genotype', '--genotype_opts', '-P 0', 
-                   '--freebayes',
+                   '--freebayes', '--platypus',
                    '--bams', os.path.join(self.local_outstore, 'bwa-mem.bam'),
                    os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),
                    '--bam_names', 'bwa-mem', 'bwa-mem-pe',
                    '--happy', '--surject'])
 
         self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb',
-                                                         'vg-pe-surject-fb', 'vg-surject-fb'], 0.02, 0.02)
+                                                         'vg-pe-surject-fb', 'vg-surject-fb', 'bwa-mem-plat',
+                                                         'bwa-mem-pe-plat', 'vg-pe-surject-plat', 'vg-surject-plat'], 0.02, 0.02)
 
         # check running mapeval on the vg graph
         

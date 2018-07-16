@@ -89,8 +89,10 @@ def calleval_parse_args(parser):
                         help='xg indexes for the different graphs')
     parser.add_argument('--freebayes', action='store_true',
                         help='run freebayes as a baseline')
-    parser.add_argument("--freebayes_fasta", type=make_url,
+    parser.add_argument("--caller_fasta", type=make_url,
                         help="Use this FASTA instead of the vcfeval fasta for Freebayes. Maybe be gzipped")
+    parser.add_argument('--platypus', action='store_true',
+                        help='run platypus as a baseline')
     parser.add_argument('--bam_names', nargs='+', default=[],
                         help='names of bwa runs (corresponds to bams)')
     parser.add_argument('--bams', nargs='+', type=make_url, default=[],
@@ -118,8 +120,8 @@ def validate_calleval_options(options):
                 '--gam_names, --xg_paths, --gams must all contain same number of elements')
         require(options.call or options.genotype or options.surject,
                 '--call and/or --genotype and/or --surject required with --gams')
-    if options.freebayes:
-        require(options.bams, '--bams must be given for use with freebayes')
+    if options.freebayes or options.platypus:
+        require(options.bams or options.surject, '--bams and/or --surject needed with --freebayes or --platypus')
     if options.bams or options.bam_names:
         require(options.bams and options.bam_names and len(options.bams) == len(options.bam_names),
                 '--bams and --bam_names must be same length')
@@ -129,6 +131,9 @@ def validate_calleval_options(options):
         require(options.gams, '--gams must be given with --call, --genotype, and --surject')
     require(options.vcfeval_bed_regions is not None or not options.clip_only,
             '--vcfeval_bed_regions must be given with --clip_only')
+    if options.surject or options.bams:
+        require(options.freebayes or options.platypus,
+                '--freebayes and/or --platypus must be used with --bams and --surject')
 
 def run_bam_index(job, context, bam_file_id, bam_name):
     """
@@ -152,10 +157,11 @@ def run_bam_index(job, context, bam_file_id, bam_name):
     out_idx_id = context.write_intermediate_file(job, sort_bam_path + '.bai')
     return out_bam_id, out_idx_id
     
-def run_all_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
-                      sample_name, chroms, offsets, out_name, freebayes_opts = ['--genotype-qualities']):
+def run_all_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,
+                       sample_name, chroms, offsets, out_name, bam_caller,
+                       bam_caller_opts = []):
     """
-    run freebayes on a set of chromosomal regions.  this is done by sending each region to a 
+    run freebayes or platypus on a set of chromosomal regions.  this is done by sending each region to a 
     child job and farming off the entire input to each (ie not splitting the input)
     """
     # to encapsulate everything under this job
@@ -169,8 +175,8 @@ def run_all_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     if not offsets:
         offsets = [None] * len(chroms)
     for chrom, offset in zip(chroms, offsets):
-        fb_job = child_job.addChildJobFn(run_freebayes, context, fasta_file_id, bam_file_id, bam_idx_id,
-                                         sample_name, chrom, offset, out_name, freebayes_opts,
+        fb_job = child_job.addChildJobFn(run_bam_caller, context, fasta_file_id, bam_file_id, bam_idx_id,
+                                         sample_name, chrom, offset, out_name, bam_caller, bam_caller_opts,
                                          cores=context.config.calling_cores,
                                          memory=context.config.calling_mem,
                                          disk=context.config.calling_disk)
@@ -181,13 +187,14 @@ def run_all_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     merge_vcf_job = child_job.addFollowOnJobFn(run_merge_vcf, context, out_name, zip(fb_vcf_ids, fb_tbi_ids), fb_timers)
     return merge_vcf_job.rv()
     
-def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
-                  sample_name, chrom, offset, out_name,
-                  freebayes_opts = ['--genotype-qualities']):
+def run_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,
+                   sample_name, chrom, offset, out_name, bam_caller, bam_caller_opts):
     """
-    run freebayes to make a vcf
+    run freebayes or platypus to make a vcf
     """
 
+    assert bam_caller in ['freebayes', 'platypus']
+    
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -199,19 +206,33 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     job.fileStore.readGlobalFile(bam_file_id, bam_path)
     job.fileStore.readGlobalFile(bam_idx_id, bam_idx_path)
 
-    # run freebayes
-    fb_cmd = ['freebayes', '-f', os.path.basename(fasta_path), os.path.basename(bam_path)]
-    if freebayes_opts:
-        fb_cmd += freebayes_opts
-
-    if chrom:
-        fb_cmd += ['-r', chrom]
-
+    # output
     vcf_path = os.path.join(work_dir, '{}-raw.vcf'.format(out_name))
-    timer = TimeTracker('freebayes')
-    with open(vcf_path, 'w') as out_vcf:
-        context.runner.call(job, fb_cmd, work_dir=work_dir, outfile=out_vcf)
-    timer.stop()
+    
+    if bam_caller == 'freebayes':
+        fb_cmd = ['freebayes', '-f', os.path.basename(fasta_path), os.path.basename(bam_path)]
+        if bam_caller_opts:
+            fb_cmd += bam_caller_opts
+        if chrom:
+            fb_cmd += ['-r', chrom]
+        timer = TimeTracker('freebayes')
+        with open(vcf_path, 'w') as out_vcf:
+            context.runner.call(job, fb_cmd, work_dir=work_dir, outfile=out_vcf)
+        timer.stop()
+            
+    elif bam_caller == 'platypus':
+        context.runner.call(job, ['samtools', 'faidx', 'ref.fa'], work_dir=work_dir)
+        plat_cmd = ['Platypus.py', 'callVariants', '--refFile', os.path.basename(fasta_path),
+                    '--bamFiles', os.path.basename(bam_path), '-o', os.path.basename(vcf_path)]
+        if bam_caller_opts:
+            plat_cmd += bam_caller_opts
+        if chrom:
+            plat_cmd += ['--regions', chrom]
+        timer = TimeTracker('Platypus')
+        context.runner.call(job, plat_cmd, work_dir=work_dir)
+        timer.stop()
+    else:
+        assert False
 
     context.write_intermediate_file(job, vcf_path)
 
@@ -244,11 +265,11 @@ def run_freebayes(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     
     if not have_records:
         # This is a problem. Stop here for debugging.
-        RealtimeLogger.error('Freebayes produced no calls. Dumping files...')
+        RealtimeLogger.error('{} produced no calls. Dumping files...'.format(bam_caller))
         for dump_path in [fasta_path, bam_path, bam_idx_path]:
             if dump_path and os.path.isfile(dump_path):
                 context.write_output_file(job, dump_path)
-        raise RuntimeError('Freebayes produced no calls')
+        raise RuntimeError('{} produced no calls'.format(bam_caller))
 
     context.runner.call(job, ['bgzip', os.path.basename(vcf_fix_path)], work_dir = work_dir)
     context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_fix_path) + '.gz'], work_dir = work_dir)
@@ -382,7 +403,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
     times_path = os.path.join(work_dir, 'call_times.tsv')
     
     # organize our expected labels a bit
-    calling_labels = ['call', 'genotype', 'freebayes']
+    calling_labels = ['call', 'genotype', 'freebayes', 'platypus']
     augmenting_labels = ['call-filter-augment', 'call-augment', 'call-filter']
     all_labels = set()
     for timer in timing_results:
@@ -408,13 +429,28 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
                                          [context.write_output_file(job, stats_path), context.write_output_file(job, times_path)],
                                          roc_plot_ids).rv()
             
+def run_vcf_subset(job, context, vcf_file_id, tbi_file_id, regions):
+    # use bcftools to clip vcf to regions
+    work_dir = job.fileStore.getLocalTempDir()
 
-                             
+    # download the input
+    vcf_path = os.path.join(work_dir, 'input.vcf.gz')
+    out_vcf_path = os.path.join(work_dir, 'output.vcf.gz')
+    job.fileStore.readGlobalFile(vcf_file_id, vcf_path)
+    job.fileStore.readGlobalFile(tbi_file_id, vcf_path + '.tbi')
+
+    cmd = ['bcftools', 'view', os.path.basename(vcf_path), '--regions', ','.join(regions),
+           '--output-type', 'z', '--output-file', os.path.basename(out_vcf_path)]
+    context.runner.call(job, cmd, work_dir=work_dir)
+    context.runner.call(job, ['tabix', '--preset', 'vcf', os.path.basename(out_vcf_path)], work_dir=work_dir)
+    return (context.write_intermediate_file(job, out_vcf_path),
+            context.write_intermediate_file(job, out_vcf_path + '.tbi'))                             
         
 def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
-                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, freebayes_fasta_id, vcfeval_fasta_id,
+                 vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
                  bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
-                 vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved):
+                 vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved,
+                 freebayes, platypus):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -487,59 +523,67 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                 sorted_bam_id = bam_id
                 sorted_bam_idx_id = bam_idx_id                
 
-            fb_out_name = '{}-fb'.format(bam_name)
-            fb_job = bam_index_job.addFollowOnJobFn(run_all_freebayes, context, freebayes_fasta_id,
-                                                    sorted_bam_id, sorted_bam_idx_id, sample_name,
-                                                    chroms, vcf_offsets,
-                                                    out_name = fb_out_name,
-                                                    cores=context.config.misc_cores,
-                                                    memory=context.config.misc_mem,
-                                                    disk=context.config.misc_disk)
-            fb_vcf_tbi_id_pair = (fb_job.rv(0), fb_job.rv(1))
-            timing_result = fb_job.rv(2)
-
-            if bed_id:
-                 
-            
-                eval_results[fb_out_name]["clipped"] = \
-                    fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
-                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            vcfeval_fasta_id, bed_id, out_name=fb_out_name,
-                                            score_field='GQ', cores=context.config.vcfeval_cores,
-                                            memory=context.config.vcfeval_mem,
-                                            disk=context.config.vcfeval_disk).rv()
-                happy_results[fb_out_name]["clipped"] = \
-                    fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
-                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            vcfeval_fasta_id, bed_id, out_name=fb_out_name,
-                                            cores=context.config.vcfeval_cores,
-                                            memory=context.config.vcfeval_mem,
-                                            disk=context.config.vcfeval_disk).rv()
-            
-            if not clip_only:
-                # Also do unclipped
+            bam_caller_infos = []
+            if freebayes:
+                bam_caller_infos.append(('freebayes', ['--genotype-qualities'], '-fb'))
+            if platypus:
+                bam_caller_infos.append(('platypus', ['--mergeClusteredVariants=1'], '-plat'))
                 
-                eval_results[fb_out_name]["unclipped"] = \
-                    fb_job.addFollowOnJobFn(run_vcfeval, context, sample_name, fb_vcf_tbi_id_pair,
-                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            vcfeval_fasta_id, None,
-                                            out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
-                                            score_field='GQ', cores=context.config.vcfeval_cores,
-                                            memory=context.config.vcfeval_mem,
-                                            disk=context.config.vcfeval_disk).rv()
-                happy_results[fb_out_name]["unclipped"] = \
-                    fb_job.addFollowOnJobFn(run_happy, context, sample_name, fb_vcf_tbi_id_pair,
-                                            truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                            vcfeval_fasta_id, None,
-                                            out_name=fb_out_name if not bed_id else fb_out_name + '-unclipped',
-                                            cores=context.config.vcfeval_cores,
-                                            memory=context.config.vcfeval_mem,
-                                            disk=context.config.vcfeval_disk).rv()
+            for bam_caller, bam_caller_opts, bam_caller_tag in bam_caller_infos:
 
-            
-            vcf_tbi_id_pairs.append(fb_vcf_tbi_id_pair)
-            timing_results.append(timing_result)
-            names.append(fb_out_name)
+                bam_caller_out_name = '{}{}'.format(bam_name, bam_caller_tag)
+                bam_caller_job = bam_index_job.addFollowOnJobFn(run_all_bam_caller, context, caller_fasta_id,
+                                                                sorted_bam_id, sorted_bam_idx_id, sample_name,
+                                                                chroms, vcf_offsets,
+                                                                out_name = bam_caller_out_name,
+                                                                bam_caller = bam_caller,
+                                                                bam_caller_opts = bam_caller_opts,
+                                                                cores=context.config.misc_cores,
+                                                                memory=context.config.misc_mem,
+                                                                disk=context.config.misc_disk)
+                bam_caller_vcf_tbi_id_pair = (bam_caller_job.rv(0), bam_caller_job.rv(1))
+                timing_result = bam_caller_job.rv(2)
+
+                if bed_id:
+
+                    eval_results[bam_caller_out_name]["clipped"] = \
+                        bam_caller_job.addFollowOnJobFn(run_vcfeval, context, sample_name, bam_caller_vcf_tbi_id_pair,
+                                                        truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                        vcfeval_fasta_id, bed_id, out_name=bam_caller_out_name,
+                                                        score_field='GQ', cores=context.config.vcfeval_cores,
+                                                        memory=context.config.vcfeval_mem,
+                                                        disk=context.config.vcfeval_disk).rv()
+                    happy_results[bam_caller_out_name]["clipped"] = \
+                        bam_caller_job.addFollowOnJobFn(run_happy, context, sample_name, bam_caller_vcf_tbi_id_pair,
+                                                        truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                        vcfeval_fasta_id, bed_id, out_name=bam_caller_out_name,
+                                                        cores=context.config.vcfeval_cores,
+                                                        memory=context.config.vcfeval_mem,
+                                                        disk=context.config.vcfeval_disk).rv()
+
+                if not clip_only:
+                    # Also do unclipped
+
+                    eval_results[bam_caller_out_name]["unclipped"] = \
+                        bam_caller_job.addFollowOnJobFn(run_vcfeval, context, sample_name, bam_caller_vcf_tbi_id_pair,
+                                                        truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                        vcfeval_fasta_id, None,
+                                                        out_name=bam_caller_out_name if not bed_id else bam_caller_out_name + '-unclipped',
+                                                        score_field='GQ', cores=context.config.vcfeval_cores,
+                                                        memory=context.config.vcfeval_mem,
+                                                        disk=context.config.vcfeval_disk).rv()
+                    happy_results[bam_caller_out_name]["unclipped"] = \
+                        bam_caller_job.addFollowOnJobFn(run_happy, context, sample_name, bam_caller_vcf_tbi_id_pair,
+                                                        truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                        vcfeval_fasta_id, None,
+                                                        out_name=bam_caller_out_name if not bed_id else bam_caller_out_name + '-unclipped',
+                                                        cores=context.config.vcfeval_cores,
+                                                        memory=context.config.vcfeval_mem,
+                                                        disk=context.config.vcfeval_disk).rv()
+
+                vcf_tbi_id_pairs.append(bam_caller_vcf_tbi_id_pair)
+                timing_results.append(timing_result)
+                names.append(bam_caller_out_name)
 
     # optional override to filter-opts when running genotype
     # this is allows us to run different filter-opts for call and genotype
@@ -677,22 +721,28 @@ def calleval_main(context, options):
                 vcfeval_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, vcfeval_fasta_id,
                                                        os.path.basename(options.vcfeval_fasta)).rv()
 
-            if options.freebayes_fasta is not None:
+            if options.caller_fasta is not None:
                 # Calling uses a different FASTA (for a subregion)
-                freebayes_fasta_id = toil.importFile(options.freebayes_fasta)
-                if options.freebayes_fasta.endswith('.gz'):
+                caller_fasta_id = toil.importFile(options.caller_fasta)
+                if options.caller_fasta.endswith('.gz'):
                     # unzip the fasta for freebayes
-                    freebayes_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, freebayes_fasta_id,
+                    caller_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, caller_fasta_id,
                                                                 os.path.basename(options.vcfeval_fasta)).rv()
             else:
                 # Use the same FASTA as evaluation
-                freebayes_fasta_id = vcfeval_fasta_id
+                caller_fasta_id = vcfeval_fasta_id
+
+            if options.chroms:
+                # Make sure the comparison respects --chroms if it's provided
+                vcf_subset_job = init_job.addChildJobFn(run_vcf_subset, context, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                                                        options.chroms, disk=context.config.vcfeval_disk)
+                vcfeval_baseline_id, vcfeval_baseline_tbi_id = vcf_subset_job.rv(0), vcf_subset_job.rv(1)
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
                                      inputBamIdxIds,
                                      options.gam_names, options.bam_names, 
-                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, freebayes_fasta_id, vcfeval_fasta_id,
+                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
                                      bed_id, clip_only,
                                      options.call,
                                      options.genotype,
@@ -703,6 +753,8 @@ def calleval_main(context, options):
                                      options.filter_opts_gt,
                                      options.surject,
                                      options.interleaved,
+                                     options.freebayes,
+                                     options.platypus,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

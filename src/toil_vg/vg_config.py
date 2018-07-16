@@ -166,6 +166,9 @@ vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
 # Docker image to use for Freebayes
 freebayes-docker: 'maxulysse/freebayes:1.2.5'
 
+# Docker image to use for Platypus
+platypus-docker: 'quay.io/biocontainers/platypus-variant:0.8.1.1--htslib1.7_1'
+
 # Docker image to use for hap.py
 happy-docker: 'donfreed12/hap.py:v0.3.9'
 
@@ -392,6 +395,9 @@ vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
 
 # Docker image to use for Freebayes
 freebayes-docker: 'maxulysse/freebayes:1.2.5'
+
+# Docker image to use for Platypus
+platypus-docker: 'quay.io/biocontainers/platypus-variant:0.8.1.1--htslib1.7_1'
 
 # Docker image to use for hap.py
 happy-docker: 'donfreed12/hap.py:v0.3.9'
