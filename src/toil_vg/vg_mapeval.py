@@ -1793,8 +1793,12 @@ def run_process_score_comparisons(job, context, baseline_name, names, compare_id
             """
             with open(comp_file) as comp_in:
                 for line in comp_in:
-                    toks = line.rstrip().split(', ')
-                    out_results.line(toks[1], a)
+                    content = line.rstrip()
+                    if content != '':
+                        toks = content.split(', ')
+                        if len(toks) < 2:
+                            raise RuntimeError('Invalid comparison file line ' + content)
+                        out_results.line(toks[1], a)
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
