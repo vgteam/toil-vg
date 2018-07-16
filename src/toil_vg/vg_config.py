@@ -134,7 +134,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.8.0-28-g7b021440-t180-run'
+vg-docker: 'quay.io/vgteam/vg:v1.9.0-0-g3286e131-t206-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
@@ -361,7 +361,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.8.0-28-g7b021440-t180-run'
+vg-docker: 'quay.io/vgteam/vg:v1.9.0-0-g3286e131-t206-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
