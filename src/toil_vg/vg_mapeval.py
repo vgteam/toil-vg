@@ -895,9 +895,8 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
                 test_fields = next(test_reader, None)
                 test_line += 1
                 
-        
-        # Save stats file for inspection
-        out_file_id = context.write_intermediate_file(job, out_file)
+    # Save stats file for inspection
+    out_file_id = context.write_intermediate_file(job, out_file)
         
     return out_file_id
 
