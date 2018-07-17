@@ -805,6 +805,19 @@ def run_indexing(job, context, inputGraphFileIDs,
             if separate_threads:
                 indexes['chrom_thread'] = []
             
+            # Check our input phasing VCF set for plausibility
+            if len(vcf_phasing_file_ids) != len(tbi_phasing_file_ids):
+                # Each VCF needs an index
+                raise RuntimeError("Found {} phasing VCFs and {} indexes; counts must match!".format(
+                    len(vcf_phasing_file_ids), len(tbi_phasing_file_ids)))
+                    
+            if len(vcf_phasing_file_ids) != 0 and len(vcf_phasing_file_ids) != 1 and len(vcf_phasing_file_ids) != len(chroms):
+                # We can only handle no VCFs, one VCF, or one VCF per chromosome
+                RealtimeLogger.error("Chromosomes: {}".format(chroms))
+                RealtimeLogger.error("VCFs: {}".format(vcf_phasing_file_ids))
+                raise RuntimeError("Found {} phasing VCFs for {} chromosomes, which is a combination that can't be matched up simply".format(
+                    len(vcf_phasing_file_ids), len(chroms)))
+            
             
             for i, chrom in enumerate(chroms):
                 # For each chromosome
@@ -814,13 +827,13 @@ def run_indexing(job, context, inputGraphFileIDs,
                     # There may be 0
                     vcf_id = None
                     tbi_id = None
-                if len(vcf_phasing_file_ids) == 1:
+                elif len(vcf_phasing_file_ids) == 1:
                     # There may be one for all chromosomes
                     vcf_id = vcf_phasing_file_ids[0]
                     tbi_id = tbi_phasing_file_ids[0]
                 else:
                     # Otherwise there must be one for each chromosome.
-                    # Ano other pattern requires complex matching of VCFs to chromosomes.
+                    # Any other pattern requires complex matching of VCFs to chromosomes.
                     vcf_id = vcf_phasing_file_ids[i]
                     tbi_id = tbi_phasing_file_ids[i]
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,

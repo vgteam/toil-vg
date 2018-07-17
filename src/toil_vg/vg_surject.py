@@ -126,6 +126,8 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
     
     If interleaved is true, expects paired-interleaved GAM input and writes paired BAM output.
     
+    Returns a single-element list of the resulting BAM file ID, and the run time in seconds.
+    
     """
 
     # we can toggle this off if dual gams ever get supported by surject (unlikely)
@@ -183,16 +185,39 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
 
 def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
     """
-    Merge together bams
+    Merge together bams.
+    
+    Takes a list of lists of BAM file IDs to merge.
+    
+    TODO: Context ought to always be the second argument, after job.
     """
+    
+    # First flatten the list of lists
+    flat_ids = [x for l in bam_chunk_file_ids for x in l]
+    
+    # How much disk do we think we will need to have the merged and unmerged copies of these BAMs?
+    # Ask for 1 GB more than the total size of all the files
+    required_disk = 2 * sum((file_id.size for file_id in flat_ids)) + 1024 * 1024 * 1024
+    
+    if job.disk < required_disk:
+        # We need to re-queue ourselves with more disk.
+        RealtimeLogger.info("Re-queueing run_merge_bams with {} bytes of disk; originally had {}".format(required_disk, job.disk))
+        requeued = job.addChildJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
+            cores=job.cores,
+            memory=job.memory,
+            disk=required_disk)
+        
+        return requeued.rv()
+        
+    # Otherwise, we have enough disk
 
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
     # Download our chunk files
-    chunk_paths = [os.path.join(work_dir, 'chunk_{}.bam'.format(i)) for i in range(len(bam_chunk_file_ids))]
-    for i, bam_chunk_file_id in enumerate(bam_chunk_file_ids):
-        job.fileStore.readGlobalFile(bam_chunk_file_id[0], chunk_paths[i])
+    chunk_paths = [os.path.join(work_dir, 'chunk_{}.bam'.format(i)) for i in range(len(flat_ids))]
+    for i, bam_chunk_file_id in enumerate(flat_ids):
+        job.fileStore.readGlobalFile(bam_chunk_file_id, chunk_paths[i])
 
     # todo: option to give name
     surject_path = os.path.join(work_dir, '{}.bam'.format(output_name))

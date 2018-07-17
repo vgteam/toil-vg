@@ -115,6 +115,9 @@ def add_mapeval_options(parser):
     # We can compare all the scores against those from a particular GAM, if asked.
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
+                        
+    parser.add_argument('--downsample', type=float, default=None,
+                        help='downsample alignment files to the given portion of reads for evaluation')
 
     parser.add_argument('--ignore-quals', action='store_true',
                         help='never use quality adjusted alignment. ' 
@@ -423,9 +426,36 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
     return out_ids
     
 def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
-    """ run bwa-mem on reads in a gam.  optionally run in paired mode
+    """ run bwa-mem on reads in a fastq.  optionally run in paired mode
     return id of bam file
     """
+
+    # We need to compute the total size of our inputs, expected intermediates,
+    # and outputs, and re-queue ourselves if we don't have enough disk.
+    required_disk = 0
+    for fastq_id in fq_reads_ids:
+        # We need all the FASTQs downloaded
+        required_disk += fastq_id.size
+        
+    # Say we need room for the aligned BAM, and the intermediate SAM file.
+    # TODO: Is this factor sufficient?
+    required_disk *= 8
+    
+    for idx_id in bwa_index_ids.values():
+        # We also need room for the indexes
+        required_disk += idx_id.size
+    
+    # Add some padding
+    required_disk += 1024 ** 3
+        
+    if job.disk < required_disk:
+        # Re-queue with more disk
+        RealtimeLogger.info("Re-queueing run_bwa_mem with {} bytes of disk; originally had {}".format(required_disk, job.disk))
+        requeued = job.addChildJobFn(run_bwa_mem, context, fq_reads_ids, bwa_index_ids, paired_mode,
+            cores=job.cores, memory=job.memory,
+            disk=required_disk)
+        return requeued.rv()
+            
 
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -455,8 +485,8 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
                 os.path.basename(fq_file_names[0])]
         if len(fq_file_names) == 2:
             cmd += [os.path.basename(fq_file_names[1])]
-        # if one file comes in, it had better be interleaved            
         else:
+            # if one file comes in, it had better be interleaved
             cmd += ['-p']
         cmd += context.config.bwa_opts
         
@@ -508,6 +538,45 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     bam_file_id = context.write_output_file(job, bam_file)
 
     return bam_file_id, run_time
+    
+def downsample_bam(job, context, bam_file_id, fraction):
+    """
+    Extract the given fraction of reads from the given BAM file. Return the
+    file ID for the new BAM file.
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    in_file = os.path.join(work_dir, 'full.bam')
+    out_file = os.path.join(work_dir, 'downsampled.bam')
+    
+    job.fileStore.readGlobalFile(bam_file_id, in_file)
+    
+    cmd = ['samtools', 'view', '-b', '-s', str(fraction), os.path.basename(in_file)]
+    with open(out_file, 'w') as out_bam:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+        
+    return context.write_intermediate_file(job, out_file)
+    
+def downsample_gam(job, context, gam_file_id, fraction):
+    """
+    Extract the given fraction of reads from the given GAM file. Return the
+    file ID for the new GAM file.
+    """
+    
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    in_file = os.path.join(work_dir, 'full.gam')
+    out_file = os.path.join(work_dir, 'downsampled.gam')
+    
+    job.fileStore.readGlobalFile(gam_file_id, in_file)
+    
+    cmd = ['vg', 'filter', '-t', str(job.cores), '--downsample', str(fraction), os.path.basename(in_file)]
+    with open(out_file, 'w') as out_gam:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_gam)
+        
+    return context.write_intermediate_file(job, out_file)
+    
 
 def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
     """
@@ -613,7 +682,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     # we're going to use a different docker container.  (Note, would be nice to
     # avoid writing the json to disk)        
     jq_cmd = [['jq', '-c', '-r', '[.name, '
-               'if .refpos != null then (.refpos[] | .name, .offset) else (null, null) end, '
+               'if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end, '
                '.score, '
                'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
                os.path.basename(gam_annot_json)]]
@@ -649,6 +718,10 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     And the file under test is a read stats TSV with the format:
     read name, contig aligned to, alignment position, alignment score, MAPQ
     
+    The input files must be in lexicographically sorted order by name, but may
+    not contain the same number of entries each. The stats file may be a subset
+    of the truth.
+    
     Produces a CSV (NOT TSV) of the form:
     read name, correctness flag (0/1), MAPQ
     
@@ -665,74 +738,96 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
-    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, \
-         open(out_file, 'w') as out:
-        line_no = 0
-        for true_fields, test_fields in itertools.izip(tsv.TsvReader(truth), tsv.TsvReader(test)):
-            # Zip everything up and assume that the reads correspond
-            line_no += 1
-            # every input has a true position
-            true_read_name = true_fields[0]
-            if len(true_fields) < 3:
-                # This seems to come up about one-in-a-million times from vg annotate as called
-                # by toil-vg sim.  Once it is fixed, we can turn this back into an error
-                logger.warning('Incorrect (< 3) true field counts on line {} for {}: {} and {}'.format(
-                    line_no, name, true_fields, test_fields))
-                true_fields = [true_read_name, '0', '0']
-            if len(test_fields) < 5:
-                # With the new TSV reader, the files should always have the
-                # correct field counts. Some fields just might be empty.
-                raise RuntimeError('Incorrect (<5) test field counts on line {} for {}: {} and {}'.format(
-                    line_no, name, true_fields, test_fields))
-
-            # map seq name->position
-            true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
-            aln_read_name = test_fields[0]
-            if aln_read_name !=true_read_name:
-                raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
-                    line_no, true_read_stats_file, test_read_stats_file, true_read_name, aln_read_name))
-            aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
-            # Skip over score field
-            aln_mapq = parse_int(test_fields[-1])
-            aln_correct = 0
-            for aln_chr, aln_pos in aln_pos_dict.items():
-                if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
-                    aln_correct = 1
-                    break
-
-            out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
+    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out:
         
-        # make sure same length
-        has_next = False
-        try:
-            iter(truth).next()
-            has_next = True
-        except:
-            pass
-        try:
-            iter(test).next()
-            has_next = True
-        except:
-            pass
-        if has_next:
-            raise RuntimeError('read stats files have different lengths')
+        # Make readers for the files
+        truth_reader = iter(tsv.TsvReader(truth))
+        test_reader = iter(tsv.TsvReader(test))
+        
+        # Start an iteration over them
+        true_fields = next(truth_reader, None)
+        test_fields = next(test_reader, None)
+        
+        # Track line numbers for error reporting
+        true_line = 1
+        test_line = 1
+        
+        while true_fields is not None and test_fields is not None:
+            # We still have data on both sides
+            
+            if len(true_fields) < 3:
+                if len(true_fields) == 2:
+                    # Probably dropped the reference position in the jq-to-tsv step because it was 0
+                    # TODO: Remove this after the fix to toil_vg sim to not do that is in common usage.
+                    true_fields.append('0')
+                else:
+                    raise RuntimeError('Incorrect (<3) true field count on line {}: {}'.format(
+                        true_line, true_fields))
+            
+            if len(test_fields) < 5:
+                raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(
+                    test_line, test_fields))
+            
+            true_read_name = true_fields[0]
+            aln_read_name = test_fields[0]
+            
+            if true_read_name < aln_read_name:
+                # We need to advance the true read
+                true_fields = next(truth_reader, None)
+                true_line += 1
+                # Make sure we went forward
+                assert(true_fields == None or true_fields[0] > true_read_name)
+                continue
+            elif aln_read_name < true_read_name:
+                # We need to advance the aligned read
+                test_fields = next(test_reader, None)
+                test_line += 1
+                # Make sure we went forward
+                assert(test_fields == None or test_fields[0] > aln_read_name)
+                continue
+            else:
+                # The reads correspond. Check if the positions are right.
+                
+                assert(aln_read_name == true_read_name)
+                
+                # map seq name->position
+                true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
+                aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
+                # Skip over score field
+                aln_mapq = parse_int(test_fields[-1])
+                aln_correct = 0
+                for aln_chr, aln_pos in aln_pos_dict.items():
+                    if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
+                        aln_correct = 1
+                        break
+
+                out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
+        
+                # Advance both reads
+                true_fields = next(truth_reader, None)
+                true_line += 1
+                test_fields = next(test_reader, None)
+                test_line += 1
         
     out_file_id = context.write_intermediate_file(job, out_file)
     return out_file_id
     
 def compare_scores(job, context, baseline_name, baseline_file_id, name, score_file_id):
-    """
-    Compares scores from TSV files. The baseline and file under test both have
-    the format:
-    read name, contig aligned to, alignment position, alignment score, MAPQ
+    """ Compares scores from TSV files. The baseline and file under test both
+    have the format: read name, contig aligned to, alignment position,
+    alignment score, MAPQ
     
-    Produces a CSV (NOT TSV) of the form:
-    read name, score difference, aligned score, baseline score
+    Both must be in lexicographical order by read name, but they need not have
+    the same length. The score file may be a subset of the baseline.
     
-    If saved to the out store it will be:
-    <condition name>.compare.<baseline name>.scores
+    Produces a CSV (NOT TSV) of the form: read name, score difference, aligned
+    score, baseline score
     
-    Uses the given (condition) name as a file base name for the file under test.
+    If saved to the out store it will be: <condition name>.compare.<baseline
+    name>.scores
+    
+    Uses the given (condition) name as a file base name for the file under
+    test.
     
     """
     work_dir = job.fileStore.getLocalTempDir()
@@ -744,21 +839,46 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
 
     out_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
 
-    with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test:
-        with open(out_file, 'w') as out:
-            line_no = 0
-            for baseline_fields, test_fields in itertools.izip(tsv.TsvReader(baseline), tsv.TsvReader(test)):
-                # Zip everything up and assume that the reads correspond
-                line_no += 1
-                
-                if len(baseline_fields) < 5 or len(test_fields) < 5:
-                    raise RuntimeError('Incorrect field counts on line {} for {}: {} and {}'.format(
-                        line_no, name, baseline_fields, test_fields))
-                
-                if baseline_fields[0] != test_fields[0]:
-                    # Read names must correspond or something has gone wrong
-                    raise RuntimeError('Mismatch on line {} of {} and {}.  Read names differ: {} != {}'.format(
-                        line_no, baseline_read_stats_file, test_read_stats_file, baseline_fields[0], test_fields[0]))
+    with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test, open(out_file, 'w') as out:
+        
+        # Make readers for the files
+        baseline_reader = iter(tsv.TsvReader(baseline))
+        test_reader = iter(tsv.TsvReader(test))
+        
+        # Start an iteration over them
+        baseline_fields = next(baseline_reader, None)
+        test_fields = next(test_reader, None)
+        
+        # Track line numbers for error reporting
+        baseline_line = 1
+        test_line = 1
+        
+        while baseline_fields is not None and test_fields is not None:
+            # We still have data on both sides
+            
+            if len(baseline_fields) < 5:
+                raise RuntimeError('Incorrect (<5) baseline field count on line {}: {}'.format(
+                    baseline_line, baseline_fields))
+            
+            if len(test_fields) < 5:
+                raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(
+                    test_line, test_fields))
+            
+            baseline_read_name = baseline_fields[0]
+            aln_read_name = test_fields[0]
+            
+            if baseline_read_name < aln_read_name:
+                # We need to advance the baseline read
+                baseline_fields = next(baseline_reader, None)
+                baseline_line += 1
+                continue
+            elif aln_read_name < baseline_read_name:
+                # We need to advance the aligned read
+                test_fields = next(test_reader, None)
+                test_line += 1
+                continue
+            else:
+                # The reads correspond. Check if the positions are right.
                 
                 # Order is: name, conting, pos, score, mapq
                 aligned_score = test_fields[-2]
@@ -768,26 +888,15 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
                 
                 # Report the score difference            
                 out.write('{}, {}, {}, {}\n'.format(baseline_fields[0], score_diff, aligned_score, baseline_score))
-        
-        # Save stats file for inspection
-        out_file_id = context.write_intermediate_file(job, out_file)
-        
-        # make sure same length
-        has_next = False
-        found_line1 = None
-        found_line2 = None
-        try:
-            found_line1 = iter(baseline).next().rstrip()
-            has_next = True
-        except:
-            pass
-        try:
-            found_line2 = iter(test).next().rstrip()
-            has_next = True
-        except:
-            pass
-        if has_next:
-            raise RuntimeError('read stats files have different lengths ({}, {})'.format(found_line1, found_line2))
+
+                # Advance both reads
+                baseline_fields = next(baseline_reader, None)
+                baseline_line += 1
+                test_fields = next(test_reader, None)
+                test_line += 1
+                
+    # Save stats file for inspection
+    out_file_id = context.write_intermediate_file(job, out_file)
         
     return out_file_id
 
@@ -1142,11 +1251,13 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
 def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
                             bwa_bam_file_ids, surjected_results, true_read_stats_file_id,
-                            mapeval_threshold, score_baseline_name=None, original_read_gam=None):
+                            mapeval_threshold, score_baseline_name=None, original_read_gam=None,
+                            downsample_portion=None):
     """
     run the mapping comparison.  Dump some tables into the outstore.
     
-    Returns a pair of the position comparison results and the score comparison results.
+    Returns a pair of the position comparison results and the score comparison
+    results.
     
     The score comparison results are a dict from baseline name to comparison
     against that baseline. Each comparison's data is a tuple of a list of
@@ -1159,7 +1270,10 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     If original_read_gam is specified, all GAMs have their scores compared
     against that GAM's scores as a baseline.
     
-    Each result set is itself a pair, consisting of a list of per-graph file IDs, and an overall statistics file ID.
+    Each result set is itself a pair, consisting of a list of per-graph file
+    IDs, and an overall statistics file ID.
+    
+    By default runs the comparison on a downsampled 2% of the reads.
     
     """
     
@@ -1197,18 +1311,38 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     # get the bwa read alignment statistics, one id for each bam_name
     bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(bam_file_ids):
+        
+        # What job ensures we have the alignments to evaluate?
+        parent_job = job
+        if downsample_portion is not None and downsample_portion != 1.0:
+            # Downsample the BAM
+            parent_job = job.addChildJobFn(downsample_bam, context, bam_id, downsample_portion,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=bam_id.size * 2)
+            bam_id = parent_job.rv()
+    
         name = '{}-{}.bam'.format(bam_names[bam_i], bam_i)
-        bam_stats_jobs.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, False,
-                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                disk=context.config.alignment_disk))
+        bam_stats_jobs.append(parent_job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, False,
+                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                       disk=context.config.alignment_disk))
         bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
     # separate flow for paired end bams because different logic used
     pe_bam_stats_file_ids = []
     for bam_i, bam_id in enumerate(pe_bam_file_ids):
+        
+        # What job ensures we have the alignments to evaluate?
+        parent_job = job
+        if downsample_portion is not None and downsample_portion != 1.0:
+            # Downsample the BAM
+            parent_job = job.addChildJobFn(downsample_bam, context, bam_id, downsample_portion,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=bam_id.size * 2)
+            bam_id = parent_job.rv()
+    
         name = '{}-{}.bam'.format(pe_bam_names[bam_i], bam_i)
-        bam_stats_jobs.append(job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, True,
-                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                disk=context.config.alignment_disk))
+        bam_stats_jobs.append(parent_job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, True,
+                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                       disk=context.config.alignment_disk))
         pe_bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
 
     # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
@@ -1225,10 +1359,19 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
             gam = gam_id[0]
         RealtimeLogger.info('Work on GAM {} = {} named {} with XG id {}'.format(gam_i, gam, gam_names[gam_i], xg_file_ids[gam_i]))
         
+        # What job ensures we have the alignments to evaluate?
+        parent_job = job
+        if downsample_portion is not None and downsample_portion != 1.0:
+            # Downsample the GAM
+            parent_job = job.addChildJobFn(downsample_gam, context, gam, downsample_portion,
+                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                           disk=gam.size * 2)
+            gam = parent_job.rv()
+        
         # Make a job to annotate the GAM
-        annotate_job = job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
-                                         cores=context.config.misc_cores, memory=context.config.alignment_mem,
-                                         disk=context.config.alignment_disk)
+        annotate_job = parent_job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
+                                                cores=context.config.misc_cores, memory=context.config.alignment_mem,
+                                                disk=context.config.alignment_disk)
         
         # Then compute stats on the annotated GAM
         gam_stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
@@ -1649,8 +1792,12 @@ def run_process_score_comparisons(job, context, baseline_name, names, compare_id
             """
             with open(comp_file) as comp_in:
                 for line in comp_in:
-                    toks = line.rstrip().split(', ')
-                    out_results.line(toks[1], a)
+                    content = line.rstrip()
+                    if content != '':
+                        toks = content.split(', ')
+                        if len(toks) < 2:
+                            raise RuntimeError('Invalid comparison file line ' + content)
+                        out_results.line(toks[1], a)
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
@@ -1865,6 +2012,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                      gam_names, gam_file_ids, options.bam_names, bam_file_ids,
                      options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids, surjected_results,
                      true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores, reads_gam_file_id,
+                     downsample_portion=options.downsample,
                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                      disk=context.config.misc_disk)
 
@@ -1989,7 +2137,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
                     os.path.join('plots', plot_name))))
             except Exception as e:
                 if rscript == 'roc':
-                    RealtimeLogger.warning('plot-roc.R failed: '.format(str(e)))
+                    RealtimeLogger.warning('plot-roc.R failed: {}'.format(str(e)))
                 else:
                     # We insist that the R scripts execute successfully (except plot-roc)
                     raise e
@@ -2121,7 +2269,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         
         # Start the output file.
         writer = tsv.TsvWriter(open(os.path.join(work_dir, table_name), 'w'))
-        header = ['Condition', 'Wrong reads total', 'At MAPQ 60', 'At MAPQ 0', 'At MAPQ >0',
+        header = ['Condition', 'Reads', 'Wrong', 'Precision', 'At MAPQ 60', 'At MAPQ 0', 'At MAPQ >0',
             'New vs. ' + baseline_condition, 'Fixed vs. ' + baseline_condition, 'Avg. Correct MAPQ', 'Correct MAPQ 0']
         writer.list_line(header)
         
@@ -2131,7 +2279,9 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
             
             # Start a line
             line = [condition]
+            line.append(stats['wrong'] + stats['correct'])
             line.append(stats['wrong'])
+            line.append(float(stats['correct']) / (stats['wrong'] + stats['correct']))
             line.append(stats['wrong60'])
             line.append(stats['wrong0'])
             line.append(stats['wrong>0'])
@@ -2258,7 +2408,16 @@ def make_mapeval_plan(toil, options):
                         
                     
                 if options.use_snarls:
-                    plan.snarl_file_ids.append(toil.importFile(ib + '.snarls'))
+                    try:
+                        # If the file exists/imports successfully, we use it
+                        plan.snarl_file_ids.append(toil.importFile(ib + '.snarls'))
+                    except:
+                        # If it doesn't exist, it won't import. And we want to
+                        # tolerate absent snarl indexes for some graphs (like
+                        # the sample graph positive control) where they aren't
+                        # available.
+                        plan.snarl_file_ids.append(None)
+                    
                     
                 # multiple gam outputs not currently supported by evaluation pipeline
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
