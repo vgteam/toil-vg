@@ -657,6 +657,8 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         cmd += ['--node-max', max_node_size]
     if alt_paths:
         cmd += ['--alt-paths']
+    if flat_alts:
+        cmd += ['--flat-alts']
     if job.cores:
         cmd += ['--threads', job.cores]
 
