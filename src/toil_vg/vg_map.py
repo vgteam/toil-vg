@@ -111,7 +111,7 @@ def validate_map_options(context, options):
                 '--bam_output not currently supported with multipath aligner (--multipath)')
     require (not options.bam_output or not options.surject,
              '--bam_output cannot be used in combination with --surject')
-    require (not options.id_ranges or not opitons.surject,
+    require (not options.id_ranges or not options.surject,
              '--surject not currently supported with --id_ranges')
         
 
