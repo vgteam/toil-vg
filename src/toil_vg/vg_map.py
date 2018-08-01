@@ -227,8 +227,12 @@ def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     # We need the sample fastq for alignment
-    fastq_path = os.path.join(work_dir, os.path.basename(fastq[fastq_i]))
-    fastq_gzipped = os.path.splitext(fastq_path)[1] == '.gz'
+    fastq_name = os.path.basename(fastq[fastq_i])
+    fastq_path = os.path.join(work_dir, fastq_name)
+    fastq_gzipped = os.path.splitext(fastq_name)[1] == '.gz'
+    fastq_name = os.path.splitext(fastq_name)[0]
+    if fastq_gzipped:
+        fastq_name = os.path.splitext(fastq_name)[0]
     job.fileStore.readGlobalFile(sample_fastq_id, fastq_path)
 
     # Split up the fastq into chunks
@@ -242,7 +246,6 @@ def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
     chunk_lines = chunk_size * 4
 
     # Note we do this on the command line because Python is too slow
-    uc_fastq_name = fastq_path if not fastq_gzipped else 'input_reads.fq'
     if fastq_gzipped:
         cmd = [['gzip', '-d', '-c', os.path.basename(fastq_path)]]
     else:
@@ -250,13 +253,13 @@ def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
 
     cmd.append(['split', '-l', str(chunk_lines),
                 '--filter=pigz -p {} > $FILE.fq.gz'.format(max(1, int(context.config.fq_split_cores) - 1)),
-                '-', 'fq_chunk.'])
+                '-', '{}-chunk.'.format(fastq_name)])
 
     context.runner.call(job, cmd, work_dir = work_dir, tool_name='pigz')
 
     fastq_chunk_ids = []
     for chunk_name in os.listdir(work_dir):
-        if chunk_name.endswith('.fq.gz') and chunk_name.startswith('fq_chunk'):
+        if chunk_name.endswith('.fq.gz') and chunk_name.startswith('{}-chunk'.format(fastq_name)):
             fastq_chunk_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, chunk_name)))
         
     end_time = timeit.default_timer()
