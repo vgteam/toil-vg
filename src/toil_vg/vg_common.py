@@ -463,7 +463,7 @@ to do: Should go somewhere more central """
             # TODO: We can't stop other threads using os.environ or subprocess or w/e on their own
 
             # Set the locale to C for consistent sorting, and activate vg traceback     
-            update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1'}
+            update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1', 'TMPDIR': '.'}
             old_env = {}
             for env_name, env_val in update_env.items():
                 old_env[env_name] = os.environ.get(env_name)
