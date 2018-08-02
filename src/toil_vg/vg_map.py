@@ -258,7 +258,7 @@ def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
     context.runner.call(job, cmd, work_dir = work_dir, tool_name='pigz')
 
     fastq_chunk_ids = []
-    for chunk_name in os.listdir(work_dir):
+    for chunk_name in sorted(os.listdir(work_dir)):
         if chunk_name.endswith('.fq.gz') and chunk_name.startswith('{}-chunk'.format(fastq_name)):
             fastq_chunk_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, chunk_name)))
         
@@ -334,7 +334,7 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
     context.runner.call(job, cmd, work_dir = work_dir)
 
     bam_chunk_ids = []
-    for chunk_name in os.listdir(work_dir):
+    for chunk_name in sorted(os.listdir(work_dir)):
         if chunk_name.endswith('.bam') and chunk_name.startswith('bam_reads_chunk'):
             bam_chunk_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, chunk_name)))
         
