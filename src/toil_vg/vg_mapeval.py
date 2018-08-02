@@ -709,24 +709,25 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     
 def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_threshold):
     """
-    this is essentially pos_compare.py from vg/scripts
-    return output file id.
-    
     Compares positions from two TSV files. The truth has the format:
-    read name, contig simulated from, true position
+    read name, repetitive flag, [contig touched, true position]+
     
     And the file under test is a read stats TSV with the format:
-    read name, contig aligned to, alignment position, alignment score, MAPQ
+    read name, [contig aligned to, alignment position,]+ alignment score, MAPQ
     
     The input files must be in lexicographically sorted order by name, but may
     not contain the same number of entries each. The stats file may be a subset
     of the truth.
     
     Produces a CSV (NOT TSV) of the form:
-    read name, correctness flag (0/1), MAPQ
+    read name, correctness flag (0/1), MAPQ, repetitiveness flag (0/1)
+
+    Returns output file ID.
     
     mapeval_threshold is the distance within which a mapping is held to have hit
     the correct position.
+
+    TODO: Replace with a vg mapeval call.
     
     """
     work_dir = job.fileStore.getLocalTempDir()
@@ -755,14 +756,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
         while true_fields is not None and test_fields is not None:
             # We still have data on both sides
             
-            if len(true_fields) < 3:
-                if len(true_fields) == 2:
-                    # Probably dropped the reference position in the jq-to-tsv step because it was 0
-                    # TODO: Remove this after the fix to toil_vg sim to not do that is in common usage.
-                    true_fields.append('0')
-                else:
-                    raise RuntimeError('Incorrect (<3) true field count on line {}: {}'.format(
-                        true_line, true_fields))
+            if len(true_fields) < 4:
+                raise RuntimeError('Incorrect (<4) true field count on line {}: {}'.format(
+                    true_line, true_fields))
             
             if len(test_fields) < 5:
                 raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(
@@ -789,9 +785,12 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 # The reads correspond. Check if the positions are right.
                 
                 assert(aln_read_name == true_read_name)
+
+                # Determine if the read came from a repetitive region
+                aln_tagged_repetitive = 1 if true_fields[1] == '1' else 0
                 
                 # map seq name->position
-                true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
+                true_pos_dict = dict(zip(true_fields[2::2], map(parse_int, true_fields[3::2])))
                 aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
                 # Skip over score field
                 aln_mapq = parse_int(test_fields[-1])
@@ -801,7 +800,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                         aln_correct = 1
                         break
 
-                out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
+                out.write('{}, {}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq, aln_tagged_repetitive))
         
                 # Advance both reads
                 true_fields = next(truth_reader, None)
@@ -1478,6 +1477,10 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     """
     Write some raw tables of position comparisons to the output.  Compute some
     stats for each graph.
+
+    The position results file format is a TSV of:
+    correct flag, mapping quality, repetitive flag, method name, read name (or '.'), weight (or 1)
+
     
     Returns (the stats file's file ID, the position results file's ID)
     """
@@ -1500,7 +1503,7 @@ def run_process_position_comparisons(job, context, names, compare_ids):
             # The vg R scripts are responsible for determining a smart method name sort order now.
            
             with open(comp_file) as comp_in:
-                # This will hold counts for (correct, mq, method) tuples.
+                # This will hold counts for (correct, mq, repetitive, method) tuples.
                 # We only summarize correct reads.
                 summary_counts = Counter()
                 # Wrong reads are just dumped as they occur with count 1
@@ -1508,14 +1511,14 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                     toks = line.rstrip().split(', ')
                     if toks[1] == '1':
                         # Correct, so summarize
-                        summary_counts[(toks[1], toks[2], method)] += 1
+                        summary_counts[(toks[1], toks[2], toks[3], method)] += 1
                     else:
                         # Incorrect, write the whole line
-                        out_results.write('{}\t{}\t{}\t{}\t{}\n'.format(toks[1], toks[2], method, toks[0], 1))
+                        out_results.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(toks[1], toks[2], toks[3], method, toks[0], 1))
                 for parts, count in summary_counts.iteritems():
                     # Write summary lines with empty read names
                     # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
-                    out_results.write('{}\t{}\t{}\t{}\t{}\n'.format(parts[0], parts[1], parts[2], '.', count))
+                    out_results.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(parts[0], parts[1], parts[2], parts[3], '.', count))
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
@@ -1561,6 +1564,9 @@ def run_write_position_stats(job, context, names, map_stats):
 def run_acc(job, context, name, compare_id):
     """
     Percentage of correctly aligned reads (ignore quality)
+
+    Comparison file input must be CSV with one row per read, column 0 unused
+    and column 1 as the correct flag.
     """
     
     work_dir = job.fileStore.getLocalTempDir()
@@ -1588,6 +1594,9 @@ def run_auc(job, context, name, compare_id):
     reads being positives, and AUC expressing how good of a classifier of
     correctly-mapped-ness the MAPQ score is. It says nothing about how well the
     reads are actually mapped.
+
+    Comparison file input must be CSV with one row per read, column 0 unused,
+    column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
     if not have_sklearn:
@@ -1623,6 +1632,9 @@ def run_max_f1(job, context, name, compare_id):
     
     Then we calculate precision = TP / (TP + FP) and recall = TP / (TP + FN), and from those calculate an F1.
     Then we calculate the best F1 across all the MAPQ values.
+
+    Comparison file input must be CSV with one row per read, column 0 unused,
+    column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
     if not have_sklearn:
@@ -1633,7 +1645,7 @@ def run_max_f1(job, context, name, compare_id):
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
-    # Load up the correct/incorrect flag (data[_, 0]) and the scores (data[_, 1])
+    # Load up the correct/incorrect flag (data[_, 1]) and the scores (data[_, 2])
     data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
     
     # Sort on score (see <https://stackoverflow.com/a/2828121/402891>) in
@@ -1686,7 +1698,10 @@ def run_max_f1(job, context, name, compare_id):
 
 def run_qq(job, context, name, compare_id):
     """
-    some measure of qq consistency 
+    some measure of qq consistency
+
+    Comparison file input must be CSV with one row per read, column 0 unused,
+    column 1 as the correct flag, and column 2 as the MAPQ.
     """
     if not have_sklearn:
         return "sklearn_not_installed"
