@@ -239,6 +239,10 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
+    # Scratch directory for indexing
+    index_temp_dir = os.path.join(work_dir, 'index-temp')
+    os.makedirs(index_temp_dir)
+
     # Download all the pruned graphs.  
     prune_filenames = []
     
@@ -258,6 +262,7 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
 
     command = ['vg', 'index', '--gcsa-name', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['--threads', str(job.cores)]
+    command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
     
     if mapping_id:
         command += ['--mapping', os.path.basename(mapping_filename)]
@@ -377,6 +382,10 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
+
+    # Scratch directory for indexing
+    index_temp_dir = os.path.join(work_dir, 'index-temp')
+    os.makedirs(index_temp_dir)
     
     RealtimeLogger.info("inputGraphFileIDs: {}".format(str(inputGraphFileIDs)))
     RealtimeLogger.info("graph_names: {}".format(str(graph_names)))
@@ -443,6 +452,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 
     command = ['vg', 'index', '--threads', str(job.cores), '--xg-name', os.path.basename(xg_filename)]
     command += phasing_opts + graph_filenames
+    command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
     
     try:
         context.runner.call(job, command, work_dir=work_dir)
