@@ -47,6 +47,15 @@ pip=pip2.7
 tests=src
 extras=
 
+
+ifeq ($(shell uname -s),Darwin)
+	# The Scipy build assumes it is working with Official Apple Clang as the default compiler.
+	# But people building VG are likely to have GCC as the default compiler.
+	# So make sure to build all Python modules with Clang, which they expect.
+	export CC=/usr/bin/clang
+	export CXX=/usr/bin/clang++
+endif
+
 green=\033[0;32m
 normal=\033[0m
 red=\033[0;31m
@@ -96,7 +105,10 @@ check_build_reqs:
 
 prepare: check_venv
 	# TODO: numpy cannot build from source correctly on some systems, and installing in a virtualenv fails with --only-binary :all:
-	$(pip) install numpy scipy scikit-learn==0.18.2
+	$(pip) install numpy
+	# TODO scikit-learn can't even begin to install unless numpy is already there, so numpy has to be first and by itself.
+	# See https://github.com/scikit-learn/scikit-learn/issues/4164
+	$(pip) install scipy scikit-learn==0.18.2
 	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.16.0' biopython==1.67 pyvcf==0.6.8
 	pip list
 clean_prepare: check_venv
