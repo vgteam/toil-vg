@@ -673,6 +673,8 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
 
     if normalize:
         cmd.append(['vg', 'mod', '--normalize', '-'])
+        # can be done in single mod command, but weary of being sensitive to order of operations
+        cmd.append(['vg', 'mod', '--chop', str(max_node_size), '-'])
 
     if sort_ids:
         cmd.append(['vg', 'ids', '--sort', '-'])
