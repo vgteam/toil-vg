@@ -710,7 +710,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
 def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_threshold):
     """
     Compares positions from two TSV files. The truth has the format:
-    read name, repetitive flag, [contig touched, true position]+
+    read name, comma-separated tag list, [contig touched, true position]+
     
     And the file under test is a read stats TSV with the format:
     read name, [contig aligned to, alignment position,]+ alignment score, MAPQ
@@ -719,8 +719,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     not contain the same number of entries each. The stats file may be a subset
     of the truth.
     
-    Produces a CSV (NOT TSV) of the form:
-    read name, correctness flag (0/1), MAPQ, repetitiveness flag (0/1)
+    Produces a TSV of the form:
+    read name, correctness flag (0/1), MAPQ, comma-separated tag list
 
     Returns output file ID.
     
@@ -739,7 +739,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
-    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out:
+    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out_stream:
+        out = tsv.TsvWriter(out_stream)
         
         # Make readers for the files
         truth_reader = iter(tsv.TsvReader(truth))
@@ -786,8 +787,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 
                 assert(aln_read_name == true_read_name)
 
-                # Determine if the read came from a repetitive region
-                aln_tagged_repetitive = 1 if true_fields[1] == '1' else 0
+                # Grab the comma-separated tags
+                aln_tags = true_fields[1]
                 
                 # map seq name->position
                 true_pos_dict = dict(zip(true_fields[2::2], map(parse_int, true_fields[3::2])))
@@ -800,7 +801,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                         aln_correct = 1
                         break
 
-                out.write('{}, {}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq, aln_tagged_repetitive))
+                out.line(aln_read_name, aln_correct, aln_mapq, aln_tags)
         
                 # Advance both reads
                 true_fields = next(truth_reader, None)
@@ -1449,7 +1450,7 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
     Compare the read positions for each read across the different aligmment
     methods.
     
-    Produces a bunch of individual comparison files against the truth (in CSV
+    Produces a bunch of individual comparison files against the truth (in TSV
     format), a combined "positions.results.tsv" across all aligners, and a
     statistics file "stats.tsv" in the out_store.
     
@@ -1491,34 +1492,40 @@ def run_process_position_comparisons(job, context, names, compare_ids):
 
     # make the position.results.tsv and position.stats.tsv
     results_file = os.path.join(work_dir, 'position.results.tsv')
-    with open(results_file, 'w') as out_results:
-        out_results.write('correct\tmq\taligner\tread\tcount\n')
+    with open(results_file, 'w') as out_stream:
+        out_results = tsv.TsvWriter(out_stream)
+        # Put a header
+        out_results.list_line(['correct', 'mq', 'tags', 'aligner', 'read', 'count'])
 
         def write_tsv(comp_file, method):
             """
-            Read the given comparison CSV for the given condition name, and dump
+            Read the given comparison TSV for the given condition name, and dump
             it to the combined results file.
             """
             
             # The vg R scripts are responsible for determining a smart method name sort order now.
            
-            with open(comp_file) as comp_in:
-                # This will hold counts for (correct, mq, repetitive, method) tuples.
+            with open(comp_file) as comp_in_stream:
+                comp_in = tsv.TsvReader(comp_in_stream)
+                # This will hold counts for (correct, mq, tags, method) tuples.
+                # Tags are represented as a string.
                 # We only summarize correct reads.
                 summary_counts = Counter()
                 # Wrong reads are just dumped as they occur with count 1
-                for line in comp_in:
-                    toks = line.rstrip().split(', ')
-                    if toks[1] == '1':
+                for toks in comp_in:
+                    # Label the read fields so we can see what we're doing
+                    read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
+                    
+                    if read['correct'] == '1':
                         # Correct, so summarize
-                        summary_counts[(toks[1], toks[2], toks[3], method)] += 1
+                        summary_counts[(read['correct'], read['mapq'], read['tags'], method)] += 1
                     else:
                         # Incorrect, write the whole line
-                        out_results.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(toks[1], toks[2], toks[3], method, toks[0], 1))
+                        out_results.line(read['correct'], read['mapq'], read['tags'], method, read['name'], 1)
                 for parts, count in summary_counts.iteritems():
                     # Write summary lines with empty read names
                     # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
-                    out_results.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(parts[0], parts[1], parts[2], parts[3], '.', count))
+                    out_results.list_line(parts + ['.', count])
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
@@ -1565,7 +1572,7 @@ def run_acc(job, context, name, compare_id):
     """
     Percentage of correctly aligned reads (ignore quality)
 
-    Comparison file input must be CSV with one row per read, column 0 unused
+    Comparison file input must be TSV with one row per read, column 0 unused
     and column 1 as the correct flag.
     """
     
@@ -1577,8 +1584,7 @@ def run_acc(job, context, name, compare_id):
     total = 0
     correct = 0
     with open(compare_file) as compare_f:
-        for line in compare_f:
-            toks = line.split(', ')
+        for toks in tsv.TsvReader(compare_f):
             total += 1
             if toks[1] == '1':
                 correct += 1
@@ -1595,7 +1601,7 @@ def run_auc(job, context, name, compare_id):
     correctly-mapped-ness the MAPQ score is. It says nothing about how well the
     reads are actually mapped.
 
-    Comparison file input must be CSV with one row per read, column 0 unused,
+    Comparison file input must be TSV with one row per read, column 0 unused,
     column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
@@ -1608,7 +1614,7 @@ def run_auc(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2)).T
+        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2)).T
         auc = roc_auc_score(data[0], data[1])
         aupr = average_precision_score(data[0], data[1])
     except:
@@ -1633,7 +1639,7 @@ def run_max_f1(job, context, name, compare_id):
     Then we calculate precision = TP / (TP + FP) and recall = TP / (TP + FN), and from those calculate an F1.
     Then we calculate the best F1 across all the MAPQ values.
 
-    Comparison file input must be CSV with one row per read, column 0 unused,
+    Comparison file input must be TSV with one row per read, column 0 unused,
     column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
@@ -1646,7 +1652,7 @@ def run_max_f1(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     # Load up the correct/incorrect flag (data[_, 1]) and the scores (data[_, 2])
-    data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
+    data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
     
     # Sort on score (see <https://stackoverflow.com/a/2828121/402891>) in
     # descending order. So reads we want to take first come first.
@@ -1700,7 +1706,7 @@ def run_qq(job, context, name, compare_id):
     """
     some measure of qq consistency
 
-    Comparison file input must be CSV with one row per read, column 0 unused,
+    Comparison file input must be TSV with one row per read, column 0 unused,
     column 1 as the correct flag, and column 2 as the MAPQ.
     """
     if not have_sklearn:
@@ -1712,7 +1718,7 @@ def run_qq(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
+        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
 
         # this can surley be sped up if necessary
         correct = Counter()
@@ -1802,7 +1808,7 @@ def run_process_score_comparisons(job, context, baseline_name, names, compare_id
 
         def write_tsv(comp_file, a):
             """
-            Read the given comparison CSV for the given condition name, and dump
+            Read the given comparison TSV for the given condition name, and dump
             it to the combined results file.
             """
             with open(comp_file) as comp_in:

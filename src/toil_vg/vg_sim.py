@@ -49,8 +49,8 @@ def sim_subparser(parser):
                         help="Ouput fastq file (in addition to GAM)")
     parser.add_argument("--annotate_xg", type=make_url,
                         help="xg index used for gam annotation (if different from input indexes)")
-    parser.add_argument("--repetitive_bed", default=[], action='append', type=make_url,
-                        help="mark reads overlapping the given BED file(s) as repetitive")
+    parser.add_argument("--tag_bed", default=[], action='append', type=make_url,
+                        help="tag mark reads overlapping features in the given BED(s) with the feature names")
     parser.add_argument("--path", default=[], action='append',
                         help="simulate reads from the given path name in each XG file")
     parser.add_argument("--sim_opts", type=str,
@@ -79,7 +79,7 @@ def validate_sim_options(options):
             'random seed must be greater than 0 (vg sim ignores seed 0)')
     
 def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
-            xg_file_ids, xg_annot_file_id, repetitive_bed_ids=[], paths = [],
+            xg_file_ids, xg_annot_file_id, tag_bed_ids=[], paths = [],
             fastq_id = None, out_name = None):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
@@ -112,7 +112,7 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
             if chunk_i == sim_chunks - 1:
                 chunk_reads += file_reads % sim_chunks
             sim_out_id_info = child_job.addChildJobFn(run_sim_chunk, context, gam, seed_base, xg_file_id,
-                                                      xg_annot_file_id, repetitive_bed_ids, paths,
+                                                      xg_annot_file_id, tag_bed_ids, paths,
                                                       chunk_i, chunk_reads,
                                                       fastq_id, xg_i,
                                                       cores=context.config.sim_cores, memory=context.config.sim_mem,
@@ -139,11 +139,11 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
     return merged_gam_id, true_id
 
 
-def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, repetitive_bed_ids, paths, chunk_i, num_reads, fastq_id, xg_i):
+def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, tag_bed_ids, paths, chunk_i, num_reads, fastq_id, xg_i):
     """
     simulate some reads (and optionally gam)
     determine with true positions in xg_annot_file_id, into a true position TSV file
-    tag reads by overlap with repetitive_bed_ids BED files in the true position file
+    tag reads by overlap with tag_bed_ids BED files in the true position file
     return either reads_chunk_id or (gam_chunk_id, tsv_chunk_id)
     if --gam specified
     """
@@ -167,12 +167,12 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, re
     else:
         xg_annot_file = xg_file
 
-    # and the repetitive region BED files
-    repetitive_beds = []
-    for i, bed_id in enumerate(repetitive_bed_ids):
-        bed_file = os.path.join(work_dir, 'repetitive_{}.bed'.format(i))
+    # and the tag region BED files
+    tag_beds = []
+    for i, bed_id in enumerate(tag_bed_ids):
+        bed_file = os.path.join(work_dir, 'tag_{}.bed'.format(i))
         job.fileStore.readGlobalFile(bed_id, bed_file)
-        repetitive_beds.append(bed_file)
+        tag_beds.append(bed_file)
 
     # run vg sim
     sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + context.config.sim_opts
@@ -211,9 +211,9 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, re
         cmd = [sim_cmd + ['-a']]
         cmd.append(['tee', os.path.basename(unannotated_gam_file)])
         annotate_command = ['vg', 'annotate', '-p', '-x', os.path.basename(xg_annot_file), '-a', '-']
-        for repetitive_bed in repetitive_beds:
-            # Make sure to annotate with overlap to repetitive regions
-            annotate_command += ['-b', os.path.basename(repetitive_bed)]
+        for tag_bed in tag_beds:
+            # Make sure to annotate with overlap to tag regions
+            annotate_command += ['-b', os.path.basename(tag_bed)]
         cmd.append(annotate_command)
         cmd.append(['tee', os.path.basename(gam_file)])
         cmd.append(['vg', 'view', '-aj', '-'])
@@ -232,9 +232,9 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, re
         # we're going to use a different docker container.  (Note, would be nice to
         # avoid writing the json to disk)
         # note: in the following, we are writing the read name as the first column,
-        # then a repetitiveness flag in the second column,
+        # then a comma-separated tag list of overlapped features in the second column,
         # then a path-name, path-offset in each successive pair of columns
-        jq_cmd = ['jq', '-c', '-r', '[ .name, if (.annotation.features | length > 0 then 1 else 0 end, if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end] | @tsv',
+        jq_cmd = ['jq', '-c', '-r', '[ .name, (.annotation.features | join(",")), if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end] | @tsv',
                   os.path.basename(gam_json)]
 
         # output truth positions
@@ -344,9 +344,9 @@ def sim_main(context, options):
                 inputAnnotXGFileID = toil.importFile(options.annotate_xg)
             else:
                 inputAnnotXGFileID = None
-            repetitiveBEDIDs = []
-            for url in options.repetitive_bed:
-                repetitiveBEDIDs.append(toil.importFile(url))
+            tagBEDIDs = []
+            for url in options.tag_bed:
+                tagBEDIDs.append(toil.importFile(url))
             if options.fastq:
                 inputFastqFileID = toil.importFile(options.fastq)
             else:
@@ -373,7 +373,7 @@ def sim_main(context, options):
                                      options.seed, options.sim_chunks,
                                      inputXGFileIDs,
                                      inputAnnotXGFileID,
-                                     repetitiveBEDIDs,
+                                     tagBEDIDs,
                                      options.path,
                                      inputFastqFileID,
                                      options.out_name,
