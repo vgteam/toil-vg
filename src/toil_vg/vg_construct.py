@@ -60,6 +60,8 @@ def construct_subparser(parser):
                         help="Name used for output graphs and indexes")
     parser.add_argument("--merge_graphs", action="store_true",
                         help="Merge all regions into one graph")
+    parser.add_argument("--normalize", action="store_true",
+                        help="Normalize the graphs")
     
     # Toggles for the different types of graph(s) that can be made.  Indexing and above options
     # will be applied to each one.  The output names will be prefixed with out_name. 
@@ -406,7 +408,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       gcsa_index = False, xg_index = False, gbwt_index = False,
                       id_ranges_index = False, snarls_index = False,
-                      haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False, gpbwt_phasing = False):
+                      haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False, gpbwt_phasing = False,
+                      normalize = False):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -427,7 +430,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gbwt_index or haplo_extraction or alt_paths,
                                           flat_alts, regions,
-                                          region_names, sort_ids, join_ids, name, merge_output_name)
+                                          region_names, sort_ids, join_ids, name, merge_output_name,
+                                          normalize)
 
         vg_ids = construct_job.rv(0)
         mapping_id = construct_job.rv(1)
@@ -534,7 +538,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
                                max_node_size, alt_paths, flat_alts, regions, region_names,
-                               sort_ids, join_ids, name, merge_output_name):
+                               sort_ids, join_ids, name, merge_output_name, normalize):
     """ construct graph(s) from several regions in parallel.  we could eventually generalize this
     to accept multiple vcfs and/or fastas if needed, as well as to determine regions from file,
     but for now we only accept single files, and require region list.
@@ -576,6 +580,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
                                                   #       also, needed if we update vg docker image?
                                                   is_chrom=not region or ':' not in region,
                                                   sort_ids=sort_ids,
+                                                  normalize=normalize,                                                  
                                                   cores=context.config.construct_cores,
                                                   memory=context.config.construct_mem,
                                                   disk=context.config.construct_disk).rv())
@@ -634,7 +639,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     
 def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
                                region, region_name, max_node_size, alt_paths, flat_alts,
-                               is_chrom = False, sort_ids = True):
+                               is_chrom = False, sort_ids = True, normalize = False):
     """ construct a graph from the vcf for a given region and return its id """
 
     work_dir = job.fileStore.getLocalTempDir()
@@ -663,8 +668,14 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
     if job.cores:
         cmd += ['--threads', job.cores]
 
+    if normalize or sort_ids:
+        cmd = [cmd]
+
+    if normalize:
+        cmd.append(['vg', 'mod', '--normalize', '-'])
+
     if sort_ids:
-        cmd = [cmd, ['vg', 'ids', '--sort', '-']]
+        cmd.append(['vg', 'ids', '--sort', '-'])
 
     vg_path = os.path.join(work_dir, region_name)
     with open(vg_path, 'w') as vg_file:
@@ -1158,7 +1169,8 @@ def construct_main(context, options):
                                      snarls_index = options.snarls_index or options.all_index,
                                      haplo_extraction_sample = haplo_extraction_sample,
                                      gbwt_prune = options.gbwt_prune,
-                                     gpbwt_phasing = options.gpbwt_threads)
+                                     gpbwt_phasing = options.gpbwt_threads,
+                                     normalize = options.normalize)
             
             # Run the workflow
             toil.start(init_job)
