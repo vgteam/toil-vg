@@ -94,7 +94,7 @@ def add_mapeval_options(parser):
     parser.add_argument('--bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --bams')
     parser.add_argument('--pe-bams', nargs='+', type=make_url, default=[],
-                        help='paired end aligned reads t compare to truth in BAM format')
+                        help='paired end aligned reads to compare to truth in BAM format')
     parser.add_argument('--pe-bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --pe-bams')
     parser.add_argument('--paired-only', action='store_true',
@@ -130,7 +130,7 @@ def add_mapeval_options(parser):
                         help='additional batches of mpmap options to try')
 
     parser.add_argument('--gam-input-xg', type=make_url, default=None,
-                        help= 'If extracting truth positions from --input_gam_reads, specify corresponding xg for annotation')
+                        help= 'If extracting truth positions from --gam_input_reads, specify corresponding xg for annotation')
                         
     parser.add_argument('--plot-sets', nargs='+', default=[],
                         help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) to plot together')
