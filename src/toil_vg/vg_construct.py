@@ -404,7 +404,8 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
                       max_node_size, alt_paths, flat_alts, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
-                      gcsa_index = False, xg_index = False, gbwt_index = False, snarls_index = False,
+                      gcsa_index = False, xg_index = False, gbwt_index = False,
+                      id_ranges_index = False, snarls_index = False,
                       haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False, gpbwt_phasing = False):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
@@ -522,7 +523,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        input_tbi_ids if make_gbwt else [],
                                                        node_mapping_id = mapping_id,
                                                        skip_xg=not xg_index, skip_gcsa=skip_gcsa,
-                                                       skip_id_ranges=True, skip_snarls=skip_snarls,
+                                                       skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
                                                        make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
                                                        gbwt_regions=gbwt_regions)
         indexes = indexing_job.rv()    
@@ -1153,6 +1154,7 @@ def construct_main(context, options):
                                      gcsa_index = options.gcsa_index or options.all_index,
                                      xg_index = options.xg_index or options.all_index,
                                      gbwt_index = options.gbwt_index or options.all_index,
+                                     id_ranges_index = options.id_ranges_index or options.all_index,
                                      snarls_index = options.snarls_index or options.all_index,
                                      haplo_extraction_sample = haplo_extraction_sample,
                                      gbwt_prune = options.gbwt_prune,
