@@ -34,7 +34,7 @@ See the [Wiki](https://github.com/vgteam/toil-vg/wiki) in addition to below for 
 toil-vg can run vg, along with some other tools, via [Docker](http://www.docker.com).  Docker can be installed locally (not required when running via cgcloud), as follows. 
 * [**Linux Docker Installation**](https://docs.docker.com/engine/installation/linux/): If running `docker version` doesn't work, try adding user to docker group with `sudo usermod -aG docker $USER`, then log out and back in.
 * [**Mac Docker Installation**](https://docs.docker.com/docker-for-mac/): If running `docker version` doesn't work, try adding docker environment variables: `docker-machine start; docker-machine env; eval "$(docker-machine env default)"`
-* **Running Without Docker**: If Docker is not installed or is disabled with `--container None`, toil-vg requires the following command line tools to be installed on the system: `vg, pigz, bcftools, tabix`.  `jq, samtools and rtg vcfeval` are also necessary for certain tests. 
+* **Running Without Docker**: If Docker is not installed or is disabled with `--container None`, toil-vg requires the following command line tools to be installed on the system: `vg, pigz, bcftools, tabix`.  `jq`, `samtools` and `rtg vcfeval` are also necessary for certain tests. 
     
 
 ## Configuration
@@ -53,6 +53,16 @@ To generate a default configuration for running at genome scale on a cluster wit
 
 ## Testing
 
+To test toil-vg from a clean checkout, run:
+    
+    virutalenv venv
+    . venv/bin/activate
+    make prepare
+    make develop
+    make test
+
+Subsequently, to rerun the tests from within the virtual environment, you can run:
+
     make test
 
 A faster test to see if toil-vg runs on the current machine (Replace myname with a unique prefix): 
@@ -69,7 +79,7 @@ In both cases, verify that f1.tsv contains a number (should be approx. 0.9).  No
 
 The jobStore and outStore arguments to toil-vg are directories that will be created if they do not already exist.  When starting a new job, toil will complain if the jobStore exists, so use `toil clean <jobStore>` first.  When running on Mesos, these stores should be S3 buckets.  They are specified using the following format aws:region:bucket (see examples below).
 
-All other input files can either either be local (best to specify absolute path) or URLs specified in the normal manner, ex : http://address/input_file or s3://bucket/input_file.  The config file must always be local.  When using an S3 jobstore, it is preferable to pass input files from S3 as well, as they load much faster and less cluster time will be wasted importing data. 
+All other input files can either either be local (best to specify absolute path) or URLs specified in the normal manner, such as: `http://address/input_file` or `s3://bucket/input_file`.  The config file must always be local.  When using an S3 jobstore, it is preferable to pass input files from S3 as well, as they load much faster and less cluster time will be wasted importing data. 
 
 ## Running on Amazon EC2 with Toil
 
@@ -112,7 +122,7 @@ From the leader node, begin by making a toil-vg configuration file suitable for 
 
     toil-vg generate-config --whole_genome > wg.yaml
 
-Toil-vg can be used to construct vg graphs as, for example, [described here](https://github.com/vgteam/vg/wiki/working-with-a-whole-genome-variation-graph).  Files will be written to the S3 bucket, OUT_STORE and the S3 bucket, JOB_STORE, will be used by Toil (both buckets created automatically if necessary; do not prefix OUT_STORE or JOB_STORE with s3://)
+Toil-vg can be used to construct vg graphs as, for example, [described here](https://github.com/vgteam/vg/wiki/working-with-a-whole-genome-variation-graph).  Files will be written to the S3 bucket, `OUT_STORE` and the S3 bucket, `JOB_STORE`, will be used by Toil (both buckets created automatically if necessary; do not prefix `OUT_STORE` or `JOB_STORE` with s3://)
 
     REF=ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz
     VCF=ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.wgs.phase3_shapeit2_mvncall_integrated_v5b.20130502.sites.vcf.gz
@@ -126,7 +136,7 @@ Indexes can be created above using the `--xg_index` and `--gcsa_index` options (
 
 Note that the spot request node type (i2.8xlarge) and amount ($1.00) can be adjusted in the above command.  Keep in mind that indexing is very memory and disk intensive.
 
-If successful, this will produce for files in s3://OUT_STORE/
+If successful, this will produce for files in `s3://OUT_STORE/`
 
     my_index.xg
     my_index.gcsa
@@ -137,7 +147,7 @@ We can now align reads and produce a VCF in a single call to `toil-vg run`. (see
 
     toil-vg run aws:us-west-2:JOB_STORE READ_LOCATION/reads.fastq.gz SAMPLE_NAME aws:us-west-2:OUT_STORE  --batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --gcsa_index s3://OUT_STORE/my_index.gcsa --xg_index s3://OUT_STORE/my_index.xg --id_ranges s3://${OUT_STORE}/my_index_id_ranges.tsv  --realTimeLogging --logInfo --config wg.yaml --index_name my_index --interleaved --defaultPreemptable --nodeTypes r3.8xlarge:0.85 --maxNodes 10  --provisioner aws 2> map_call.log
 
-If successful, this command will create a VCF file as well as a GAM for each input chromosome in s3://OUT_STORE/
+If successful, this command will create a VCF file as well as a GAM for each input chromosome in `s3://OUT_STORE/`
 
 
 ## Running on Amazon EC2 with cgcloud
@@ -152,7 +162,7 @@ Please see [here for more information on the cgcloud core tools](https://github.
     virtualenv ~/cgcloud
 	 pip install cgcloud-toil
 
-Edit your ~/.profile or ~/.bash_profile and add the following lines:
+Edit your `~/.profile` or `~/.bash_profile` and add the following lines:
 
     export CGCLOUD_ZONE=us-west-2a`
     export CGCLOUD_PLUGINS="cgcloud.toil:$CGCLOUD_PLUGINS"
@@ -173,7 +183,7 @@ Create a cluster image:
 
 ### Test cgcloud
 
-Create a test cluster with 2 m4.2xlarge nodes, and install toil-vg. You can modify the 2nd and 3rd lines below to install additional software on the leader node and whole cluster, respectively.  You will have to type `yes` when prompted for connecting to each node (the first time) to add it to known_hosts. We reinstall toil on the cluster to make sure all versions are up to date and consistent (cgcloud images currently contain outdated version of Toil)
+Create a test cluster with 2 m4.2xlarge nodes, and install toil-vg. You can modify the 2nd and 3rd lines below to install additional software on the leader node and whole cluster, respectively.  You will have to type `yes` when prompted for connecting to each node (the first time) to add it to `known_hosts`. We reinstall toil on the cluster to make sure all versions are up to date and consistent (cgcloud images currently contain outdated version of Toil)
 
     cgcloud create-cluster toil -s 1 -t m4.2xlarge --cluster-name toil-setup-test
     cgcloud ssh --admin -c toil-setup-test toil-leader 'sudo apt-get install -y git'
