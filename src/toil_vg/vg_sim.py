@@ -234,7 +234,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, ta
         # note: in the following, we are writing the read name as the first column,
         # then a comma-separated tag list of overlapped features in the second column,
         # then a path-name, path-offset in each successive pair of columns
-        jq_cmd = ['jq', '-c', '-r', '[ .name, (.annotation.features | join(",")), if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end] | @tsv',
+        jq_cmd = ['jq', '-c', '-r', '[ .name, if .annotation.features != null then (.annotation.features | join(",")) else ".", if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end] | @tsv',
                   os.path.basename(gam_json)]
 
         # output truth positions
