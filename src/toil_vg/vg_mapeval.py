@@ -2212,10 +2212,12 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     # This creates an empty stats dict for a condition
     dict_for_condition = lambda: {
         'wrong': 0, # Total wrong reads
+        'wrongTagged': collections.Counter(), # Wrong reads with each observed tag, or None for no tags
         'wrong60': 0, # Wrong reads with MAPQ 60
         'wrong0': 0, # Wring reads with MAPQ 0
         'wrong>0': 0, # Wrong reads with nonzero MAPQ
         'correct': 0, # Total correct reads
+        'correctTagged': collections.Counter(), # Correct reads with each observed tag, or None for no tags
         'correct0': 0, # Correct reads with MAPQ 0
         'correctMapqTotal': 0, # Total MAPQ of all correct reads, for averaging
         'wrongNames': set() # Names of all wrong reads (which should be in the 1000s to 10ks in size)
@@ -2223,6 +2225,9 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     
     # This holds, by condition name, a bunch of stat values by stat name.
     condition_stats = collections.defaultdict(dict_for_condition)
+    
+    # This holds all observed tags
+    known_tags = set()
     
     # We will need to drop the first line (a header)
     line_num = 0
@@ -2242,19 +2247,28 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 RealtimeLogger.info('Processed {} alignments for table in {} conditions'.format(line_num, len(condition_stats)))
             
             # Line format is:
-            # correct flag, mapping quality, condition name, read name
+            # correct flag, mapping quality, tags, condition name, read name, count
             if len(line) == 0:
                 # Skip blank
                 continue
             
             # Everything else must have all the fields
-            assert(len(line) >= 5)
+            assert(len(line) >= 6)
             # Unpack
             correct, mapq, tags, condition, read, count = line[0:6]
             # And parse
             correct = (correct == '1')
             mapq = int(mapq)
+            tags = [] if tags == '.' else tags.split(',')
             count = int(count)
+            
+            if tags == []:
+                # No tags is a tag now
+                known_tags.add(None)
+            else:
+                for tag in tags:
+                    # Register observed tags
+                    known_tags.add(tag)
             
             # Find the stats dict to update
             stats = condition_stats[condition]
@@ -2265,14 +2279,30 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 stats['correct'] += count
                 stats['correct0'] += (mapq == 0) * count
                 stats['correctMapqTotal'] += mapq * count
+                if tags == []:
+                    stats['correctTagged'][None] += 1
+                else:
+                    for tag in tags:
+                        stats['correctTagged'][tag] += 1
             else:
                 stats['wrong'] += count
                 stats['wrong60'] += (mapq == 60) * count
                 stats['wrong0'] += (mapq == 0) * count
                 stats['wrong>0'] += (mapq > 0) * count
                 stats['wrongNames'].add(read)
+                if tags == []:
+                    stats['wrongTagged'][None] += 1
+                else:
+                    for tag in tags:
+                        stats['wrongTagged'][tag] += 1
                 
     # Now we have aggregated all the stats for all the conditions. We need to make the tables.
+    
+    # Sort the known tags
+    known_tags = sorted(list(known_tags))
+    if len(known_tags) == 1:
+        # Everything is tagged the same way, so ignore tags.
+        known_tags = []
 
     # Hold the list of file name and file ID pairs to return
     out_name_id_pairs = []
@@ -2302,19 +2332,33 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         
         # Start the output file.
         writer = tsv.TsvWriter(open(os.path.join(work_dir, table_name), 'w'))
-        header = ['Condition', 'Reads', 'Wrong', 'Precision', 'At MAPQ 60', 'At MAPQ 0', 'At MAPQ >0',
-            'New vs. ' + baseline_condition, 'Fixed vs. ' + baseline_condition, 'Avg. Correct MAPQ', 'Correct MAPQ 0']
+        header = (['Condition', 'Precision', 'Reads'] + ['tagged {}'.format(tag) for tag in known_tags] +
+            ['Wrong'] + ['tagged {}'.format(tag) for tag in known_tags] +
+            ['at MAPQ 60', 'at MAPQ 0', 'at MAPQ >0', 'new vs. ' + baseline_condition, 'fixed vs. ' + baseline_condition,
+            'Avg. Correct MAPQ', 'Correct MAPQ 0'])
         writer.list_line(header)
         
         for condition in plot_set:
             # For each condition to plot, look up its stats
             stats = condition_stats[condition]
             
-            # Start a line
+            # Start a line with Condition
             line = [condition]
-            line.append(stats['wrong'] + stats['correct'])
-            line.append(stats['wrong'])
+            # Then Precision
             line.append(float(stats['correct']) / (stats['wrong'] + stats['correct']))
+            
+            # Then Reads
+            line.append(stats['wrong'] + stats['correct'])
+            # Then counts with all tags
+            for tag in known_tags:
+                line.append(stats['wrongTagged'][tag] + stats['correctTagged'][tag])
+            
+            # Then Wrong reads
+            line.append(stats['wrong'])
+            # Then counts with all tags
+            for tag in known_tags:
+                line.append(stats['wrongTagged'][tag])
+            # Then counts in different quality buckets
             line.append(stats['wrong60'])
             line.append(stats['wrong0'])
             line.append(stats['wrong>0'])
