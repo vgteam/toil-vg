@@ -1480,7 +1480,7 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     stats for each graph.
 
     The position results file format is a TSV of:
-    correct flag, mapping quality, repetitive flag, method name, read name (or '.'), weight (or 1)
+    correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
 
     
     Returns (the stats file's file ID, the position results file's ID)
@@ -1525,7 +1525,7 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                 for parts, count in summary_counts.iteritems():
                     # Write summary lines with empty read names
                     # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
-                    out_results.list_line(parts + ['.', count])
+                    out_results.list_line(list(parts) + ['.', count])
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
@@ -2109,7 +2109,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     
     The combined position stats TSV has one header line, and format:
     
-    correct flag, mapping quality, condition name, read name, count
+    correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
     
     plot_sets gives a list of collections of condition names to plot together.
     If None is in the list, all conditions are plotted.
@@ -2174,7 +2174,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     
     The combined position stats TSV has one header line, and format:
     
-    correct flag, mapping quality, condition name, read name, count
+    correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
     
     plot_sets gives a list of collections of condition names to compare
     together. If None is in the list, all conditions are plotted.
@@ -2238,7 +2238,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
             # Everything else must have all the fields
             assert(len(line) >= 5)
             # Unpack
-            correct, mapq, condition, read, count = line[0:5]
+            correct, mapq, tags, condition, read, count = line[0:6]
             # And parse
             correct = (correct == '1')
             mapq = int(mapq)
