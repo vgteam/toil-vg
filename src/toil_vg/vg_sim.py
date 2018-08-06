@@ -232,11 +232,16 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, ta
         # we're going to use a different docker container.  (Note, would be nice to
         # avoid writing the json to disk)
         # note: in the following, we are writing the read name as the first column,
-        # then a comma-separated tag list of overlapped features in the second column,
-        # then a path-name, path-offset in each successive pair of columns
-        jq_cmd = ['jq', '-c', '-r', '[ .name, if .annotation.features != null then (.annotation.features | join(",")) else "." end, if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end] | @tsv',
-                  os.path.basename(gam_json)]
-
+        # then a comma-separated tag list of overlapped features (or ".") in the second column,
+        # then a path-name, path-offset in each successive pair of columns, and finally
+        # a score and MAPQ so we match the extract_gam_read_stats/extract_bam_read_stats
+        # format from toil-vg mapeval.
+        jq_cmd = ['jq', '-c', '-r', '[.name] + '
+                  'if .annotation.features != null then [.annotation.features | join(",")] else ["."] end + '
+                  'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
+                  '[.score] + '
+                  'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
+                   os.path.basename(gam_json)]
         # output truth positions
         true_pos_file = os.path.join(work_dir, 'true_{}_{}.pos'.format(xg_i, chunk_i))
         with open(true_pos_file, 'w') as out_true_pos:

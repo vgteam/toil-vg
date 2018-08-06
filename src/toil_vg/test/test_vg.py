@@ -49,7 +49,7 @@ class VGCGLTest(TestCase):
 
     def setUp(self):
         # Set this to True to poke around in the outsores for debug purposes
-        self.saveWorkDir = True
+        self.saveWorkDir = False
         self.workdir = './toil-vgci_work' if self.saveWorkDir else tempfile.mkdtemp()
         if not os.path.exists(self.workdir):
             os.makedirs(self.workdir)

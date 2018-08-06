@@ -584,10 +584,12 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
     (lots of duplicated code with vg_sim, should merge?)
     
     Produces a read stats TSV of the format:
-    read name, contig aligned to, alignment position, score, MAPQ
+    read name, read tags (or '.'), [contig aligned to, alignment position,]* score, MAPQ
     
     TODO: Currently scores are not extracted and a score of 0 is always
     returned.
+    
+    TODO: Tags are also always '.'.
 
     """
 
@@ -607,12 +609,12 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
         # TODO: will need to switch to something more powerful to parse the score out of the AS tag. For now score everything as 0.
         # TODO: why _ and not / as the read name vs end number delimiter?
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep)])
+        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep)])
     else:
         # No flags to parse since there's no end pairing and read names are correct.
         # Use inline perl again and insert a fake 0 score column
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate        
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
+        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
     cmd.append(['sort'])
     
     with open(out_pos_file, 'w') as out_pos:
@@ -657,8 +659,10 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     extract positions, scores, and MAPQs for reads from a gam, and return the id
     of the resulting read stats file
     
+    The read stats file may also be used as a truth file; the two kinds of files are the same format.
+    
     Produces a read stats TSV of the format:
-    read name, contig aligned to, alignment position, score, MAPQ
+    read name, read tags (or '.'), [contig aligned to, alignment position,]* score, MAPQ
     
     If the GAM is not annotated with alignment positions, contig and position
     will both contain only "0" values.
@@ -680,17 +684,18 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
 
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
-    # avoid writing the json to disk)        
-    jq_cmd = [['jq', '-c', '-r', '[.name, '
-               'if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end, '
-               '.score, '
-               'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
-               os.path.basename(gam_annot_json)]]
+    # avoid writing the json to disk)
+    # TODO: Deduplicate this code with the truth file generation code in vg_sim.py!
+    jq_cmd = ['jq', '-c', '-r', '[.name] + '
+              'if .annotation.features != null then [.annotation.features | join(",")] else ["."] end + '
+              'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
+              '[.score] + '
+              'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
+              os.path.basename(gam_annot_json)]
     # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
-    jq_cmd.append(['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
-
+    jq_pipe = [jq_cmd, ['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g']]
     with open(out_pos_file + '.unsorted', 'w') as out_pos:
-        context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
+        context.runner.call(job, jq_pipe, work_dir = work_dir, outfile=out_pos)
 
     # get rid of that big json asap
     os.remove(gam_annot_json)
@@ -700,20 +705,18 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     with open(out_pos_file, 'w') as out_pos:
         context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
 
-    # Make sure each line has all columns
-    RealtimeLogger.info("Make sure all lines are full length")
-    context.runner.call(job, ['awk', '!length($5)',  os.path.basename(out_pos_file)], work_dir = work_dir)
+    # Some lines may have refpos set while others do not (and those columns may be absent)
 
     out_stats_file_id = context.write_intermediate_file(job, out_pos_file)
     return out_stats_file_id
     
 def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_threshold):
     """
-    Compares positions from two TSV files. The truth has the format:
-    read name, comma-separated tag list, [contig touched, true position]+
+    Compares positions from two TSV files. Both files have the format:
+    read name, comma-separated tag list, [contig touched, true position]*, score, MAPQ
     
-    And the file under test is a read stats TSV with the format:
-    read name, [contig aligned to, alignment position,]+ alignment score, MAPQ
+    The truth file will have the cannonical tag list, while the stats file will
+    have the cannonical score and MAPQ.
     
     The input files must be in lexicographically sorted order by name, but may
     not contain the same number of entries each. The stats file may be a subset
@@ -757,12 +760,15 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
         while true_fields is not None and test_fields is not None:
             # We still have data on both sides
             
-            if len(true_fields) < 4:
-                raise RuntimeError('Incorrect (<4) true field count on line {}: {}'.format(
+            # The minimum field count you can have for the truth is 6, because it must have at least one position.
+            # For the test data it can be 4, because the read may have no positions.
+            
+            if len(true_fields) < 6:
+                raise RuntimeError('Incorrect (<6) true field count on line {}: {}'.format(
                     true_line, true_fields))
             
-            if len(test_fields) < 5:
-                raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(
+            if len(test_fields) < 4:
+                raise RuntimeError('Incorrect (<4) test field count on line {}: {}'.format(
                     test_line, test_fields))
             
             true_read_name = true_fields[0]
@@ -787,13 +793,19 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 
                 assert(aln_read_name == true_read_name)
 
-                # Grab the comma-separated tags
+                # Grab the comma-separated tags from the truth file.
+                # The test file also has a tag slot but the real tags are in the truth file.
                 aln_tags = true_fields[1]
                 
                 # map seq name->position
-                true_pos_dict = dict(zip(true_fields[2::2], map(parse_int, true_fields[3::2])))
-                aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
-                # Skip over score field
+                # Grab everything after the tags column and before the score and mapq columns, in pairs.
+                true_pos_dict = dict(zip(true_fields[2:-2:2], map(parse_int, true_fields[3:-2:2])))
+                aln_pos_dict = dict(zip(test_fields[2:-2:2], map(parse_int, test_fields[3:-2:2])))
+                
+                # Make sure the true reads came from somewhere
+                assert(len(true_pos_dict) > 0)
+                
+                # Skip over score field and get the MAPQ, which is last
                 aln_mapq = parse_int(test_fields[-1])
                 aln_correct = 0
                 for aln_chr, aln_pos in aln_pos_dict.items():
