@@ -1525,15 +1525,21 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                 summary_counts = Counter()
                 # Wrong reads are just dumped as they occur with count 1
                 for toks in comp_in:
+                    if len(toks) == 0:
+                        continue
+                        
+                    if len(toks) != 4:
+                        RealtimeLogger.info('Strange position comparison line: {}'.format(toks))
+                
                     # Label the read fields so we can see what we're doing
                     read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
                     
                     if read['correct'] == '1':
                         # Correct, so summarize
-                        summary_counts[(read['correct'], read['mapq'], read['tags'], method)] += 1
+                        summary_counts[(read['correct'], read['mapq'], read.get('tags', '.'), method)] += 1
                     else:
                         # Incorrect, write the whole line
-                        out_results.line(read['correct'], read['mapq'], read['tags'], method, read['name'], 1)
+                        out_results.line(read['correct'], read['mapq'], read.get('tags', '.'), method, read['name'], 1)
                 for parts, count in summary_counts.iteritems():
                     # Write summary lines with empty read names
                     # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
