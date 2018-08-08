@@ -2284,10 +2284,10 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 stats['correct0'] += (mapq == 0) * count
                 stats['correctMapqTotal'] += mapq * count
                 if tags == []:
-                    stats['correctTagged'][None] += 1
+                    stats['correctTagged'][None] += count
                 else:
                     for tag in tags:
-                        stats['correctTagged'][tag] += 1
+                        stats['correctTagged'][tag] += count
             else:
                 stats['wrong'] += count
                 stats['wrong60'] += (mapq == 60) * count
@@ -2295,10 +2295,10 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 stats['wrong>0'] += (mapq > 0) * count
                 stats['wrongNames'].add(read)
                 if tags == []:
-                    stats['wrongTagged'][None] += 1
+                    stats['wrongTagged'][None] += count
                 else:
                     for tag in tags:
-                        stats['wrongTagged'][tag] += 1
+                        stats['wrongTagged'][tag] += count
                 
     # Now we have aggregated all the stats for all the conditions. We need to make the tables.
     
