@@ -237,7 +237,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, ta
         # a score and MAPQ so we match the extract_gam_read_stats/extract_bam_read_stats
         # format from toil-vg mapeval.
         jq_cmd = ['jq', '-c', '-r', '[.name] + '
-                  'if .annotation.features != null then [.annotation.features | join(",")] else ["."] end + '
+                  'if (.annotation.features | length) > 0 then [.annotation.features | join(",")] else ["."] end + '
                   'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
                   '[.score] + '
                   'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',

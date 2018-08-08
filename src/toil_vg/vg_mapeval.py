@@ -687,7 +687,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     # avoid writing the json to disk)
     # TODO: Deduplicate this code with the truth file generation code in vg_sim.py!
     jq_cmd = ['jq', '-c', '-r', '[.name] + '
-              'if .annotation.features != null then [.annotation.features | join(",")] else ["."] end + '
+              'if (.annotation.features | length) > 0 then [.annotation.features | join(",")] else ["."] end + '
               'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
               '[.score] + '
               'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
@@ -713,7 +713,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
 def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_threshold):
     """
     Compares positions from two TSV files. Both files have the format:
-    read name, comma-separated tag list, [contig touched, true position]*, score, MAPQ
+    read name, comma-separated tag list (or '.'), [contig touched, true position]*, score, MAPQ
     
     The truth file will have the cannonical tag list, while the stats file will
     have the cannonical score and MAPQ.
@@ -723,7 +723,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     of the truth.
     
     Produces a TSV of the form:
-    read name, correctness flag (0/1), MAPQ, comma-separated tag list
+    read name, correctness flag (0/1), MAPQ, comma-separated tag list (or '.')
 
     Returns output file ID.
     
@@ -796,6 +796,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 # Grab the comma-separated tags from the truth file.
                 # The test file also has a tag slot but the real tags are in the truth file.
                 aln_tags = true_fields[1]
+                if (aln_tags == ''):
+                    # Use a '.' to indicate no tags, even if the truth file didn't.
+                    aln_tags = '.'
                 
                 # map seq name->position
                 # Grab everything after the tags column and before the score and mapq columns, in pairs.
@@ -1525,13 +1528,8 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                 summary_counts = Counter()
                 # Wrong reads are just dumped as they occur with count 1
                 for toks in comp_in:
-                    if len(toks) == 0:
-                        continue
-                        
-                    if len(toks) != 4:
-                        RealtimeLogger.info('Strange position comparison line: {}'.format(toks))
-                
                     # Label the read fields so we can see what we're doing
+                    # Note that empty 'tags' columns may not be read by the TSV reader.
                     read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
                     
                     if read['correct'] == '1':
