@@ -543,14 +543,16 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
     gam_path = os.path.join(work_dir, '{}.gam'.format(sample_name))
     job.fileStore.readGlobalFile(alignment_file_id, gam_path)
 
-    # index on coordinates (sort)
-    gam_index_path = gam_path + '.index'    
-    index_cmd = ['vg', 'index', '-a', os.path.basename(gam_path),
-                 '-d', os.path.basename(gam_index_path), '-t', str(context.config.gam_index_cores)]
-    timer = TimeTracker('call-gam-index')
-    context.runner.call(job, index_cmd, work_dir = work_dir)
-    timer.stop()
-
+    # Sort and index the GAM file
+    gam_sort_path = gam_path + '.sorted.gam'
+    gam_index_path = gam_sort_path + '.gai'
+    
+    with open(gam_sort_path, "w") as gam_sort_stream:
+        gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path)]
+        timer = TimeTracker('call-gam-index')
+        context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
+        timer.stop()
+    
     # Write a list of paths
     path_list = os.path.join(work_dir, 'path_list.txt')
     offset_map = dict()
@@ -559,10 +561,11 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
             path_list_file.write(path_name + '\n')
             offset_map[path_name] = int(vcf_offsets[i]) if vcf_offsets else 0
 
-    # Chunk the graph and gam, using the xg and rocksdb indexes
+    # Chunk the graph and gam, using the xg and rocksdb indexes.
+    # GAM index isn't passed but it needs to be next to the GAM file.
     output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_path),
-                 '-a', os.path.basename(gam_index_path), '-c', str(context.config.chunk_context),
+                 '-a', os.path.basename(gam_sort_path), '-c', str(context.config.chunk_context),
                  '-P', os.path.basename(path_list),
                  '-g',
                  '-s', str(context.config.call_chunk_size),

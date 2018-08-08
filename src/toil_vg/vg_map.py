@@ -578,7 +578,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
 
 def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_file):
     """
-    Create a Rocksdb index then use it to split up the given gam file
+    Create a sorted GAM index then use it to split up the given gam file
     (a local path) into a separate gam for each chromosome.  
     Return a list of filenames.  the ith filename will correspond
     to the ith path in the options.path_name list
@@ -592,12 +592,14 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
             if len(toks) == 3:
                 ranges.write('{}:{}\n'.format(toks[1], toks[2]))
  
-    # index on node positions
-    output_index = gam_file + '.index'    
-    index_cmd = ['vg', 'index', '-a', os.path.basename(gam_file),
-                 '-d', os.path.basename(output_index), '-t', str(context.config.gam_index_cores)]
-    context.runner.call(job, index_cmd, work_dir = work_dir)
-        
+    # Sort the GAM
+    output_sorted = gam_file + '.sorted.gam'
+    output_index = output_sorted + '.gai'
+    sort_cmd = ['vg', 'gamsort', '-i', os.path.basename(output_index),
+        '-t', str(context.config.gam_index_cores), os.path.basename(gam_file)]
+    with open(output_sorted, "w") as sorted_file:
+        context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = sorted_file)
+ 
     # Chunk the alignment into chromosomes using the id ranges
     # (note by using id ranges and 0 context and -a we avoid costly subgraph extraction)
 
@@ -607,7 +609,7 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
     # Note: using -a -c 0 -R bypasses subgraph extraction, which is important
     # as it saves a ton of time and memory
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_file),
-                 '-a', os.path.basename(output_index), '-c', '0',
+                 '-a', os.path.basename(output_sorted), '-c', '0',
                  '-R', os.path.basename(cid_ranges_file),
                  '-b', os.path.splitext(os.path.basename(gam_file))[0],
                  '-t', str(context.config.alignment_cores),

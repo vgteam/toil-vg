@@ -49,6 +49,8 @@ def sim_subparser(parser):
                         help="Ouput fastq file (in addition to GAM)")
     parser.add_argument("--annotate_xg", type=make_url,
                         help="xg index used for gam annotation (if different from input indexes)")
+    parser.add_argument("--tag_bed", default=[], action='append', type=make_url,
+                        help="tag mark reads overlapping features in the given BED(s) with the feature names")
     parser.add_argument("--path", default=[], action='append',
                         help="simulate reads from the given path name in each XG file")
     parser.add_argument("--sim_opts", type=str,
@@ -77,7 +79,7 @@ def validate_sim_options(options):
             'random seed must be greater than 0 (vg sim ignores seed 0)')
     
 def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
-            xg_file_ids, xg_annot_file_id, paths = [],
+            xg_file_ids, xg_annot_file_id, tag_bed_ids=[], paths = [],
             fastq_id = None, out_name = None):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
@@ -103,14 +105,14 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
         # Define a seed base for this set of chunks, leaving space for each chunk before the next seed base
         seed_base = seed + xg_i * sim_chunks 
 
-        # each element is either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
+        # each element is either reads_chunk_id or (gam_chunk_id, true_pos_chunk_id)
         # if --gam not specified
         for chunk_i in range(sim_chunks):
             chunk_reads = file_reads / sim_chunks
             if chunk_i == sim_chunks - 1:
                 chunk_reads += file_reads % sim_chunks
             sim_out_id_info = child_job.addChildJobFn(run_sim_chunk, context, gam, seed_base, xg_file_id,
-                                                      xg_annot_file_id, paths,
+                                                      xg_annot_file_id, tag_bed_ids, paths,
                                                       chunk_i, chunk_reads,
                                                       fastq_id, xg_i,
                                                       cores=context.config.sim_cores, memory=context.config.sim_mem,
@@ -123,7 +125,7 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
                                            memory=context.config.sim_mem,
                                            disk=context.config.sim_disk)
     
-    merged_gam_id, merged_gam_annot_id, true_id = merge_job.rv(0), merge_job.rv(1), merge_job.rv(2)
+    merged_gam_id, true_id = merge_job.rv(0), merge_job.rv(1)
 
     if fastq_out:
         fastq_job = merge_job.addFollowOnJobFn(run_gam_to_fastq, context, merged_gam_id, False,
@@ -134,13 +136,15 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
                                                disk=context.config.sim_disk)
         merged_fq_id = fastq_job.rv(0)
 
-    return merged_gam_id, merged_gam_annot_id, true_id
+    return merged_gam_id, true_id
 
 
-def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, paths, chunk_i, num_reads, fastq_id, xg_i):
+def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, tag_bed_ids, paths, chunk_i, num_reads, fastq_id, xg_i):
     """
-    simulate some reads (and optionally gam),
-    return either reads_chunk_id or (gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id)
+    simulate some reads (and optionally gam)
+    determine with true positions in xg_annot_file_id, into a true position TSV file
+    tag reads by overlap with tag_bed_ids BED files in the true position file
+    return either reads_chunk_id or (gam_chunk_id, tsv_chunk_id)
     if --gam specified
     """
 
@@ -162,6 +166,13 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, pa
         xg_annot_file = job.fileStore.readGlobalFile(xg_annot_file_id, xg_annot_file)
     else:
         xg_annot_file = xg_file
+
+    # and the tag region BED files
+    tag_beds = []
+    for i, bed_id in enumerate(tag_bed_ids):
+        bed_file = os.path.join(work_dir, 'tag_{}.bed'.format(i))
+        job.fileStore.readGlobalFile(bed_id, bed_file)
+        tag_beds.append(bed_file)
 
     # run vg sim
     sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + context.config.sim_opts
@@ -191,57 +202,72 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, pa
         return context.write_intermediate_file(job, reads_file)
     else:
         # output gam
+        unannotated_gam_file = os.path.join(work_dir, 'sim_{}_{}_unannotated.gam'.format(xg_i, chunk_i))
         gam_file = os.path.join(work_dir, 'sim_{}_{}.gam'.format(xg_i, chunk_i))
-        gam_annot_file = os.path.join(work_dir, 'sim_{}_{}_annot.gam'.format(xg_i, chunk_i))
-        gam_annot_json = os.path.join(work_dir, 'sim_{}_{}_annot.json'.format(xg_i, chunk_i))
+        gam_json = os.path.join(work_dir, 'sim_{}_{}.json'.format(xg_i, chunk_i))
 
         # run vg sim, write output gam, annotated gam, annotaged gam json
         # (from vg/scripts/map-sim)
         cmd = [sim_cmd + ['-a']]
+        cmd.append(['tee', os.path.basename(unannotated_gam_file)])
+        annotate_command = ['vg', 'annotate', '-p', '-x', os.path.basename(xg_annot_file), '-a', '-']
+        for tag_bed in tag_beds:
+            # Make sure to annotate with overlap to tag regions
+            annotate_command += ['-b', os.path.basename(tag_bed)]
+        cmd.append(annotate_command)
         cmd.append(['tee', os.path.basename(gam_file)])
-        cmd.append(['vg', 'annotate', '-p', '-x', os.path.basename(xg_annot_file), '-a', '-'])
-        cmd.append(['tee', os.path.basename(gam_annot_file)])
         cmd.append(['vg', 'view', '-aj', '-'])
-        with open(gam_annot_json, 'w') as output_annot_json:
+        with open(gam_json, 'w') as output_json:
             try:
-                context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+                context.runner.call(job, cmd, work_dir = work_dir, outfile=output_json)
             except:
                 # Dump everything we need to replicate the problem
                 context.write_output_file(job, xg_file)
                 context.write_output_file(job, xg_annot_file)
+                context.write_output_file(job, unannotated_gam_file)
                 context.write_output_file(job, gam_file)
-                context.write_output_file(job, gam_annot_file)
                 raise
 
         # turn the annotated gam json into truth positions, as separate command since
         # we're going to use a different docker container.  (Note, would be nice to
         # avoid writing the json to disk)
         # note: in the following, we are writing the read name as the first column,
-        # then a path-name, path-offset in each successive pair of columns
-        jq_cmd = ['jq', '-c', '-r', '[ .name, if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end ] | @tsv',
-                  os.path.basename(gam_annot_json)]
-
+        # then a comma-separated tag list of overlapped features (or ".") in the second column,
+        # then a path-name, path-offset in each successive pair of columns, and finally
+        # a score and MAPQ so we match the extract_gam_read_stats/extract_bam_read_stats
+        # format from toil-vg mapeval.
+        jq_cmd = ['jq', '-c', '-r', '[.name] + '
+                  'if (.annotation.features | length) > 0 then [.annotation.features | join(",")] else ["."] end + '
+                  'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
+                  '[.score] + '
+                  'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
+                   os.path.basename(gam_json)]
         # output truth positions
         true_pos_file = os.path.join(work_dir, 'true_{}_{}.pos'.format(xg_i, chunk_i))
         with open(true_pos_file, 'w') as out_true_pos:
             context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_true_pos)
 
         # get rid of that big json asap
-        os.remove(gam_annot_json)
+        os.remove(gam_json)
 
-        # write to store. todo: there's probably no reason outside debugging to
-        # keep both gams around.
-        gam_chunk_id = context.write_intermediate_file(job, gam_file)
-        annot_gam_chunk_id = context.write_intermediate_file(job, gam_annot_file)
+        # write to store.
+        gam_chunk_id = context.write_output_file(job, gam_file)
         true_pos_chunk_id = context.write_intermediate_file(job, true_pos_file)
 
-        # return everythin as a tuple.
-        return gam_chunk_id, annot_gam_chunk_id, true_pos_chunk_id
+        # return everything as a tuple.
+        return gam_chunk_id, true_pos_chunk_id
         
 
 def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
     """
     merge the sim output
+
+    Takes a GAM flag for if we simulated a GAM, a list of sim chunk output
+    values (which are single file IDs if not making GAM, or GAM file and true
+    position TSV file ID pairs if making GAM), and an output file name part.
+
+    Returns a merged file ID if not making GAMs, or a pair of merged GAM and truth TSV files if making GAM.
+
     """
     assert len(sim_out_id_infos) > 0
 
@@ -269,11 +295,9 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
     else:
         # merge up the gam files
         merged_gam_file = os.path.join(work_dir, '{}.gam'.format(reads_name))
-        merged_annot_gam_file = os.path.join(work_dir, '{}_annot.gam'.format(reads_name))
         merged_true_file = os.path.join(work_dir, '{}.pos.unsorted'.format(pos_name))
         
         with open(merged_gam_file, 'a') as out_gam, \
-             open(merged_annot_gam_file, 'a') as out_annot_gam, \
              open(merged_true_file, 'a') as out_true:
             
             for i, sim_out_id_info in enumerate(sim_out_id_infos):
@@ -282,13 +306,8 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
                 with open(gam_file) as rf:
                     shutil.copyfileobj(rf, out_gam)
                     
-                gam_annot_file = os.path.join(work_dir, 'sim_annot_{}.gam'.format(i))
-                job.fileStore.readGlobalFile(sim_out_id_info[1], gam_annot_file)
-                with open(gam_annot_file) as rf:
-                    shutil.copyfileobj(rf, out_annot_gam)
-
                 true_file = os.path.join(work_dir, 'true_{}.pos'.format(i))
-                job.fileStore.readGlobalFile(sim_out_id_info[2], true_file)
+                job.fileStore.readGlobalFile(sim_out_id_info[1], true_file)
                 with open(true_file) as rf:
                     shutil.copyfileobj(rf, out_true)
 
@@ -300,10 +319,9 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
 
         
         merged_gam_id = context.write_output_file(job, merged_gam_file)
-        merged_gam_annot_id = context.write_intermediate_file(job, merged_annot_gam_file)
         true_id = context.write_output_file(job, sorted_true_file)
 
-        return merged_gam_id, merged_gam_annot_id, true_id
+        return merged_gam_id, true_id
             
 def sim_main(context, options):
     """
@@ -331,6 +349,9 @@ def sim_main(context, options):
                 inputAnnotXGFileID = toil.importFile(options.annotate_xg)
             else:
                 inputAnnotXGFileID = None
+            tagBEDIDs = []
+            for url in options.tag_bed:
+                tagBEDIDs.append(toil.importFile(url))
             if options.fastq:
                 inputFastqFileID = toil.importFile(options.fastq)
             else:
@@ -357,6 +378,7 @@ def sim_main(context, options):
                                      options.seed, options.sim_chunks,
                                      inputXGFileIDs,
                                      inputAnnotXGFileID,
+                                     tagBEDIDs,
                                      options.path,
                                      inputFastqFileID,
                                      options.out_name,

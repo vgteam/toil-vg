@@ -94,7 +94,7 @@ def add_mapeval_options(parser):
     parser.add_argument('--bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --bams')
     parser.add_argument('--pe-bams', nargs='+', type=make_url, default=[],
-                        help='paired end aligned reads t compare to truth in BAM format')
+                        help='paired end aligned reads to compare to truth in BAM format')
     parser.add_argument('--pe-bam-names', nargs='+', default=[],
                         help='a name for each bam passed in with --pe-bams')
     parser.add_argument('--paired-only', action='store_true',
@@ -130,7 +130,7 @@ def add_mapeval_options(parser):
                         help='additional batches of mpmap options to try')
 
     parser.add_argument('--gam-input-xg', type=make_url, default=None,
-                        help= 'If extracting truth positions from --input_gam_reads, specify corresponding xg for annotation')
+                        help= 'If extracting truth positions from --gam_input_reads, specify corresponding xg for annotation')
                         
     parser.add_argument('--plot-sets', nargs='+', default=[],
                         help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) to plot together')
@@ -584,10 +584,12 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
     (lots of duplicated code with vg_sim, should merge?)
     
     Produces a read stats TSV of the format:
-    read name, contig aligned to, alignment position, score, MAPQ
+    read name, read tags (or '.'), [contig aligned to, alignment position,]* score, MAPQ
     
     TODO: Currently scores are not extracted and a score of 0 is always
     returned.
+    
+    TODO: Tags are also always '.'.
 
     """
 
@@ -607,12 +609,12 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
         # TODO: will need to switch to something more powerful to parse the score out of the AS tag. For now score everything as 0.
         # TODO: why _ and not / as the read name vs end number delimiter?
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep)])
+        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep)])
     else:
         # No flags to parse since there's no end pairing and read names are correct.
         # Use inline perl again and insert a fake 0 score column
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate        
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
+        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
     cmd.append(['sort'])
     
     with open(out_pos_file, 'w') as out_pos:
@@ -657,8 +659,10 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     extract positions, scores, and MAPQs for reads from a gam, and return the id
     of the resulting read stats file
     
+    The read stats file may also be used as a truth file; the two kinds of files are the same format.
+    
     Produces a read stats TSV of the format:
-    read name, contig aligned to, alignment position, score, MAPQ
+    read name, read tags (or '.'), [contig aligned to, alignment position,]* score, MAPQ
     
     If the GAM is not annotated with alignment positions, contig and position
     will both contain only "0" values.
@@ -680,17 +684,18 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
 
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
-    # avoid writing the json to disk)        
-    jq_cmd = [['jq', '-c', '-r', '[.name, '
-               'if .refpos != null then (.refpos[] | .name, if .offset != null then .offset else 0 end) else (null, null) end, '
-               '.score, '
-               'if .mapping_quality == null then 0 else .mapping_quality end ] | @tsv',
-               os.path.basename(gam_annot_json)]]
+    # avoid writing the json to disk)
+    # TODO: Deduplicate this code with the truth file generation code in vg_sim.py!
+    jq_cmd = ['jq', '-c', '-r', '[.name] + '
+              'if (.annotation.features | length) > 0 then [.annotation.features | join(",")] else ["."] end + '
+              'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
+              '[.score] + '
+              'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
+              os.path.basename(gam_annot_json)]
     # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
-    jq_cmd.append(['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
-
+    jq_pipe = [jq_cmd, ['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g']]
     with open(out_pos_file + '.unsorted', 'w') as out_pos:
-        context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_pos)
+        context.runner.call(job, jq_pipe, work_dir = work_dir, outfile=out_pos)
 
     # get rid of that big json asap
     os.remove(gam_annot_json)
@@ -700,33 +705,32 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     with open(out_pos_file, 'w') as out_pos:
         context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
 
-    # Make sure each line has all columns
-    RealtimeLogger.info("Make sure all lines are full length")
-    context.runner.call(job, ['awk', '!length($5)',  os.path.basename(out_pos_file)], work_dir = work_dir)
+    # Some lines may have refpos set while others do not (and those columns may be absent)
 
     out_stats_file_id = context.write_intermediate_file(job, out_pos_file)
     return out_stats_file_id
     
 def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_threshold):
     """
-    this is essentially pos_compare.py from vg/scripts
-    return output file id.
+    Compares positions from two TSV files. Both files have the format:
+    read name, comma-separated tag list (or '.'), [contig touched, true position]*, score, MAPQ
     
-    Compares positions from two TSV files. The truth has the format:
-    read name, contig simulated from, true position
-    
-    And the file under test is a read stats TSV with the format:
-    read name, contig aligned to, alignment position, alignment score, MAPQ
+    The truth file will have the cannonical tag list, while the stats file will
+    have the cannonical score and MAPQ.
     
     The input files must be in lexicographically sorted order by name, but may
     not contain the same number of entries each. The stats file may be a subset
     of the truth.
     
-    Produces a CSV (NOT TSV) of the form:
-    read name, correctness flag (0/1), MAPQ
+    Produces a TSV of the form:
+    read name, correctness flag (0/1), MAPQ, comma-separated tag list (or '.')
+
+    Returns output file ID.
     
     mapeval_threshold is the distance within which a mapping is held to have hit
     the correct position.
+
+    TODO: Replace with a vg mapeval call.
     
     """
     work_dir = job.fileStore.getLocalTempDir()
@@ -738,7 +742,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
-    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out:
+    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out_stream:
+        out = tsv.TsvWriter(out_stream)
         
         # Make readers for the files
         truth_reader = iter(tsv.TsvReader(truth))
@@ -755,17 +760,15 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
         while true_fields is not None and test_fields is not None:
             # We still have data on both sides
             
-            if len(true_fields) < 3:
-                if len(true_fields) == 2:
-                    # Probably dropped the reference position in the jq-to-tsv step because it was 0
-                    # TODO: Remove this after the fix to toil_vg sim to not do that is in common usage.
-                    true_fields.append('0')
-                else:
-                    raise RuntimeError('Incorrect (<3) true field count on line {}: {}'.format(
-                        true_line, true_fields))
+            # The minimum field count you can have for the truth is 6, because it must have at least one position.
+            # For the test data it can be 4, because the read may have no positions.
             
-            if len(test_fields) < 5:
-                raise RuntimeError('Incorrect (<5) test field count on line {}: {}'.format(
+            if len(true_fields) < 6:
+                raise RuntimeError('Incorrect (<6) true field count on line {}: {}'.format(
+                    true_line, true_fields))
+            
+            if len(test_fields) < 4:
+                raise RuntimeError('Incorrect (<4) test field count on line {}: {}'.format(
                     test_line, test_fields))
             
             true_read_name = true_fields[0]
@@ -789,11 +792,23 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 # The reads correspond. Check if the positions are right.
                 
                 assert(aln_read_name == true_read_name)
+
+                # Grab the comma-separated tags from the truth file.
+                # The test file also has a tag slot but the real tags are in the truth file.
+                aln_tags = true_fields[1]
+                if (aln_tags == ''):
+                    # Use a '.' to indicate no tags, even if the truth file didn't.
+                    aln_tags = '.'
                 
                 # map seq name->position
-                true_pos_dict = dict(zip(true_fields[1::2], map(parse_int, true_fields[2::2])))
-                aln_pos_dict = dict(zip(test_fields[1:-2:2], map(parse_int, test_fields[2:-2:2])))
-                # Skip over score field
+                # Grab everything after the tags column and before the score and mapq columns, in pairs.
+                true_pos_dict = dict(zip(true_fields[2:-2:2], map(parse_int, true_fields[3:-2:2])))
+                aln_pos_dict = dict(zip(test_fields[2:-2:2], map(parse_int, test_fields[3:-2:2])))
+                
+                # Make sure the true reads came from somewhere
+                assert(len(true_pos_dict) > 0)
+                
+                # Skip over score field and get the MAPQ, which is last
                 aln_mapq = parse_int(test_fields[-1])
                 aln_correct = 0
                 for aln_chr, aln_pos in aln_pos_dict.items():
@@ -801,7 +816,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                         aln_correct = 1
                         break
 
-                out.write('{}, {}, {}\n'.format(aln_read_name, aln_correct, aln_mapq))
+                out.line(aln_read_name, aln_correct, aln_mapq, aln_tags)
         
                 # Advance both reads
                 true_fields = next(truth_reader, None)
@@ -1450,7 +1465,7 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
     Compare the read positions for each read across the different aligmment
     methods.
     
-    Produces a bunch of individual comparison files against the truth (in CSV
+    Produces a bunch of individual comparison files against the truth (in TSV
     format), a combined "positions.results.tsv" across all aligners, and a
     statistics file "stats.tsv" in the out_store.
     
@@ -1478,6 +1493,10 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     """
     Write some raw tables of position comparisons to the output.  Compute some
     stats for each graph.
+
+    The position results file format is a TSV of:
+    correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
+
     
     Returns (the stats file's file ID, the position results file's ID)
     """
@@ -1488,34 +1507,41 @@ def run_process_position_comparisons(job, context, names, compare_ids):
 
     # make the position.results.tsv and position.stats.tsv
     results_file = os.path.join(work_dir, 'position.results.tsv')
-    with open(results_file, 'w') as out_results:
-        out_results.write('correct\tmq\taligner\tread\tcount\n')
+    with open(results_file, 'w') as out_stream:
+        out_results = tsv.TsvWriter(out_stream)
+        # Put a header
+        out_results.list_line(['correct', 'mq', 'tags', 'aligner', 'read', 'count'])
 
         def write_tsv(comp_file, method):
             """
-            Read the given comparison CSV for the given condition name, and dump
+            Read the given comparison TSV for the given condition name, and dump
             it to the combined results file.
             """
             
             # The vg R scripts are responsible for determining a smart method name sort order now.
            
-            with open(comp_file) as comp_in:
-                # This will hold counts for (correct, mq, method) tuples.
+            with open(comp_file) as comp_in_stream:
+                comp_in = tsv.TsvReader(comp_in_stream)
+                # This will hold counts for (correct, mq, tags, method) tuples.
+                # Tags are represented as a string.
                 # We only summarize correct reads.
                 summary_counts = Counter()
                 # Wrong reads are just dumped as they occur with count 1
-                for line in comp_in:
-                    toks = line.rstrip().split(', ')
-                    if toks[1] == '1':
+                for toks in comp_in:
+                    # Label the read fields so we can see what we're doing
+                    # Note that empty 'tags' columns may not be read by the TSV reader.
+                    read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
+                    
+                    if read['correct'] == '1':
                         # Correct, so summarize
-                        summary_counts[(toks[1], toks[2], method)] += 1
+                        summary_counts[(read['correct'], read['mapq'], read.get('tags', '.'), method)] += 1
                     else:
                         # Incorrect, write the whole line
-                        out_results.write('{}\t{}\t{}\t{}\t{}\n'.format(toks[1], toks[2], method, toks[0], 1))
+                        out_results.line(read['correct'], read['mapq'], read.get('tags', '.'), method, read['name'], 1)
                 for parts, count in summary_counts.iteritems():
                     # Write summary lines with empty read names
                     # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
-                    out_results.write('{}\t{}\t{}\t{}\t{}\n'.format(parts[0], parts[1], parts[2], '.', count))
+                    out_results.list_line(list(parts) + ['.', count])
 
         for name, compare_id in itertools.izip(names, compare_ids):
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
@@ -1561,6 +1587,9 @@ def run_write_position_stats(job, context, names, map_stats):
 def run_acc(job, context, name, compare_id):
     """
     Percentage of correctly aligned reads (ignore quality)
+
+    Comparison file input must be TSV with one row per read, column 0 unused
+    and column 1 as the correct flag.
     """
     
     work_dir = job.fileStore.getLocalTempDir()
@@ -1571,8 +1600,7 @@ def run_acc(job, context, name, compare_id):
     total = 0
     correct = 0
     with open(compare_file) as compare_f:
-        for line in compare_f:
-            toks = line.split(', ')
+        for toks in tsv.TsvReader(compare_f):
             total += 1
             if toks[1] == '1':
                 correct += 1
@@ -1588,6 +1616,9 @@ def run_auc(job, context, name, compare_id):
     reads being positives, and AUC expressing how good of a classifier of
     correctly-mapped-ness the MAPQ score is. It says nothing about how well the
     reads are actually mapped.
+
+    Comparison file input must be TSV with one row per read, column 0 unused,
+    column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
     if not have_sklearn:
@@ -1599,7 +1630,7 @@ def run_auc(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2)).T
+        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2)).T
         auc = roc_auc_score(data[0], data[1])
         aupr = average_precision_score(data[0], data[1])
     except:
@@ -1623,6 +1654,9 @@ def run_max_f1(job, context, name, compare_id):
     
     Then we calculate precision = TP / (TP + FP) and recall = TP / (TP + FN), and from those calculate an F1.
     Then we calculate the best F1 across all the MAPQ values.
+
+    Comparison file input must be TSV with one row per read, column 0 unused,
+    column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
     if not have_sklearn:
@@ -1633,8 +1667,8 @@ def run_max_f1(job, context, name, compare_id):
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
-    # Load up the correct/incorrect flag (data[_, 0]) and the scores (data[_, 1])
-    data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
+    # Load up the correct/incorrect flag (data[_, 1]) and the scores (data[_, 2])
+    data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
     
     # Sort on score (see <https://stackoverflow.com/a/2828121/402891>) in
     # descending order. So reads we want to take first come first.
@@ -1686,7 +1720,10 @@ def run_max_f1(job, context, name, compare_id):
 
 def run_qq(job, context, name, compare_id):
     """
-    some measure of qq consistency 
+    some measure of qq consistency
+
+    Comparison file input must be TSV with one row per read, column 0 unused,
+    column 1 as the correct flag, and column 2 as the MAPQ.
     """
     if not have_sklearn:
         return "sklearn_not_installed"
@@ -1697,7 +1734,7 @@ def run_qq(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter =', ', usecols=(1,2))
+        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
 
         # this can surley be sped up if necessary
         correct = Counter()
@@ -1787,7 +1824,7 @@ def run_process_score_comparisons(job, context, baseline_name, names, compare_id
 
         def write_tsv(comp_file, a):
             """
-            Read the given comparison CSV for the given condition name, and dump
+            Read the given comparison TSV for the given condition name, and dump
             it to the combined results file.
             """
             with open(comp_file) as comp_in:
@@ -2088,7 +2125,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     
     The combined position stats TSV has one header line, and format:
     
-    correct flag, mapping quality, condition name, read name, count
+    correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
     
     plot_sets gives a list of collections of condition names to plot together.
     If None is in the list, all conditions are plotted.
@@ -2153,7 +2190,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     
     The combined position stats TSV has one header line, and format:
     
-    correct flag, mapping quality, condition name, read name, count
+    correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
     
     plot_sets gives a list of collections of condition names to compare
     together. If None is in the list, all conditions are plotted.
@@ -2179,10 +2216,12 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     # This creates an empty stats dict for a condition
     dict_for_condition = lambda: {
         'wrong': 0, # Total wrong reads
+        'wrongTagged': collections.Counter(), # Wrong reads with each observed tag, or None for no tags
         'wrong60': 0, # Wrong reads with MAPQ 60
         'wrong0': 0, # Wring reads with MAPQ 0
         'wrong>0': 0, # Wrong reads with nonzero MAPQ
         'correct': 0, # Total correct reads
+        'correctTagged': collections.Counter(), # Correct reads with each observed tag, or None for no tags
         'correct0': 0, # Correct reads with MAPQ 0
         'correctMapqTotal': 0, # Total MAPQ of all correct reads, for averaging
         'wrongNames': set() # Names of all wrong reads (which should be in the 1000s to 10ks in size)
@@ -2190,6 +2229,9 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     
     # This holds, by condition name, a bunch of stat values by stat name.
     condition_stats = collections.defaultdict(dict_for_condition)
+    
+    # This holds all observed tags
+    known_tags = set()
     
     # We will need to drop the first line (a header)
     line_num = 0
@@ -2209,19 +2251,28 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 RealtimeLogger.info('Processed {} alignments for table in {} conditions'.format(line_num, len(condition_stats)))
             
             # Line format is:
-            # correct flag, mapping quality, condition name, read name
+            # correct flag, mapping quality, tags, condition name, read name, count
             if len(line) == 0:
                 # Skip blank
                 continue
             
             # Everything else must have all the fields
-            assert(len(line) >= 5)
+            assert(len(line) >= 6)
             # Unpack
-            correct, mapq, condition, read, count = line[0:5]
+            correct, mapq, tags, condition, read, count = line[0:6]
             # And parse
             correct = (correct == '1')
             mapq = int(mapq)
+            tags = [] if tags == '.' else tags.split(',')
             count = int(count)
+            
+            if tags == []:
+                # No tags is a tag now
+                known_tags.add(None)
+            else:
+                for tag in tags:
+                    # Register observed tags
+                    known_tags.add(tag)
             
             # Find the stats dict to update
             stats = condition_stats[condition]
@@ -2232,14 +2283,30 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 stats['correct'] += count
                 stats['correct0'] += (mapq == 0) * count
                 stats['correctMapqTotal'] += mapq * count
+                if tags == []:
+                    stats['correctTagged'][None] += count
+                else:
+                    for tag in tags:
+                        stats['correctTagged'][tag] += count
             else:
                 stats['wrong'] += count
                 stats['wrong60'] += (mapq == 60) * count
                 stats['wrong0'] += (mapq == 0) * count
                 stats['wrong>0'] += (mapq > 0) * count
                 stats['wrongNames'].add(read)
+                if tags == []:
+                    stats['wrongTagged'][None] += count
+                else:
+                    for tag in tags:
+                        stats['wrongTagged'][tag] += count
                 
     # Now we have aggregated all the stats for all the conditions. We need to make the tables.
+    
+    # Sort the known tags
+    known_tags = sorted(list(known_tags))
+    if len(known_tags) == 1:
+        # Everything is tagged the same way, so ignore tags.
+        known_tags = []
 
     # Hold the list of file name and file ID pairs to return
     out_name_id_pairs = []
@@ -2269,19 +2336,33 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         
         # Start the output file.
         writer = tsv.TsvWriter(open(os.path.join(work_dir, table_name), 'w'))
-        header = ['Condition', 'Reads', 'Wrong', 'Precision', 'At MAPQ 60', 'At MAPQ 0', 'At MAPQ >0',
-            'New vs. ' + baseline_condition, 'Fixed vs. ' + baseline_condition, 'Avg. Correct MAPQ', 'Correct MAPQ 0']
+        header = (['Condition', 'Precision', 'Reads'] + ['tagged {}'.format(tag) for tag in known_tags] +
+            ['Wrong'] + ['tagged {}'.format(tag) for tag in known_tags] +
+            ['at MAPQ 60', 'at MAPQ 0', 'at MAPQ >0', 'new vs. ' + baseline_condition, 'fixed vs. ' + baseline_condition,
+            'Avg. Correct MAPQ', 'Correct MAPQ 0'])
         writer.list_line(header)
         
         for condition in plot_set:
             # For each condition to plot, look up its stats
             stats = condition_stats[condition]
             
-            # Start a line
+            # Start a line with Condition
             line = [condition]
-            line.append(stats['wrong'] + stats['correct'])
-            line.append(stats['wrong'])
+            # Then Precision
             line.append(float(stats['correct']) / (stats['wrong'] + stats['correct']))
+            
+            # Then Reads
+            line.append(stats['wrong'] + stats['correct'])
+            # Then counts with all tags
+            for tag in known_tags:
+                line.append(stats['wrongTagged'][tag] + stats['correctTagged'][tag])
+            
+            # Then Wrong reads
+            line.append(stats['wrong'])
+            # Then counts with all tags
+            for tag in known_tags:
+                line.append(stats['wrongTagged'][tag])
+            # Then counts in different quality buckets
             line.append(stats['wrong60'])
             line.append(stats['wrong0'])
             line.append(stats['wrong>0'])
