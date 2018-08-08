@@ -84,6 +84,8 @@ def get_container_tool_map(options):
     cmap[0]["freebayes"] = options.freebayes_docker
     cmap[0]["Platypus.py"] = options.platypus_docker
     cmap[0]['hap.py'] = options.happy_docker
+    cmap[0]['bedtools'] = options.bedtools_docker
+    cmap[0]['bedops'] = options.bedops_docker
      
     # to do: could be a good place to do an existence check on these tools
 
