@@ -64,6 +64,10 @@ def vcfeval_parse_args(parser):
                         help="run bed-based sv comparison in addition to rtg vcfeval")
     parser.add_argument("--min_sv_len", type=int, default=20,
                         help="minimum length to consider when doing bed sv comparison (using --sv)")
+    parser.add_argument("--sv_region_overlap", type=float, default=1.0,
+                        help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
+    parser.add_argument("--sv_overlap", type=float, default=0.5,
+                        help="minimum reciprical overlap required for bed intersection to count as TP")
 
 def validate_vcfeval_options(options):
     """ check some options """
@@ -438,7 +442,7 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
     }
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                min_sv_len, bed_id = None,  out_name = ''):
+                min_sv_len, sv_overlap, sv_region_overlap , bed_id = None,  out_name = ''):
     """ Run something like Peter Audano's bed-based comparison.  Uses bedtools and bedops to do
     overlap comparison between indels.  Of note: the actual sequence of insertions is never checked!"""
 
@@ -501,7 +505,8 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                                               [clipped_calls_name, clipped_baseline_name]):
             with open(os.path.join(work_dir, clipped_bed_name), 'w') as clipped_bed_file:
                 context.runner.call(job, ['bedtools', 'intersect', '-a', bed_name, '-b', regions_bed_name,
-                                          '-wa', '-f', '0.50', '-u'], work_dir = work_dir, outfile = clipped_bed_file)
+                                          '-wa', '-f', str(sv_region_overlap), '-u'],
+                                    work_dir = work_dir, outfile = clipped_bed_file)
     else:
         clipped_calls_name = call_bed_name
         clipped_baseline_name = baseline_bed_name
@@ -540,12 +545,12 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
          (intersect_bed_del_name, intersect_bed_del_rev_name, clipped_calls_del_name, clipped_baseline_del_name)]:
         with open(os.path.join(work_dir, intersect_bed_indel_name), 'w') as intersect_bed_file:
             context.runner.call(job, ['bedtools', 'intersect', '-a', calls_bed_indel_name,
-                                  '-b', baseline_bed_indel_name, '-wa', '-f', '0.50', '-r', '-u'],
+                                  '-b', baseline_bed_indel_name, '-wa', '-f', str(sv_overlap), '-r', '-u'],
                             work_dir = work_dir, outfile = intersect_bed_file)
         # we run other way so we can get false positives from the calls and true positives from the baseline    
         with open(os.path.join(work_dir, intersect_bed_indel_rev_name), 'w') as intersect_bed_file:        
             context.runner.call(job, ['bedtools', 'intersect', '-b', calls_bed_indel_name,
-                                  '-a', baseline_bed_indel_name, '-wa', '-f', '0.50', '-r', '-u'],
+                                  '-a', baseline_bed_indel_name, '-wa', '-f', str(sv_overlap), '-r', '-u'],
                             work_dir = work_dir, outfile = intersect_bed_file)
 
     # summarize results into a table
@@ -732,11 +737,11 @@ def vcfeval_main(context, options):
 
             if options.sv:                
                 sv_job = Job.wrapJobFn(run_sv_eval, context, None,
-                                          (call_vcf_id, call_tbi_id),
-                                          vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                                          options.min_sv_len, bed_id,
-                                          cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
-                                          disk=context.config.vcfeval_disk)
+                                       (call_vcf_id, call_tbi_id),
+                                       vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                                       options.min_sv_len, options.sv_overlap, options.sv_region_overlap, bed_id, 
+                                       cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                       disk=context.config.vcfeval_disk)
                 init_job.addFollowOn(sv_job)
 
             # Run the job
