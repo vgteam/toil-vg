@@ -467,8 +467,17 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     call_bed_name = '{}calls.bed'.format(out_name)
     baseline_bed_name = '{}truth.bed'.format(out_name)
     for vcf_name, bed_name in zip([call_vcf_name, vcfeval_baseline_name], [call_bed_name, baseline_bed_name]):
+        # vg call sometimes makes IDs that are too long for bedops.  we zap the ids here just in case
+        temp_vcf_name = 'idfix-{}.vcf'.format(os.path.splitext(os.path.basename(vcf_name))[0])
+        with open(os.path.join(work_dir, temp_vcf_name), 'w') as temp_vcf_file:
+            context.runner.call(job, ['bcftools', 'view', '-h', vcf_name],
+                                work_dir = work_dir, outfile = temp_vcf_file)
+            context.runner.call(job, [['bcftools', 'view', '-H', vcf_name],
+                                      ['awk', '-F', '\t', '-v', 'OFS=\t', '{$3=\".\"; print $0;}']],
+                                work_dir = work_dir, outfile = temp_vcf_file)
+        # then convert the fixed if vcf into bed with bedops
         with open(os.path.join(work_dir, bed_name), 'w') as bed_file:
-            context.runner.call(job, [['gzip', '-dc', vcf_name], ['vcf2bed']],
+            context.runner.call(job, [['cat', temp_vcf_name], ['vcf2bed']],
                                 work_dir = work_dir, outfile = bed_file, tool_name = 'bedops')
 
     # if the bed's there, intersect both the calls and baseline       
@@ -552,7 +561,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     tar_dir = os.path.join(work_dir, '{}sv_evaluation'.format(out_name))
     os.makedirs(tar_dir)
     for dir_file in os.listdir(work_dir):
-        if os.path.splitext(dir_file)[1] in ['.bed', '.tsv', '.vcf', '.vcf.gz', '.vcf.gz.tbi']:
+        if os.path.splitext(dir_file)[1] in ['.bed', '.tsv', '.vcf.gz', '.vcf.gz.tbi']:
             shutil.copy2(os.path.join(work_dir, dir_file), os.path.join(tar_dir, dir_file))
     context.runner.call(job, ['tar', 'czf', os.path.basename(tar_dir) + '.tar.gz', os.path.basename(tar_dir)],
                         work_dir = work_dir)
