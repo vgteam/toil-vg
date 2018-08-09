@@ -33,7 +33,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_merge_vcf
-from toil_vg.vg_vcfeval import vcfeval_parse_args, run_extract_sample_truth_vcf, run_vcfeval, run_vcfeval_roc_plot, run_happy
+from toil_vg.vg_vcfeval import vcfeval_parse_args, run_extract_sample_truth_vcf, run_vcfeval, run_vcfeval_roc_plot, run_happy, run_sv_eval
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
 from toil_vg.vg_surject import run_surjecting
@@ -354,7 +354,8 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
     return roc_plot_ids
     
 
-def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, happy_results_dict, timing_results, plot_sets=[None]):
+def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, happy_results_dict, sveval_results_dict,
+                         timing_results, plot_sets=[None]):
     """
     
     output the calleval results
@@ -391,9 +392,14 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
                 happy_indel_f1 =  best_happy_result['parsed_summary']['INDEL']['METRIC.F1_Score']
             else:
                 happy_snp_f1, happy_indel_f1 = -1, -1
+
+            # Same for the sveval results
+            sveval_result = sveval_results_dict[name]
+            best_sveval_result = sveval_result.get("clipped", sveval_result.get("unclipped", None))
+            sveval_f1 = best_sveval_result['F1'] if best_sveval_result is not None else -1
                 
             # Output the F1 scores
-            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result['f1'], happy_snp_f1, happy_indel_f1))
+            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result['f1'], happy_snp_f1, happy_indel_f1, sveval_f1))
 
     # Make the roc plots
     roc_plot_job = job.addChildJobFn(run_calleval_plots, context, names, eval_results_dict, plot_sets=plot_sets)
@@ -450,7 +456,7 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
                  bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
                  vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved,
-                 freebayes, platypus):
+                 freebayes, platypus, happy, sveval):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -478,6 +484,8 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
     eval_results = collections.defaultdict(dict)
     # And here we store similarly the output dicts from run_happy
     happy_results = collections.defaultdict(dict)
+    # And here we store similarly the output dicts from run_sveval
+    sveval_results = collections.defaultdict(dict)
 
     # Some prep work (surjection and truth extraction) will happen under this head job
     head_job = Job()
@@ -553,13 +561,25 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                         score_field='GQ', cores=context.config.vcfeval_cores,
                                                         memory=context.config.vcfeval_mem,
                                                         disk=context.config.vcfeval_disk).rv()
-                    happy_results[bam_caller_out_name]["clipped"] = \
+                    if happy:
+                        happy_results[bam_caller_out_name]["clipped"] = \
                         bam_caller_job.addFollowOnJobFn(run_happy, context, sample_name, bam_caller_vcf_tbi_id_pair,
                                                         truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                         vcfeval_fasta_id, bed_id, out_name=bam_caller_out_name,
                                                         cores=context.config.vcfeval_cores,
                                                         memory=context.config.vcfeval_mem,
                                                         disk=context.config.vcfeval_disk).rv()
+
+                    if sveval:
+                        sveval_results[bam_caller_out_name]["clipped"] = \
+                        bam_caller_job.addFollowOnJobFn(run_sv_eval, context, sample_name, bam_caller_vcf_tbi_id_pair,
+                                                        truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
+                                                        sv_overlap=0.5, sv_region_overlap=1,
+                                                        bed_id=bed_id,
+                                                        out_name=bam_caller_out_name,
+                                                        cores=context.config.vcfeval_cores,
+                                                        memory=context.config.vcfeval_mem,
+                                                        disk=context.config.vcfeval_disk).rv()                    
 
                 if not clip_only:
                     # Also do unclipped
@@ -572,7 +592,8 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                         score_field='GQ', cores=context.config.vcfeval_cores,
                                                         memory=context.config.vcfeval_mem,
                                                         disk=context.config.vcfeval_disk).rv()
-                    happy_results[bam_caller_out_name]["unclipped"] = \
+                    if happy:
+                        happy_results[bam_caller_out_name]["unclipped"] = \
                         bam_caller_job.addFollowOnJobFn(run_happy, context, sample_name, bam_caller_vcf_tbi_id_pair,
                                                         truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                         vcfeval_fasta_id, None,
@@ -580,6 +601,16 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                         cores=context.config.vcfeval_cores,
                                                         memory=context.config.vcfeval_mem,
                                                         disk=context.config.vcfeval_disk).rv()
+
+                    if sveval:
+                        sveval_results[bam_caller_out_name]["unclipped"] = \
+                        bam_caller_job.addFollowOnJobFn(run_sv_eval, context, sample_name, bam_caller_vcf_tbi_id_pair,
+                                                        truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
+                                                        sv_overlap=0.5, sv_region_overlap=1, bed_id=None,
+                                                        out_name=bam_caller_out_name if not bed_id else bam_caller_out_name + '-unclipped',                                                        
+                                                        cores=context.config.vcfeval_cores,
+                                                        memory=context.config.vcfeval_mem,
+                                                        disk=context.config.vcfeval_disk).rv()                        
 
                 vcf_tbi_id_pairs.append(bam_caller_vcf_tbi_id_pair)
                 timing_results.append(timing_result)
@@ -620,12 +651,19 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                       truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                       vcfeval_fasta_id, bed_id, out_name=out_name,
                                                       score_field=score_field).rv()
-                        happy_results[out_name]["clipped"] = \
+                        if happy:
+                            happy_results[out_name]["clipped"] = \
                             call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
                                                       truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                       vcfeval_fasta_id, bed_id, out_name=out_name).rv()
-                        
-                        
+
+                        if sveval:
+                            sveval_results[out_name]["clipped"] = \
+                            call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
+                                                      truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
+                                                      sv_overlap=0.5, sv_region_overlap=1,
+                                                      bed_id = bed_id, out_name=out_name).rv()
+                                                    
                     if not clip_only:
                         # Also do unclipped
                         eval_results[out_name]["unclipped"] = \
@@ -634,11 +672,21 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                       vcfeval_fasta_id, None,
                                                       out_name=out_name if not bed_id else out_name + '-unclipped',
                                                       score_field=score_field).rv()
-                        happy_results[out_name]["unclipped"] = \
+                        if happy:
+                            happy_results[out_name]["unclipped"] = \
                             call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
                                                       truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
                                                       vcfeval_fasta_id, None,
-                                                      out_name=out_name if not bed_id else out_name + '-unclipped').rv()                        
+                                                      out_name=out_name if not bed_id else out_name + '-unclipped').rv()
+
+                        if sveval:
+                            sveval_results[out_name]["unclipped"] = \
+                            call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
+                                                      truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
+                                                      sv_overlap=0.5, sv_region_overlap=1,
+                                                      bed_id = None,
+                                                      out_name=out_name if not bed_id else out_name + '-unclipped').rv()
+                            
                     
                     vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
                     timing_results.append(timing_result)
@@ -646,7 +694,8 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                     
 
     calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names,
-                                                  vcf_tbi_id_pairs, eval_results, happy_results, timing_results, plot_sets,
+                                                  vcf_tbi_id_pairs, eval_results, happy_results, sveval_results,
+                                                  timing_results, plot_sets,
                                                   cores=context.config.misc_cores,
                                                   memory=context.config.misc_mem,
                                                   disk=context.config.misc_disk).rv()
@@ -755,6 +804,8 @@ def calleval_main(context, options):
                                      options.interleaved,
                                      options.freebayes,
                                      options.platypus,
+                                     options.happy,
+                                     options.sveval,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

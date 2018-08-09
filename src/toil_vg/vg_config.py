@@ -172,6 +172,12 @@ platypus-docker: 'quay.io/biocontainers/platypus-variant:0.8.1.1--htslib1.7_1'
 # Docker image to use for hap.py
 happy-docker: 'donfreed12/hap.py:v0.3.9'
 
+# Docker image to use for bedtools
+bedtools-docker: 'quay.io/biocontainers/bedtools:2.27.0--1'
+
+# Docker image to use for bedops
+bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
+
 ##########################
 ### vg_index Arguments ###
 
@@ -401,6 +407,13 @@ platypus-docker: 'quay.io/biocontainers/platypus-variant:0.8.1.1--htslib1.7_1'
 
 # Docker image to use for hap.py
 happy-docker: 'donfreed12/hap.py:v0.3.9'
+
+# Docker image to use for bedtools
+bedtools-docker: 'quay.io/biocontainers/bedtools:2.27.0--1'
+
+# Docker image to use for bedops
+bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
+
 
 ##########################
 ### vg_index Arguments ###

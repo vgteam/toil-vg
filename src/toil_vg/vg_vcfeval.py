@@ -60,6 +60,14 @@ def vcfeval_parse_args(parser):
                         help="vcf FORMAT field to use for ROC score.  overrides vcfeval_opts")
     parser.add_argument("--happy", action="store_true",
                         help="run hap.py comparison in addition to rtg vcfeval")
+    parser.add_argument("--sveval", action="store_true",
+                        help="run bed-based sv comparison in addition to rtg vcfeval")
+    parser.add_argument("--min_sv_len", type=int, default=20,
+                        help="minimum length to consider when doing bed sv comparison (using --sveval)")
+    parser.add_argument("--sv_region_overlap", type=float, default=1.0,
+                        help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
+    parser.add_argument("--sv_overlap", type=float, default=0.5,
+                        help="minimum reciprical overlap required for bed intersection to count as TP")
 
 def validate_vcfeval_options(options):
     """ check some options """
@@ -433,6 +441,258 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
         "archive": out_archive_id
     }
 
+def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                min_sv_len, sv_overlap, sv_region_overlap , bed_id = None,  out_name = ''):
+    """ Run something like Peter Audano's bed-based comparison.  Uses bedtools and bedops to do
+    overlap comparison between indels.  Of note: the actual sequence of insertions is never checked!"""
+
+    # make a local work directory
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # download the vcf
+    call_vcf_id, call_tbi_id = vcf_tbi_id_pair[0], vcf_tbi_id_pair[1]
+    call_vcf_name = "{}calls.vcf.gz".format(out_name)
+    job.fileStore.readGlobalFile(vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
+    job.fileStore.readGlobalFile(vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
+
+    # and the truth vcf
+    vcfeval_baseline_name = '{}truth.vcf.gz'.format(out_name)
+    job.fileStore.readGlobalFile(vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
+    job.fileStore.readGlobalFile(vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
+
+    # and the regions bed
+    if bed_id:
+        regions_bed_name = '{}regions.bed'.format(out_name)
+        job.fileStore.readGlobalFile(bed_id, os.path.join(work_dir, regions_bed_name))
+    else:
+        regions_bed_name = None
+
+    if out_name and not out_name.endswith('_'):
+        out_name = '{}_'.format(out_name)
+
+    # convert vcfs to BEDs
+    call_bed_name = '{}calls.bed'.format(out_name)
+    baseline_bed_name = '{}truth.bed'.format(out_name)
+    for vcf_name, bed_name in zip([call_vcf_name, vcfeval_baseline_name], [call_bed_name, baseline_bed_name]):
+        # vg call sometimes makes IDs that are too long for bedops.  we zap the ids here just in case
+        temp_vcf_name = 'idfix-{}.vcf'.format(os.path.splitext(os.path.basename(vcf_name))[0])
+        with open(os.path.join(work_dir, temp_vcf_name), 'w') as temp_vcf_file:
+            context.runner.call(job, ['bcftools', 'view', '-h', vcf_name],
+                                work_dir = work_dir, outfile = temp_vcf_file)
+            context.runner.call(job, [['bcftools', 'view', '-H', vcf_name],
+                                      ['awk', '-F', '\t', '-v', 'OFS=\t', '{$3=\".\"; print $0;}']],
+                                work_dir = work_dir, outfile = temp_vcf_file)
+        # then convert the fixed if vcf into bed with bedops
+        with open(os.path.join(work_dir, bed_name + '.1del'), 'w') as bed_file:
+            context.runner.call(job, [['cat', temp_vcf_name], ['vcf2bed']],
+                                work_dir = work_dir, outfile = bed_file, tool_name = 'bedops')
+        # then expand the deletions, as vcf2bed writes them all with 1-sized intervals for some reason
+        expand_deletions(os.path.join(work_dir, bed_name + '.1del'), os.path.join(work_dir, bed_name))
+
+    # if the region bed's there, intersect both the calls and baseline       
+    if bed_id:
+        clipped_calls_name = "{}clipped_calls.bed".format(out_name)
+        clipped_baseline_name = "{}clipped_baseline.bed".format(out_name)
+
+        """
+        bedtools intersect -a SV_FILE.bed -b sd_regions_200_0.bed -wa -f 0.50 -u
+
+        * Get all SV variants that intersect SDs
+        * -wa: Print whole SV record (not just the intersecting part)
+        * -f 0.50: Require 50% of the SV to be in the SD
+        * Prevents very large DELs from being tagged if they intersect with part of a region.
+        * -u: Print matching SV call only once (even if it intersects with multiple variants)
+        * Probably has no effect because of -f 0.50 and the way merging is done, but I leave it in in case I tweak something.
+        """
+        for bed_name, clipped_bed_name in zip([call_bed_name, baseline_bed_name],
+                                              [clipped_calls_name, clipped_baseline_name]):
+            with open(os.path.join(work_dir, clipped_bed_name), 'w') as clipped_bed_file:
+                context.runner.call(job, ['bedtools', 'intersect', '-a', bed_name, '-b', regions_bed_name,
+                                          '-wa', '-f', str(sv_region_overlap), '-u'],
+                                    work_dir = work_dir, outfile = clipped_bed_file)
+    else:
+        clipped_calls_name = call_bed_name
+        clipped_baseline_name = baseline_bed_name
+        
+    # now do the intersection comparison
+
+    """
+    To compare SV calls among sets, I typically use a 50% reciprocal overlap. A BED record of an insertion is only the point of insertion (1 bp) regardless of how large the insertion is. To compare insertions, I add the SV length (SVLEN) to the start position and use bedtools overlap. WARNING: Remember to collapse the insertion records back to one bp. If you accidentally intersected with SDs or TRF regions, SVs would arbitrarily hit records they don't actually intersect. I have snakemake pipelines handle this (bed files in "byref" or "bylen" directories) so it can never be mixed up.
+
+    Intersect SVs:
+
+    bedtools intersect -a SV_FILE_A.bed -b SV_FILE_B -wa -f 0.50 -r -u
+
+    * Same bedtools command as before, but with "-r" to force A to overlap with B by 50% AND B to overlap with A by 50%. "-u" becomes important because clustered insertions (common in tandem repeats) will overlap with more than one variant.
+    """
+
+    # expand the bed regions to include the insertion lengths for both sets.
+    # we also break insertions and deletions into separate file.  Otherwise, insertions can
+    # intersect with deletions, inflating our accuracy.
+    clipped_calls_ins_name = '{}ins_calls.bed'.format(out_name)
+    clipped_baseline_ins_name = '{}ins_calls_baseline.bed'.format(out_name)
+    clipped_calls_del_name = '{}del_calls.bed'.format(out_name)
+    clipped_baseline_del_name = '{}del_calls_baseline.bed'.format(out_name)
+    expand_insertions(os.path.join(work_dir, clipped_calls_name), os.path.join(work_dir, clipped_calls_ins_name),
+                      os.path.join(work_dir, clipped_calls_del_name), min_sv_len)
+    expand_insertions(os.path.join(work_dir, clipped_baseline_name), os.path.join(work_dir, clipped_baseline_ins_name),
+                      os.path.join(work_dir, clipped_baseline_del_name), min_sv_len)
+
+    tp_ins_name = '{}ins-TP-call.bed'.format(out_name)
+    tp_del_name = '{}del-TP-call.bed'.format(out_name)
+    tp_ins_rev_name = '{}ins-TP-baseline.bed'.format(out_name)
+    tp_del_rev_name = '{}del-TP-baseline.bed'.format(out_name)
+    fp_ins_name = '{}ins-FP.bed'.format(out_name)
+    fp_del_name = '{}del-FP.bed'.format(out_name)
+    fn_ins_name = '{}ins-FN.bed'.format(out_name)
+    fn_del_name = '{}del-FN.bed'.format(out_name)        
+    for tp_indel_name, tp_indel_rev_name, calls_bed_indel_name, baseline_bed_indel_name, fp_indel_name, fn_indel_name in \
+        [(tp_ins_name, tp_ins_rev_name, clipped_calls_ins_name, clipped_baseline_ins_name, fp_ins_name, fn_ins_name),
+         (tp_del_name, tp_del_rev_name, clipped_calls_del_name, clipped_baseline_del_name, fp_del_name, fn_del_name)]:
+        # run the 50% overlap test described above for insertions and deletions
+        with open(os.path.join(work_dir, tp_indel_name), 'w') as tp_file:
+            context.runner.call(job, ['bedtools', 'intersect', '-a', calls_bed_indel_name,
+                                  '-b', baseline_bed_indel_name, '-wa', '-f', str(sv_overlap), '-r', '-u'],
+                            work_dir = work_dir, outfile = tp_file)            
+        # we run other way so we can get false positives from the calls and true positives from the baseline    
+        with open(os.path.join(work_dir, tp_indel_rev_name), 'w') as tp_file:        
+            context.runner.call(job, ['bedtools', 'intersect', '-b', calls_bed_indel_name,
+                                  '-a', baseline_bed_indel_name, '-wa', '-f', str(sv_overlap), '-r', '-u'],
+                            work_dir = work_dir, outfile = tp_file)
+        # put the false positives in their own file
+        with open(os.path.join(work_dir, fp_indel_name), 'w') as fp_file:
+            context.runner.call(job, ['bedtools', 'subtract', '-a', calls_bed_indel_name,
+                                      '-b', tp_indel_name], work_dir = work_dir, outfile = fp_file)
+        # and the false negatives
+        with open(os.path.join(work_dir, fn_indel_name), 'w') as fn_file:
+            context.runner.call(job, ['bedtools', 'subtract', '-a', baseline_bed_indel_name,
+                                      '-b', tp_indel_rev_name], work_dir = work_dir, outfile = fn_file)
+        # todo: should we write them out in vcf as well?
+
+    # summarize results into a table
+    results = summarize_sv_results(os.path.join(work_dir, tp_ins_name),
+                                   os.path.join(work_dir, tp_ins_rev_name),
+                                   os.path.join(work_dir, fp_ins_name),
+                                   os.path.join(work_dir, fn_ins_name),
+                                   os.path.join(work_dir, tp_del_name),
+                                   os.path.join(work_dir, tp_del_rev_name),
+                                   os.path.join(work_dir, fp_del_name),
+                                   os.path.join(work_dir, fn_del_name))
+
+    # write the results to a file
+    summary_name = os.path.join(work_dir, '{}sv_accuracy.tsv'.format(out_name))
+    with open(summary_name, 'w') as summary_file:
+        header = ['Cat', 'TP', 'TP-baseline', 'FP', 'FN', 'Precision', 'Recall', 'F1']
+        summary_file.write('#' + '\t'.join(header) +'\n')
+        summary_file.write('\t'.join(str(x) for x in ['Total'] + [results[c] for c in header[1:]]) + '\n')
+        summary_file.write('\t'.join(str(x) for x in ['INS'] + [results['{}-INS'.format(c)] for c in header[1:]]) + '\n')
+        summary_file.write('\t'.join(str(x) for x in ['DEL'] + [results['{}-DEL'.format(c)] for c in header[1:]]) + '\n')
+    summary_id = context.write_output_file(job, os.path.join(work_dir, summary_name))
+
+    # tar up some relavant data
+    tar_dir = os.path.join(work_dir, '{}sv_evaluation'.format(out_name))
+    os.makedirs(tar_dir)
+    for dir_file in os.listdir(work_dir):
+        if os.path.splitext(dir_file)[1] in ['.bed', '.tsv', '.vcf.gz', '.vcf.gz.tbi']:
+            shutil.copy2(os.path.join(work_dir, dir_file), os.path.join(tar_dir, dir_file))
+    context.runner.call(job, ['tar', 'czf', os.path.basename(tar_dir) + '.tar.gz', os.path.basename(tar_dir)],
+                        work_dir = work_dir)
+    archive_id = context.write_output_file(job, os.path.join(work_dir, tar_dir + '.tar.gz'))
+
+    return results
+
+def expand_deletions(in_bed_name, out_bed_name):
+    """
+    Expand every deletion in a BED file and update its end coordinate to reflect its length.
+    with open(in_bed_name) as in_bed, open(out_ins_bed_name, 'w') as out_ins, open(out_del_bed_name, 'w') as out_del:
+    ** We do this before intersection with regions of interest **
+    """
+    with open(in_bed_name) as in_bed, open(out_bed_name, 'w') as out_bed:
+        for line in in_bed:
+            if line.strip():
+                toks = line.strip().split('\t')
+                ref_len = len(toks[5])
+                alt_len = len(toks[6])
+                if ref_len > alt_len:
+                    assert int(toks[2]) == int(toks[1]) + 1
+                    # expand the deletion
+                    toks[2] = str(int(toks[1]) + ref_len)
+                    out_bed.write('\t'.join(toks) + '\n')
+                else:
+                    # leave insertions as is for now
+                    out_bed.write(line)
+
+def expand_insertions(in_bed_name, out_ins_bed_name, out_del_bed_name, min_sv_size):
+    """
+    Go through every insertion in a BED file and update its end coordinate to reflect its length.  This is done
+    to compare two sets of insertions.  We also break out deletions into their own file. 
+    ** We do this after intersection with regions of interest but before comparison **
+    """
+    with open(in_bed_name) as in_bed, open(out_ins_bed_name, 'w') as out_ins, open(out_del_bed_name, 'w') as out_del:
+        for line in in_bed:
+            if line.strip():
+                toks = line.strip().split('\t')
+                ref_len = len(toks[5])
+                alt_len = len(toks[6])
+                if ref_len < alt_len and alt_len >= min_sv_size:
+                    assert int(toks[2]) == int(toks[1]) + 1
+                    # expand the insertion
+                    toks[2] = str(int(toks[1]) + alt_len)
+                    out_ins.write('\t'.join(toks) + '\n')
+                elif ref_len >= min_sv_size:
+                    # just filter out the deletion
+                    out_del.write(line)
+
+def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
+                         tp_del, tp_del_baseline, fp_del, fn_del):
+    """
+    Use the various bed files to compute accuracies.  Also return a tarball of 
+    all the files used.
+    """
+    def wc(f):
+        with open(f) as ff:
+            return sum(1 for line in ff)
+
+    def pr(tp, fp, fn):
+        prec = float(tp) / float(tp + fp) if tp + fp else 0
+        rec = float(tp) / float(tp + fn) if tp + fn else 0
+        f1 = 2.0 * tp / float(2 * tp + fp + fn) if tp else 0
+        return prec, rec, f1
+
+    header = []
+    row = []
+
+    # results in dict
+    results = {}
+    results['TP-INS'] = wc(tp_ins)
+    results['TP-baseline-INS'] = wc(tp_ins_baseline)
+    results['FP-INS'] = wc(fp_ins)
+    results['FN-INS'] = wc(fn_ins)
+    ins_pr = pr(results['TP-INS'], results['FP-INS'], results['FN-INS'])
+    results['Precision-INS'] = ins_pr[0]
+    results['Recall-INS'] = ins_pr[1]
+    results['F1-INS'] = ins_pr[2]
+
+    results['TP-DEL'] = wc(tp_del)
+    results['TP-baseline-DEL'] = wc(tp_del_baseline)
+    results['FP-DEL'] = wc(fp_del)
+    results['FN-DEL'] = wc(fn_del)
+    del_pr = pr(results['TP-DEL'], results['FP-DEL'], results['FN-DEL'])
+    results['Precision-DEL'] = del_pr[0]
+    results['Recall-DEL'] = del_pr[1]
+    results['F1-DEL'] = del_pr[2]
+
+    results['TP'] = results['TP-INS'] + results['TP-DEL']
+    results['TP-baseline'] = results['TP-baseline-INS'] + results['TP-baseline-DEL']    
+    results['FP'] = results['FP-INS'] + results['FP-DEL']
+    results['FN'] = results['FN-INS'] + results['FN-DEL']
+    tot_pr = pr(results['TP'], results['FP'], results['FN'])
+    results['Precision'] = tot_pr[0]
+    results['Recall'] = tot_pr[1]
+    results['F1'] = tot_pr[2]
+
+    return results                    
+
 def vcfeval_main(context, options):
     """ command line access to toil vcf eval logic"""
 
@@ -480,6 +740,15 @@ def vcfeval_main(context, options):
                                           cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                           disk=context.config.vcfeval_disk)
                 init_job.addFollowOn(happy_job)
+
+            if options.sveval:                
+                sv_job = Job.wrapJobFn(run_sv_eval, context, None,
+                                       (call_vcf_id, call_tbi_id),
+                                       vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                                       options.min_sv_len, options.sv_overlap, options.sv_region_overlap, bed_id, 
+                                       cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                       disk=context.config.vcfeval_disk)
+                init_job.addFollowOn(sv_job)
 
             # Run the job
             toil.start(init_job)
