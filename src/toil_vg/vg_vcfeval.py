@@ -60,10 +60,10 @@ def vcfeval_parse_args(parser):
                         help="vcf FORMAT field to use for ROC score.  overrides vcfeval_opts")
     parser.add_argument("--happy", action="store_true",
                         help="run hap.py comparison in addition to rtg vcfeval")
-    parser.add_argument("--sv", action="store_true",
+    parser.add_argument("--sveval", action="store_true",
                         help="run bed-based sv comparison in addition to rtg vcfeval")
     parser.add_argument("--min_sv_len", type=int, default=20,
-                        help="minimum length to consider when doing bed sv comparison (using --sv)")
+                        help="minimum length to consider when doing bed sv comparison (using --sveval)")
     parser.add_argument("--sv_region_overlap", type=float, default=1.0,
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
     parser.add_argument("--sv_overlap", type=float, default=0.5,
@@ -535,33 +535,46 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     expand_insertions(os.path.join(work_dir, clipped_baseline_name), os.path.join(work_dir, clipped_baseline_ins_name),
                       os.path.join(work_dir, clipped_baseline_del_name), min_sv_len)
 
-    # run the 50% overlap test described above for insertions and deletions
-    intersect_bed_ins_name = '{}ins{}-baseline-intersection.bed'.format(out_name, '-clipped' if bed_id else '')
-    intersect_bed_del_name = '{}del{}-baseline-intersection.bed'.format(out_name, '-clipped' if bed_id else '')
-    intersect_bed_ins_rev_name = intersect_bed_ins_name[:-4] + '_rev.bed'
-    intersect_bed_del_rev_name = intersect_bed_del_name[:-4] + '_rev.bed'    
-    for intersect_bed_indel_name, intersect_bed_indel_rev_name, calls_bed_indel_name, baseline_bed_indel_name in \
-        [(intersect_bed_ins_name, intersect_bed_ins_rev_name, clipped_calls_ins_name, clipped_baseline_ins_name),
-         (intersect_bed_del_name, intersect_bed_del_rev_name, clipped_calls_del_name, clipped_baseline_del_name)]:
-        with open(os.path.join(work_dir, intersect_bed_indel_name), 'w') as intersect_bed_file:
+    tp_ins_name = '{}ins-TP-call.bed'.format(out_name)
+    tp_del_name = '{}del-TP-call.bed'.format(out_name)
+    tp_ins_rev_name = '{}ins-TP-baseline.bed'.format(out_name)
+    tp_del_rev_name = '{}del-TP-baseline.bed'.format(out_name)
+    fp_ins_name = '{}ins-FP.bed'.format(out_name)
+    fp_del_name = '{}del-FP.bed'.format(out_name)
+    fn_ins_name = '{}ins-FN.bed'.format(out_name)
+    fn_del_name = '{}del-FN.bed'.format(out_name)        
+    for tp_indel_name, tp_indel_rev_name, calls_bed_indel_name, baseline_bed_indel_name, fp_indel_name, fn_indel_name in \
+        [(tp_ins_name, tp_ins_rev_name, clipped_calls_ins_name, clipped_baseline_ins_name, fp_ins_name, fn_ins_name),
+         (tp_del_name, tp_del_rev_name, clipped_calls_del_name, clipped_baseline_del_name, fp_del_name, fn_del_name)]:
+        # run the 50% overlap test described above for insertions and deletions
+        with open(os.path.join(work_dir, tp_indel_name), 'w') as tp_file:
             context.runner.call(job, ['bedtools', 'intersect', '-a', calls_bed_indel_name,
                                   '-b', baseline_bed_indel_name, '-wa', '-f', str(sv_overlap), '-r', '-u'],
-                            work_dir = work_dir, outfile = intersect_bed_file)
+                            work_dir = work_dir, outfile = tp_file)            
         # we run other way so we can get false positives from the calls and true positives from the baseline    
-        with open(os.path.join(work_dir, intersect_bed_indel_rev_name), 'w') as intersect_bed_file:        
+        with open(os.path.join(work_dir, tp_indel_rev_name), 'w') as tp_file:        
             context.runner.call(job, ['bedtools', 'intersect', '-b', calls_bed_indel_name,
                                   '-a', baseline_bed_indel_name, '-wa', '-f', str(sv_overlap), '-r', '-u'],
-                            work_dir = work_dir, outfile = intersect_bed_file)
+                            work_dir = work_dir, outfile = tp_file)
+        # put the false positives in their own file
+        with open(os.path.join(work_dir, fp_indel_name), 'w') as fp_file:
+            context.runner.call(job, ['bedtools', 'subtract', '-a', calls_bed_indel_name,
+                                      '-b', tp_indel_name], work_dir = work_dir, outfile = fp_file)
+        # and the false negatives
+        with open(os.path.join(work_dir, fn_indel_name), 'w') as fn_file:
+            context.runner.call(job, ['bedtools', 'subtract', '-a', baseline_bed_indel_name,
+                                      '-b', tp_indel_rev_name], work_dir = work_dir, outfile = fn_file)
+        # todo: should we write them out in vcf as well?
 
     # summarize results into a table
-    results = summarize_sv_results(os.path.join(work_dir, clipped_calls_ins_name),
-                                   os.path.join(work_dir, clipped_baseline_ins_name),
-                                   os.path.join(work_dir, intersect_bed_ins_name),
-                                   os.path.join(work_dir, intersect_bed_ins_rev_name),
-                                   os.path.join(work_dir, clipped_calls_del_name),
-                                   os.path.join(work_dir, clipped_baseline_del_name),
-                                   os.path.join(work_dir, intersect_bed_del_name),
-                                   os.path.join(work_dir, intersect_bed_del_rev_name))
+    results = summarize_sv_results(os.path.join(work_dir, tp_ins_name),
+                                   os.path.join(work_dir, tp_ins_rev_name),
+                                   os.path.join(work_dir, fp_ins_name),
+                                   os.path.join(work_dir, fn_ins_name),
+                                   os.path.join(work_dir, tp_del_name),
+                                   os.path.join(work_dir, tp_del_rev_name),
+                                   os.path.join(work_dir, fp_del_name),
+                                   os.path.join(work_dir, fn_del_name))
 
     # write the results to a file
     summary_name = os.path.join(work_dir, '{}sv_accuracy.tsv'.format(out_name))
@@ -627,8 +640,8 @@ def expand_insertions(in_bed_name, out_ins_bed_name, out_del_bed_name, min_sv_si
                     # just filter out the deletion
                     out_del.write(line)
 
-def summarize_sv_results(ins_calls, ins_baseline, ins_intersect, ins_intersect_rev,
-                         del_calls, del_baseline, del_intersect, del_intersect_rev):
+def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
+                         tp_del, tp_del_baseline, fp_del, fn_del):
     """
     Use the various bed files to compute accuracies.  Also return a tarball of 
     all the files used.
@@ -643,34 +656,24 @@ def summarize_sv_results(ins_calls, ins_baseline, ins_intersect, ins_intersect_r
         f1 = 2.0 * tp / float(2 * tp + fp + fn) if tp else 0
         return prec, rec, f1
 
-    # count up the calls by summing bed lines
-    num_calls_ins = wc(ins_calls)
-    num_calls_ins_baseline = wc(ins_baseline)
-    num_calls_ins_intersect = wc(ins_intersect)
-    num_calls_ins_intersect_rev = wc(ins_intersect)
-    num_calls_del = wc(del_calls)
-    num_calls_del_baseline = wc(del_baseline)
-    num_calls_del_intersect = wc(del_intersect)
-    num_calls_del_intersect_rev = wc(del_intersect_rev)
-
     header = []
     row = []
 
     # results in dict
     results = {}
-    results['TP-INS'] = num_calls_ins_intersect
-    results['TP-baseline-INS'] = num_calls_ins_intersect_rev    
-    results['FP-INS'] = num_calls_ins - num_calls_ins_intersect
-    results['FN-INS'] = num_calls_ins_baseline - num_calls_ins_intersect_rev
+    results['TP-INS'] = wc(tp_ins)
+    results['TP-baseline-INS'] = wc(tp_ins_baseline)
+    results['FP-INS'] = wc(fp_ins)
+    results['FN-INS'] = wc(fn_ins)
     ins_pr = pr(results['TP-INS'], results['FP-INS'], results['FN-INS'])
     results['Precision-INS'] = ins_pr[0]
     results['Recall-INS'] = ins_pr[1]
     results['F1-INS'] = ins_pr[2]
 
-    results['TP-DEL'] = num_calls_del_intersect
-    results['TP-baseline-DEL'] = num_calls_del_intersect_rev            
-    results['FP-DEL'] = num_calls_del - num_calls_del_intersect
-    results['FN-DEL'] = num_calls_del_baseline - num_calls_del_intersect_rev
+    results['TP-DEL'] = wc(tp_del)
+    results['TP-baseline-DEL'] = wc(tp_del_baseline)
+    results['FP-DEL'] = wc(fp_del)
+    results['FN-DEL'] = wc(fn_del)
     del_pr = pr(results['TP-DEL'], results['FP-DEL'], results['FN-DEL'])
     results['Precision-DEL'] = del_pr[0]
     results['Recall-DEL'] = del_pr[1]
@@ -735,7 +738,7 @@ def vcfeval_main(context, options):
                                           disk=context.config.vcfeval_disk)
                 init_job.addFollowOn(happy_job)
 
-            if options.sv:                
+            if options.sveval:                
                 sv_job = Job.wrapJobFn(run_sv_eval, context, None,
                                        (call_vcf_id, call_tbi_id),
                                        vcfeval_baseline_id, vcfeval_baseline_tbi_id,
