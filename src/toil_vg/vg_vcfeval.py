@@ -467,6 +467,9 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     else:
         regions_bed_name = None
 
+    if out_name and not out_name.endswith('_'):
+        out_name = '{}_'.format(out_name)
+
     # convert vcfs to BEDs
     call_bed_name = '{}calls.bed'.format(out_name)
     baseline_bed_name = '{}truth.bed'.format(out_name)
@@ -596,7 +599,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                         work_dir = work_dir)
     archive_id = context.write_output_file(job, os.path.join(work_dir, tar_dir + '.tar.gz'))
 
-    return summary_id, archive_id
+    return results
 
 def expand_deletions(in_bed_name, out_bed_name):
     """
