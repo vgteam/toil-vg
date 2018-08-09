@@ -476,11 +476,13 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                                       ['awk', '-F', '\t', '-v', 'OFS=\t', '{$3=\".\"; print $0;}']],
                                 work_dir = work_dir, outfile = temp_vcf_file)
         # then convert the fixed if vcf into bed with bedops
-        with open(os.path.join(work_dir, bed_name), 'w') as bed_file:
+        with open(os.path.join(work_dir, bed_name + '.1del'), 'w') as bed_file:
             context.runner.call(job, [['cat', temp_vcf_name], ['vcf2bed']],
                                 work_dir = work_dir, outfile = bed_file, tool_name = 'bedops')
+        # then expand the deletions, as vcf2bed writes them all with 1-sized intervals for some reason
+        expand_deletions(os.path.join(work_dir, bed_name + '.1del'), os.path.join(work_dir, bed_name))
 
-    # if the bed's there, intersect both the calls and baseline       
+    # if the region bed's there, intersect both the calls and baseline       
     if bed_id:
         clipped_calls_name = "{}clipped_calls.bed".format(out_name)
         clipped_baseline_name = "{}clipped_baseline.bed".format(out_name)
@@ -531,26 +533,35 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     # run the 50% overlap test described above for insertions and deletions
     intersect_bed_ins_name = '{}ins{}-baseline-intersection.bed'.format(out_name, '-clipped' if bed_id else '')
     intersect_bed_del_name = '{}del{}-baseline-intersection.bed'.format(out_name, '-clipped' if bed_id else '')
-    for intersect_bed_indel_name, calls_bed_indel_name, baseline_bed_indel_name in \
-        [(intersect_bed_ins_name, clipped_calls_ins_name, clipped_baseline_ins_name),
-         (intersect_bed_del_name, clipped_calls_del_name, clipped_baseline_del_name)]:
+    intersect_bed_ins_rev_name = intersect_bed_ins_name[:-4] + '_rev.bed'
+    intersect_bed_del_rev_name = intersect_bed_del_name[:-4] + '_rev.bed'    
+    for intersect_bed_indel_name, intersect_bed_indel_rev_name, calls_bed_indel_name, baseline_bed_indel_name in \
+        [(intersect_bed_ins_name, intersect_bed_ins_rev_name, clipped_calls_ins_name, clipped_baseline_ins_name),
+         (intersect_bed_del_name, intersect_bed_del_rev_name, clipped_calls_del_name, clipped_baseline_del_name)]:
         with open(os.path.join(work_dir, intersect_bed_indel_name), 'w') as intersect_bed_file:
             context.runner.call(job, ['bedtools', 'intersect', '-a', calls_bed_indel_name,
                                   '-b', baseline_bed_indel_name, '-wa', '-f', '0.50', '-r', '-u'],
+                            work_dir = work_dir, outfile = intersect_bed_file)
+        # we run other way so we can get false positives from the calls and true positives from the baseline    
+        with open(os.path.join(work_dir, intersect_bed_indel_rev_name), 'w') as intersect_bed_file:        
+            context.runner.call(job, ['bedtools', 'intersect', '-b', calls_bed_indel_name,
+                                  '-a', baseline_bed_indel_name, '-wa', '-f', '0.50', '-r', '-u'],
                             work_dir = work_dir, outfile = intersect_bed_file)
 
     # summarize results into a table
     results = summarize_sv_results(os.path.join(work_dir, clipped_calls_ins_name),
                                    os.path.join(work_dir, clipped_baseline_ins_name),
                                    os.path.join(work_dir, intersect_bed_ins_name),
+                                   os.path.join(work_dir, intersect_bed_ins_rev_name),
                                    os.path.join(work_dir, clipped_calls_del_name),
                                    os.path.join(work_dir, clipped_baseline_del_name),
-                                   os.path.join(work_dir, intersect_bed_del_name))
+                                   os.path.join(work_dir, intersect_bed_del_name),
+                                   os.path.join(work_dir, intersect_bed_del_rev_name))
 
     # write the results to a file
     summary_name = os.path.join(work_dir, '{}sv_accuracy.tsv'.format(out_name))
     with open(summary_name, 'w') as summary_file:
-        header = ['Cat', 'TP', 'FP', 'FN', 'Precision', 'Recall', 'F1']
+        header = ['Cat', 'TP', 'TP-baseline', 'FP', 'FN', 'Precision', 'Recall', 'F1']
         summary_file.write('#' + '\t'.join(header) +'\n')
         summary_file.write('\t'.join(str(x) for x in ['Total'] + [results[c] for c in header[1:]]) + '\n')
         summary_file.write('\t'.join(str(x) for x in ['INS'] + [results['{}-INS'.format(c)] for c in header[1:]]) + '\n')
@@ -569,10 +580,32 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
 
     return summary_id, archive_id
 
+def expand_deletions(in_bed_name, out_bed_name):
+    """
+    Expand every deletion in a BED file and update its end coordinate to reflect its length.
+    with open(in_bed_name) as in_bed, open(out_ins_bed_name, 'w') as out_ins, open(out_del_bed_name, 'w') as out_del:
+    ** We do this before intersection with regions of interest **
+    """
+    with open(in_bed_name) as in_bed, open(out_bed_name, 'w') as out_bed:
+        for line in in_bed:
+            if line.strip():
+                toks = line.strip().split('\t')
+                ref_len = len(toks[5])
+                alt_len = len(toks[6])
+                if ref_len > alt_len:
+                    assert int(toks[2]) == int(toks[1]) + 1
+                    # expand the deletion
+                    toks[2] = str(int(toks[1]) + ref_len)
+                    out_bed.write('\t'.join(toks) + '\n')
+                else:
+                    # leave insertions as is for now
+                    out_bed.write(line)
+
 def expand_insertions(in_bed_name, out_ins_bed_name, out_del_bed_name, min_sv_size):
     """
     Go through every insertion in a BED file and update its end coordinate to reflect its length.  This is done
     to compare two sets of insertions.  We also break out deletions into their own file. 
+    ** We do this after intersection with regions of interest but before comparison **
     """
     with open(in_bed_name) as in_bed, open(out_ins_bed_name, 'w') as out_ins, open(out_del_bed_name, 'w') as out_del:
         for line in in_bed:
@@ -589,8 +622,8 @@ def expand_insertions(in_bed_name, out_ins_bed_name, out_del_bed_name, min_sv_si
                     # just filter out the deletion
                     out_del.write(line)
 
-def summarize_sv_results(ins_calls, ins_baseline, ins_intersect,
-                         del_calls, del_baseline, del_intersect):
+def summarize_sv_results(ins_calls, ins_baseline, ins_intersect, ins_intersect_rev,
+                         del_calls, del_baseline, del_intersect, del_intersect_rev):
     """
     Use the various bed files to compute accuracies.  Also return a tarball of 
     all the files used.
@@ -609,9 +642,11 @@ def summarize_sv_results(ins_calls, ins_baseline, ins_intersect,
     num_calls_ins = wc(ins_calls)
     num_calls_ins_baseline = wc(ins_baseline)
     num_calls_ins_intersect = wc(ins_intersect)
+    num_calls_ins_intersect_rev = wc(ins_intersect)
     num_calls_del = wc(del_calls)
     num_calls_del_baseline = wc(del_baseline)
     num_calls_del_intersect = wc(del_intersect)
+    num_calls_del_intersect_rev = wc(del_intersect_rev)
 
     header = []
     row = []
@@ -619,24 +654,27 @@ def summarize_sv_results(ins_calls, ins_baseline, ins_intersect,
     # results in dict
     results = {}
     results['TP-INS'] = num_calls_ins_intersect
+    results['TP-baseline-INS'] = num_calls_ins_intersect_rev    
     results['FP-INS'] = num_calls_ins - num_calls_ins_intersect
-    results['FN-INS'] = num_calls_ins_baseline - num_calls_ins_intersect
+    results['FN-INS'] = num_calls_ins_baseline - num_calls_ins_intersect_rev
     ins_pr = pr(results['TP-INS'], results['FP-INS'], results['FN-INS'])
     results['Precision-INS'] = ins_pr[0]
     results['Recall-INS'] = ins_pr[1]
     results['F1-INS'] = ins_pr[2]
 
     results['TP-DEL'] = num_calls_del_intersect
+    results['TP-baseline-DEL'] = num_calls_del_intersect_rev            
     results['FP-DEL'] = num_calls_del - num_calls_del_intersect
-    results['FN-DEL'] = num_calls_del_baseline - num_calls_del_intersect
+    results['FN-DEL'] = num_calls_del_baseline - num_calls_del_intersect_rev
     del_pr = pr(results['TP-DEL'], results['FP-DEL'], results['FN-DEL'])
     results['Precision-DEL'] = del_pr[0]
     results['Recall-DEL'] = del_pr[1]
     results['F1-DEL'] = del_pr[2]
 
     results['TP'] = results['TP-INS'] + results['TP-DEL']
+    results['TP-baseline'] = results['TP-baseline-INS'] + results['TP-baseline-DEL']    
     results['FP'] = results['FP-INS'] + results['FP-DEL']
-    results['FN'] = results['FP-INS'] + results['FP-DEL']
+    results['FN'] = results['FN-INS'] + results['FN-DEL']
     tot_pr = pr(results['TP'], results['FP'], results['FN'])
     results['Precision'] = tot_pr[0]
     results['Recall'] = tot_pr[1]
