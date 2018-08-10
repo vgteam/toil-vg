@@ -58,16 +58,20 @@ def vcfeval_parse_args(parser):
                         help="Cores to use for vcfeval")
     parser.add_argument("--vcfeval_score_field", default=None,
                         help="vcf FORMAT field to use for ROC score.  overrides vcfeval_opts")
+    parser.add_argument("--vcfeval", action="store_true",
+                        help="run rtg vcfeval comparison.  (will be run by default if no other tool specified)")
     parser.add_argument("--happy", action="store_true",
-                        help="run hap.py comparison in addition to rtg vcfeval")
+                        help="run hap.py comparison.")
     parser.add_argument("--sveval", action="store_true",
-                        help="run bed-based sv comparison in addition to rtg vcfeval")
+                        help="run bed-based sv comparison.")
     parser.add_argument("--min_sv_len", type=int, default=20,
                         help="minimum length to consider when doing bed sv comparison (using --sveval)")
     parser.add_argument("--sv_region_overlap", type=float, default=1.0,
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
     parser.add_argument("--sv_overlap", type=float, default=0.5,
                         help="minimum reciprical overlap required for bed intersection to count as TP")
+    parser.add_argument("--sv_smooth", type=int, default=0,
+                        help="mege up svs (in calls and truth) that are at most this many bases apart")
 
 def validate_vcfeval_options(options):
     """ check some options """
@@ -75,7 +79,7 @@ def validate_vcfeval_options(options):
     assert options.vcfeval_baseline and options.vcfeval_baseline.endswith(".vcf.gz")
     assert options.call_vcf.endswith(".vcf.gz")
 
-    assert options.vcfeval_fasta
+    assert not (options.happy or options.vcfeval) or options.vcfeval_fasta
 
     
 def parse_f1(summary_path):
@@ -442,7 +446,7 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
     }
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                min_sv_len, sv_overlap, sv_region_overlap , bed_id = None,  out_name = ''):
+                min_sv_len, sv_overlap, sv_region_overlap, sv_smooth = 0, bed_id = None,  out_name = ''):
     """ Run something like Peter Audano's bed-based comparison.  Uses bedtools and bedops to do
     overlap comparison between indels.  Of note: the actual sequence of insertions is never checked!"""
 
@@ -484,8 +488,9 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                                 work_dir = work_dir, outfile = temp_vcf_file)
         # then convert the fixed if vcf into bed with bedops
         with open(os.path.join(work_dir, bed_name + '.1del'), 'w') as bed_file:
-            context.runner.call(job, [['cat', temp_vcf_name], ['vcf2bed']],
-                                work_dir = work_dir, outfile = bed_file, tool_name = 'bedops')
+            vcf2bed_cmd = [['cat', temp_vcf_name], ['vcf2bed']]
+            context.runner.call(job, vcf2bed_cmd, work_dir = work_dir, outfile = bed_file, tool_name = 'bedops')
+            
         # then expand the deletions, as vcf2bed writes them all with 1-sized intervals for some reason
         expand_deletions(os.path.join(work_dir, bed_name + '.1del'), os.path.join(work_dir, bed_name))
 
@@ -549,6 +554,21 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     for tp_indel_name, tp_indel_rev_name, calls_bed_indel_name, baseline_bed_indel_name, fp_indel_name, fn_indel_name in \
         [(tp_ins_name, tp_ins_rev_name, clipped_calls_ins_name, clipped_baseline_ins_name, fp_ins_name, fn_ins_name),
          (tp_del_name, tp_del_rev_name, clipped_calls_del_name, clipped_baseline_del_name, fp_del_name, fn_del_name)]:
+
+        # smooth out features so, say, two side-by-side deltions get treated as one.  this is in keeping with
+        # the coarse-grained nature of the analysis and is optional
+        if sv_smooth > 0:
+            calls_merge_name = calls_bed_indel_name[:-4] + '_merge.bed'
+            baseline_merge_name = baseline_bed_indel_name[:-4] + '_merge.bed'            
+            with open(os.path.join(work_dir, calls_merge_name), 'w') as calls_merge_file:
+                context.runner.call(job, ['bedtools', 'merge', '-d', str(sv_smooth), '-i', calls_bed_indel_name],
+                                    work_dir = work_dir, outfile = calls_merge_file)
+            with open(os.path.join(work_dir, baseline_merge_name), 'w') as baseline_merge_file:
+                context.runner.call(job, ['bedtools', 'merge', '-d', str(sv_smooth), '-i', baseline_bed_indel_name],
+                                    work_dir = work_dir, outfile = baseline_merge_file)
+            calls_bed_indel_name = calls_merge_name
+            baseline_bed_indel_name = baseline_merge_name
+        
         # run the 50% overlap test described above for insertions and deletions
         with open(os.path.join(work_dir, tp_indel_name), 'w') as tp_file:
             context.runner.call(job, ['bedtools', 'intersect', '-a', calls_bed_indel_name,
@@ -634,6 +654,9 @@ def expand_insertions(in_bed_name, out_ins_bed_name, out_del_bed_name, min_sv_si
                 toks = line.strip().split('\t')
                 ref_len = len(toks[5])
                 alt_len = len(toks[6])
+                # filter out some vg call nonsense
+                if toks[5] == '.' or toks[6] == '.':
+                    continue
                 if ref_len < alt_len and alt_len >= min_sv_size:
                     assert int(toks[2]) == int(toks[1]) + 1
                     # expand the insertion
@@ -705,6 +728,10 @@ def vcfeval_main(context, options):
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
 
+    # Default to vcfeval
+    if not options.happy and not options.sveval:
+        options.vcfeval = True
+
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
             start_time = timeit.default_timer()
@@ -714,24 +741,26 @@ def vcfeval_main(context, options):
             call_vcf_id = toil.importFile(options.call_vcf)
             vcfeval_baseline_tbi_id = toil.importFile(options.vcfeval_baseline + '.tbi')
             call_tbi_id = toil.importFile(options.call_vcf + '.tbi')            
-            fasta_id = toil.importFile(options.vcfeval_fasta)
+            fasta_id = toil.importFile(options.vcfeval_fasta) if options.vcfeval_fasta else None
             bed_id = toil.importFile(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
-            # Make a root job
-            vcfeval_job = Job.wrapJobFn(run_vcfeval, context, None,
-                                        (call_vcf_id, call_tbi_id),
-                                        vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                                        options.vcfeval_fasta, fasta_id, bed_id,
-                                        score_field=options.vcfeval_score_field,
-                                        cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
-                                        disk=context.config.vcfeval_disk)
-
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
-            init_job.addFollowOn(vcfeval_job)
+            
+            # Make a root job
+            if options.vcfeval:
+                vcfeval_job = Job.wrapJobFn(run_vcfeval, context, None,
+                                            (call_vcf_id, call_tbi_id),
+                                            vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                                            options.vcfeval_fasta, fasta_id, bed_id,
+                                            score_field=options.vcfeval_score_field,
+                                            cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                            disk=context.config.vcfeval_disk)
+                init_job.addFollowOn(vcfeval_job)
+                
             if options.happy:
                 happy_job = Job.wrapJobFn(run_happy, context, None,
                                           (call_vcf_id, call_tbi_id),
@@ -745,7 +774,8 @@ def vcfeval_main(context, options):
                 sv_job = Job.wrapJobFn(run_sv_eval, context, None,
                                        (call_vcf_id, call_tbi_id),
                                        vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                                       options.min_sv_len, options.sv_overlap, options.sv_region_overlap, bed_id, 
+                                       options.min_sv_len, options.sv_overlap, options.sv_region_overlap,
+                                       options.sv_smooth, bed_id, 
                                        cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                        disk=context.config.vcfeval_disk)
                 init_job.addFollowOn(sv_job)
