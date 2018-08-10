@@ -548,7 +548,8 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
     gam_index_path = gam_sort_path + '.gai'
     
     with open(gam_sort_path, "w") as gam_sort_stream:
-        gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path)]
+        gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path),
+                       '--threads', str(context.config.gam_index_cores)]
         timer = TimeTracker('call-gam-index')
         context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
         timer.stop()
