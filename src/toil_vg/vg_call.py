@@ -38,7 +38,8 @@ def call_subparser(parser):
                         " Must be same length/order as --gams")
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
-                        help="GAMs to call.  One per chromosome. Must be same length/order as --chroms")
+                        help="GAMs to call.  One per chromosome. Must be same length/order as --chroms. "
+                        " Indexes (.gai) will be used if found.")
     parser.add_argument("--gam_index_cores", type=int,
                         help="number of threads used for gam indexing")
     
@@ -433,7 +434,7 @@ def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, cli
     
     return clip_file_id
 
-def run_all_calling(job, context, xg_file_id, chr_gam_ids, chroms, vcf_offsets, sample_name,
+def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
                     genotype=False, augment=True, out_name=None):
     """
     Call all the chromosomes and return a merged up vcf/tbi pair
@@ -444,8 +445,12 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chroms, vcf_offsets, 
     vcf_tbi_file_id_pair_list = []
     call_timers_lists = []
     assert len(chr_gam_ids) > 0
+    if not chr_gam_idx_ids:
+        chr_gam_idx_ids = [None] * len(chr_gam_ids)
+    assert len(chr_gam_ids) == len(chr_gam_idx_ids)
     for i in range(len(chr_gam_ids)):
         alignment_file_id = chr_gam_ids[i]
+        alignment_index_id = chr_gam_idx_ids[i]
         if len(chr_gam_ids) > 1:
             # 1 gam per chromosome
             chr_label = [chroms[i]]
@@ -455,7 +460,7 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chroms, vcf_offsets, 
             chr_label = chroms
             chr_offset = vcf_offsets if vcf_offsets else [0] * len(chroms)
         call_job = child_job.addChildJobFn(run_calling, context, xg_file_id,
-                                           alignment_file_id, chr_label, chr_offset,
+                                           alignment_file_id, alignment_index_id, chr_label, chr_offset,
                                            sample_name, genotype, augment,
                                            cores=context.config.call_chunk_cores,
                                            memory=context.config.call_chunk_mem,
@@ -523,7 +528,7 @@ def run_merge_vcf(job, context, out_name, vcf_tbi_file_id_pair_list, call_timers
         return vcf_file_id, vcf_idx_file_id
 
 
-def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_offsets, sample_name,
+def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, sample_name,
                 genotype, augment):
     """
     Call a single GAM.  Takes care of splitting the input into chunks based on one or more path,
@@ -543,16 +548,20 @@ def run_calling(job, context, xg_file_id, alignment_file_id, path_names, vcf_off
     gam_path = os.path.join(work_dir, '{}.gam'.format(sample_name))
     job.fileStore.readGlobalFile(alignment_file_id, gam_path)
 
-    # Sort and index the GAM file
-    gam_sort_path = gam_path + '.sorted.gam'
-    gam_index_path = gam_sort_path + '.gai'
-    
-    with open(gam_sort_path, "w") as gam_sort_stream:
-        gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path),
-                       '--threads', str(context.config.gam_index_cores)]
-        timer = TimeTracker('call-gam-index')
-        context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
-        timer.stop()
+    # Sort and index the GAM file if index not provided
+    timer = TimeTracker('call-gam-index')    
+    if alignment_index_id:
+        gam_sort_path = gam_path
+        gam_index_path = gam_sort_path + '.gai'
+        job.fileStore.readGlobalFile(alignment_index_id, gam_index_path)
+    else:
+        gam_sort_path = gam_path + '.sorted.gam'
+        gam_index_path = gam_sort_path + '.gai'
+        with open(gam_sort_path, "w") as gam_sort_stream:
+            gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path),
+                           '--threads', str(context.config.gam_index_cores)]
+            context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
+    timer.stop()
     
     # Write a list of paths
     path_list = os.path.join(work_dir, 'path_list.txt')
@@ -708,14 +717,21 @@ def call_main(context, options):
             # Upload local files to the job store
             inputXGFileID = toil.importFile(options.xg_path)
             inputGamFileIDs = []
-            for inputGamFileID in options.gams:
-                inputGamFileIDs.append(toil.importFile(inputGamFileID))
-
+            inputGamIndexFileIDs = []
+            for inputGam in options.gams:
+                inputGamFileIDs.append(toil.importFile(inputGam))
+                try:
+                    inputGamIndexID = toil.importFile(inputGam + '.gai')
+                except:
+                    inputGamIndexID = None
+                # we allow some GAMs to have indexes and some to have None
+                inputGamIndexFileIDs.append(inputGamIndexID)
+                
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_all_calling, context, inputXGFileID, inputGamFileIDs,
+            root_job = Job.wrapJobFn(run_all_calling, context, inputXGFileID, inputGamFileIDs, inputGamIndexFileIDs,
                                      options.chroms, options.vcf_offsets, options.sample_name,
                                      options.genotype, not options.no_augment,
                                      cores=context.config.misc_cores,
