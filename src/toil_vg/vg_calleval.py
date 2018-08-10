@@ -452,7 +452,7 @@ def run_vcf_subset(job, context, vcf_file_id, tbi_file_id, regions):
     return (context.write_intermediate_file(job, out_vcf_path),
             context.write_intermediate_file(job, out_vcf_path + '.tbi'))                             
         
-def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
+def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
                  bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
                  vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved,
@@ -505,6 +505,10 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
                                                 disk=context.config.vcfeval_disk)
     truth_vcf_id = sample_extract_job.rv(0)
     truth_vcf_tbi_id = sample_extract_job.rv(1)
+
+    if not gam_idx_ids:
+        gam_idx_ids = [None] * len(gam_ids)
+    assert len(gam_idx_ids) == len(gam_ids)
     
     if surject:
         # optionally surject all the gams into bams
@@ -626,12 +630,12 @@ def run_calleval(job, context, xg_ids, gam_ids, bam_ids, bam_idx_ids, gam_names,
         gt_context = context
 
     if gam_ids:
-        for gam_id, gam_name, xg_id in zip(gam_ids, gam_names, xg_ids):
+        for gam_id, gam_idx_id, gam_name, xg_id in zip(gam_ids, gam_idx_ids, gam_names, xg_ids):
             for gt in [False, True]:
                 if (call and not gt) or (genotype and gt):
                     out_name = '{}{}'.format(gam_name, '-gt' if gt else '-call')
                     call_job = child_job.addChildJobFn(run_all_calling, gt_context if gt else context,
-                                                       xg_id, [gam_id], chroms, vcf_offsets,
+                                                       xg_id, [gam_id], [gam_idx_id], chroms, vcf_offsets,
                                                        sample_name, genotype=gt,
                                                        out_name=out_name,
                                                        cores=context.config.misc_cores,
@@ -728,12 +732,21 @@ def calleval_main(context, options):
                         xgToID[xg_path] = toil.importFile(xg_path)
                     inputXGFileIDs.append(xgToID[xg_path])
             inputGamFileIDs = []
+            inputGamIdxIDs = []
             gamToID = {}
+            gaiToID = {}
             if options.gams:
                 for gam in options.gams:
                     if gam not in gamToID:
                         gamToID[gam] = toil.importFile(gam)
                     inputGamFileIDs.append(gamToID[gam])
+                    gai = gam + '.gai'
+                    if gai not in gaiToID:
+                        try:
+                            gaiToID[gai] = toil.importFile(gai)
+                        except:
+                            gaiToID[gai] = None
+                    inputGamIdxIDs.append(gaiToID[gai])
                         
             inputBamFileIDs = []
             inputBamIdxIds = []
@@ -788,8 +801,8 @@ def calleval_main(context, options):
                 vcfeval_baseline_id, vcfeval_baseline_tbi_id = vcf_subset_job.rv(0), vcf_subset_job.rv(1)
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputBamFileIDs,
-                                     inputBamIdxIds,
+            root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputGamIdxIDs,
+                                     inputBamFileIDs, inputBamIdxIds,
                                      options.gam_names, options.bam_names, 
                                      vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
                                      bed_id, clip_only,

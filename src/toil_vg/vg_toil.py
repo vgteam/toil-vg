@@ -289,7 +289,7 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
         chroms = options.chroms
     assert len(chr_gam_ids) == len(chroms)
 
-    call_job = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, chroms,
+    call_job = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, None, chroms,
                                  options.vcf_offsets, options.sample_name,
                                  options.genotype, not options.no_augment,
                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
