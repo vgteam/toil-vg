@@ -74,7 +74,9 @@ def chunked_call_parse_args(parser):
     parser.add_argument("--call_chunk_cores", type=int,
                         help="number of threads used for extracting chunks for calling")
     parser.add_argument("--vcf_offsets", nargs='+', default=[],
-                         help="offset(s) to apply to output vcfs(s). (order of --chroms)")
+                        help="offset(s) to apply to output vcfs(s). (order of --chroms)")
+    parser.add_argument("--recall", action="store_true",
+                        help="only call variants present in the graph")
 
 def validate_call_options(options):    
     require(len(options.chroms) == len(options.gams) or len(options.gams) == 1,
@@ -83,6 +85,8 @@ def validate_call_options(options):
             'Number of --vcf_offsets if specified must be same as number of --chroms')
     require(not options.no_augment or options.genotype,
             '--no_augment currently only supported with --genotype')
+    require(not options.genotype or not options.recall,
+            '--recall not yet supported with --genotype')
     
 def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
@@ -100,7 +104,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 filter_opts = [], augment_opts = [], call_opts = [],
                 keep_pileup = False, keep_xg = False, keep_gam = False,
                 keep_augmented = False, chunk_name = 'call', genotype = False,
-                augment = True):
+                augment = True, recall = False):
     """ Run vg call on a single graph.
 
     NOTE: Can now run vg genotype as well, but the plan is to fold genotype into call
@@ -181,6 +185,16 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         augment_generated_opts += ['-a', 'pileup']
         # And calculate the supports instead of the augmented gam
         augment_generated_opts += ['-S', os.path.basename(support_path)]
+        # Recall option just boosts the augmentation support threshold sky-high so nothing gets added to the graph
+        if recall:
+            augment_opts = copy.deepcopy(augment_opts)
+            for o in ['--min-aug-support', '-g']:
+                if o in augment_opts:
+                    i = augment_opts.find(o)
+                    del augment_opts[i]
+                    del augment_opts[i]
+            augment_generated_opts += ['--min-aug-support', '9999999']
+            
     augment_command = []
     if filter_command is not None:
         aug_gam_input = '-'
@@ -364,7 +378,7 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
 def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
                    xg_file_id, vg_chunk_file_id, gam_chunk_file_id, path_size, vcf_offset, sample_name,
-                   genotype, augment):
+                   genotype, augment, recall):
     """ create VCF from a given chunk """
 
     # to encapsulate everything under this job
@@ -391,6 +405,7 @@ def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, c
         chunk_name = 'chunk_{}_{}'.format(path_name, chunk_offset),
         genotype = genotype,
         augment = augment,
+        recall = recall,
         cores=context.config.calling_cores,
         memory=context.config.calling_mem, disk=context.config.calling_disk)
     vcf_id, pu_id, xg_id, gam_id, aug_graph_id = [call_job.rv(i) for i in range(5)]
@@ -435,7 +450,7 @@ def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, cli
     return clip_file_id
 
 def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
-                    genotype=False, augment=True, out_name=None):
+                    genotype=False, augment=True, out_name=None, recall=False):
     """
     Call all the chromosomes and return a merged up vcf/tbi pair
     """
@@ -461,7 +476,7 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
             chr_offset = vcf_offsets if vcf_offsets else [0] * len(chroms)
         call_job = child_job.addChildJobFn(run_calling, context, xg_file_id,
                                            alignment_file_id, alignment_index_id, chr_label, chr_offset,
-                                           sample_name, genotype, augment,
+                                           sample_name, genotype=genotype, augment=augment, recall=recall,
                                            cores=context.config.call_chunk_cores,
                                            memory=context.config.call_chunk_mem,
                                            disk=context.config.call_chunk_disk)
@@ -529,7 +544,7 @@ def run_merge_vcf(job, context, out_name, vcf_tbi_file_id_pair_list, call_timers
 
 
 def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, sample_name,
-                genotype, augment):
+                genotype, augment, recall):
     """
     Call a single GAM.  Takes care of splitting the input into chunks based on one or more path,
     processing each chunk in parallel, then merging the result into a single vcf which is returned.
@@ -638,7 +653,7 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
                                             chunk_bed_start, clipped_chunk_offset,
                                             None, vg_chunk_file_id, gam_chunk_file_id,
                                             path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
-                                            sample_name, genotype, augment,
+                                            sample_name, genotype, augment, recall,
                                             cores=context.config.misc_cores,
                                             memory=context.config.misc_mem, disk=context.config.misc_disk)
         clip_file_ids.append(call_job.rv(0))
@@ -733,7 +748,7 @@ def call_main(context, options):
             # Make a root job
             root_job = Job.wrapJobFn(run_all_calling, context, inputXGFileID, inputGamFileIDs, inputGamIndexFileIDs,
                                      options.chroms, options.vcf_offsets, options.sample_name,
-                                     options.genotype, not options.no_augment,
+                                     genotype=options.genotype, augment=not options.no_augment, recall=options.recall,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
