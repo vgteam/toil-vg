@@ -386,6 +386,17 @@ class VGCGLTest(TestCase):
                    '--xg_index', self.xg_index, '--alignment_cores', '2'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
+        ''' Test recall
+        '''
+        self._run(['toil-vg', 'call', self.jobStoreLocal, '--clean', 'never',
+                   self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
+                   '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
+                   '--call_chunk_size', '23000', '--calling_cores', '4',
+                   '--realTimeLogging', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0', '--recall'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._assertXREF('NA12877', outstore)        
+
         # check bam not empty
         self.assertGreater(os.path.getsize(os.path.join(outstore, 'surject.bam')), 250000)
 
@@ -591,6 +602,17 @@ class VGCGLTest(TestCase):
             self.assertGreaterEqual(float(happy_snp_f1), happy_snp_f1_threshold)
             self.assertGreaterEqual(float(happy_indel_f1), happy_indel_f1_threshold)
         self.assertEqual(headers, set(names))
+
+    def _assertXREF(self, sample, outstore):
+        var_count = 0
+        xref_count = 0
+        with gzip.open(os.path.join(outstore, '{}.vcf.gz'.format(sample)), 'rb') as vcf_file:
+            for line in vcf_file:
+                if line.strip() and line.strip()[0] != '#':
+                    var_count += 1
+                    if 'XREF' in line:
+                        xref_count += 1
+        self.assertEqual(var_count, xref_count)
         
     def tearDown(self):
         if not self.saveWorkDir:
