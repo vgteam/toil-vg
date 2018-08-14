@@ -291,7 +291,7 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
 
     call_job = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, None, chroms,
                                  options.vcf_offsets, options.sample_name,
-                                 options.genotype, not options.no_augment,
+                                 options.genotype, not options.no_augment, recall=options.recall,
                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
                                  disk=context.config.misc_disk)
     

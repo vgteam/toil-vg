@@ -456,7 +456,7 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
                  bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
                  vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved,
-                 freebayes, platypus, happy, sveval):
+                 freebayes, platypus, happy, sveval, recall):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -636,7 +636,7 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                     out_name = '{}{}'.format(gam_name, '-gt' if gt else '-call')
                     call_job = child_job.addChildJobFn(run_all_calling, gt_context if gt else context,
                                                        xg_id, [gam_id], [gam_idx_id], chroms, vcf_offsets,
-                                                       sample_name, genotype=gt,
+                                                       sample_name, genotype=gt, recall=recall,
                                                        out_name=out_name,
                                                        cores=context.config.misc_cores,
                                                        memory=context.config.misc_mem,
@@ -819,6 +819,7 @@ def calleval_main(context, options):
                                      options.platypus,
                                      options.happy,
                                      options.sveval,
+                                     options.recall,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
