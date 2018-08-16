@@ -864,7 +864,10 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      preemptable=not make_gbwt or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
-                if separate_threads:
+                if separate_threads and vcf_id is not None:
+                    # We had a phasing VCF, and we want to pass along the
+                    # threads we got from it because the final xg needs to know
+                    # about them.
                     indexes['chrom_thread'].append(xg_chrom_index_job.rv(2))
 
             if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
