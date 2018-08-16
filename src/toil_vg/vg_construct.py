@@ -1035,9 +1035,9 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
     # Check if there are any threads in the index
     # TODO: This requires the GBWT, so we probably should remove the gPBWT support which nobody needs anymore.
     assert(gbwt_id)
-    path_count = int(context.runner.call(
+    path_count = int(context.runner.call(job,
         [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
-        ['wc', '-l']], check_output=True))
+        ['wc', '-l']], work_dir = work_dir, check_output = True))
     if path_count == 0:
         # There are no threads in our GBWT index (it is empty).
         # This means that we have no haplotype data for this graph.
