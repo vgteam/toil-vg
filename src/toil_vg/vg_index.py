@@ -821,11 +821,12 @@ def run_indexing(job, context, inputGraphFileIDs,
                 raise RuntimeError("Found {} phasing VCFs and {} indexes; counts must match!".format(
                     len(vcf_phasing_file_ids), len(tbi_phasing_file_ids)))
                     
-            if len(vcf_phasing_file_ids) != 0 and len(vcf_phasing_file_ids) != 1 and len(vcf_phasing_file_ids) != len(chroms):
-                # We can only handle no VCFs, one VCF, or one VCF per chromosome
+            if len(vcf_phasing_file_ids) > len(chroms):
+                # We can only handle no VCFs, one VCF, or one VCF per chromosome until we run out of VCFs.
+                # So what we can't handle is more VCFs than chromosomes
                 RealtimeLogger.error("Chromosomes: {}".format(chroms))
                 RealtimeLogger.error("VCFs: {}".format(vcf_phasing_file_ids))
-                raise RuntimeError("Found {} phasing VCFs for {} chromosomes, which is a combination that can't be matched up simply".format(
+                raise RuntimeError("Found too many ({}) phasing VCFs for {} chromosomes".format(
                     len(vcf_phasing_file_ids), len(chroms)))
             
             
@@ -841,11 +842,16 @@ def run_indexing(job, context, inputGraphFileIDs,
                     # There may be one for all chromosomes
                     vcf_id = vcf_phasing_file_ids[0]
                     tbi_id = tbi_phasing_file_ids[0]
-                else:
-                    # Otherwise there must be one for each chromosome.
-                    # Any other pattern requires complex matching of VCFs to chromosomes.
+                elif i < len(vcf_phasing_file_ids):
+                    # Otherwise the VCFs and chromosomes correspond in order, until the VCFs are depleted.
+                    # There is one for this chromosome
                     vcf_id = vcf_phasing_file_ids[i]
                     tbi_id = tbi_phasing_file_ids[i]
+                else:
+                    # We have run out of VCFs for chromosomes to be in
+                    vcf_id = None
+                    tbi_id = None
+                
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
