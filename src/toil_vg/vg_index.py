@@ -798,8 +798,9 @@ def run_indexing(job, context, inputGraphFileIDs,
     if gbwt_id:
         indexes['gbwt'] = gbwt_id
 
-    make_gpbwt = (len(vcf_phasing_file_ids) > 0) and not make_gbwt
-    
+    # We shouldn't accept any phasing files when not making a GBWT index with them.
+    assert(len(vcf_phasing_file_ids) == 0 or make_gbwt)
+
     if not skip_xg or not skip_gcsa:
         indexes['chrom_xg'] = []
         indexes['chrom_gbwt'] = []                                                            
@@ -880,49 +881,26 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      disk=context.config.xg_index_disk).rv()
 
         # now do the whole genome xg (without any gbwt)
-        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1 and not make_gpbwt:
+        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1:
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
             indexes['xg'] = indexes['chrom_xg'][0]
-        else:            
-            if make_gpbwt and len(vcf_phasing_file_ids) > 1:
-                concat_job = xg_root_job.addChildJobFn(run_concat_vcfs, context,
-                                                       vcf_phasing_file_ids, tbi_phasing_file_ids,
-                                                       cores=1,
-                                                       memory=context.config.xg_index_mem,
-                                                       disk=context.config.xg_index_disk)
-                vcf_phasing_file_id = concat_job.rv(0)
-                tbi_phasing_file_id = concat_job.rv(1)
-            else:
-                concat_job = Job()
-                xg_root_job.addChild(concat_job)
-                
-                if make_gpbwt:
-                    vcf_phasing_file_id = vcf_phasing_file_ids[0]
-                    tbi_phasing_file_id = tbi_phasing_file_ids[0]
-                else:
-                    vcf_phasing_file_id = None
-                    tbi_phasing_file_id = None
-
-            if not skip_xg:
-                # Build an xg index for the whole genome. We need to have
-                # access to all the per-chromosome GBWT files, if used, so we
-                # can set the haplotype names and per-chromosome haplotype
-                # count field in the xg.
-                
-                xg_index_job = concat_job.addChildJobFn(run_cat_xg_indexing,
-                                                        context, inputGraphFileIDs,
-                                                        graph_names, index_name,
-                                                        vcf_phasing_file_id, tbi_phasing_file_id,
-                                                        make_gbwt=False, use_thread_dbs=indexes.get('chrom_thread'),
-                                                        cores=context.config.xg_index_cores,
-                                                        memory=context.config.xg_index_mem,
-                                                        disk=context.config.xg_index_disk)
-                
-                # Constrain to happen after chrom XGs and GCSAs
-                chrom_xg_root_job.addFollowOn(xg_index_job)
-                
-                indexes['xg'] = xg_index_job.rv(0)
+        elif not skip_xg:
+            # Build an xg index for the whole genome. We need to have
+            # access to all the per-chromosome GBWT files, if used, so we
+            # can set the haplotype names and per-chromosome haplotype
+            # count field in the xg.
+            
+            xg_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
+                                                           context, inputGraphFileIDs,
+                                                           graph_names, index_name,
+                                                           None, None,
+                                                           make_gbwt=False, use_thread_dbs=indexes.get('chrom_thread'),
+                                                           cores=context.config.xg_index_cores,
+                                                           memory=context.config.xg_index_mem,
+                                                           disk=context.config.xg_index_disk)
+            
+            indexes['xg'] = xg_index_job.rv(0)
 
 
     gcsa_root_job = Job()
