@@ -763,9 +763,11 @@ def run_indexing(job, context, inputGraphFileIDs,
     'chrom_gbwt', 'chrom_thread', 'id_ranges', or 'snarls') to index file ID(s)
     if created.
     
-    For 'chrom_xg', 'chrom_gbwt' and 'chrom_thread', the value is a list of one
-    XG or GBWT or thread DB per chromosome in chroms, to support `vg prune`.
-    The others are all single file IDs
+    For 'chrom_xg' and 'chrom_gbwt' the value is a list of one XG or GBWT or
+    thread DB per chromosome in chroms, to support `vg prune`. For
+    'chrom_thread', we have a value per chromosome that actually has any
+    threads (instead of padding out with Nones). The others are all single file
+    IDs.
     
     """
     child_job = Job()

@@ -482,7 +482,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 sample_name_base = output_name_base.replace('_withref', '')
                 sample_merge_output_name = merge_output_name.replace('_withref', '') if merge_output_name else None
                 region_names = [r.replace('_withref', '') for r in region_names]
-                # Extract out our real sample graph using the gpbwt            
+                # Extract out our real sample graph          
                 sample_job = haplo_index_job.addFollowOnJobFn(run_make_sample_graphs, context, vg_ids, vg_names,
                                                               haplo_xg_ids, sample_name_base, regions,
                                                               haplo_extraction_sample, gbwt_ids)
@@ -988,7 +988,7 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
     make some sample graphs for threads in a gpbwt.  regions must be defined since we use the
     chromosome name to get the threads.  If gbwt_ids specified (one genome gbwt or one per region)
     it will be used instead of the gpbwt-xg interface.  regions must be defined since we use the
-    chromosome name to get the threads
+    chromosome name to get the threads.
     """
 
     assert(sample is not None)
@@ -1022,7 +1022,11 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
 def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chrom, xg_id,
                                  sample, haplotypes, gbwt_id, leave_thread_paths=True):
     """
-    make a sample graph using the gpbwt or gbwt
+    make a sample graph using the gpbwt or gbwt.
+    
+    Extract the subgraph visited by threads for the requested sample, if it is nonempty.
+    Otherwise (for cases like chrM where there are no variant calls and no threads) pass through
+    the primary path of the graph.
     """
 
     # This can't work if the sample is None and we want any haplotypes
@@ -1040,23 +1044,39 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
     gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
     if gbwt_id:
         job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
-    
-    extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
-    logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
-    with open(extract_graph_path, 'w') as extract_graph_file:
-        # strip paths from our original graph            
-        cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
-        context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
-
-        for hap in haplotypes:
-            # get haplotype thread paths from the gpbwt
-            if gbwt_id:
-                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
-            else:
-                cmd = ['vg', 'find']
-            cmd += ['-x', os.path.basename(xg_path)]
-            cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+        
+    # Check if there are any threads in the index
+    # TODO: This requires the GBWT, so we probably should remove the gPBWT support which nobody needs anymore.
+    assert(gbwt_id)
+    path_count = int(context.runner.call(
+        [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
+        ['wc', '-l']], check_output=True))
+    if path_count == 0:
+        # There are no threads in our GBWT index (it is empty).
+        # This means that we have no haplotype data for this graph.
+        # This means the graph's contigs contig probably should be included,
+        # in at least their reference versions, in all graphs.
+        # Use the whole graph as our "extracted" graph, which we 
+        # will then pare down to the part covered by paths (i.e. the primary path)
+        extract_graph_path = vg_path
+    else:
+        # We have actual thread data for the graph. Go extract the relevant threads.
+        extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
+        logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
+        with open(extract_graph_path, 'w') as extract_graph_file:
+            # strip paths from our original graph            
+            cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
             context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+
+            for hap in haplotypes:
+                # get haplotype thread paths from the index
+                if gbwt_id:
+                    cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
+                else:
+                    cmd = ['vg', 'find']
+                cmd += ['-x', os.path.basename(xg_path)]
+                cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
 
     sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
     logger.info('Creating sample graph {}'.format(sample_graph_path))
@@ -1066,6 +1086,8 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
         if not leave_thread_paths:
             cmd.append(['vg', 'mod', '-', '-D'])
         context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
+        
+    # Check if we actually got anything.
 
     sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
             
