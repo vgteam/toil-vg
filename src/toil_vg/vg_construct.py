@@ -936,6 +936,9 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
         assert(sample is not None)
 
         try:
+            # Work out a tag for this graph, depending on whether it belongs to one chromosome or not
+            tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
+        
             if thread_count == 0:
                 # We have no haplotype data on this contig. This is something
                 # like chrM, and we want to pass through the ref version.
@@ -943,7 +946,6 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
             else:
                 # We know we have haplotype data on this contig.
                 # Pull out the graph with just the haplotype thread as the only path to vg_with_thread_as_path_path
-                tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
                 vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
                 logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
                 with open(vg_with_thread_as_path_path, 'w') as thread_only_file:
