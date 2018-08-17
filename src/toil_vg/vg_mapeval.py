@@ -2336,7 +2336,8 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         
         # Start the output file.
         writer = tsv.TsvWriter(open(os.path.join(work_dir, table_name), 'w'))
-        header = (['Condition', 'Precision', 'Reads'] + ['tagged {}'.format(tag) for tag in known_tags] +
+        header = (['Condition', 'Precision'] + ['tagged {}'.format(tag) for tag in known_tags] + 
+            ['Reads'] + ['tagged {}'.format(tag) for tag in known_tags] +
             ['Wrong'] + ['tagged {}'.format(tag) for tag in known_tags] +
             ['at MAPQ 60', 'at MAPQ 0', 'at MAPQ >0', 'new vs. ' + baseline_condition, 'fixed vs. ' + baseline_condition,
             'Avg. Correct MAPQ', 'Correct MAPQ 0'])
@@ -2349,7 +2350,16 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
             # Start a line with Condition
             line = [condition]
             # Then Precision
-            line.append(float(stats['correct']) / (stats['wrong'] + stats['correct']))
+            try:
+                line.append(float(stats['correct']) / (stats['wrong'] + stats['correct']))
+            except ZeroDivisionError:
+                line.append("NaN")
+            # Then precisions with all tags
+            for tag in known_tags:
+                try:
+                    line.append(float(stats['correctTagged'][tag]) / (stats['wrongTagged'][tag] + stats['correctTagged'][tag]))
+                except ZeroDivisionError:
+                    line.append("NaN")
             
             # Then Reads
             line.append(stats['wrong'] + stats['correct'])
