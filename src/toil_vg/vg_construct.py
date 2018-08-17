@@ -110,8 +110,8 @@ def validate_construct_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    require(not options.haplo_sample or options.regions,
-            '--regions required with --haplo_sample')
+    require(not options.haplo_sample or (options.regions or options.fasta_regions),
+            '--regions or --fasta_regions required with --haplo_sample')
     require(not (options.haplo_sample and options.merge_graphs),
             '--merge_graphs not currently supported with --haplo_sample')
     require(not options.vcf or len(options.vcf) == 1 or not options.regions or
@@ -127,8 +127,8 @@ def validate_construct_options(options):
     # in parallel, but the indexing code always indexes them together.
     require(not options.gbwt_index or len(options.vcf) >= 1,
             '--gbwt_index requires --vcf')
-    require(not options.sample_graph or options.regions,
-            '--regions required with --sample_graph')
+    require(not options.sample_graph or (options.regions or options.fasta_regions),
+            '--regions or --fasta_regions required with --sample_graph')
     require(options.primary or options.pangenome or options.pos_control or options.neg_control or
             options.sample_graph or options.haplo_sample or options.filter_ceph or options.filter_samples or
             options.min_af,
