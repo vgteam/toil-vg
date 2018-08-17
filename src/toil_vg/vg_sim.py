@@ -42,15 +42,17 @@ def sim_subparser(parser):
     parser.add_argument("num_reads", type=int,
                         help="Number of reads to simulate")
     parser.add_argument("out_store",
-                        help="output store.  All output written here. Path specified using same syntax as toil jobStore")
+                        help="output store. All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--gam", action="store_true",
                         help="Output GAM file, annotated gam file and truth positions")
     parser.add_argument("--fastq_out", action="store_true",
                         help="Ouput fastq file (in addition to GAM)")
     parser.add_argument("--annotate_xg", type=make_url,
                         help="xg index used for gam annotation (if different from input indexes)")
+    parser.add_argument("--drop_contigs_matching", default=[], action='append',
+                        help="drop reads with true positions on contigs (e.g. decoys) matching the given regex(es) from GAM")
     parser.add_argument("--tag_bed", default=[], action='append', type=make_url,
-                        help="tag mark reads overlapping features in the given BED(s) with the feature names")
+                        help="tag reads overlapping features in the given BED(s) with the feature names")
     parser.add_argument("--path", default=[], action='append',
                         help="simulate reads from the given path name in each XG file")
     parser.add_argument("--sim_opts", type=str,
@@ -77,10 +79,12 @@ def validate_sim_options(options):
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     require(options.seed is None or options.seed > 0,
             'random seed must be greater than 0 (vg sim ignores seed 0)')
+    require(options.gam or len(options.drop_contigs_matching) == 0,
+            'can only drop reads annotated as from particular contigs if producing GAM')
     
 def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
-            xg_file_ids, xg_annot_file_id, tag_bed_ids=[], paths = [],
-            fastq_id = None, out_name = None):
+            xg_file_ids, xg_annot_file_id, tag_bed_ids = [], paths = [],
+            drop_contigs_matching = [], fastq_id = None, out_name = None):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
@@ -112,9 +116,10 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
             if chunk_i == sim_chunks - 1:
                 chunk_reads += file_reads % sim_chunks
             sim_out_id_info = child_job.addChildJobFn(run_sim_chunk, context, gam, seed_base, xg_file_id,
-                                                      xg_annot_file_id, tag_bed_ids, paths,
-                                                      chunk_i, chunk_reads,
-                                                      fastq_id, xg_i,
+                                                      xg_annot_file_id, chunk_reads, chunk_i, xg_i,
+                                                      tag_bed_ids=tag_bed_ids, paths=paths,
+                                                      drop_contigs_matching=drop_contigs_matching,
+                                                      fastq_id=fastq_id,
                                                       cores=context.config.sim_cores, memory=context.config.sim_mem,
                                                       disk=context.config.sim_disk).rv()
             sim_out_id_infos.append(sim_out_id_info)
@@ -139,13 +144,14 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
     return merged_gam_id, true_id
 
 
-def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, tag_bed_ids, paths, chunk_i, num_reads, fastq_id, xg_i):
+def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, num_reads, chunk_i, xg_i,
+                  tag_bed_ids = [], paths = [], drop_contigs_matching = [], fastq_id = None):
     """
     simulate some reads (and optionally gam)
     determine with true positions in xg_annot_file_id, into a true position TSV file
     tag reads by overlap with tag_bed_ids BED files in the true position file
-    return either reads_chunk_id or (gam_chunk_id, tsv_chunk_id)
-    if --gam specified
+    if producing gam, drop reads whose annotated truth contigs match any of the regular expressions in drop_contigs_matching
+    return either reads_chunk_id or (gam_chunk_id, tsv_chunk_id) if gam is true 
     """
 
     # Define work directory for docker calls
@@ -215,6 +221,15 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, ta
             # Make sure to annotate with overlap to tag regions
             annotate_command += ['-b', os.path.basename(tag_bed)]
         cmd.append(annotate_command)
+        
+        if len(drop_contigs_matching) > 0:
+            # We need to filter out reads annotated as being on these contigs
+            filter_command = ['vg', 'filter', '-']
+            for exclude_regex in drop_contigs_matching:
+                filter_command.append('-X')
+                filter_command.append(exclude_regex)
+            cmd.append(filter_command)
+                
         cmd.append(['tee', os.path.basename(gam_file)])
         cmd.append(['vg', 'view', '-aj', '-'])
         with open(gam_json, 'w') as output_json:
