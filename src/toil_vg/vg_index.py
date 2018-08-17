@@ -770,12 +770,17 @@ def run_indexing(job, context, inputGraphFileIDs,
     IDs.
     
     """
+    # Make a master child job
     child_job = Job()
     job.addChild(child_job)
-    xg_root_job = Job()
-    child_job.addChild(xg_root_job)
+    
+    # And one job for all the per-chromosome xg jobs
     chrom_xg_root_job = Job()
     child_job.addChild(chrom_xg_root_job)
+    
+    # And inside it make one job for the main whole-graph xg construction that has to come after it
+    xg_root_job = Job()
+    chrom_xg_root_job.addFollowOn(xg_root_job)
     
     RealtimeLogger.debug("Running indexing: {}.".format({
          'graph_names': graph_names,
@@ -855,6 +860,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                     vcf_id = None
                     tbi_id = None
                 
+                # Make a job to index just this chromosome and produce a per-chromosome xg, gbwt, and threads file
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
@@ -874,11 +880,12 @@ def run_indexing(job, context, inputGraphFileIDs,
                     indexes['chrom_thread'].append(xg_chrom_index_job.rv(2))
 
             if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
-                indexes['gbwt'] = chrom_xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
-                                                                     index_name,
-                                                                     cores=context.config.xg_index_cores,
-                                                                     memory=context.config.xg_index_mem,
-                                                                     disk=context.config.xg_index_disk).rv()
+                # Once all the per-chromosome GBWTs are done and we are ready to make the whole-graph GBWT, merge them up
+                indexes['gbwt'] = xg_root_job.addChildJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
+                                                            index_name,
+                                                            cores=context.config.xg_index_cores,
+                                                            memory=context.config.xg_index_mem,
+                                                            disk=context.config.xg_index_disk).rv()
 
         # now do the whole genome xg (without any gbwt)
         if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1:
@@ -891,20 +898,20 @@ def run_indexing(job, context, inputGraphFileIDs,
             # can set the haplotype names and per-chromosome haplotype
             # count field in the xg.
             
-            xg_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
-                                                           context, inputGraphFileIDs,
-                                                           graph_names, index_name,
-                                                           None, None,
-                                                           make_gbwt=False, use_thread_dbs=indexes.get('chrom_thread'),
-                                                           cores=context.config.xg_index_cores,
-                                                           memory=context.config.xg_index_mem,
-                                                           disk=context.config.xg_index_disk)
+            xg_index_job = xg_root_job.addChildJobFn(run_cat_xg_indexing,
+                                                     context, inputGraphFileIDs,
+                                                     graph_names, index_name,
+                                                     None, None,
+                                                     make_gbwt=False, use_thread_dbs=indexes.get('chrom_thread'),
+                                                     cores=context.config.xg_index_cores,
+                                                     memory=context.config.xg_index_mem,
+                                                     disk=context.config.xg_index_disk)
             
             indexes['xg'] = xg_index_job.rv(0)
 
 
     gcsa_root_job = Job()
-    # gcsa follow from chrom_xg jobs only if gbwt needed for pruning
+    # gcsa follows from chrom_xg jobs only if per-chromosome gbwts are needed for per-chromosome pruning
     gcsa_predecessor_job = chrom_xg_root_job if gbwt_prune else child_job
     gcsa_predecessor_job.addFollowOn(gcsa_root_job)
     
@@ -924,6 +931,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         indexes['lcp'] = gcsa_job.rv(1)
     
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
+        # Also we need an id ranges file in parallel with everything else
         indexes['id_ranges'] = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
                                                  graph_names, index_name, chroms,
                                                  cores=context.config.misc_cores,
@@ -931,6 +939,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                  disk=context.config.misc_disk).rv()
                                                  
     if not skip_snarls:
+        # Also we need a snarl index in parallel with everything else
         indexes['snarls'] = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
                                               graph_names, index_name,
                                               cores=context.config.snarl_index_cores,
