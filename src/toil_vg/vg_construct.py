@@ -114,8 +114,6 @@ def validate_construct_options(options):
             '--regions required with --haplo_sample')
     require(not (options.haplo_sample and options.merge_graphs),
             '--merge_graphs not currently supported with --haplo_sample')
-    require(not (options.haplo_sample and options.fasta_regions),
-            '--fasta_regions not currently supported with --haplo_sample')    
     require(not options.vcf or len(options.vcf) == 1 or not options.regions or
             len(options.vcf) <= len(options.regions),
             'if many vcfs specified, cannot have more vcfs than --regions')
