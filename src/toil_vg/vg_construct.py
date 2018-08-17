@@ -906,6 +906,8 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                                  sample, haplotypes, gbwt_id):
     """
     make some haplotype graphs for threads in a gbwt
+    
+    If there are no haplotypes in the gbwt, passes through the portion of the input graph covered by paths.
     """
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -916,8 +918,15 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
     job.fileStore.readGlobalFile(vg_id, vg_path)
 
     gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
-    if gbwt_id:
-        job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
+    job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
+    
+    # Check if there are any threads in the index
+    # TODO: Won't be useful if the index covers multiple contigs because we aren't indexing one contig graph at a time.
+    assert(gbwt_id)
+    thread_count = int(context.runner.call(job,
+        [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
+        ['wc', '-l']], work_dir = work_dir, check_output = True))
+    
 
     thread_vg_ids = []
 
@@ -927,34 +936,41 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
         assert(sample is not None)
 
         try:
+            if thread_count == 0:
+                # We have no haplotype data on this contig. This is something
+                # like chrM, and we want to pass through the ref version.
+                vg_with_thread_as_path_path = vg_path
+            else:
+                # We know we have haplotype data on this contig.
+                # Pull out the graph with just the haplotype thread as the only path to vg_with_thread_as_path_path
+                tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
+                vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
+                logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
+                with open(vg_with_thread_as_path_path, 'w') as thread_only_file:
+                    # strip paths from our original graph            
+                    cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+                    context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_only_file)
 
-            tag = '_{}'.format(chroms[0]) if len(chroms) == 1 else ''
-            thread_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
-            logger.info('Creating thread graph {}'.format(thread_path))
-            with open(thread_path, 'w') as thread_file:
-                # strip paths from our original graph            
-                cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
-                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
-
-                # get haplotype thread paths from the gbwt
-                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg', '-x', os.path.basename(xg_path)]
-                for chrom in chroms:
-                    cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
-                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+                    # get haplotype thread paths from the gbwt
+                    cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg', '-x', os.path.basename(xg_path)]
+                    for chrom in chroms:
+                        cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+                    context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_only_file)
                 
-            thread_path_trim = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
-            logger.info('Creating trimmed thread graph {}'.format(thread_path_trim))
-            with open(thread_path_trim, 'w') as thread_file:
+            # Now trim the graph vg_with_thread_as_path_path into vg_trimmed_path, dropping anything not covered by a path
+            vg_trimmed_path = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
+            logger.info('Creating trimmed thread graph {}'.format(vg_trimmed_path))
+            with open(vg_trimmed_path, 'w') as trimmed_file:
                 # Then we trim out anything other than our thread path
-                cmd = [['vg', 'mod', '-N', os.path.basename(thread_path)]]
+                cmd = [['vg', 'mod', '-N', os.path.basename(vg_with_thread_as_path_path)]]
                 # And get rid of our thread paths since they take up lots of space when re-indexing
                 filter_cmd = ['vg', 'mod', '-']
                 for chrom in chroms:
                     filter_cmd += ['-r', chrom]
                 cmd.append(filter_cmd)
-                context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_file)
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = trimmed_file)
 
-            thread_vg_ids.append(context.write_output_file(job, thread_path_trim))
+            thread_vg_ids.append(context.write_output_file(job, vg_trimmed_path))
             
         except:
             # Dump everything we need to replicate the thread extraction
@@ -1033,12 +1049,11 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
         job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
         
     # Check if there are any threads in the index
-    # TODO: This requires the GBWT, so we probably should remove the gPBWT support which nobody needs anymore.
     assert(gbwt_id)
-    path_count = int(context.runner.call(job,
+    thread_count = int(context.runner.call(job,
         [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
         ['wc', '-l']], work_dir = work_dir, check_output = True))
-    if path_count == 0:
+    if thread_count == 0:
         # There are no threads in our GBWT index (it is empty).
         # This means that we have no haplotype data for this graph.
         # This means the graph's contigs contig probably should be included,
