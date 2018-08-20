@@ -763,17 +763,24 @@ def run_indexing(job, context, inputGraphFileIDs,
     'chrom_gbwt', 'chrom_thread', 'id_ranges', or 'snarls') to index file ID(s)
     if created.
     
-    For 'chrom_xg', 'chrom_gbwt' and 'chrom_thread', the value is a list of one
-    XG or GBWT or thread DB per chromosome in chroms, to support `vg prune`.
-    The others are all single file IDs
+    For 'chrom_xg' and 'chrom_gbwt' the value is a list of one XG or GBWT or
+    thread DB per chromosome in chroms, to support `vg prune`. For
+    'chrom_thread', we have a value per chromosome that actually has any
+    threads (instead of padding out with Nones). The others are all single file
+    IDs.
     
     """
+    # Make a master child job
     child_job = Job()
     job.addChild(child_job)
-    xg_root_job = Job()
-    child_job.addChild(xg_root_job)
+    
+    # And one job for all the per-chromosome xg jobs
     chrom_xg_root_job = Job()
     child_job.addChild(chrom_xg_root_job)
+    
+    # And inside it make one job for the main whole-graph xg construction that has to come after it
+    xg_root_job = Job()
+    chrom_xg_root_job.addFollowOn(xg_root_job)
     
     RealtimeLogger.debug("Running indexing: {}.".format({
          'graph_names': graph_names,
@@ -796,8 +803,9 @@ def run_indexing(job, context, inputGraphFileIDs,
     if gbwt_id:
         indexes['gbwt'] = gbwt_id
 
-    make_gpbwt = (len(vcf_phasing_file_ids) > 0) and not make_gbwt
-    
+    # We shouldn't accept any phasing files when not making a GBWT index with them.
+    assert(len(vcf_phasing_file_ids) == 0 or make_gbwt)
+
     if not skip_xg or not skip_gcsa:
         indexes['chrom_xg'] = []
         indexes['chrom_gbwt'] = []                                                            
@@ -821,11 +829,12 @@ def run_indexing(job, context, inputGraphFileIDs,
                 raise RuntimeError("Found {} phasing VCFs and {} indexes; counts must match!".format(
                     len(vcf_phasing_file_ids), len(tbi_phasing_file_ids)))
                     
-            if len(vcf_phasing_file_ids) != 0 and len(vcf_phasing_file_ids) != 1 and len(vcf_phasing_file_ids) != len(chroms):
-                # We can only handle no VCFs, one VCF, or one VCF per chromosome
+            if len(vcf_phasing_file_ids) > len(chroms):
+                # We can only handle no VCFs, one VCF, or one VCF per chromosome until we run out of VCFs.
+                # So what we can't handle is more VCFs than chromosomes
                 RealtimeLogger.error("Chromosomes: {}".format(chroms))
                 RealtimeLogger.error("VCFs: {}".format(vcf_phasing_file_ids))
-                raise RuntimeError("Found {} phasing VCFs for {} chromosomes, which is a combination that can't be matched up simply".format(
+                raise RuntimeError("Found too many ({}) phasing VCFs for {} chromosomes".format(
                     len(vcf_phasing_file_ids), len(chroms)))
             
             
@@ -841,11 +850,17 @@ def run_indexing(job, context, inputGraphFileIDs,
                     # There may be one for all chromosomes
                     vcf_id = vcf_phasing_file_ids[0]
                     tbi_id = tbi_phasing_file_ids[0]
-                else:
-                    # Otherwise there must be one for each chromosome.
-                    # Any other pattern requires complex matching of VCFs to chromosomes.
+                elif i < len(vcf_phasing_file_ids):
+                    # Otherwise the VCFs and chromosomes correspond in order, until the VCFs are depleted.
+                    # There is one for this chromosome
                     vcf_id = vcf_phasing_file_ids[i]
                     tbi_id = tbi_phasing_file_ids[i]
+                else:
+                    # We have run out of VCFs for chromosomes to be in
+                    vcf_id = None
+                    tbi_id = None
+                
+                # Make a job to index just this chromosome and produce a per-chromosome xg, gbwt, and threads file
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
@@ -858,64 +873,45 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      preemptable=not make_gbwt or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
-                if separate_threads:
+                if separate_threads and vcf_id is not None:
+                    # We had a phasing VCF, and we want to pass along the
+                    # threads we got from it because the final xg needs to know
+                    # about them.
                     indexes['chrom_thread'].append(xg_chrom_index_job.rv(2))
 
             if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
-                indexes['gbwt'] = chrom_xg_root_job.addFollowOnJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
-                                                                     index_name,
-                                                                     cores=context.config.xg_index_cores,
-                                                                     memory=context.config.xg_index_mem,
-                                                                     disk=context.config.xg_index_disk).rv()
+                # Once all the per-chromosome GBWTs are done and we are ready to make the whole-graph GBWT, merge them up
+                indexes['gbwt'] = xg_root_job.addChildJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
+                                                            index_name,
+                                                            cores=context.config.xg_index_cores,
+                                                            memory=context.config.xg_index_mem,
+                                                            disk=context.config.xg_index_disk).rv()
 
         # now do the whole genome xg (without any gbwt)
-        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1 and not make_gpbwt:
+        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1:
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
             indexes['xg'] = indexes['chrom_xg'][0]
-        else:            
-            if make_gpbwt and len(vcf_phasing_file_ids) > 1:
-                concat_job = xg_root_job.addChildJobFn(run_concat_vcfs, context,
-                                                       vcf_phasing_file_ids, tbi_phasing_file_ids,
-                                                       cores=1,
-                                                       memory=context.config.xg_index_mem,
-                                                       disk=context.config.xg_index_disk)
-                vcf_phasing_file_id = concat_job.rv(0)
-                tbi_phasing_file_id = concat_job.rv(1)
-            else:
-                concat_job = Job()
-                xg_root_job.addChild(concat_job)
-                
-                if make_gpbwt:
-                    vcf_phasing_file_id = vcf_phasing_file_ids[0]
-                    tbi_phasing_file_id = tbi_phasing_file_ids[0]
-                else:
-                    vcf_phasing_file_id = None
-                    tbi_phasing_file_id = None
-
-            if not skip_xg:
-                # Build an xg index for the whole genome. We need to have
-                # access to all the per-chromosome GBWT files, if used, so we
-                # can set the haplotype names and per-chromosome haplotype
-                # count field in the xg.
-                
-                xg_index_job = concat_job.addChildJobFn(run_cat_xg_indexing,
-                                                        context, inputGraphFileIDs,
-                                                        graph_names, index_name,
-                                                        vcf_phasing_file_id, tbi_phasing_file_id,
-                                                        make_gbwt=False, use_thread_dbs=indexes.get('chrom_thread'),
-                                                        cores=context.config.xg_index_cores,
-                                                        memory=context.config.xg_index_mem,
-                                                        disk=context.config.xg_index_disk)
-                
-                # Constrain to happen after chrom XGs and GCSAs
-                chrom_xg_root_job.addFollowOn(xg_index_job)
-                
-                indexes['xg'] = xg_index_job.rv(0)
+        elif not skip_xg:
+            # Build an xg index for the whole genome. We need to have
+            # access to all the per-chromosome GBWT files, if used, so we
+            # can set the haplotype names and per-chromosome haplotype
+            # count field in the xg.
+            
+            xg_index_job = xg_root_job.addChildJobFn(run_cat_xg_indexing,
+                                                     context, inputGraphFileIDs,
+                                                     graph_names, index_name,
+                                                     None, None,
+                                                     make_gbwt=False, use_thread_dbs=indexes.get('chrom_thread'),
+                                                     cores=context.config.xg_index_cores,
+                                                     memory=context.config.xg_index_mem,
+                                                     disk=context.config.xg_index_disk)
+            
+            indexes['xg'] = xg_index_job.rv(0)
 
 
     gcsa_root_job = Job()
-    # gcsa follow from chrom_xg jobs only if gbwt needed for pruning
+    # gcsa follows from chrom_xg jobs only if per-chromosome gbwts are needed for per-chromosome pruning
     gcsa_predecessor_job = chrom_xg_root_job if gbwt_prune else child_job
     gcsa_predecessor_job.addFollowOn(gcsa_root_job)
     
@@ -935,6 +931,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         indexes['lcp'] = gcsa_job.rv(1)
     
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
+        # Also we need an id ranges file in parallel with everything else
         indexes['id_ranges'] = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
                                                  graph_names, index_name, chroms,
                                                  cores=context.config.misc_cores,
@@ -942,6 +939,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                  disk=context.config.misc_disk).rv()
                                                  
     if not skip_snarls:
+        # Also we need a snarl index in parallel with everything else
         indexes['snarls'] = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
                                               graph_names, index_name,
                                               cores=context.config.snarl_index_cores,
