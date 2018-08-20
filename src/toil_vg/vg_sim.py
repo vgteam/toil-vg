@@ -393,14 +393,15 @@ def sim_main(context, options):
                                      options.seed, options.sim_chunks,
                                      inputXGFileIDs,
                                      inputAnnotXGFileID,
-                                     tagBEDIDs,
-                                     options.path,
-                                     inputFastqFileID,
-                                     options.out_name,
+                                     tag_bed_ids = tagBEDIDs,
+                                     paths = options.path,
+                                     drop_contigs_matching = options.drop_contigs_matching,
+                                     fastq_id = inputFastqFileID,
+                                     out_name = options.out_name,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
-
+                                     
             init_job.addFollowOn(root_job)            
             
             # Run the job and store the returned list of output files to download
