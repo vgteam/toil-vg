@@ -381,7 +381,8 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name, 
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                     vcf_phasing_file_id = None, tbi_phasing_file_id = None,
-                    make_gbwt = False, gbwt_regions=[], separate_threads=False, use_thread_dbs=None):
+                    make_gbwt=False, gbwt_regions=[], separate_threads=False,
+                    use_thread_dbs=None, intermediate=False):
     """
 
     Make the xg index and optional GBWT haplotype index.
@@ -406,6 +407,8 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     will be None if no GBWT is generated. The thread DB ID will be None if no
     thread DB is generated.
     
+    If intermediate is set to true, do not save the produced files to the
+    output store.
     """
     
     RealtimeLogger.info("Starting xg indexing...")
@@ -504,18 +507,19 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 
         raise
 
-    # Checkpoint index to output store
-    xg_file_id = context.write_output_file(job, os.path.join(work_dir, xg_filename))
+    # Determine if we want to checkpoint index to output store
+    write_function = context.write_intermediate_file if intermediate else context.write_output_file
+    xg_file_id = write_function(job, os.path.join(work_dir, xg_filename))
     
     gbwt_file_id = None
     thread_db_file_id = None
     if make_gbwt and vcf_phasing_file_id:
         # Also save the GBWT if it was generated
-        gbwt_file_id = context.write_output_file(job, gbwt_filename)
+        gbwt_file_id = write_function(job, gbwt_filename)
         
         if separate_threads:
             # And the separate thread db
-            thread_db_file_id = context.write_output_file(job, thread_db_filename)
+            thread_db_file_id = write_function(job, thread_db_filename)
 
     end_time = timeit.default_timer()
     run_time = end_time - start_time
@@ -526,7 +530,8 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 
 def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                         vcf_phasing_file_id = None, tbi_phasing_file_id = None,
-                        make_gbwt = False, gbwt_regions=[], separate_threads=False, use_thread_dbs=None):
+                        make_gbwt=False, gbwt_regions=[], separate_threads=False,
+                        use_thread_dbs=None, intermediate=False):
     """
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
@@ -534,6 +539,9 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
 
     Note: the resources assigned to indexing come from those assigned to this parent job
     (as they can get toggled between xg and gbwt modes in the caller)
+    
+    If intermediate is set to true, do not save the concatenated .cat.vg or the
+    final .xg to the output store.
     """
     
     # to encapsulate everything under this job
@@ -541,7 +549,8 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     job.addChild(child_job)    
     
     # Concatenate the graph files.
-    vg_concat_job = child_job.addChildJobFn(run_concat_graphs, context, inputGraphFileIDs, graph_names, index_name)
+    vg_concat_job = child_job.addChildJobFn(run_concat_graphs, context, inputGraphFileIDs,
+                                            graph_names, index_name, intermediate=intermediate)
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
                                       context, [vg_concat_job.rv(0)],
@@ -550,6 +559,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       make_gbwt=make_gbwt, gbwt_regions=gbwt_regions,
                                       separate_threads=separate_threads,
                                       use_thread_dbs=use_thread_dbs,
+                                      intermediate=intermediate,
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
@@ -891,13 +901,17 @@ def run_indexing(job, context, inputGraphFileIDs,
                     vcf_id = None
                     tbi_id = None
                 
-                # Make a job to index just this chromosome and produce a per-chromosome xg, gbwt, and threads file
+                # Make a job to index just this chromosome and produce a
+                # per-chromosome xg, gbwt, and threads file. Since there may be
+                # thousands of chromosomes (including e.g. decoys) in a
+                # whole-genome reference, keep these files as intermediates and
+                # don't put them in the outstore.
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
-                                                                     make_gbwt = make_gbwt, separate_threads=separate_threads, 
-                                                                     gbwt_regions=gbwt_regions,
+                                                                     make_gbwt=make_gbwt, separate_threads=separate_threads, 
+                                                                     gbwt_regions=gbwt_regions, intermediate=True,
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
