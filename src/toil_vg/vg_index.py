@@ -905,13 +905,13 @@ def run_indexing(job, context, inputGraphFileIDs,
                 # per-chromosome xg, gbwt, and threads file. Since there may be
                 # thousands of chromosomes (including e.g. decoys) in a
                 # whole-genome reference, keep these files as intermediates and
-                # don't put them in the outstore.
+                # don't put them in the outstore, unless we're only doing one contig.
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
                                                                      make_gbwt=make_gbwt, separate_threads=separate_threads, 
-                                                                     gbwt_regions=gbwt_regions, intermediate=True,
+                                                                     gbwt_regions=gbwt_regions, intermediate=(len(chroms) > 1),
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
