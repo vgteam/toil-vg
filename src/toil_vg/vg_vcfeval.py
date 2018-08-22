@@ -156,7 +156,7 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], kind=None, numbe
     else:
         kind = 'roc-{}'.format(kind)
     
-    plot_filename = title_to_filename(kind, i, title, 'svg')
+    plot_filename = title_to_filename(kind, number, title, 'svg')
     out_roc_path = os.path.join(work_dir, plot_filename)
 
     roc_opts = []
