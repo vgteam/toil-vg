@@ -37,6 +37,7 @@ from toil_vg.vg_vcfeval import vcfeval_parse_args, run_extract_sample_truth_vcf,
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
 from toil_vg.vg_surject import run_surjecting
+from toil_vg.vg_plot import parse_plot_sets
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def calleval_parse_args(parser):
     parser.add_argument('--clip_only', action='store_true',
                         help='only compute accuracy clipped to --vcfeval_bed_regions')
     parser.add_argument('--plot_sets', nargs='+', default=[],
-                        help='comma-separated lists of condition-tagged GAM/BAM names (primary-mp-pe-call, bwa-fb, etc.) to plot together')
+                        help='comma-separated lists of condition-tagged BAM/GAM names (primary-mp-pe, etc.) with colon-separated title prefixes')
     parser.add_argument('--call', action='store_true',
                         help='run vg call (even if --genotype used)')    
     parser.add_argument("--surject", action="store_true",
@@ -278,26 +279,26 @@ def run_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,
             context.write_output_file(job, vcf_fix_path + '.gz.tbi'),
             timer)
 
-def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None]):
+def run_calleval_plots(job, context, names, eval_results_dict, plot_sets):
     """
     
     Make and output calleval ROC plots.
     
     Takes a "names" list of all conditions. Condition names in the list (or in
-    plot-sets) do not include an "-unclipped" tag; both clipped and unclipped
+    plot_sets) do not include an "-unclipped" tag; both clipped and unclipped
     plots are made if the data is available.
     
     Takes a nested dict by condition name, then clipping status ("clipped",
     "unclipped"), and then variant type ("snp", "non_snp", "weighted").
     Eventual entries are to ROC data file ids (.tsv.gz).
     
+    plot_sets is a data structure of collections of conditions to plot against
+    each other, as produced by parse_plot_sets.
+    
     Returns a list of created plot file IDs.
     
     """
     
-    # Replace Nones in the list of plot sets with "subsets" of all the condition names
-    plot_sets = [plot_set if plot_set is not None else names for plot_set in plot_sets]
-
     # make some roc plots
     roc_plot_ids = []
     for roc_type in ['snp', 'non_snp', 'weighted']:
@@ -306,12 +307,12 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
         for mode in ['unclipped', 'clipped']:
             # For each clipping mode
 
-            # What should we title the plot?
+            # What kind of ROC plot is it?
             # It should be this unless there is a clipped mode for this ROC and we are the unclipped one.
-            roc_title = roc_type
+            roc_kind = roc_type
             if mode == 'unclipped' and True in [eval_results_dict.has_key('clipped') for eval_result in eval_results_dict.itervalues()]:
                 # We are the unclipped mode and there will be a clipped mode
-                roc_title += '-unclipped'
+                roc_kind += '-unclipped'
             
             # Get all the eval results for this mode, by condition name
             mode_results = {name: eval_result.get(mode) for name, eval_result in eval_results_dict.iteritems()}
@@ -326,10 +327,23 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
             # condition name keys don't have clipping tags.
             roc_table_ids = {name: result.get(roc_type) for name, result in mode_results.iteritems()}
             
-            for subset_number, subset_names in enumerate(plot_sets):
-                # For each collection of condition names to plot agaisnt each other
-
-                for name in subset_names:
+            for subset_number, plot_set in enumerate(plot_sets):
+                # For each plot set specifier
+                
+                # Unpack plot_set
+                plot_title, plot_conditions = plot_set
+                
+                if plot_conditions is None:
+                    # Use all the conditions instead
+                    plot_conditions = names
+                    
+                # Add the ROC plot kind (snp, clipped, etc.) to the plot title
+                if plot_title is None:
+                    plot_title = roc_kind
+                else:
+                    plot_title = '{} ({})'.format(plot_title, roc_kind)
+                
+                for name in plot_conditions:
                     if name not in names:
                         # Complain if any of the names in the subset aren't conditions that actually ran
                         message = 'Condition {} not found in list of available conditions {}'.format(name, names)
@@ -341,21 +355,18 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets=[None])
                         RealtimeLogger.error(message)
                         raise RuntimeError(message)
 
-                # Make a list of roc table IDs for the subset, in subset_names order
-                subset_ids = [roc_table_ids[name] for name in subset_names]
-
-                # Append the number to the title (and output filename) for all subsets except the first
-                subset_roc_title = roc_title + ('' if subset_number == 0 else '-{}'.format(subset_number))
-
+                # Make a list of roc table IDs for the subset, in plot_conditions order
+                subset_ids = [roc_table_ids[name] for name in plot_conditions]
+                
                 # Make the plot
-                roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, subset_ids, names=subset_names,
-                                                      title=subset_roc_title).rv())
+                roc_plot_ids.append(job.addChildJobFn(run_vcfeval_roc_plot, context, subset_ids, names=plot_conditions,
+                                                      kind=roc_kind, number=subset_number, title=plot_title).rv())
                                                       
     return roc_plot_ids
     
 
 def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, happy_results_dict, sveval_results_dict,
-                         timing_results, plot_sets=[None]):
+                         timing_results, plot_sets):
     """
     
     output the calleval results
@@ -363,11 +374,8 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
     Requires that, if any result in eval_results has clipped results, all
     results have clipped results, and similarly for unclipped results.
 
-    If specified, plot_sets gives a list of lists of condition names that
-    appear in names. Each list of conditions will be plotted together, instead
-    of making one big plot for all conditions. Output files will be named
-    sequentially (roc-snp.svg, roc-snp-1.svg, roc-snp-2.svg, etc.). A None in
-    the list specifies a plot holding all condition names.
+    plot_sets is a data structure of collections of conditions to plot against
+    each other, as produced by parse_plot_sets.
     
     """
 
@@ -399,10 +407,10 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
             sveval_f1 = best_sveval_result['F1'] if best_sveval_result is not None else -1
                 
             # Output the F1 scores
-            stats_file.write('{}\t{}\t{}\t{}\n'.format(name, best_result['f1'], happy_snp_f1, happy_indel_f1, sveval_f1))
+            stats_file.write('{}\t{}\t{}\t{}\t{}\n'.format(name, best_result['f1'], happy_snp_f1, happy_indel_f1, sveval_f1))
 
     # Make the roc plots
-    roc_plot_job = job.addChildJobFn(run_calleval_plots, context, names, eval_results_dict, plot_sets=plot_sets)
+    roc_plot_job = job.addChildJobFn(run_calleval_plots, context, names, eval_results_dict, plot_sets)
     roc_plot_ids = roc_plot_job.rv()
 
     # write some times
@@ -467,9 +475,8 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
     vcfeval and happy result dicts, by condition name and clipped/unclipped
     status.
 
-    plot_sets is a list of lists of condition names (like "bwa-pe-fb" or
-    "snp1kg-pe-gt") to plot against each other. If any sublist is None, all
-    conditions appear on one plot.
+    plot_sets is a data structure of collections of conditions to plot against
+    each other, as produced by parse_plot_sets.
     
     """
     
@@ -766,11 +773,7 @@ def calleval_main(context, options):
             clip_only = options.clip_only
             
             # What do we plot together?
-            plot_sets = [spec.split(',') for spec in options.plot_sets]
-            if len(plot_sets) == 0:
-                # We want to plot everything together
-                # We use the special None value to request that.
-                plot_sets = [None]
+            plot_sets = parse_plot_sets(options.plot_sets) 
 
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))

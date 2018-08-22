@@ -70,7 +70,7 @@ def add_plot_options(parser):
     
     # General options
     parser.add_argument('--plot-sets', nargs='+', default=[],
-                        help='comma-separated lists of condition names (primary-mp-pe, etc.) to plot together')
+                        help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) with colon-separated title prefixes')
     
                         
     # We also need to have these options to make lower-level toil-vg code happy
@@ -130,6 +130,97 @@ def run_plot(job, context, options, position_stats_file_id=None, eval_results_di
     else:
         raise RuntimeError('No position stats or vcfeval results available!')
 
+def parse_plot_set(plot_set_string):
+    """
+    
+    Given one of the string arguments to the --plot-sets option, parse out a
+    data structure representing which conditions ought to be compared against
+    each other, and what those comparison plots/tables should be called.
+
+    The syntax of a plot set is [title:]condition[,condition[,condition...]].
+    
+    The first condition is the comparison baseline, when applicable.
+    
+    Returns a tuple of a plot set title, or None if unspecified, and a list of
+    condition names.
+    
+    """
+    
+    colon_pos = plot_set_string.find(':')
+    
+    if colon_pos != -1:
+        # Pull out the title before the colon
+        title = plot_set_string[0:colon_pos]
+        # And the rest of the specifier after it
+        plot_set_string = plot_set_string[colon_pos + 1:]
+    else:
+        # No title given
+        title = None
+        
+    # Return the title and condition list tuple
+    return (title, plot_set_string.split(','))
+        
+    
+def parse_plot_sets(plot_sets_list):
+    """
+    
+    Given a list of plot set strings, parses each with parse_plot_set.
+    
+    Returns a list of tuples. Each tuple is a plot set title, or None if no
+    title is to be applied, and a list of condition names, or None if all
+    conditions are to be included.
+    
+    If no plot sets are specified in the list, returns a single plot set for
+    all conditions.
+    
+    """
+    
+    plot_sets = [parse_plot_set(spec) for spec in plot_sets_list]
+    if len(plot_sets) == 0:
+        # We want to plot everything together
+        # We use the special None value to request that.
+        plot_sets = [('All', None)]
+    
+    return plot_sets
+    
+def title_to_filename(kind, i, title, extension):
+    """
+    Given the kind of thing you want to save ('table', 'plot-qq', etc.), the
+    number of the thign out of all things of that type, the human-readable
+    title ('All Conditions vs. Whatever'), and an extansion, come up with a
+    safe filename to save the plot under.
+    
+    The title may be None, in which case it is ommitted.
+    
+    The extension may be None, in which case it is omitted.
+    """
+    
+    if title is not None:
+        # Filter down to good filename characters as in https://stackoverflow.com/a/7406369
+        safe_title = ''.join((c for c in title if c.isalnum()))
+    else:
+        safe_title = None
+        
+    # The name always includes the kind of thing
+    part_list = [kind]
+    
+    if i != 0:
+        # Include number padded to 2 digits only if nonzero. If not included,
+        # the next dash will sort before the other numbers. TODO: Add the 00 in
+        # here and break backward compatibility with everything looking for the
+        # output files.
+        part_list.append('-{:02d}'.format(i))
+        
+    if title is not None:
+        # Filter down to good filename characters as in https://stackoverflow.com/a/7406369
+        safe_title = ''.join((c for c in title if c.isalnum()))
+        part_list.append('-{}'.format(safe_title))
+        
+    if extension is not None:
+        part_list.append('.{}'.format(extension))
+        
+    return ''.join(part_list)
+
 def make_plot_plan(toil, options):
     """
     Import all the necessary files form options into Toil.
@@ -180,15 +271,8 @@ def make_plot_plan(toil, options):
                     plan.eval_results_dict[condition][clipping][roc_name] = toil.importFile(url)
    
     # Also process options that need parsing
-    # TODO: Make mapeval include the plot sets in its plan as well?
-    # TODO: Pass the plan along instead of getting theings from the options or unpacking it?
+    plan.plot_sets = parse_plot_sets(options.plot_sets)
    
-    plan.plot_sets = [spec.split(',') for spec in options.plot_sets]
-    if len(plan.plot_sets) == 0:
-        # We want to plot everything together
-        # We use the special None value to request that.
-        plan.plot_sets = [None]
-
     end_time = timeit.default_timer()
     logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
     
