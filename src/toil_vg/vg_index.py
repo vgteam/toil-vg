@@ -311,42 +311,73 @@ def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
 
  
 
-def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name):
+def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name, intermediate=False):
     """
     Concatenate a list of graph files. We do this because the haplotype index vg index
     produces can only be built for a single graph.
+    
+    Takes the file IDs to concatenate, the human-readable names for those
+    files, and the base name of the index we are working on (which is used to
+    derive the graph output name).
+    
+    Graph files to concatenate must already be in the same ID space.
+    
+    If intermediate is set to true, the concatenated graph is not written to
+    the output store.
+    
     """
+    
+    # Define work directory for local files
+    work_dir = job.fileStore.getLocalTempDir()
+    
     RealtimeLogger.info("Starting VG graph concatenation...")
     start_time = timeit.default_timer()
     
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Our local copy of the graphs
-    graph_filenames = []
-    for i, graph_id in enumerate(inputGraphFileIDs):
-        graph_filename = os.path.join(work_dir, graph_names[i])
-        job.fileStore.readGlobalFile(graph_id, graph_filename)
-        graph_filenames.append(os.path.basename(graph_filename))
+    # The file names we are given can be very long, so if we download and cat
+    # everything we can run into maximum command line length limits.
     
-    # Cat graph files since the haplotype index can only be built for a single graph
-    # Where do we put the concatenated graph files?
-    cat_graph_filename = os.path.join(work_dir, "{}.cat.vg".format(index_name))
-
-    cmd = ['cat'] + graph_filenames
-   
-    with open(cat_graph_filename, "w") as cat_graph_file:
-        # Concatenate all the graphs.
-        context.runner.call(job, cmd, work_dir=work_dir, tool_name='vg', outfile=cat_graph_file)
-
-    # Checkpoint concatednated graph file to output store
-    cat_graph_file_id = context.write_output_file(job, os.path.join(work_dir, cat_graph_filename))
+    # Rather than using cat, we will just shuffle all the bits around ourselves.
     
+    # Work out the file name we want to report
+    concatenated_basename = "{}.cat.vg".format(index_name)
+    
+    def concat_to_stream(out_stream):
+        """
+        Send all the input graphs to the given file object.
+        """
+        
+        for in_id in inputGraphFileIDs:
+            # For each graph to concatenate
+            with job.fileStore.readGlobalFileStream(in_id) as in_stream:
+                # Blit it across
+                shutil.copyfileobj(in_stream, out_stream)
+        
+    # Now we generate the concatenated file ID
+    concatenated_file_id = None
+    if intermediate:
+        with job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
+            # Make the file we are writing
+            # And send everything to it
+            concat_to_stream(out_stream)
+            
+            concatenated_file_id = out_id
+    else:
+        # We need to produce a real output file in the out store.
+        # The easy way to do that is to save the file on disk and upload it
+        concatenated_filename = os.path.join(work_dir, concatenated_basename)
+
+        with open(concatenated_filename, "wb") as out_stream:
+            # Concatenate all the graphs.
+            concat_to_stream(out_stream)
+
+        # Checkpoint concatednated graph file to output store
+        concatenated_file_id = context.write_output_file(job, concatenated_filename)
+        
     end_time = timeit.default_timer()
     run_time = end_time - start_time
     RealtimeLogger.info("Finished VG graph concatenation. Process took {} seconds.".format(run_time))
 
-    return (cat_graph_file_id, os.path.basename(cat_graph_filename))
+    return (concatenated_file_id, concatenated_basename)
 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                     vcf_phasing_file_id = None, tbi_phasing_file_id = None,
