@@ -42,7 +42,7 @@ def construct_subparser(parser):
 
     parser.add_argument("--fasta", required=True, type=make_url, nargs='+',
                         help="Reference sequence in fasta or fasta.gz (single fasta or 1/region in same order as --regions)")
-    parser.add_argument("--vcf", default=None, type=make_url, nargs='+',
+    parser.add_argument("--vcf", default=[], type=make_url, nargs='+',
                         help="Variants to make graph from (single vcf or 1/region in same order as --regions)")
     parser.add_argument("--regions", nargs='+',
                         help="1-based inclusive VCF coordinates in the form of SEQ or SEQ:START-END")
@@ -114,7 +114,7 @@ def validate_construct_options(options):
             '--regions or --fasta_regions required with --haplo_sample')
     require(not (options.haplo_sample and options.merge_graphs),
             '--merge_graphs not currently supported with --haplo_sample')
-    require(not options.vcf or len(options.vcf) == 1 or not options.regions or
+    require(options.vcf == [] or len(options.vcf) == 1 or not options.regions or
             len(options.vcf) <= len(options.regions),
             'if many vcfs specified, cannot have more vcfs than --regions')
     require(len(options.fasta) == 1 or len(options.fasta) == len(options.regions),
@@ -123,10 +123,12 @@ def validate_construct_options(options):
             '--fasta_regions currently only works when single fasta specified with --fasta')
     require(not options.gbwt_index or options.xg_index,
             '--xg_index required with --gbwt_index')
-    # TODO: It seems like somne of this code is designed to run multiple regions
+    # TODO: It seems like some of this code is designed to run multiple regions
     # in parallel, but the indexing code always indexes them together.
-    require(not options.gbwt_index or len(options.vcf) >= 1,
-            '--gbwt_index requires --vcf')
+    require(not options.gbwt_index or (not options.pangenome and not options.pos_control and
+        not options.neg_control and not options.sample_graph and not options.haplo_sample and
+        not options.min_af) or len(options.vcf) >= 1,
+            '--gbwt_index with any graph other than --primary requires --vcf')
     require(not options.sample_graph or (options.regions or options.fasta_regions),
             '--regions or --fasta_regions required with --sample_graph')
     require(options.primary or options.pangenome or options.pos_control or options.neg_control or
