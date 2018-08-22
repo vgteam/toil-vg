@@ -2154,8 +2154,9 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
             
             RealtimeLogger.info('Plotting {} for plot set {}'.format(rscript, i))
            
-            # Make a file name to save the plot to
-            plot_filename = title_to_filename('plot', i, plot_title, 'svg')
+            # Make a file name to save the plot to.
+            # Make sure to include the type of R script being run.
+            plot_filename = title_to_filename('plot-{}'.format(rscript), i, plot_title, 'svg')
            
             script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
             cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),

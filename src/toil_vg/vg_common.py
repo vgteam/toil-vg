@@ -721,8 +721,9 @@ def parse_plot_sets(plot_sets_list):
     plot_sets = [parse_plot_set(spec) for spec in plot_sets_list]
     if len(plot_sets) == 0:
         # We want to plot everything together
-        # We use the special None value to request that.
-        plot_sets = [('All', None)]
+        # We use the special None value instead of a condition list to request that.
+        # And we use None for the title.
+        plot_sets = [(None, None)]
     
     return plot_sets
     
