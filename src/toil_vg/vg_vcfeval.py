@@ -14,7 +14,6 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_plot import title_to_filename
 
 logger = logging.getLogger(__name__)
 

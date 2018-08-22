@@ -33,10 +33,10 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
-    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists
+    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
+    parse_plot_sets, title_to_filename
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing
-from toil_vg.vg_plot import parse_plot_sets, title_to_filename
 from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)

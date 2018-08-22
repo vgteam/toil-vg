@@ -37,7 +37,6 @@ from toil_vg.vg_vcfeval import vcfeval_parse_args, run_extract_sample_truth_vcf,
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
 from toil_vg.vg_surject import run_surjecting
-from toil_vg.vg_plot import parse_plot_sets
 
 logger = logging.getLogger(__name__)
 
