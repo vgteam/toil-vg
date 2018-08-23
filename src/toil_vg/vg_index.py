@@ -32,7 +32,7 @@ def index_subparser(parser):
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
     
-    # General options
+    # Options specific to the toil-vg index driver
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
@@ -40,12 +40,15 @@ def index_subparser(parser):
                         help="input graph(s). one per chromosome (separated by space)")
 
     parser.add_argument("--chroms", nargs='+',
-                        help="Name(s) of reference path in graph(s) (separated by space).  If --graphs "
+                        help="name(s) of reference path in graph(s) (separated by space).  If --graphs "
                         " has multiple elements, must be same length/order as --chroms (not needed for xg_index)")
 
     parser.add_argument("--node_mapping", type=make_url,
-                        help="node mapping file required for gbwt pruning.  created by toil-vg construct"
+                        help="node mapping file required for gbwt pruning. Created by toil-vg construct"
                         " (or vg ids -j)")
+                        
+    parser.add_argument("--bwa_index_fasta", type=make_url,
+                        help="index the given FASTA for BWA MEM alignment")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -58,7 +61,12 @@ def index_subparser(parser):
     add_container_tool_parse_args(parser)
 
 def index_toggle_parse_args(parser):
-    """ common args we do not want to share with toil-vg run """
+    """
+    Common args we do not want to share with toil-vg run, and which toggle
+    different index types on and off.
+    
+    Safe to use in toil-vg construct without having to import any files.
+    """
     parser.add_argument("--gcsa_index", action="store_true",
                         help="Make a gcsa index for each output graph")
     parser.add_argument("--xg_index", action="store_true",
@@ -71,11 +79,11 @@ def index_toggle_parse_args(parser):
                         help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
     parser.add_argument("--all_index", action="store_true",
                         help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --id_ranges_index")
-    parser.add_argument("--bwa_index_fasta", type=make_url,
-                        help="index the given FASTA for BWA MEM alignment")
     
 def index_parse_args(parser):
-    """ centralize indexing parameters here """
+    """
+    Indexing parameters which can be part of the main toil-vg run pipeline.
+    """
     
     parser.add_argument("--gcsa_index_cores", type=int,
         help="number of threads during the gcsa indexing step")
