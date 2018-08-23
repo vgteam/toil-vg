@@ -265,8 +265,8 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         # get rid of that big json asap
         os.remove(gam_json)
 
-        # write to store.
-        gam_chunk_id = context.write_output_file(job, gam_file)
+        # write to file store, but don't dump all the chunks in the output store
+        gam_chunk_id = context.write_intermediate_file(job, gam_file)
         true_pos_chunk_id = context.write_intermediate_file(job, true_pos_file)
 
         # return everything as a tuple.
