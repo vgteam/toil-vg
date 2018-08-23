@@ -77,6 +77,11 @@ snarl-index-cores: 1
 snarl-index-mem: '4G'
 snarl-index-disk: '2G'
 
+# Resources for BWA indexing.
+bwa-index-cores: 1
+bwa-index-mem: '4G'
+bwa-index-disk: '2G'
+
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs
 fq-split-cores: 1
@@ -312,6 +317,11 @@ gcsa-index-preemptable: 'False'
 snarl-index-cores: 1
 snarl-index-mem: '200G'
 snarl-index-disk: '100G'
+
+# Resources for BWA indexing.
+bwa-index-cores: 1
+bwa-index-mem: '40G'
+bwa-index-disk: '40G'
 
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs

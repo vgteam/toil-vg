@@ -36,7 +36,7 @@ from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
     parse_plot_sets, title_to_filename
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
-from toil_vg.vg_index import run_indexing
+from toil_vg.vg_index import run_indexing, run_bwa_index
 from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
@@ -261,27 +261,6 @@ def parse_int(value):
     """
     
     return int(value) if value.strip() != '' else 0
-
-def run_bwa_index(job, context, fasta_file_id, bwa_index_ids):
-    """
-    Make a bwa index for a fast sequence if not given in input. then run bwa mem
-    
-    Retuns a pair of BAM IDs, one for unpaired and one for paired. Either will be None if the corresponding flag is false.
-    """
-    if not bwa_index_ids:
-        bwa_index_ids = dict()
-        work_dir = job.fileStore.getLocalTempDir()
-        # Download the FASTA file to be indexed
-        # It would be nice to name it the same as the actual input FASTA but we'd have to peek at the options
-        fasta_file = os.path.join(work_dir, 'toindex.fa')
-        job.fileStore.readGlobalFile(fasta_file_id, fasta_file)
-        cmd = ['bwa', 'index', os.path.basename(fasta_file)]
-        context.runner.call(job, cmd, work_dir = work_dir)
-        for idx_file in glob.glob('{}.*'.format(fasta_file)):
-            # Upload all the index files created, and store their IDs under their extensions
-            bwa_index_ids[idx_file[len(fasta_file):]] = context.write_intermediate_file(job, idx_file)
-
-    return bwa_index_ids
 
 def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=False):
     """
@@ -1239,9 +1218,11 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 bwa_start_job = Job()
                 job.addChild(bwa_start_job)
                 bwa_index_job = bwa_start_job.addChildJobFn(run_bwa_index, context,
-                                                            fasta_file_id, bwa_index_ids,
-                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem,
-                                                            disk=context.config.alignment_disk)
+                                                            fasta_file_id,
+                                                            bwa_index_ids=bwa_index_ids,
+                                                            intermediate=True,
+                                                            cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
+                                                            disk=context.config.bwa_index_disk)
                 bwa_index_ids = bwa_index_job.rv()
                     
             if condition["paired"]:
@@ -1293,7 +1274,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     
     """
     
-    # munge out the returned pair from run_bwa_index()
+    # munge out the returned pair of BAMs
     if bwa_bam_file_ids[0] is not None:
         bam_file_ids.append(bwa_bam_file_ids[0])
         bam_names.append('bwa-mem')
