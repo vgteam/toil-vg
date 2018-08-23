@@ -36,7 +36,7 @@ def index_subparser(parser):
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
-    parser.add_argument("--graphs", nargs='+', type=make_url, required=True,
+    parser.add_argument("--graphs", nargs='+', default=[], type=make_url,
                         help="input graph(s). one per chromosome (separated by space)")
 
     parser.add_argument("--chroms", nargs='+',
@@ -71,6 +71,8 @@ def index_toggle_parse_args(parser):
                         help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
     parser.add_argument("--all_index", action="store_true",
                         help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --id_ranges_index")
+    parser.add_argument("--bwa_index_fasta", type=make_url,
+                        help="index the given FASTA for BWA MEM alignment")
     
 def index_parse_args(parser):
     """ centralize indexing parameters here """
@@ -103,13 +105,14 @@ def validate_index_options(options):
     """
     if any([options.gcsa_index, options.snarls_index,
             options.id_ranges_index, options.gbwt_index, options.all_index]):
-        require(options.chroms, '--chroms must be specified')
+        require(len(options.graphs) == 0 or options.chroms, '--chroms must be specified for --graphs')
         require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
                 '--chroms and --graphs must have'
                 ' same number of arguments if more than one graph specified if doing anything but xg indexing')
     require(any([options.xg_index, options.gcsa_index, options.snarls_index,
-                 options.id_ranges_index, options.gbwt_index, options.all_index]),
-            'at least one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index required, --all_index')
+                 options.id_ranges_index, options.gbwt_index, options.all_index, options.bwa_index_fasta]),
+            'one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index, '
+            '--all_index, or --bwa_index_fasta is required')
     require(not options.gbwt_prune or options.node_mapping,
                 '--node_mapping required with --gbwt_prune')
     if options.vcf_phasing:
@@ -781,12 +784,45 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
 
         return context.write_output_file(job, os.path.join(work_dir, index_name + '.gbwt'))
         
+def run_bwa_index(job, context, fasta_file_id, bwa_index_ids=None, intermediate=False):
+    """
+    Make a bwa index for a fast sequence if not given in input.
+    
+    If intermediate is set to true, do not output them. Otherwise, output them
+    as bwa.fa.<index type>.
+    
+    Returns a dict from index extension to index file ID.
+    
+    Note that BWA produces 'amb', 'ann',  'bwt', 'pac', and 'sa' index files.
+    
+    If such a nonempty dict is passed in already, return that instead (and
+    don't output any files).
+    """
+    if not bwa_index_ids:
+        bwa_index_ids = dict()
+        work_dir = job.fileStore.getLocalTempDir()
+        # Download the FASTA file to be indexed
+        # It would be nice to name it the same as the actual input FASTA but we'd have to peek at the options
+        fasta_file = os.path.join(work_dir, 'bwa.fa')
+        job.fileStore.readGlobalFile(fasta_file_id, fasta_file)
+        cmd = ['bwa', 'index', os.path.basename(fasta_file)]
+        context.runner.call(job, cmd, work_dir = work_dir)
+        
+        # Work out how to output the files
+        write_file = context.write_intermediate_file if intermediate else context.write_output_file
+        
+        for idx_file in glob.glob('{}.*'.format(fasta_file)):
+            # Upload all the index files created, and store their IDs under their extensions
+            bwa_index_ids[idx_file[len(fasta_file):]] = write_file(job, idx_file)
+
+    return bwa_index_ids
         
 
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
-                 vcf_phasing_file_ids = [], tbi_phasing_file_ids = [], gbwt_id = None,
-                 node_mapping_id = None,
+                 vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
+                 bwa_fasta_id=None,
+                 gbwt_id = None, node_mapping_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
                  skip_snarls=False, make_gbwt=False, gbwt_prune=False, gbwt_regions=[]):
     """
@@ -801,14 +837,18 @@ def run_indexing(job, context, inputGraphFileIDs,
     those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
     Return a dict from index type ('xg','chrom_xg', 'gcsa', 'lcp', 'gbwt',
-    'chrom_gbwt', 'chrom_thread', 'id_ranges', or 'snarls') to index file ID(s)
-    if created.
+    'chrom_gbwt', 'chrom_thread', 'id_ranges', 'snarls', 'bwa') to index file
+    ID(s) if created.
     
     For 'chrom_xg' and 'chrom_gbwt' the value is a list of one XG or GBWT or
     thread DB per chromosome in chroms, to support `vg prune`. For
     'chrom_thread', we have a value per chromosome that actually has any
-    threads (instead of padding out with Nones). The others are all single file
-    IDs.
+    threads (instead of padding out with Nones). For 'bwa', the result is
+    itself a dict from BWA index extension to file ID. The others are all
+    single file IDs.
+    
+    If gbwt_id is specified, and the gbwt index is not built, the passed ID is
+    re-used.
     
     """
     # Make a master child job
@@ -836,7 +876,8 @@ def run_indexing(job, context, inputGraphFileIDs,
          'skip_id_ranges': skip_id_ranges,
          'skip_snarls': skip_snarls,
          'make_gbwt': make_gbwt,
-         'gbwt_prune': gbwt_prune
+         'gbwt_prune': gbwt_prune,
+         'bwa_fasta_id': bwa_fasta_id
     }))
 
     # This will hold the index to return
@@ -992,6 +1033,13 @@ def run_indexing(job, context, inputGraphFileIDs,
                                               disk=context.config.snarl_index_disk).rv()
     
 
+    if bwa_fasta_id:
+        # We need to index a reference FASTA for BWA
+        indexes['bwa'] = job.addChildJobFn(run_bwa_index, context, bwa_fasta_id,
+                                           cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
+                                           disk=context.config.bwa_index_disk).rv()
+        
+    
     return indexes
 
 def index_main(context, options):
@@ -1032,7 +1080,10 @@ def index_main(context, options):
             inputNodeMappingID = None
             if options.node_mapping:
                 inputNodeMappingID = toil.importFile(options.node_mapping)
-
+            inputBWAFastaID = None
+            if options.bwa_index_fasta:
+                inputBWAFastaID = toil.importFile(options.bwa_index_fasta)
+            
             # Handy to have meaningful filenames throughout, so we remember
             # the input graph names
             graph_names = [os.path.basename(i) for i in options.graphs]
@@ -1043,8 +1094,10 @@ def index_main(context, options):
             # Make a root job
             root_job = Job.wrapJobFn(run_indexing, context, inputGraphFileIDs,
                                      graph_names, options.index_name, options.chroms,
-                                     inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
-                                     inputGBWTID, inputNodeMappingID,
+                                     vcf_phasing_file_ids=inputPhasingVCFFileIDs,
+                                     tbi_phasing_file_ids=inputPhasingTBIFileIDs,
+                                     gbwt_id=inputGBWTID, node_mapping_id=inputNodeMappingID,
+                                     bwa_fasta_id=inputBWAFastaID,
                                      skip_xg = not options.xg_index and not options.all_index,
                                      skip_gcsa = not options.gcsa_index and not options.all_index,
                                      skip_id_ranges = not options.id_ranges_index and not options.all_index,
