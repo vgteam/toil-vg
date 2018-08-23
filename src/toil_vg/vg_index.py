@@ -792,11 +792,11 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
 
         return context.write_output_file(job, os.path.join(work_dir, index_name + '.gbwt'))
         
-def run_bwa_index(job, context, fasta_file_id, bwa_index_ids=None, intermediate=False):
+def run_bwa_index(job, context, fasta_file_id, bwa_index_ids=None, intermediate=False, copy_fasta=False):
     """
     Make a bwa index for a fast sequence if not given in input.
     
-    If intermediate is set to true, do not output them. Otherwise, output them
+    If intermediate is set to True, do not output them. Otherwise, output them
     as bwa.fa.<index type>.
     
     Returns a dict from index extension to index file ID.
@@ -805,6 +805,9 @@ def run_bwa_index(job, context, fasta_file_id, bwa_index_ids=None, intermediate=
     
     If such a nonempty dict is passed in already, return that instead (and
     don't output any files).
+    
+    If copy_fasta is True (and intermediate is False), also output the input FASTA to the out store.
+    
     """
     if not bwa_index_ids:
         bwa_index_ids = dict()
@@ -822,6 +825,10 @@ def run_bwa_index(job, context, fasta_file_id, bwa_index_ids=None, intermediate=
         for idx_file in glob.glob('{}.*'.format(fasta_file)):
             # Upload all the index files created, and store their IDs under their extensions
             bwa_index_ids[idx_file[len(fasta_file):]] = write_file(job, idx_file)
+            
+        if copy_fasta and not intermediate:
+            # We ought to upload the FASTA also.
+            context.write_output_file(job, fasta_file)
 
     return bwa_index_ids
         

@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_indexing, index_parse_args, index_toggle_parse_args
+from toil_vg.vg_index import run_xg_indexing, run_indexing, run_bwa_index, index_parse_args, index_toggle_parse_args
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -40,11 +40,11 @@ def construct_subparser(parser):
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
 
-    parser.add_argument("--fasta", required=True, type=make_url, nargs='+',
+    parser.add_argument("--fasta", default=[], type=make_url, nargs='+',
                         help="Reference sequence in fasta or fasta.gz (single fasta or 1/region in same order as --regions)")
     parser.add_argument("--vcf", default=[], type=make_url, nargs='+',
                         help="Variants to make graph from (single vcf or 1/region in same order as --regions)")
-    parser.add_argument("--regions", nargs='+',
+    parser.add_argument("--regions", default=[], nargs='+',
                         help="1-based inclusive VCF coordinates in the form of SEQ or SEQ:START-END")
     parser.add_argument("--fasta_regions", action="store_true",
                         help="Infer regions from fasta file.  If multiple vcfs specified, any regions found that are not in --regions will be added without variants (useful for decoy sequences)")    
@@ -56,7 +56,7 @@ def construct_subparser(parser):
                         help="flat alts")
     parser.add_argument("--construct_cores", type=int,
                         help="Number of cores for vg construct")
-    parser.add_argument("--out_name", required=True,
+    parser.add_argument("--out_name", default='graph',
                         help="Name used for output graphs and indexes")
     parser.add_argument("--merge_graphs", action="store_true",
                         help="Merge all regions into one graph")
@@ -88,6 +88,8 @@ def construct_subparser(parser):
     parser.add_argument("--min_af", type=float, default=[], nargs='+',
                         help="Create a graph including only variants with given minium allele frequency."
                         " If multiple frequencies given, a graph will be made for each one")
+    parser.add_argument("--bwa_reference", type=make_url,
+                        help="Make a BWA reference (set of indexes) from the given FASTA (not the --fasta FASTAs).")
 
     parser.add_argument("--handle_unphased", default='arbitrary',
                         choices=['skip', 'keep', 'arbitrary'],
@@ -121,6 +123,8 @@ def validate_construct_options(options):
             'if many fastas specified, must be same number as --regions')
     require(len(options.fasta) == 1 or not options.fasta_regions,
             '--fasta_regions currently only works when single fasta specified with --fasta')
+    require(len(options.fasta) > 0 or options.bwa_reference,
+            'either --fasta or --bwa_reference must be set to give something to construct')
     require(not options.gbwt_index or options.xg_index,
             '--xg_index required with --gbwt_index')
     # TODO: It seems like some of this code is designed to run multiple regions
@@ -133,8 +137,8 @@ def validate_construct_options(options):
             '--regions or --fasta_regions required with --sample_graph')
     require(options.primary or options.pangenome or options.pos_control or options.neg_control or
             options.sample_graph or options.haplo_sample or options.filter_ceph or options.filter_samples or
-            options.min_af,
-            'At least one kind of graph must be specified for construction')
+            options.min_af or options.bwa_reference,
+            'At least one kind of graph or reference must be specified for construction')
     require(not options.vcf or options.pangenome or options.pos_control or options.neg_control or
             options.sample_graph or options.haplo_sample or options.filter_ceph or options.filter_samples or
             options.min_af,
@@ -521,7 +525,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        vg_names, output_name_base, chroms,
                                                        input_vcf_ids if make_gbwt else [],
                                                        input_tbi_ids if make_gbwt else [],
-                                                       node_mapping_id = mapping_id,
+                                                       node_mapping_id=mapping_id,
                                                        skip_xg=not xg_index, skip_gcsa=skip_gcsa,
                                                        skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
                                                        make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
@@ -1138,7 +1142,11 @@ def construct_main(context, options):
                     inputVCFFileIDs.append(toil.importFile(vcf))
                     inputVCFNames.append(os.path.basename(vcf))
                     inputTBIFileIDs.append(toil.importFile(vcf + '.tbi'))
-
+            
+            inputBWAFastaID=None
+            if options.bwa_reference:
+                inputBWAFastaID = toil.importFile(options.bwa_reference)
+            
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
 
@@ -1183,7 +1191,7 @@ def construct_main(context, options):
                                                filter_samples = filter_samples,
                                                min_afs = options.min_af)
                 
-            # Cosntruct graphs
+            # Construct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
@@ -1198,6 +1206,15 @@ def construct_main(context, options):
                                      haplo_extraction_sample = haplo_extraction_sample,
                                      gbwt_prune = options.gbwt_prune,
                                      normalize = options.normalize)
+                                     
+            
+            if inputBWAFastaID:
+                # If we need to make a BWA index too, do that in parallel with everything else
+                init_job.addFollowOnJobFn(run_bwa_index, context, inputBWAFastaID,
+                                          copy_fasta=True,
+                                          cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
+                                          disk=context.config.bwa_index_disk)
+                                     
             
             # Run the workflow
             toil.start(init_job)

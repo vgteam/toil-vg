@@ -1218,7 +1218,8 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 bwa_start_job = Job()
                 job.addChild(bwa_start_job)
                 bwa_index_job = bwa_start_job.addChildJobFn(run_bwa_index, context,
-                                                            fasta_file_id, bwa_index_ids=bwa_index_ids,
+                                                            fasta_file_id,
+                                                            bwa_index_ids=bwa_index_ids,
                                                             intermediate=True,
                                                             cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
                                                             disk=context.config.bwa_index_disk)
