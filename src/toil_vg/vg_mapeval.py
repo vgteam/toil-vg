@@ -33,7 +33,8 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
-    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists
+    add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
+    parse_plot_sets, title_to_filename
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -133,7 +134,7 @@ def add_mapeval_options(parser):
                         help= 'If extracting truth positions from --gam_input_reads, specify corresponding xg for annotation')
                         
     parser.add_argument('--plot-sets', nargs='+', default=[],
-                        help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) to plot together')
+                        help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) with colon-separated title prefixes')
                         
     # We also need to have these options to make lower-level toil-vg code happy
     # with the options namespace we hand it.
@@ -2056,11 +2057,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
     # Then do the R plotting
     
     # What do we plot together?
-    plot_sets = [spec.split(',') for spec in options.plot_sets]
-    if len(plot_sets) == 0:
-        # We want to plot everything together
-        # We use the special None value to request that.
-        plot_sets = [None]
+    plot_sets = parse_plot_sets(options.plot_sets)
     
     # Fetch out the combined TSV from the return value for summarizing/plotting
     lookup_job = comparison_parent_job.addFollowOnJobFn(lookup_key_path, comparison_job.rv(), [0, 1])
@@ -2093,9 +2090,9 @@ def run_map_eval_summarize(job, context, position_stats_file_id, plot_sets):
     
     Returns a list of file name and file ID pairs for plots and tables.
     
-    plot_sets is a list of lists of condition names to analyze together. A None
-    instead of a list means to do all conditions. The first condition in each
-    list is the comparison baseline.
+    plot_sets is a data structure of collections of conditions to plot against
+    each other, as produced by parse_plot_sets. The first condition in each
+    plot set is used as the comparison baseline.
     
     """
     
@@ -2127,13 +2124,13 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     
     correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
     
-    plot_sets gives a list of collections of condition names to plot together.
-    If None is in the list, all conditions are plotted.
+    plot_sets is a data structure of collections of conditions to plot against
+    each other, as produced by parse_plot_sets.
     
     outputs plots/plot-pr.svg, plots/plot-qq.svg, and plots/plot-roc.svg for
     the first set, and plots/plot-pr-1.svg, etc. for subsequent sets.
     
-    Returns a list of pairs of plot file name and plot file ID.
+    Returns a list of pairs of tuples of plot basename, plot file ID, and plot file path.
     
     """
     
@@ -2144,34 +2141,39 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
     job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
 
-    out_name_id_pairs = []
+    out_plot_tuples = []
     
     for i, plot_set in enumerate(plot_sets):
         # For each set of graphs to plot together
+        
+        # Unpack plot_set
+        plot_title, plot_conditions = plot_set
         
         for rscript in ['pr', 'qq', 'roc']:
             # For each kind of plot
             
             RealtimeLogger.info('Plotting {} for plot set {}'.format(rscript, i))
            
-            if i == 0:
-                # First plot of each kind looks like this
-                plot_name = 'plot-{}.svg'.format(rscript)
-            else:
-                # Additional plots look like this
-                plot_name = 'plot-{}-{}.svg'.format(rscript, i)
-            
+            # Make a file name to save the plot to.
+            # Make sure to include the type of R script being run.
+            plot_filename = title_to_filename('plot-{}'.format(rscript), i, plot_title, 'svg')
+           
             script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
             cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
-                   plot_name]
-            if plot_set is not None:
+                   plot_filename]
+            if plot_conditions is not None:
                 # Subset to specific conditions. The R scripts know how to do it.
-                cmd.append(','.join(plot_set))
+                cmd.append(','.join(plot_conditions))
+                
+                if plot_title is not None:
+                    # Provide a title for the plot
+                    cmd.append(plot_title)
             
             try:
                 context.runner.call(job, cmd, work_dir = work_dir)
-                out_name_id_pairs.append((plot_name, context.write_output_file(job, os.path.join(work_dir, plot_name),
-                    os.path.join('plots', plot_name))))
+                out_plot_tuples.append((plot_filename,
+                    context.write_output_file(job, os.path.join(work_dir, plot_filename),
+                    os.path.join('plots', plot_filename))))
             except Exception as e:
                 if rscript == 'roc':
                     RealtimeLogger.warning('plot-roc.R failed: {}'.format(str(e)))
@@ -2181,7 +2183,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
             
     RealtimeLogger.info('Plotting complete')
     
-    return out_name_id_pairs
+    return out_plot_tuples
     
 def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     """
@@ -2192,8 +2194,9 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     
     correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
     
-    plot_sets gives a list of collections of condition names to compare
-    together. If None is in the list, all conditions are plotted.
+    plot_sets is a data structure of collections of conditions to plot against
+    each other, as produced by parse_plot_sets. The first condition in each
+    plot set is used as the comparison baseline.
     
     outputs plots/table.tsv for the first set, and plots/table-1.svg, etc. for
     subsequent sets.
@@ -2316,26 +2319,25 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         
         RealtimeLogger.info('Create table for plot set {}'.format(i))
         
-        if i == 0:
-            # First table looks like this
-            table_name = 'table.tsv'
-        else:
-            # Additional tables look like this
-            table_name = 'table-{}.tsv'.format(i)
-            
-        if plot_set is None:
+        # Unpack plot_set
+        plot_title, plot_conditions = plot_set
+        
+        # Make a file name to save the table to
+        table_filename = title_to_filename('table', i, plot_title, 'tsv')
+        
+        if plot_conditions is None:
             # Special value for running everything together.
             # Make sure the plot set actually has names in it.
-            plot_set = list(condition_stats.keys())
+            plot_conditions = list(condition_stats.keys())
             
-        assert(len(plot_set) > 0)
+        assert(len(plot_conditions) > 0)
             
         # Decide on our baseline condition.
         # It will just be the first condition specified.
-        baseline_condition = plot_set[0]
+        baseline_condition = plot_conditions[0]
         
         # Start the output file.
-        writer = tsv.TsvWriter(open(os.path.join(work_dir, table_name), 'w'))
+        writer = tsv.TsvWriter(open(os.path.join(work_dir, table_filename), 'w'))
         header = (['Condition', 'Precision'] + ['tagged {}'.format(tag) for tag in known_tags] + 
             ['Reads'] + ['tagged {}'.format(tag) for tag in known_tags] +
             ['Wrong'] + ['tagged {}'.format(tag) for tag in known_tags] +
@@ -2343,7 +2345,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
             'Avg. Correct MAPQ', 'Correct MAPQ 0'])
         writer.list_line(header)
         
-        for condition in plot_set:
+        for condition in plot_conditions:
             # For each condition to plot, look up its stats
             stats = condition_stats[condition]
             
@@ -2407,8 +2409,8 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         writer.close()
         
         # Save it
-        out_name_id_pairs.append((table_name, context.write_output_file(job, os.path.join(work_dir, table_name),
-            os.path.join('plots', table_name))))
+        out_name_id_pairs.append((table_filename, context.write_output_file(job, os.path.join(work_dir, table_filename),
+            os.path.join('plots', table_filename))))
             
     RealtimeLogger.info('Tables complete')
             

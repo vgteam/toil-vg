@@ -119,10 +119,15 @@ def parse_happy_summary(summary_path):
                 results[cat][header[column]] = row[column] if len(row[column]) else '0'
         return results
 
-def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show_scores=False,
-                          line_width=2, ps_plot=False):
+def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], kind=None, number=0, title=None,
+                         show_scores=False, line_width=2, ps_plot=False):
     """
-    draw some rocs from the vcfeval output. return (snps_id, nonsnps_id, weighted_id)
+    Draw some rocs from the vcfeval output. Return (snps_id, nonsnps_id,
+    weighted_id)
+    
+    kind specifies the subtype of roc plot (e.g. 'snp-unclipped'). number gives
+    the number of this plot in all plots of that kind. title gives an optional
+    human-readable title.
     """
 
     # make a local work directory
@@ -145,7 +150,13 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], title=None, show
         job.fileStore.readGlobalFile(file_id, table_path)
         RealtimeLogger.info('Downloaded {} to {}'.format(file_id, table_path))
 
-    plot_filename = 'roc{}.svg'.format('-{}'.format(title) if title else '')
+    # Make sure the kind has 'roc' in it
+    if kind is None:
+        kind = 'roc'
+    else:
+        kind = 'roc-{}'.format(kind)
+    
+    plot_filename = title_to_filename(kind, number, title, 'svg')
     out_roc_path = os.path.join(work_dir, plot_filename)
 
     roc_opts = []

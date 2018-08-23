@@ -19,8 +19,9 @@ from collections import Counter
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
-from toil_vg.vg_common import require, make_url, remove_ext,\
-    add_common_vg_parse_args, add_container_tool_parse_args
+from toil_vg.vg_common import require, make_url, remove_ext, \
+    add_common_vg_parse_args, add_container_tool_parse_args, \
+    parse_plot_sets
 from toil_vg.vg_mapeval import run_map_eval_summarize, run_map_eval_table, run_map_eval_plot
 from toil_vg.vg_calleval import run_calleval_plots
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -70,7 +71,7 @@ def add_plot_options(parser):
     
     # General options
     parser.add_argument('--plot-sets', nargs='+', default=[],
-                        help='comma-separated lists of condition names (primary-mp-pe, etc.) to plot together')
+                        help='comma-separated lists of condition-tagged GAM names (primary-mp-pe, etc.) with colon-separated title prefixes')
     
                         
     # We also need to have these options to make lower-level toil-vg code happy
@@ -180,15 +181,8 @@ def make_plot_plan(toil, options):
                     plan.eval_results_dict[condition][clipping][roc_name] = toil.importFile(url)
    
     # Also process options that need parsing
-    # TODO: Make mapeval include the plot sets in its plan as well?
-    # TODO: Pass the plan along instead of getting theings from the options or unpacking it?
+    plan.plot_sets = parse_plot_sets(options.plot_sets)
    
-    plan.plot_sets = [spec.split(',') for spec in options.plot_sets]
-    if len(plan.plot_sets) == 0:
-        # We want to plot everything together
-        # We use the special None value to request that.
-        plan.plot_sets = [None]
-
     end_time = timeit.default_timer()
     logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
     
