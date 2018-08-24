@@ -81,7 +81,7 @@ def add_mapeval_options(parser):
                         ' the second (.xg only) for annotation in the comparison')
     parser.add_argument('--use-gbwt', action='store_true',
                         help='also import <index-base>.gbwt and use it during alignment')
-    parser.add_argument('--gbwt-penalties', nargs='+', type=float, action='append', default=[],
+    parser.add_argument('--gbwt-penalties', nargs='+', type=float, default=[],
                         help='when using the GBWT, try all of the given recombination penalties instead of the default')
     parser.add_argument('--strip-gbwt', action='store_true',
                         help='run gbwt-free control runs')
