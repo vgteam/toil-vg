@@ -81,6 +81,8 @@ def add_mapeval_options(parser):
                         ' the second (.xg only) for annotation in the comparison')
     parser.add_argument('--use-gbwt', action='store_true',
                         help='also import <index-base>.gbwt and use it during alignment')
+    parser.add_argument('--gbwt-penalties', nargs='+', type=float, default=[],
+                        help='when using the GBWT, try all of the given recombination penalties instead of the default')
     parser.add_argument('--strip-gbwt', action='store_true',
                         help='run gbwt-free control runs')
     parser.add_argument('--use-snarls', action='store_true',
@@ -216,6 +218,9 @@ def validate_options(options):
     if options.use_gbwt:
         require(not options.gams,
                 '--use-gbwt cannot be used with pre-aligned GAMs in --gams')
+                
+    require(not options.gbwt_penalties or options.use_gbwt,
+            '--gbwt-penalties requires --use-gbwt')
                 
     if options.use_snarls:
         require(options.multipath or options.multipath_only,
@@ -967,7 +972,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     
     "paired": [True, False]
     
-    "gbwt": [True, False]
+    "gbwt": [False, True, <float log recombination penalty override>, ...]
    
     Additionally, mpmap_opts and more_mpmap_opts from the context's config are
     consulted, doubling the mpmap runs if more_mpmap_opts is set.
@@ -1129,7 +1134,13 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
            
             if condition["gbwt"]:
                 # Mark as gbwt first if applicable
-                tag_string += "-gbwt"
+                
+                if condition["gbwt"] == True:
+                    # We just use the default value (no number)
+                    tag_string += "-gbwt"
+                else:
+                    # It must be a number
+                    tag_string += "-gbwt{}".format(condition["gbwt"])
            
             if condition["multipath"]:
                 # Doing multipath mapping
@@ -1163,6 +1174,11 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 # It is never interleaved
                 interleaved = False
                 
+            # If we have a GBWT penalty override, what is it?
+            gbwt_penalty = None
+            if condition["gbwt"] and condition["gbwt"] != True:
+                gbwt_penalty = condition["gbwt"]
+                
             # We collect all the map jobs in a list for each index, so we can update all our output lists for them
             map_jobs = []
                     
@@ -1175,7 +1191,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                     indexes = dict(indexes)
                     if indexes.has_key("gbwt"):
                         del indexes["gbwt"]
-                
+                        
                 if not read_chunk_jobs.has_key(tuple(fastq_ids)):
                     # We have not yet asked to split the appropriate FASTQs.
                     # Make a job to do that, and save it so we can grab its rv later.
@@ -1192,8 +1208,9 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 map_jobs.append(read_chunk_job.addFollowOnJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
                                                                 None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
                                                                 interleaved, condition["multipath"], indexes,
-                                                                False, surject,
                                                                 reads_chunk_ids=read_chunk_job.rv(),
+                                                                bam_output=False, surject=surject,
+                                                                gbwt_penalty=gbwt_penalty,
                                                                 cores=mapping_context.config.misc_cores,
                                                                 memory=mapping_context.config.misc_mem,
                                                                 disk=mapping_context.config.misc_disk))
@@ -1991,7 +2008,13 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
         
     if gbwt_file_ids:
         # We have GBWTs to use
-        matrix["gbwt"].append(True)
+        for gbwt_penalty in options.gbwt_penalties:
+            # We have explicit penalties
+            matrix["gbwt"].append(gbwt_penalty)
+        if len(options.gbwt_penalties) == 0:
+            # We have no explicit penalties; use the default
+            matrix["gbwt"].append(True)
+        
     if (not gbwt_file_ids) or options.strip_gbwt:
         # We have no GBWTs or we want to run without them too
         matrix["gbwt"].append(False)

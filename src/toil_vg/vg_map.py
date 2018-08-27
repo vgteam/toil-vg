@@ -138,9 +138,11 @@ def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_re
     
 
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                indexes, bam_output, surject, reads_file_ids=None, reads_chunk_ids=None):
+                indexes, reads_file_ids=None, reads_chunk_ids=None,
+                bam_output=False, surject=False, 
+                gbwt_penalty=None):
     """
-    split the fastq, then align each chunk.
+    Split the fastq, then align each chunk.
     
     Exactly one of fastq, gam_input_reads, or bam_input_reads should be
     non-falsey, to indicate what kind of data the file IDs in reads_file_ids or
@@ -155,8 +157,14 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
     'gbwt', 'snarls') to index file ID. Some indexes are extra and specifying
     them will change mapping behavior.
     
+    If bam_output is set, produce BAMs. If surject is set, surject reads down
+    to paths. 
+    
+    If the 'gbwt' index is present and gbwt_penalty is specified, the default
+    recombination penalty will be overridden.
+    
     returns outputgams, paired with total map time (excluding toil-vg overhead
-    such as transferring and splitting files )
+    such as transferring and splitting files)
     """
     
     # Make sure we have exactly one type of input
@@ -177,7 +185,9 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
         
     # We need a job to do the alignment
     align_job = Job.wrapJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                              interleaved, multipath, indexes, reads_chunk_ids, bam_output, surject,
+                              interleaved, multipath, indexes, reads_chunk_ids,
+                              bam_output=bam_output, surject=surject,
+                              gbwt_penalty=gbwt_penalty,
                               cores=context.config.misc_cores,
                               memory=context.config.misc_mem, disk=context.config.misc_disk)
                  
@@ -346,7 +356,8 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
 
     
 def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                        indexes, reads_chunk_ids, bam_output, surject):
+                        indexes, reads_chunk_ids,
+                        bam_output=False, surject=False, gbwt_penalty=None):
     """
     align all fastq chunks in parallel
     
@@ -372,7 +383,9 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
         chunk_alignment_job = child_job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
                                                       sample_name,
                                                       interleaved, multipath, chunk_filename_ids, chunk_id,
-                                                      indexes, bam_output,
+                                                      indexes,
+                                                      bam_output=bam_output,
+                                                      gbwt_penalty=gbwt_penalty,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
         if not bam_output:
@@ -414,7 +427,8 @@ def run_zip_surject_input(job, context, gam_chunk_file_ids):
 
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
-                        chunk_filename_ids, chunk_id, indexes, bam_output):
+                        chunk_filename_ids, chunk_id, indexes,
+                        bam_output=False, gbwt_penalty=None):
                         
     """
     Align a chunk of reads.
@@ -522,6 +536,18 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         if gbwt_file is not None:
             # We have a GBWT haplotype index to use. Both map and mpmap take this long option.
             vg_parts += ['--gbwt-name', os.path.basename(gbwt_file)]
+            
+            # Also we may have a GBWT recombination rate/penalty override
+            if gbwt_penalty is not None:
+                # We have a recombination penalty value to apply
+                if '--recombination-penalty' in vg_parts:
+                    # Make sure to strip out the penalty if it is in args already
+                    sidx = vg_parts.index('--recombination-penalty')
+                    del vg_parts[sidx]
+                    del vg_parts[sidx]
+                    
+                # Both map and mpmap take this option
+                vg_parts += ['--recombination-penalty', str(gbwt_penalty)]
 
         RealtimeLogger.info(
             "Running VG for {} against {}: {}".format(sample_name, graph_file,
@@ -743,8 +769,8 @@ def map_main(context, options):
                                      options.gam_input_reads, options.bam_input_reads,
                                      options.sample_name,
                                      options.interleaved, options.multipath, indexes,
-                                     options.bam_output, options.surject,
                                      reads_file_ids=inputReadsFileIDs,
+                                     bam_output=options.bam_output, surject=options.surject,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
