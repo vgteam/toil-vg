@@ -546,7 +546,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                         vcf_phasing_file_id = None, tbi_phasing_file_id = None,
                         make_gbwt=False, gbwt_regions=[], separate_threads=False,
-                        use_thread_dbs=None, intermediate=False):
+                        use_thread_dbs=None, intermediate=False, intermediate_cat=True):
     """
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
@@ -555,8 +555,9 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     Note: the resources assigned to indexing come from those assigned to this parent job
     (as they can get toggled between xg and gbwt modes in the caller)
     
-    If intermediate is set to true, do not save the concatenated .cat.vg or the
-    final .xg to the output store.
+    If intermediate is set to True, do not save the final .xg to the output store.
+    
+    If intermediate_cat is False and intermediate is also False, save the .cat.vg to the output store.
     """
     
     # to encapsulate everything under this job
@@ -565,7 +566,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     
     # Concatenate the graph files.
     vg_concat_job = child_job.addChildJobFn(run_concat_graphs, context, inputGraphFileIDs,
-                                            graph_names, index_name, intermediate=intermediate)
+                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat))
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
                                       context, [vg_concat_job.rv(0)],
