@@ -982,6 +982,8 @@ def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
     Make some haplotype graphs for threads in a gbwt. regions must be defined
     since we use the chromosome name to get the threads. Also, gbwt_ids must be
     specified (one genome gbwt or one per region).
+    
+    Returns a list of haplotypes, where each haplotype is a list of vg graphs subset to that haplotype.
     """
 
     assert(sample is not None)
