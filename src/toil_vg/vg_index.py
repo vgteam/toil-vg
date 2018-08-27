@@ -412,7 +412,11 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     thread DBs in the list will be considered when creating the xg index. Their
     haplotype names will be incorporated, and the maximum haplotype count in
     any of them will be used as the XG index's expected haplotype count per
-    chromosome. It cannot be specified along with make_gbwt. 
+    chromosome. It cannot be specified along with make_gbwt.
+    
+    if make_gbwt is specified *and* a phasing VCF is specified, the GBWT will
+    be generated. Otherwise it won't be (for example, for single-contig graphs
+    where no VCF is available).
     
     Return a tuple of file IDs, (xg_id, gbwt_id, thread_db_id). The GBWT ID
     will be None if no GBWT is generated. The thread DB ID will be None if no
@@ -455,7 +459,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
         phasing_opts = ['-v', os.path.basename(phasing_file)]
         
-        if make_gbwt and vcf_phasing_file_id:
+        if make_gbwt:
             # Write the haplotype index to its own file
             phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
            
