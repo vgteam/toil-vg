@@ -114,8 +114,6 @@ def validate_construct_options(options):
     """
     require(not options.haplo_sample or (options.regions or options.fasta_regions),
             '--regions or --fasta_regions required with --haplo_sample')
-    require(not (options.haplo_sample and options.merge_graphs),
-            '--merge_graphs not currently supported with --haplo_sample')
     require(options.vcf == [] or len(options.vcf) == 1 or not options.regions or
             len(options.vcf) <= len(options.regions),
             'if many vcfs specified, cannot have more vcfs than --regions')
@@ -314,9 +312,10 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
     if haplo_sample:
         hap_control_vcf_ids, hap_control_tbi_ids = [], []
         hap_control_vcf_names = []
-
-        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
-            if haplo_sample != pos_control_sample:
+        
+        if haplo_sample != pos_control_sample:
+        
+            for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
                 make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
                                                   pos_only = True, unphased_handling=handle_unphased,
                                                   cores=context.config.construct_cores,
@@ -324,11 +323,15 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                                                   disk=context.config.construct_disk)
                 hap_control_vcf_ids.append(make_controls.rv(0))
                 hap_control_tbi_ids.append(make_controls.rv(1))
-            else:
-                hap_control_vcf_ids = pos_control_vcf_ids
-                hap_control_tbi_ids = pos_control_tbi_ids
-            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
-            hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
+                
+                vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+                hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
+                
+        else:
+            hap_control_vcf_ids = pos_control_vcf_ids
+            hap_control_tbi_ids = pos_control_tbi_ids
+            hap_control_vcf_names = [n.replace('.vcf.gz', '_haplo.vcf.gz') for n in pos_control_vcf_names]
+            
         if regions:
             hap_region_names = [output_name + '_{}_haplo'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
         else:
@@ -434,11 +437,23 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
                                           normalize)
 
-        vg_ids = construct_job.rv(0)
-        mapping_id = construct_job.rv(1)
-        vg_names = [merge_output_name] if merge_graphs or not regions or len(regions) < 2 else region_names
-
-        vg_names = [remove_ext(i, '.vg') + '.vg' for i in vg_names]
+        mapping_id = construct_job.rv('mapping')
+        
+        # Find the joined VG files, which always exist
+        joined_vg_ids = construct_job.rv('joined')
+        # And give them names
+        joined_vg_names = [remove_ext(i, '.vg') + '.vg' for i in region_names] 
+        
+        if merge_graphs or not regions or len(regions) < 2: 
+            # Sometimes we will have a single VG file also
+            single_vg_id = construct_job.rv('merged')
+            single_vg_name = remove_ext(merge_output_name, '.vg') + '.vg'
+        else:
+            # But sometimes not
+            single_vg_id = None
+            single_vg_name = None
+            
+        # Now the graphs are ready
 
         if not regions:
             chroms = []
@@ -472,8 +487,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         if haplo_extraction:
             haplo_index_job = construct_job.addFollowOnJobFn(run_make_haplo_indexes, context,
                                                              input_vcf_ids, input_tbi_ids,
-                                                             vcf_names, vg_ids, vg_names, output_name_base,
-                                                             regions, haplo_extraction_sample)
+                                                             vcf_names, joined_vg_ids, joined_vg_names,
+                                                             output_name_base, regions, haplo_extraction_sample)
             haplo_xg_ids = haplo_index_job.rv(0)
             gbwt_ids = haplo_index_job.rv(1)
             
@@ -483,34 +498,53 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 sample_merge_output_name = merge_output_name.replace('_withref', '') if merge_output_name else None
                 region_names = [r.replace('_withref', '') for r in region_names]
                 # Extract out our real sample graph          
-                sample_job = haplo_index_job.addFollowOnJobFn(run_make_sample_graphs, context, vg_ids, vg_names,
+                sample_job = haplo_index_job.addFollowOnJobFn(run_make_sample_graphs, context,
+                                                              joined_vg_ids, joined_vg_names,
                                                               haplo_xg_ids, sample_name_base, regions,
                                                               haplo_extraction_sample, gbwt_ids)
+                # Put them back together again with a no-op join, producing
+                # many graphs again and maybe a single merged graph with the
+                # reference removed.
                 join_job = sample_job.addFollowOnJobFn(run_join_graphs, context, sample_job.rv(),
                                                        False, region_names, name, sample_merge_output_name)
                 # Want to keep a whole-genome withref xg index around for mapeval purposes
                 if len(regions) > 1 and xg_index:
-                    construct_job.addFollowOnJobFn(run_indexing, context, vg_ids,
-                                                   vg_names, output_name_base, chroms, [], [], 
+                    construct_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
+                                                   joined_vg_names, output_name_base, chroms, [], [], 
                                                    skip_xg=not xg_index, skip_gcsa=True,
                                                    skip_id_ranges=True, skip_snarls=True)
                 
                 index_prev_job = join_job
-                # in the indexing step below, we want to index our haplo-extracted sample graph
-                vg_ids = join_job.rv(0)
+                # In the indexing step below, we want to index our haplo-extracted sample graph
+                # So replace the withref graph IDs and names with these
+                
+                # Find the joined VG files, which always exist
+                joined_vg_ids = join_job.rv('joined')
+                # And give them names
+                joined_vg_names = [n.replace('_withref', '') for n in joined_vg_names]
+                
+                if sample_merge_output_name:
+                    # We expect a single output graph too
+                    single_vg_id = join_job.rv('merged')
+                    single_vg_name = remove_ext(sample_merge_output_name, '.vg') + '.vg'
+                else:
+                    # No single merged graph
+                    single_vg_id = None
+                    single_vg_name = None
+                
                 output_name_base = sample_name_base
-                vg_names = [n.replace('_withref', '') for n in vg_names]
             
             elif name == 'haplo':
                 assert haplo_extraction_sample is not None            
                 haplo_job = haplo_index_job.addFollowOnJobFn(run_make_haplo_graphs, context,
-                                                             vg_ids, vg_names, haplo_xg_ids, output_name_base, regions,
+                                                             joined_vg_ids, joined_vg_names, haplo_xg_ids,
+                                                             output_name_base, regions,
                                                              haplo_extraction_sample, haplotypes, gbwt_ids)
 
                 # we want an xg index from our thread graphs to pass to vg sim for each haplotype
                 for haplotype in haplotypes:
                     haplo_xg_job = haplo_job.addFollowOnJobFn(run_xg_indexing, context, haplo_job.rv(haplotype),
-                                                              vg_names,
+                                                              joined_vg_names,
                                                               output_name_base + '_thread_{}'.format(haplotype),
                                                               cores=context.config.xg_index_cores,
                                                               memory=context.config.xg_index_mem,
@@ -521,8 +555,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         skip_snarls = not snarls_index or haplo_extraction
         make_gbwt = gbwt_index and not haplo_extraction
         
-        indexing_job = index_prev_job.addFollowOnJobFn(run_indexing, context, vg_ids,
-                                                       vg_names, output_name_base, chroms,
+        indexing_job = index_prev_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
+                                                       joined_vg_names, output_name_base, chroms,
                                                        input_vcf_ids if make_gbwt else [],
                                                        input_tbi_ids if make_gbwt else [],
                                                        node_mapping_id=mapping_id,
@@ -532,16 +566,35 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        gbwt_regions=gbwt_regions)
         indexes = indexing_job.rv()    
 
-        output.append((vg_ids, vg_names, indexes))
+        output.append((joined_vg_ids, joined_vg_names, indexes))
     return output
                 
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
                                max_node_size, alt_paths, flat_alts, regions, region_names,
                                sort_ids, join_ids, name, merge_output_name, normalize):
-    """ construct graph(s) from several regions in parallel.  we could eventually generalize this
-    to accept multiple vcfs and/or fastas if needed, as well as to determine regions from file,
-    but for now we only accept single files, and require region list.
+    """
+    
+    Construct graphs from one or more FASTA files and zero or more VCFs.
+    
+    If regions and region_names are set, constructs only for the specified
+    regions, and constructs one graph per region. Otherwise, constructs one
+    graph overall on a single default region.
+    
+    If merge_output_name is set, merges all constructed graphs together and
+    outputs them under that name. Otherwise, outputs each graph constructed
+    under its own name, but in a unified ID space.
+    
+    Returns a dict containing:
+    
+    'joined': a list of the unmerged, id-joined graph file IDs for each region.
+    
+    'merged': the merged graph file ID, if merge_output_name is set, or the
+    only graph, if there is only one. None otherwise.
+    
+    'mapping': the file ID of the .mapping file produced by `vg ids --join`, if
+    id joining had to happen. None otherwise.
+    
     """
 
     # encapsulate follow-on
@@ -591,8 +644,29 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
 
 def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name, merge_output_name = None):
     """
-    join the ids of some graphs.  if a merge_output_name is given, cat them all together as well
-    this function saves output to the outstore.  also does the node mapping file 
+    Join the ids of some graphs. If a merge_output_name is given, cat them all
+    together as well.
+    
+    Saves the unmerged, id-joined graphs, or the single merged graph if its
+    name is given, to the output store. Also saves the node mapping file,
+    produced from the `vg ids --join` call, to the output store.
+    
+    Skips doing any joining or merging if there is only one input graph.
+    
+    If join_ids is false, assumes the input graphs are already id-joined, and
+    passes them through, merging if requested.
+    
+    Returns a dict containing:
+    
+    'joined': a list of the unmerged, id-joined graph file IDs (or the input
+    graph(s) re-uploaded as output files if no joining occurred)
+    
+    'merged': the merged graph file ID, if merging occurred, or the only input
+    graph ID, if there was only one. None otherwise.
+    
+    'mapping': the file ID of the .mapping file produced by `vg ids --join`, if
+    run. None otherwise.
+    
     """
         
     work_dir = job.fileStore.getLocalTempDir()
@@ -606,35 +680,55 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
 
     if merge_output_name:
         merge_output_name = remove_ext(merge_output_name, '.vg') + '.vg'
+        
+    # This is our return value. Initialize it as empty but with all the keys
+    # set to make asking for things with .rv() easier.
+    to_return = {
+        'joined': [],
+        'merged': None,
+        'mapping': None
+    }
+    
+    if join_ids and len(region_files) != 1:
+        # The graphs aren't pre-joined, and we ahve more than one.
+        # Do the actual joining
+        
+        mapping_file = merge_output_name[:-3] if merge_output_name else name
+        mapping_file = os.path.join(work_dir, mapping_file + '.mapping')
 
-    # if there's nothing to do, just write the files and return
-    if not join_ids or len(region_graph_ids) == 1:
-        out_ids = []
-        for region_file in region_files:
-            out_ids.append(context.write_output_file(job, os.path.join(work_dir, region_file),
-                                                     out_store_path = merge_output_name))
-        return out_ids, None
-
-    mapping_file = merge_output_name[:-3] if merge_output_name else name
-    mapping_file = os.path.join(work_dir, mapping_file + '.mapping')
-
-    if join_ids:
         # join the ids
         cmd = ['vg', 'ids', '--join', '--mapping', os.path.basename(mapping_file)] + region_files
         context.runner.call(job, cmd, work_dir=work_dir)
-
+        
+        # save the mapping file
+        to_return['mapping'] = context.write_output_file(job, mapping_file)
+    
     if merge_output_name is not None:
+        # We want a sinbgle merged output file, so merge the graphs that we now know are in a joined ID space.
         assert merge_output_name[:-3] not in region_names
         with open(os.path.join(work_dir, merge_output_name), 'w') as merge_file:
+            # Manually concatenate all the graph files
             for region_file in region_files:
                 with open(os.path.join(work_dir, region_file)) as cf:
                     shutil.copyfileobj(cf, merge_file)
-        out_graphs = [context.write_output_file(job, os.path.join(work_dir, merge_output_name))]
+                    
+        # And write the merged graph as an output file
+        to_return['merged'] = context.write_output_file(job, os.path.join(work_dir, merge_output_name))
+        
+        if join_ids and len(region_files) != 1:
+            # If we do all the merging, and we made new joined graphs, write the joined graphs as intermediates
+            to_return['joined'] = [context.write_intermediate_file(job, os.path.join(work_dir, f)) for f in region_files]
+        else:
+            # We can just pass through the existing intermediate files without re-uploading
+            to_return['joined'] = region_graph_ids
     else:
-        out_graphs = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
-
-    mapping_id = context.write_output_file(job, mapping_file)
-    return out_graphs, mapping_id
+        # No merging happened, so the id-joined files need to be output files.
+        # We assume they came in as intermediate files, even if we didn't join them.
+        # So we defintiely have to write them.
+        for region_file in region_files:
+            to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
+                    
+    return to_return 
         
     
 def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
@@ -838,11 +932,19 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
     # make sure we're only dealing with chrom names (should probably be error otherwise)
     chroms = [region[0:region.find(':')] if ':' in region else region for region in regions]
 
+    # Drop Nones from the VCF names; for some reason it is getting padded with Nones.
+    # TODO: Work out where/why that is happening and stop it.
+    vcf_names = [v for v in vcf_names if v is not None]
+
+    logger.debug('Making gbwt for {} vgs, {} chroms, {} vcfs, {} tbis, and {} vcf names'.format(
+        len(vg_ids), len(chroms), len(vcf_ids), len(tbi_ids), len(vcf_names)))
+
     # validate options should enforce this but check to be sure assumptions met to avoid
     # returning nonsense
     assert len(vg_ids) == len(regions)
-    assert len(vcf_ids) == 1 or len(vcf_ids) == len(regions)
+    assert len(vcf_ids) == 1 or len(vcf_ids) <= len(regions)
     assert len(tbi_ids) == len(vcf_ids)
+    assert len(vcf_names) == len(vcf_ids)
     
     logger.info('Making gbwt for chromosomes {}'.format(chroms))
 
@@ -850,9 +952,21 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
     gbwt_ids = []
     
     for i, (vg_id, vg_name, region) in enumerate(zip(vg_ids, vg_names, chroms)):
-        vcf_name = vcf_names[0] if len(vcf_names) == 1 else vcf_names[i]
-        vcf_id = vcf_ids[0] if len(vcf_names) == 1 else vcf_ids[i]
-        tbi_id = tbi_ids[0] if len(vcf_names) == 1 else tbi_ids[i]
+        if len(vcf_names) == 1: 
+            # One VCF for all contigs
+            vcf_name = vcf_names[0]
+            vcf_id = vcf_ids[0]
+            tbi_id = tbi_ids[0]
+        elif i < len(vcf_names):
+            # One VCF for this contig
+            vcf_name = vcf_names[i]
+            vcf_id = vcf_ids[i]
+            tbi_id = tbi_ids[i]
+        else:
+            # No VCF for this contig
+            vcf_name = None
+            vcf_id = None
+            tbi_id = None
             
         # index the graph and vcf to make the gbwt
         xg_name = remove_ext(vg_name, '.vg')
@@ -873,6 +987,8 @@ def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
     Make some haplotype graphs for threads in a gbwt. regions must be defined
     since we use the chromosome name to get the threads. Also, gbwt_ids must be
     specified (one genome gbwt or one per region).
+    
+    Returns a list of haplotypes, where each haplotype is a list of vg graphs subset to that haplotype.
     """
 
     assert(sample is not None)
@@ -921,15 +1037,19 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
     vg_path = os.path.join(work_dir, vg_name)
     job.fileStore.readGlobalFile(vg_id, vg_path)
 
-    gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
-    job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
+    if gbwt_id:
+        gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
+        job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
     
-    # Check if there are any threads in the index
-    # TODO: Won't be useful if the index covers multiple contigs because we aren't indexing one contig graph at a time.
-    assert(gbwt_id)
-    thread_count = int(context.runner.call(job,
-        [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
-        ['wc', '-l']], work_dir = work_dir, check_output = True))
+        # Check if there are any threads in the index
+        # TODO: Won't be useful if the index covers multiple contigs because we aren't indexing one contig graph at a time.
+        thread_count = int(context.runner.call(job,
+            [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
+            ['wc', '-l']], work_dir = work_dir, check_output = True))
+            
+    else:
+        # No gbwt means no threads
+        thread_count = 0
     
 
     thread_vg_ids = []

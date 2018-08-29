@@ -412,7 +412,11 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     thread DBs in the list will be considered when creating the xg index. Their
     haplotype names will be incorporated, and the maximum haplotype count in
     any of them will be used as the XG index's expected haplotype count per
-    chromosome. It cannot be specified along with make_gbwt. 
+    chromosome. It cannot be specified along with make_gbwt.
+    
+    if make_gbwt is specified *and* a phasing VCF is specified, the GBWT will
+    be generated. Otherwise it won't be (for example, for single-contig graphs
+    where no VCF is available).
     
     Return a tuple of file IDs, (xg_id, gbwt_id, thread_db_id). The GBWT ID
     will be None if no GBWT is generated. The thread DB ID will be None if no
@@ -455,7 +459,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
         phasing_opts = ['-v', os.path.basename(phasing_file)]
         
-        if make_gbwt and vcf_phasing_file_id:
+        if make_gbwt:
             # Write the haplotype index to its own file
             phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
            
@@ -542,7 +546,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                         vcf_phasing_file_id = None, tbi_phasing_file_id = None,
                         make_gbwt=False, gbwt_regions=[], separate_threads=False,
-                        use_thread_dbs=None, intermediate=False):
+                        use_thread_dbs=None, intermediate=False, intermediate_cat=True):
     """
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
@@ -551,8 +555,9 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     Note: the resources assigned to indexing come from those assigned to this parent job
     (as they can get toggled between xg and gbwt modes in the caller)
     
-    If intermediate is set to true, do not save the concatenated .cat.vg or the
-    final .xg to the output store.
+    If intermediate is set to True, do not save the final .xg to the output store.
+    
+    If intermediate_cat is False and intermediate is also False, save the .cat.vg to the output store.
     """
     
     # to encapsulate everything under this job
@@ -561,7 +566,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     
     # Concatenate the graph files.
     vg_concat_job = child_job.addChildJobFn(run_concat_graphs, context, inputGraphFileIDs,
-                                            graph_names, index_name, intermediate=intermediate)
+                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat))
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
                                       context, [vg_concat_job.rv(0)],
