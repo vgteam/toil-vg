@@ -590,10 +590,10 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
     'joined': a list of the unmerged, id-joined graph file IDs for each region.
     
     'merged': the merged graph file ID, if merge_output_name is set, or the
-    only graph, if there is only one.
+    only graph, if there is only one. None otherwise.
     
     'mapping': the file ID of the .mapping file produced by `vg ids --join`, if
-    id joining had to happen. Not present otherwise.
+    id joining had to happen. None otherwise.
     
     """
 
@@ -662,10 +662,10 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     graph(s) re-uploaded as output files if no joining occurred)
     
     'merged': the merged graph file ID, if merging occurred, or the only input
-    graph ID, if there was only one. Not present otherwise.
+    graph ID, if there was only one. None otherwise.
     
     'mapping': the file ID of the .mapping file produced by `vg ids --join`, if
-    run. Not present otherwise.
+    run. None otherwise.
     
     """
         
@@ -681,8 +681,13 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     if merge_output_name:
         merge_output_name = remove_ext(merge_output_name, '.vg') + '.vg'
         
-    # This is our return value
-    to_return = {}
+    # This is our return value. Initialize it as empty but with all the keys
+    # set to make asking for things with .rv() easier.
+    to_return = {
+        'joined': [],
+        'merged': None,
+        'mapping': None
+    }
     
     if join_ids and len(region_files) != 1:
         # The graphs aren't pre-joined, and we ahve more than one.
