@@ -2342,11 +2342,23 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         
         # Start the output file.
         writer = tsv.TsvWriter(open(os.path.join(work_dir, table_filename), 'w'))
-        header = (['Condition', 'Precision'] + ['tagged {}'.format(tag) for tag in known_tags] + 
-            ['Reads'] + ['tagged {}'.format(tag) for tag in known_tags] +
-            ['Wrong'] + ['tagged {}'.format(tag) for tag in known_tags] +
-            ['at MAPQ 60', 'at MAPQ 0', 'at MAPQ >0', 'new vs. ' + baseline_condition, 'fixed vs. ' + baseline_condition,
-            'Avg. Correct MAPQ', 'Correct MAPQ 0'])
+        header = ['Condition', 'Precision']
+        for tag in known_tags:
+            header.append('+{}'.format(tag))
+            header.append('-{}'.format(tag))
+            
+        header.append('Reads')
+        for tag in known_tags:
+            header.append('+{}'.format(tag))
+            header.append('-{}'.format(tag))
+        
+        header.append('Wrong')
+        for tag in known_tags:
+            header.append('+{}'.format(tag))
+            header.append('-{}'.format(tag))
+        
+        header += ['at MAPQ 60', 'at MAPQ 0', 'at MAPQ >0', 'new vs. ' + baseline_condition, 'fixed vs. ' + baseline_condition,
+                   'Avg. Correct MAPQ', 'Correct MAPQ 0']
         writer.list_line(header)
         
         for condition in plot_conditions:
@@ -2360,24 +2372,38 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
                 line.append(float(stats['correct']) / (stats['wrong'] + stats['correct']))
             except ZeroDivisionError:
                 line.append("NaN")
-            # Then precisions with all tags
+            # Then precisions with and without all tags
             for tag in known_tags:
                 try:
+                    # Report with tag only
                     line.append(float(stats['correctTagged'][tag]) / (stats['wrongTagged'][tag] + stats['correctTagged'][tag]))
                 except ZeroDivisionError:
                     line.append("NaN")
+                try:
+                    # Report without tag
+                    line.append(float(stats['correct'] - stats['correctTagged'][tag]) / 
+                        ((stats['wrong'] - stats['wrongTagged'][tag]) + (stats['correct'] - stats['correctTagged'][tag])))
+                except ZeroDivisionError:
+                    line.append("NaN")
+                
             
             # Then Reads
             line.append(stats['wrong'] + stats['correct'])
-            # Then counts with all tags
+            # Then counts with and without all tags
             for tag in known_tags:
+                # Report with tag only
                 line.append(stats['wrongTagged'][tag] + stats['correctTagged'][tag])
+                # Report without tag
+                line.append((stats['wrong'] - stats['wrongTagged'][tag]) + (stats['correct'] - stats['correctTagged'][tag]))
             
             # Then Wrong reads
             line.append(stats['wrong'])
-            # Then counts with all tags
+            # Then counts with and without all tags
             for tag in known_tags:
+                # Report with tag only
                 line.append(stats['wrongTagged'][tag])
+                # Report without tag
+                line.append(stats['wrong'] - stats['wrongTagged'][tag])
             # Then counts in different quality buckets
             line.append(stats['wrong60'])
             line.append(stats['wrong0'])
