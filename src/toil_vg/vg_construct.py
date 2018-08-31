@@ -848,7 +848,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
     # filter down to sample in question
-    cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample]]
+    cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample, '--force-samples']]
     if unphased_handling == 'skip':
         cmd[0] += ['--phased']
     
