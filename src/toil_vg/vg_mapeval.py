@@ -15,6 +15,7 @@ import pdb
 import gzip
 import logging
 import copy
+import codecs
 from collections import Counter
 
 from math import ceil
@@ -118,6 +119,9 @@ def add_mapeval_options(parser):
     # We can compare all the scores against those from a particular GAM, if asked.
     parser.add_argument('--compare-gam-scores', default=None,
                         help='compare scores against those in the given named GAM')
+                        
+    parser.add_argument('--gbwt-baseline', default=None,
+                        help='use GBWT scoring status in the given named GAM like snp1kg-gbwt5.0-mp-pe as a tag on all reads')
                         
     parser.add_argument('--downsample', type=float, default=None,
                         help='downsample alignment files to the given portion of reads for evaluation')
@@ -639,7 +643,7 @@ def annotate_gam(job, context, xg_file_id, gam_file_id):
     return context.write_intermediate_file(job, annotated_gam_file)
     
     
-def extract_gam_read_stats(job, context, name, gam_file_id):
+def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
     """
     extract positions, scores, and MAPQs for reads from a gam, and return the id
     of the resulting read stats file
@@ -648,6 +652,10 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     
     Produces a read stats TSV of the format:
     read name, read tags (or '.'), [contig aligned to, alignment position,]* score, MAPQ
+    
+    If generate_tags is specified, it is a list of boolean GAM annotation names
+    that will be turned into tags, in addition to the contents of the features
+    annotation.
     
     If the GAM is not annotated with alignment positions, contig and position
     will both contain only "0" values.
@@ -666,12 +674,19 @@ def extract_gam_read_stats(job, context, name, gam_file_id):
     cmd = [['vg', 'view', '-aj', os.path.basename(gam_file)]]
     with open(gam_annot_json, 'w') as output_annot_json:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
+        
+    # Write jq code to generate additional tags
+    tag_generation = ''
+    for annotation_name in generate_tags:
+        # If the annotation exists with a truthy value, add a feature with the annotation name, which will become a tag.
+        tag_generation += ('.annotation.features = (if (.annotation.features | length) > 0 then .annotation.features else [] end +' +
+            'if .annotation.' + annotation_name + ' then ["' + annotation_name + '"] else []) | ')
 
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
     # avoid writing the json to disk)
     # TODO: Deduplicate this code with the truth file generation code in vg_sim.py!
-    jq_cmd = ['jq', '-c', '-r', '[.name] + '
+    jq_cmd = ['jq', '-c', '-r', tag_generation + '[.name] + '
               'if (.annotation.features | length) > 0 then [.annotation.features | join(",")] else ["."] end + '
               'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
               '[.score] + '
@@ -700,8 +715,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     Compares positions from two TSV files. Both files have the format:
     read name, comma-separated tag list (or '.'), [contig touched, true position]*, score, MAPQ
     
-    The truth file will have the cannonical tag list, while the stats file will
-    have the cannonical score and MAPQ.
+    The truth file will have the base tag list, while the stats file will
+    have the cannonical score and MAPQ, as well as additional tags to add.
     
     The input files must be in lexicographically sorted order by name, but may
     not contain the same number of entries each. The stats file may be a subset
@@ -779,11 +794,22 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 assert(aln_read_name == true_read_name)
 
                 # Grab the comma-separated tags from the truth file.
-                # The test file also has a tag slot but the real tags are in the truth file.
                 aln_tags = true_fields[1]
-                if (aln_tags == ''):
-                    # Use a '.' to indicate no tags, even if the truth file didn't.
+                if aln_tags == '':
                     aln_tags = '.'
+                
+                # The test file also has a tag slot for additional tags
+                aln_extra_tags = test_fields[1]
+                if aln_extra_tags == '':
+                    aln_extra_tags = '.'
+                    
+                # Combine the tags into a set of all observed tags
+                combined_tags = set(aln_tags.split(',')) | set(aln_extra_tags.split(','))
+                # Except the no-tags '.' if present
+                combined_tags -= {'.'}
+                
+                # Make into a string again
+                combined_tags_string = ','.join(sorted(combined_tags)) if len(combined_tags) > 0 else '.'
                 
                 # map seq name->position
                 # Grab everything after the tags column and before the score and mapq columns, in pairs.
@@ -801,7 +827,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                         aln_correct = 1
                         break
 
-                out.line(aln_read_name, aln_correct, aln_mapq, aln_tags)
+                out.line(aln_read_name, aln_correct, aln_mapq, combined_tags_string)
         
                 # Advance both reads
                 true_fields = next(truth_reader, None)
@@ -1266,7 +1292,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                             bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
                             bwa_bam_file_ids, surjected_results, true_read_stats_file_id,
                             mapeval_threshold, score_baseline_name=None, original_read_gam=None,
-                            downsample_portion=None):
+                            downsample_portion=None, gbwt_usage_tag_gam_name=None):
     """
     run the mapping comparison.  Dump some tables into the outstore.
     
@@ -1287,7 +1313,12 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     Each result set is itself a pair, consisting of a list of per-graph file
     IDs, and an overall statistics file ID.
     
-    By default runs the comparison on a downsampled 2% of the reads.
+    If downsample_portion is specified, the comparison runs on a downsampled
+    porton of the reads.
+    
+    If gbwt_usage_tag_gam_name is set, tags for that GAM's reads' GBWT usage
+    annotations will be generated for the GAM with that name, and propagated to
+    all the other conditions nin the combined stats file.
     
     """
     
@@ -1387,9 +1418,17 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
                                                 cores=context.config.misc_cores, memory=context.config.alignment_mem,
                                                 disk=context.config.alignment_disk)
         
+        # Determine the annotations to promote to tags
+        generate_tags = []
+        if gam_names[gam_i] == gbwt_usage_tag_gam_name:
+            # We need to produce tags for the haplotype-scored-ness annotation
+            # for this GAM condition so we can propagate them later.
+            generate_tags.append('haplotype_score_used')
+        
         # Then compute stats on the annotated GAM
         gam_stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
                                                             name, annotate_job.rv(),
+                                                            generate_tags=generate_tags,
                                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                             disk=context.config.alignment_disk))
         
@@ -1400,7 +1439,7 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     position_comparison_job = job.addChildJobFn(run_map_eval_compare_positions, context,
                                                 true_read_stats_file_id, gam_names, gam_stats_file_ids,
                                                 bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids,
-                                                mapeval_threshold,
+                                                mapeval_threshold, gbwt_usage_tag_gam_name=gbwt_usage_tag_gam_name,
                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                 disk=context.config.misc_disk)
     for dependency in itertools.chain(gam_stats_jobs, bam_stats_jobs):
@@ -1459,7 +1498,8 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     return position_comparison_results, score_comparisons
 
 def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_names, gam_stats_file_ids,
-                         bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids, mapeval_threshold):
+                         bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids, mapeval_threshold,
+                         gbwt_usage_tag_gam_name=None):
     """
     Compare the read positions for each read across the different aligmment
     methods.
@@ -1468,25 +1508,160 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
     format), a combined "positions.results.tsv" across all aligners, and a
     statistics file "stats.tsv" in the out_store.
     
+    If gbwt_usage_tag_gam_name is set, propagates the GBWT usage tag from the
+    stats file for that GAM to the stats files for all the other conditions.
+    
     Returns the list of comparison files, and the stats file ID.
     """
 
     # merge up all the output data into one list
     names = gam_names + bam_names + pe_bam_names
     stats_file_ids = gam_stats_file_ids + bam_stats_file_ids + pe_bam_stats_file_ids
+    
+    # This is the job that roots the position comparison
+    root = job
+    
+    if gbwt_usage_tag_gam_name is not None:
+        # We want to propagate the GBWT usage tag from this GAM's stats file. Find it.
+        tag_gam_index = gam_names.index(gbwt_usage_tag_gam_name)
+        tag_stats_id = gam_stats_file_ids[tag_gam_index]
+        
+        # This holds the IDs of the stats files that have had the tags propagated.
+        propagated_stats_file_ids = []
+        for other_id in stats_file_ids:
+            propagate_job = job.addChildJobFn(propagate_tag, context, tag_stats_id, other_id, 'haplotype_score_used',
+                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                              disk=context.config.alignment_disk)
+            propagated_stats_file_ids.append(propagate_job.rv())
+        
+        # Mak a new root for the position comparison after that.
+        root = Job()
+        job.addFollowOn(root)
+        
+        # Use the improved stats files instead fo the old ones
+        stats_file_ids = propagated_stats_file_ids
+        
+        
 
     compare_ids = []
     for name, stats_file_id in zip(names, stats_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
-                                             stats_file_id, mapeval_threshold,
-                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                             disk=context.config.alignment_disk).rv())
+        # When the (modified) individual stats files are ready, run the position comparison
+        compare_ids.append(root.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
+                                              stats_file_id, mapeval_threshold,
+                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                              disk=context.config.alignment_disk).rv())
 
-    position_comp_file_id = job.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
-                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                            disk=context.config.alignment_disk).rv(1)
+    position_comp_file_id = root.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
+                                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                  disk=context.config.alignment_disk).rv(1)
                                          
     return compare_ids, position_comp_file_id
+    
+def propagate_tag(job, context, from_id, to_id, tag_name):
+    """
+    Given two positiuon stats TSVs, of the format:
+    
+    read name, read tags (or '.'), [contig aligned to, alignment position,]* score, MAPQ
+    
+    Copies the tag of the given name, if present, from the from file to the to file for corresponding reads.
+    
+    Assumes files are sorted by read name.
+    
+    Returns the ID of the modified to file.
+    
+    """
+    
+    if from_id == to_id:
+        # Nothing to do! All tags will be the same.
+        return to_id
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    with job.fileStore.readGlobalFileStream(from_id) as from_stream, \
+        job.fileStore.readGlobalFileStream(to_id) as to_stream, \
+        job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
+        
+        # Read the file we are pulling the tag from
+        from_decoded = codecs.getreader('utf-8')(from_stream)
+        from_reader = iter(tsv.TsvReader(from_decoded))
+        
+        # And the file we are putting the tag to
+        to_decoded = codecs.getreader('utf-8')(to_stream)
+        to_reader = iter(tsv.TsvReader(to_decoded))
+        
+        # And set up the output writer
+        out_encoded = codecs.getwriter('utf-8')(out_stream)
+        out_writer = tsv.TsvWriter(out_encoded)
+        
+        # Start an iteration over them
+        from_fields = next(from_reader, None)
+        to_fields = next(to_reader, None)
+        
+        # Track line numbers for error reporting
+        from_line = 1
+        to_line = 1
+        
+        while from_fields is not None and to_fields is not None:
+            # We still have data on both sides
+            
+            # The minimum field count you can have for either side is 4
+            
+            if len(from_fields) < 4:
+                raise RuntimeError('Incorrect (<6) source field count on line {}: {}'.format(
+                    from_line, from_fields))
+            
+            if len(to_fields) < 4:
+                raise RuntimeError('Incorrect (<4) destination field count on line {}: {}'.format(
+                    to_line, to_fields))
+            
+            from_read_name = from_fields[0]
+            to_read_name = to_fields[0]
+            
+            # The reads should correspond; any downsampling should have already happened.
+            assert(from_read_name == to_read_name)
+
+            # Parse the comma-separated tags from the from file.
+            from_tags = from_fields[1]
+            if from_tags in ['', '.']:
+                from_tags = set()
+            else:
+                from_tags = set(from_tags.split(','))
+            
+            # And from the to file
+            to_tags = to_fields[1]
+            if to_tags in ['', '.']:
+                to_tags = set()
+            else:
+                to_tags = set(to_tags.split(','))
+                
+            
+            if tag_name in from_tags and tag_name not in to_tags:
+                # This tag needs to be added in
+                to_tags.add(tag_name)
+            elif tag_name not in from_tags and tag_name in to_tags:
+                # The tag is there when it shouldn't be and needs to be removed
+                to_tags.remove(tag_name)
+                
+            
+            # Convert back to a comma-separated string or .
+            if len(to_tags) == 0:
+                to_tags = '.'
+            else:
+                to_tags = ','.join(to_tags)
+                
+            to_fields[1] = to_tags
+
+            out_writer.list_line(to_fields)
+    
+            # Advance both reads
+            from_fields = next(from_reader, None)
+            from_line += 1
+            to_fields = next(to_reader, None)
+            to_line += 1
+        
+    # Return the ID of the file we wrote.
+    return out_id
+    
 
 def run_process_position_comparisons(job, context, names, compare_ids):
     """
@@ -2055,6 +2230,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                      options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids, surjected_results,
                      true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores, reads_gam_file_id,
                      downsample_portion=options.downsample,
+                     gbwt_usage_tag_gam_name=options.gbwt_baseline,
                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                      disk=context.config.misc_disk)
 
