@@ -1609,67 +1609,77 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
         from_line = 1
         to_line = 1
         
-        while from_fields is not None and to_fields is not None:
-            # We still have data on both sides
-            
-            # The minimum field count you can have for either side is 4
-            
-            if len(from_fields) < 4:
-                raise RuntimeError('Incorrect (<6) source field count on line {}: {}'.format(
-                    from_line, from_fields))
-            
-            if len(to_fields) < 4:
-                raise RuntimeError('Incorrect (<4) destination field count on line {}: {}'.format(
-                    to_line, to_fields))
-            
-            from_read_name = from_fields[0]
-            to_read_name = to_fields[0]
-            
-            if from_read_name != to_read_name:
-                # The reads should correspond; any downsampling should have already happened.
-                # If not, report something hopefully informative.
-                raise RuntimeError('Name {} on line {} does not match {} on line {}'.format(
-                    from_line, from_read_name, to_line, to_read_name))
-                
-            # Parse the comma-separated tags from the from file.
-            from_tags = from_fields[1]
-            if from_tags in ['', '.']:
-                from_tags = set()
-            else:
-                from_tags = set(from_tags.split(','))
-            
-            # And from the to file
-            to_tags = to_fields[1]
-            if to_tags in ['', '.']:
-                to_tags = set()
-            else:
-                to_tags = set(to_tags.split(','))
-                
-            
-            if tag_name in from_tags and tag_name not in to_tags:
-                # This tag needs to be added in
-                to_tags.add(tag_name)
-            elif tag_name not in from_tags and tag_name in to_tags:
-                # The tag is there when it shouldn't be and needs to be removed
-                to_tags.remove(tag_name)
-                
-            
-            # Convert back to a comma-separated string or .
-            if len(to_tags) == 0:
-                to_tags = '.'
-            else:
-                to_tags = ','.join(to_tags)
-                
-            to_fields[1] = to_tags
-
-            out_writer.list_line(to_fields)
-    
-            # Advance both reads
-            from_fields = next(from_reader, None)
-            from_line += 1
-            to_fields = next(to_reader, None)
-            to_line += 1
+        try:
         
+            while from_fields is not None and to_fields is not None:
+                # We still have data on both sides
+                
+                # The minimum field count you can have for either side is 4
+                
+                if len(from_fields) < 4:
+                    raise RuntimeError('Incorrect (<6) source field count on line {}: {}'.format(
+                        from_line, from_fields))
+                
+                if len(to_fields) < 4:
+                    raise RuntimeError('Incorrect (<4) destination field count on line {}: {}'.format(
+                        to_line, to_fields))
+                
+                from_read_name = from_fields[0]
+                to_read_name = to_fields[0]
+                
+                if from_read_name != to_read_name:
+                    # The reads should correspond; any downsampling should have already happened.
+                    # If not, report something hopefully informative.
+                    raise RuntimeError('Name {} on line {} does not match {} on line {}'.format(
+                        from_read_name, from_line, to_read_name, to_line))
+                    
+                # Parse the comma-separated tags from the from file.
+                from_tags = from_fields[1]
+                if from_tags in ['', '.']:
+                    from_tags = set()
+                else:
+                    from_tags = set(from_tags.split(','))
+                
+                # And from the to file
+                to_tags = to_fields[1]
+                if to_tags in ['', '.']:
+                    to_tags = set()
+                else:
+                    to_tags = set(to_tags.split(','))
+                    
+                
+                if tag_name in from_tags and tag_name not in to_tags:
+                    # This tag needs to be added in
+                    to_tags.add(tag_name)
+                elif tag_name not in from_tags and tag_name in to_tags:
+                    # The tag is there when it shouldn't be and needs to be removed
+                    to_tags.remove(tag_name)
+                    
+                
+                # Convert back to a comma-separated string or .
+                if len(to_tags) == 0:
+                    to_tags = '.'
+                else:
+                    to_tags = ','.join(to_tags)
+                    
+                to_fields[1] = to_tags
+
+                out_writer.list_line(to_fields)
+        
+                # Advance both reads
+                from_fields = next(from_reader, None)
+                from_line += 1
+                to_fields = next(to_reader, None)
+                to_line += 1
+                
+            except:
+                
+                logging.error("Tag propagation failed. Dumping files.")
+                context.write_output_file(job, from_stats_file)
+                context.write_output_file(job, to_stats_file)
+                
+                raise
+            
     # Return the ID of the file we wrote.
     return out_id
     
