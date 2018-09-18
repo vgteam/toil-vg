@@ -679,8 +679,8 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
     tag_generation = ''
     for annotation_name in generate_tags:
         # If the annotation exists with a truthy value, add a feature with the annotation name, which will become a tag.
-        tag_generation += ('.annotation.features = (if (.annotation.features | length) > 0 then .annotation.features else [] end +' +
-            'if .annotation.' + annotation_name + ' then ["' + annotation_name + '"] else []) | ')
+        tag_generation += ('.annotation.features = (if (.annotation.features | length) > 0 then .annotation.features else [] end + ' +
+            'if .annotation.' + annotation_name + ' then ["' + annotation_name + '"] else [] end) | ')
 
     # turn the annotated gam json into truth positions, as separate command since
     # we're going to use a different docker container.  (Note, would be nice to
