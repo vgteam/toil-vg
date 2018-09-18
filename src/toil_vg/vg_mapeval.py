@@ -1672,13 +1672,13 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
                 to_fields = next(to_reader, None)
                 to_line += 1
                 
-            except:
-                
-                logging.error("Tag propagation failed. Dumping files.")
-                context.write_output_file(job, from_stats_file)
-                context.write_output_file(job, to_stats_file)
-                
-                raise
+        except:
+            
+            logging.error("Tag propagation failed. Dumping files.")
+            context.write_output_file(job, from_stats_file)
+            context.write_output_file(job, to_stats_file)
+            
+            raise
             
     # Return the ID of the file we wrote.
     return out_id
