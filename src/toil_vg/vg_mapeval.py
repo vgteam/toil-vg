@@ -15,7 +15,6 @@ import pdb
 import gzip
 import logging
 import copy
-import codecs
 from collections import Counter
 
 from math import ceil
@@ -1582,16 +1581,13 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
         job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
         
         # Read the file we are pulling the tag from
-        from_decoded = codecs.getreader('utf-8')(from_stream)
-        from_reader = iter(tsv.TsvReader(from_decoded))
+        from_reader = iter(tsv.TsvReader(from_stream))
         
         # And the file we are putting the tag to
-        to_decoded = codecs.getreader('utf-8')(to_stream)
-        to_reader = iter(tsv.TsvReader(to_decoded))
+        to_reader = iter(tsv.TsvReader(to_stream))
         
         # And set up the output writer
-        out_encoded = codecs.getwriter('utf-8')(out_stream)
-        out_writer = tsv.TsvWriter(out_encoded)
+        out_writer = tsv.TsvWriter(out_stream)
         
         # Start an iteration over them
         from_fields = next(from_reader, None)
