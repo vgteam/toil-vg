@@ -262,6 +262,11 @@ def validate_options(options):
 
     require(options.truth or options.skip_eval or options.bam_input_reads or options.gam_input_xg,
             '--gam-input-xg must be provided to annotate reads, or reads must be input in BAM format or with associated truth')
+            
+    # We can't downsample with GAM baseline because we still aren't properly deterministic for some reason.
+    # TODO: fix that
+    require(options.gam_baseline is None or options.downsample is None or options.downsample == 1.0,
+            '--gam-baseline cannot be used with --downsample until downsampling is properly deterministic')
     
 def parse_int(value):
     """
