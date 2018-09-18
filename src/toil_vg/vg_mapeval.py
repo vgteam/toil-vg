@@ -1564,7 +1564,7 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
     
     Copies the tag of the given name, if present, from the from file to the to file for corresponding reads.
     
-    Assumes files are sorted by read name.
+    Works even if files are not sorted by read name.
     
     Returns the ID of the modified to file.
     
@@ -1575,9 +1575,21 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
         return to_id
     
     work_dir = job.fileStore.getLocalTempDir()
+    
+    from_stats_file = os.path.join(work_dir, 'from.tsv')
+    job.fileStore.readGlobalFile(from_id, from_stats_file, cache=False)
+    to_stats_file = os.path.join(work_dir, 'to.tsv')
+    job.fileStore.readGlobalFile(to_id, to_stats_file, cache=False)
 
-    with job.fileStore.readGlobalFileStream(from_id) as from_stream, \
-        job.fileStore.readGlobalFileStream(to_id) as to_stream, \
+    # Sort the input files in place
+    cmd = ['sort', os.path.basename(from_stats_file), '-k', '1', '-o', os.path.basename(from_stats_file)]
+    context.runner.call(job, cmd, work_dir = work_dir)
+    cmd = ['sort', os.path.basename(to_stats_file), '-k', '1', '-o', os.path.basename(to_stats_file)]
+    context.runner.call(job, cmd, work_dir = work_dir)
+    
+    
+    with open(from_stats_file) as from_stream, \
+        open(to_stats_file) as to_stream, \
         job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
         
         # Read the file we are pulling the tag from
@@ -1613,9 +1625,12 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
             from_read_name = from_fields[0]
             to_read_name = to_fields[0]
             
-            # The reads should correspond; any downsampling should have already happened.
-            assert(from_read_name == to_read_name)
-
+            if from_read_name != to_read_name:
+                # The reads should correspond; any downsampling should have already happened.
+                # If not, report something hopefully informative.
+                raise RuntimeError('Name {} on line {} does not match {} on line {}'.format(
+                    from_line, from_read_name, to_line, to_read_name))
+                
             # Parse the comma-separated tags from the from file.
             from_tags = from_fields[1]
             if from_tags in ['', '.']:
