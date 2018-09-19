@@ -803,7 +803,10 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     # What intermediate VCF will we use for variants to drop?
     private_vcf_name = '{}_private.vcf.gz'.format(vcf_base)
 
-    # Make a VCF with only the variants for the sample we want gone 
+    # Make a VCF with only the variants for the sample we want gone
+    # TODO: if none of the samples listed are present, we get *all* variants instead of no variants.
+    # Then we proceed to remove all the variants in the isec step.
+    # Can we detect/avoid this?
     cmd = ['bcftools', 'view', os.path.basename(vcf_file), '--private',
            '--samples', ','.join(samples), '--force-samples', '--output-type', 'z']
     with open(os.path.join(work_dir, private_vcf_name), 'w') as out_file:
@@ -812,7 +815,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     # bcftools isec demands indexed input, so index the itnermediate file.
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', private_vcf_name],
                         work_dir=work_dir)
-        
+                        
     # Now make a VCF that excludes those variants and also excludes the filtered-out samples.
     # We subtract the private variants from the original VCF, and then remove the samples we're excluding.
     cmd = [['bcftools', 'isec', '--complement', os.path.basename(vcf_file), os.path.basename(private_vcf_name),
