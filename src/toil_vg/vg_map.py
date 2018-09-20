@@ -428,7 +428,7 @@ def run_zip_surject_input(job, context, gam_chunk_file_ids):
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
                         chunk_filename_ids, chunk_id, indexes,
-                        bam_output=False, gbwt_penalty=None):
+                        bam_output=False, gbwt_penalty=None, always_check_population=True):
                         
     """
     Align a chunk of reads.
@@ -548,6 +548,11 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
                     
                 # Both map and mpmap take this option
                 vg_parts += ['--recombination-penalty', str(gbwt_penalty)]
+                
+            if multipath and always_check_population:
+                # Always try to population-score even unambiguous reads
+                # mpmap can do this
+                vg_parts += ['--always-check-population']
 
         RealtimeLogger.info(
             "Running VG for {} against {}: {}".format(sample_name, graph_file,
