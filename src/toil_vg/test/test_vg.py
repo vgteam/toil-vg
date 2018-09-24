@@ -56,8 +56,8 @@ class VGCGLTest(TestCase):
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
 
         # input files all in same bucket folder, which is specified (only) here:
-        self.bucket_name = 'cgl-pipeline-inputs'
-        self.folder_name = 'vg_cgl/toil_vg_ci'
+        self.bucket_name = 'vg-data'
+        self.folder_name = 'toil_vg_ci'
         
         self.base_command = ['toil-vg', 'run',
                              '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
