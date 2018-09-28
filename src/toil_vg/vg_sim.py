@@ -165,6 +165,8 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
     if fastq_id:
         fastq_file = os.path.join(work_dir, 'error_template.fastq')
         job.fileStore.readGlobalFile(fastq_id, fastq_file)
+    else:
+        fastq_file = None
     
     # and the annotation xg file
     if xg_annot_file_id:
@@ -241,6 +243,10 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
                 context.write_output_file(job, xg_annot_file)
                 context.write_output_file(job, unannotated_gam_file)
                 context.write_output_file(job, gam_file)
+                for tag_bed in tag_beds:
+                    context.write_output_file(job, tag_bed)
+                if fastq_file is not None:
+                    context.write_output_file(job, fastq_file)
                 raise
 
         # turn the annotated gam json into truth positions, as separate command since
