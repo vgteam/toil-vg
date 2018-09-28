@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """
 Locally regenerate all the bakeoff regions graphs and indexes that are
-found here s3://cgl-pipeline-inputs/vg_cgl/bakeoff/
+found here s3://vg-data/bakeoff/
 The input fasta's and vcf's are expected to be there already
 """
 
@@ -21,11 +21,11 @@ def get_vcf_coords_hg38(region):
     return '{}:{}-{}'.format(r[0], r[1] + 1, r[2])
 
 def get_vcf_path_hg38(region):
-    return 's3://cgl-pipeline-inputs/vg_cgl/bakeoff/1kg_hg38-{}.vcf.gz'.format(region)
+    return 's3://vg-data/bakeoff/1kg_hg38-{}.vcf.gz'.format(region)
 
 def get_fasta_path_hg38(region):
     chrom = region_to_bed_hg38[region][0]
-    return 's3://cgl-pipeline-inputs/vg_cgl/bakeoff/chr{}.fa.gz'.format(chrom)
+    return 's3://vg-data/bakeoff/chr{}.fa.gz'.format(chrom)
 
 if len(sys.argv) not in [3,4]:
     print "Usage: {} jobstore outstore <config>".format(sys.argv[0])
