@@ -690,7 +690,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     }
     
     if join_ids and len(region_files) != 1:
-        # The graphs aren't pre-joined, and we ahve more than one.
+        # The graphs aren't pre-joined, and we have more than one.
         # Do the actual joining
         
         mapping_file = merge_output_name[:-3] if merge_output_name else name
@@ -733,8 +733,23 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     
 def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
                                region, region_name, max_node_size, alt_paths, flat_alts,
-                               is_chrom = False, sort_ids = True, normalize = False):
-    """ construct a graph from the vcf for a given region and return its id """
+                               is_chrom = False, sort_ids = True, normalize = False, validate = False):
+    """
+    Construct a graph from the vcf for a given region and return its file id.
+    
+    If is_chrom is set, pass along that fact to the constructor so it doesn't
+    try to pass a region out of the chromosome name.
+    
+    If sort_ids is set (the default), do a sort pass after construction to make
+    sure the IDs come in topological order.
+    
+    If normalize is set, try to normalize the graph and merge splits that
+    produce identical sequences.
+    
+    If validate is true, subject the graph to a `vg validate` pass after
+    construct. This is off by default because vg currently does internal
+    validation during construction.
+    """
 
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -776,6 +791,10 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
     vg_path = os.path.join(work_dir, region_name)
     with open(vg_path, 'w') as vg_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = vg_file)
+        
+    if validate:
+        # Check the constructed and possibly modified graph for errors
+        context.runner.call(job, ['vg', 'validate', os.path.basename(vg_path)], work_dir = work_dir)
 
     return context.write_intermediate_file(job, vg_path)
 
@@ -1153,13 +1172,16 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
     return sample_vg_ids
 
 def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chrom, xg_id,
-                                 sample, haplotypes, gbwt_id, leave_thread_paths=True):
+                                 sample, haplotypes, gbwt_id, leave_thread_paths=True, validate=True):
     """
     make a sample graph using the gbwt.
     
     Extract the subgraph visited by threads for the requested sample, if it is nonempty.
     Otherwise (for cases like chrM where there are no variant calls and no threads) pass through
     the primary path of the graph.
+    
+    If validate is True (the default), makes sure the final graph passes
+    `vg validate` before sending it on.
     """
 
     # This can't work if the sample is None and we want any haplotypes
@@ -1218,7 +1240,10 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             cmd.append(['vg', 'mod', '-', '-D'])
         context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
         
-    # Check if we actually got anything.
+    if validate:
+        # Make sure that the resulting graph passes validation before returning it.
+        # This is another whole graph load and so will take a while.
+        context.runner.call(job, ['vg', 'validate', os.path.basename(sample_graph_path)], work_dir = work_dir)
 
     sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
             
