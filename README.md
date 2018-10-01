@@ -100,13 +100,13 @@ Install Toil locally.  This can be done with virtualenv as follows:
 
 Log into the leader with
 
-    toil ssh-cluster <leader-name> --zone usa-west-2a
+    toil ssh-cluster <leader-name> --zone us-west-2a
 
 In order to log onto a worker node instead of the leader, find its public IP from the EC2 Management Console or command line, and log in using the core username: `ssh core@public-ip`
 
 Destroy the leader when finished with it.  After logging out with `exit`:
 
-    toil destroy-cluster myleader
+    toil destroy-cluster -z us-west-2a myleader
 
 ### Small AWS Test
 
