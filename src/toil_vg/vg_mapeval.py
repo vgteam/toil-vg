@@ -1704,6 +1704,8 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     work_dir = job.fileStore.getLocalTempDir()
 
     map_stats = []
+    
+    RealtimeLogger.info("Processing position comparisons for conditions: {}".format(names))
 
     # make the position.results.tsv and position.stats.tsv
     results_file = os.path.join(work_dir, 'position.results.tsv')
