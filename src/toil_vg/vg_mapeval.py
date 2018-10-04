@@ -1093,7 +1093,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # TODO: Make this come through the matrix and not a separate list
     def multipath_opts_conditions(conditions_in):
         for condition in conditions_in:
-            if condition["aligner"] == "vg" and condition["multipath"]:
+            if condition["aligner"] == "vg" and condition["multipath"] == True:
                 # Only vg mpmap conditions get expanded by option set
                 for opt_num in range(len(mpmap_opts_list)):
                     extended = dict(condition)
@@ -1124,14 +1124,25 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             else:
                 yield condition
                 
+    # We use this to compose all the generators together, and debug them
+    def compose_two_generators(gen1, gen2):
+        def composed_generator(x):
+            items = list(gen1(x))
+            new_items = list(gen2(items))
+            RealtimeLogger.info('Items before: {}'.format(items))
+            RealtimeLogger.info('Items after: {}'.format(new_items))
+            return new_items
+        
+        return composed_generator
+                
     # Define the list of functions to nest, innermost first. To add another
     # independent variable to the experiment, write another condition-expanding
     # generator function above and put it at the end of this list.
     condition_steps = [aligner_conditions, multipath_conditions, multipath_opts_conditions, paired_conditions, gbwt_conditions]
     # Make the master condition generator by composing all the generator
-    # functions. To use it, pass it a list of an empty dict and loop over the
-    # fleshed-out condition dicts it generates.
-    condition_generator = reduce(lambda left, right: lambda x: right(left(x)), condition_steps)
+    # functions, left-inside-right. To use it, pass it a list of an empty dict
+    # and loop over the fleshed-out condition dicts it generates.
+    condition_generator = reduce(compose_two_generators, condition_steps)
     
     
     # Determine if we should do vg mapping or if we have gams already
@@ -1160,6 +1171,8 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # Track the tag strings that are used. Each must be unique to ensure our GAM names are unique.
     used_tag_strings = set()
     
+    
+    RealtimeLogger.info('Condition matrix: {}'.format(matrix))
     
     for condition in condition_generator([{}]):
         # For each condition
