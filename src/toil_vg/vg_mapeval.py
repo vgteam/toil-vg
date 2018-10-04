@@ -224,6 +224,9 @@ def validate_options(options):
                 
     require(not options.gbwt_penalties or options.use_gbwt,
             '--gbwt-penalties requires --use-gbwt')
+            
+    require(not options.gbwt_penalties or len(set(options.gbwt_penalties)) == len(options.gbwt_penalties),
+            '--gbwt-penalties valuses must be unique')
                 
     if options.use_snarls:
         require(options.multipath or options.multipath_only,
@@ -1124,15 +1127,10 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             else:
                 yield condition
                 
-    # We use this to compose all the generators together, and debug them
+    # We use this to compose all the generators together
     def compose_two_generators(gen1, gen2):
         def composed_generator(x):
-            items = list(gen1(x))
-            new_items = list(gen2(items))
-            RealtimeLogger.info('Items before: {}'.format(items))
-            RealtimeLogger.info('Items after: {}'.format(new_items))
-            return new_items
-        
+            return gen2(gen1(x))
         return composed_generator
                 
     # Define the list of functions to nest, innermost first. To add another
@@ -1551,13 +1549,6 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
     
     Returns the list of comparison files, and the stats file ID.
     """
-
-    # Make sure each name only appears in one list
-    for name in pe_bam_names:
-        assert(name not in bam_names)
-        assert(name not in gam_names)
-    for name in bam_names:
-        assert(name not in gam_names)
 
     # merge up all the output data into one list
     names = gam_names + bam_names + pe_bam_names
