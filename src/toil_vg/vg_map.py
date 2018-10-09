@@ -554,11 +554,6 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
                 # mpmap can do this
                 vg_parts += ['--always-check-population']
 
-        for i in range(len(vg_parts)):
-            # Solve typos in options, so we can rescue stopped runs.
-            if vg_parts[i] == "--delay-popultion":
-                vg_parts[i] = "--delay-population"
-
         RealtimeLogger.info(
             "Running VG for {} against {}: {}".format(sample_name, graph_file,
             " ".join(vg_parts)))
