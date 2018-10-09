@@ -224,6 +224,9 @@ def validate_options(options):
                 
     require(not options.gbwt_penalties or options.use_gbwt,
             '--gbwt-penalties requires --use-gbwt')
+            
+    require(not options.gbwt_penalties or len(set(options.gbwt_penalties)) == len(options.gbwt_penalties),
+            '--gbwt-penalties valuses must be unique')
                 
     if options.use_snarls:
         require(options.multipath or options.multipath_only,
@@ -1012,6 +1015,10 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     
     """
 
+    # The input GAM names must be unique
+    RealtimeLogger.info('Input GAM names: {}'.format(gam_names))
+    assert(len(set(gam_names)) == len(gam_names))
+
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id['xg'] for index_id in index_ids]
 
@@ -1089,7 +1096,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # TODO: Make this come through the matrix and not a separate list
     def multipath_opts_conditions(conditions_in):
         for condition in conditions_in:
-            if condition["aligner"] == "vg" and condition["multipath"]:
+            if condition["aligner"] == "vg" and condition["multipath"] == True:
                 # Only vg mpmap conditions get expanded by option set
                 for opt_num in range(len(mpmap_opts_list)):
                     extended = dict(condition)
@@ -1120,14 +1127,20 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             else:
                 yield condition
                 
+    # We use this to compose all the generators together
+    def compose_two_generators(gen1, gen2):
+        def composed_generator(x):
+            return gen2(gen1(x))
+        return composed_generator
+                
     # Define the list of functions to nest, innermost first. To add another
     # independent variable to the experiment, write another condition-expanding
     # generator function above and put it at the end of this list.
     condition_steps = [aligner_conditions, multipath_conditions, multipath_opts_conditions, paired_conditions, gbwt_conditions]
     # Make the master condition generator by composing all the generator
-    # functions. To use it, pass it a list of an empty dict and loop over the
-    # fleshed-out condition dicts it generates.
-    condition_generator = reduce(lambda left, right: lambda x: right(left(x)), condition_steps)
+    # functions, left-inside-right. To use it, pass it a list of an empty dict
+    # and loop over the fleshed-out condition dicts it generates.
+    condition_generator = reduce(compose_two_generators, condition_steps)
     
     
     # Determine if we should do vg mapping or if we have gams already
@@ -1152,6 +1165,12 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # this dict maps from tuples of FASTQ IDs to the Toil job for splitting
     # those FASTQs with run_split_reads_if_needed.
     read_chunk_jobs = {}
+    
+    # Track the tag strings that are used. Each must be unique to ensure our GAM names are unique.
+    used_tag_strings = set()
+    
+    
+    RealtimeLogger.info('Condition matrix: {}'.format(matrix))
     
     for condition in condition_generator([{}]):
         # For each condition
@@ -1203,6 +1222,15 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 fastq_ids = reads_fastq_single_ids
                 # It is never interleaved
                 interleaved = False
+                
+            # Now the tag string is complete
+            RealtimeLogger.info('Condition {} produced tag string {}'.format(condition, tag_string))
+            if tag_string in used_tag_strings:
+                # If it's a duplicate, bail out
+                raise RuntimeError('Duplicate tag string {}'.format(tag_string))
+            else:
+                # Otherwise, say we used it
+                used_tag_strings.add(tag_string)
                 
             # If we have a GBWT penalty override, what is it?
             gbwt_penalty = None
@@ -1288,6 +1316,10 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                                                              disk=context.config.alignment_disk)
                 bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
                 bwa_mem_times[0] = bwa_mem_job.rv(1)
+
+    # GAM names must be unique
+    RealtimeLogger.info('Output GAM names: {}'.format(out_gam_names))
+    assert(len(set(out_gam_names)) == len(out_gam_names))
 
     return (out_gam_names, gam_file_ids, out_xg_ids, map_times, bwa_bam_file_ids,
             bwa_mem_times, surjected_results)
@@ -1522,6 +1554,9 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
     names = gam_names + bam_names + pe_bam_names
     stats_file_ids = gam_stats_file_ids + bam_stats_file_ids + pe_bam_stats_file_ids
     
+    # Make sure each name appears only once overall
+    assert(len(set(names)) == len(names))
+    
     # This is the job that roots the position comparison
     root = job
     
@@ -1704,6 +1739,12 @@ def run_process_position_comparisons(job, context, names, compare_ids):
     work_dir = job.fileStore.getLocalTempDir()
 
     map_stats = []
+    
+    RealtimeLogger.info("Processing position comparisons for conditions: {}".format(names))
+    
+    # Only allow each condition to appear once.
+    # If this is violated, something has gone wrong in our naming.
+    assert(len(set(names)) == len(names))
 
     # make the position.results.tsv and position.stats.tsv
     results_file = os.path.join(work_dir, 'position.results.tsv')
