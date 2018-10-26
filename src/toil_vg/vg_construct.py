@@ -112,8 +112,8 @@ def validate_construct_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    require(not options.haplo_sample or (options.regions or options.fasta_regions),
-            '--regions or --fasta_regions required with --haplo_sample')
+    require(options.regions or options.fasta_regions,
+            '--regions or --fasta_regions required')
     require(options.vcf == [] or len(options.vcf) == 1 or not options.regions or
             len(options.vcf) <= len(options.regions),
             'if many vcfs specified, cannot have more vcfs than --regions')
