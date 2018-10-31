@@ -38,7 +38,7 @@ def call_subparser(parser):
                         " Must be same length/order as --gams")
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
-                        help="GAMs to call.  One per chromosome. Must be same length/order as --chroms. "
+                        help="GAMs to call.  One per chromosome in the same order as --chroms, or just one. "
                         " Indexes (.gai) will be used if found.")
     parser.add_argument("--gam_index_cores", type=int,
                         help="number of threads used for gam indexing")
@@ -107,7 +107,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 augment = True, recall = False):
     """ Run vg call or vg genotype on a single graph.
 
-    Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id).  pileup_id and xg_id
+    Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id). pileup_id and xg_id
     can be same as input if they are not computed.  If pileup/xg/augmented are 
     computed, the returned ids will be None unless appropriate keep_flag set
     (to prevent sending them to the file store if they aren't wanted)
@@ -119,12 +119,13 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     chunk_name option is only for working filenames (to make more readable)
     
-    When runnign vg genotype, we can't not augment, and we can't recall (since
-    recall in vg genotype needs a VCF). We also won't return a pileup even if
-    asked to do so, because we don't compute one.
+    When running vg genotype, we can't not augment, so the no_augment flag is
+    ignored. We also can't recall (since recall in vg genotype needs a VCF). We
+    also won't return a pileup even if asked to do so, because we don't compute
+    one.
 
     """
-
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     # Read our input files from the store
@@ -179,14 +180,14 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         # facility for dumping the augmented graph.
         
         # Filtering already happened.
-        # We can't do recall (no passed VCF) and we can't skip augmentation.
-        assert(augment)
+        # We can't do recall (no passed VCF) 
         assert(not recall)
         
         # How do we actually genotype
         command = ['vg', 'genotype', os.path.basename(vg_path), '-t',
                    str(context.config.calling_cores), '-s', sample_name,
                    '-v', '-E', '-G', os.path.basename(gam_path)]
+        # TODO: Why do we need -E to get really any calls?
                    
         if keep_augmented:
             # Remember to dump the augmented graph so we can keep it
