@@ -347,7 +347,7 @@ def main():
     7 = Download output files from remote output fileStore to local output directory
     ================================================================================
     """
-
+    
     args = parse_args(sys.argv[1:])
     
     # Write out our config file that's necessary for all other subcommands

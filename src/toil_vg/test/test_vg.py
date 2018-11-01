@@ -492,7 +492,11 @@ class VGCGLTest(TestCase):
 
     def test_09_sim_small_genotype_no_augment(self):
         ''' 
-        This is the same as test #1, but exercises --force_outstore and --genotype with no augment
+        This is the same as test #1, but exercises --force_outstore and
+        --genotype with --no_augment.
+         
+        TODO: --no_augment is ignored for genotype because we use genotype's
+        built-in augment.
         '''
         self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
         self.test_vg_graph = self._ci_input_path('small.vg')

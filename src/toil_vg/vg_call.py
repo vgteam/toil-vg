@@ -38,7 +38,7 @@ def call_subparser(parser):
                         " Must be same length/order as --gams")
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
-                        help="GAMs to call.  One per chromosome. Must be same length/order as --chroms. "
+                        help="GAMs to call.  One per chromosome in the same order as --chroms, or just one. "
                         " Indexes (.gai) will be used if found.")
     parser.add_argument("--gam_index_cores", type=int,
                         help="number of threads used for gam indexing")
@@ -105,13 +105,9 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 keep_pileup = False, keep_xg = False, keep_gam = False,
                 keep_augmented = False, chunk_name = 'call', genotype = False,
                 augment = True, recall = False):
-    """ Run vg call on a single graph.
+    """ Run vg call or vg genotype on a single graph.
 
-    NOTE: Can now run vg genotype as well, but the plan is to fold genotype into call
-    soon.  At that point, will remove run_vg_genotype() function entirely, which is kinda
-    sitting around useless now. 
-
-    Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id).  pileup_id and xg_id
+    Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id). pileup_id and xg_id
     can be same as input if they are not computed.  If pileup/xg/augmented are 
     computed, the returned ids will be None unless appropriate keep_flag set
     (to prevent sending them to the file store if they aren't wanted)
@@ -122,9 +118,14 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     gam filtering is only done if filter_opts are passed in. 
 
     chunk_name option is only for working filenames (to make more readable)
+    
+    When running vg genotype, we can't not augment, so the no_augment flag is
+    ignored. We also can't recall (since recall in vg genotype needs a VCF). We
+    also won't return a pileup even if asked to do so, because we don't compute
+    one.
 
     """
-
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     # Read our input files from the store
@@ -136,11 +137,14 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
     if xg_id and defray:
         job.fileStore.readGlobalFile(xg_id, xg_path)
+        
+    # Define paths for all the files we might make
     pu_path = os.path.join(work_dir, '{}.pu'.format(chunk_name))
     trans_path = os.path.join(work_dir, '{}.trans'.format(chunk_name))
     support_path = os.path.join(work_dir, '{}.support'.format(chunk_name))
     aug_path = os.path.join(work_dir, '{}_aug.vg'.format(chunk_name))
     aug_gam_path = os.path.join(work_dir, '{}_aug.gam'.format(chunk_name))
+    vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
 
     timer = TimeTracker()
 
@@ -162,7 +166,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         if defray:
             filter_command += ['-x', os.path.basename(xg_path)]
 
-    # we filter separated when running genotype (due to augment -A)
+    # we filter separately when running genotype
     if filter_command and genotype:
         with open(gam_filter_path, 'w') as gam_filter_stream:
             timer.start('call-filter')
@@ -171,16 +175,68 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         gam_path = gam_filter_path
         filter_command = None
         
-    # augment command with optional filter piped at beginning
-    augment_generated_opts = ['-Z', os.path.basename(trans_path)]
-    if keep_pileup:
-        augment_generated_opts += ['-P', os.path.basename(pu_path)]
     if genotype:
-        # Make sure to use the augmentation mode that we need for genotype (augment with everything but no supports)
-        augment_generated_opts += ['-a', 'direct']
-        # We need to keep the augmented gam
-        augment_generated_opts += ['-A', os.path.basename(aug_gam_path)]
+        # When using vg genotype, we use genotype's built-in augmentation and
+        # facility for dumping the augmented graph.
+        
+        # Filtering already happened.
+        # We can't do recall (no passed VCF) 
+        assert(not recall)
+        
+        # How do we actually genotype
+        command = ['vg', 'genotype', os.path.basename(vg_path), '-t',
+                   str(context.config.calling_cores), '-s', sample_name,
+                   '-v', '-E', '-G', os.path.basename(gam_path)]
+        # TODO: Why do we need -E to get really any calls?
+                   
+        if keep_augmented:
+            # Remember to dump the augmented graph so we can keep it
+            command += ['-a', aug_path]
+        
+        if call_opts:
+            command += call_opts
+        for path_name in path_names:
+            command += ['-r', path_name]
+        for seq_name in seq_names:
+            command += ['-c', seq_name]
+        for seq_length in seq_lengths:
+            command += ['-l', seq_length]
+        for seq_offset in seq_offsets:
+            command += ['-o', seq_offset]
+        
+        try:
+            with open(vcf_path, 'w') as vggenotype_stdout:
+            
+                timer.start('genotype')
+                context.runner.call(job, command, work_dir=work_dir,
+                                     outfile=vggenotype_stdout)
+                timer.stop()
+                
+            vcf_id = context.write_intermediate_file(job, vcf_path)
+
+        except Exception as e:
+            logging.error("Genotyping failed. Dumping files.")
+            for dump_path in [vg_path, gam_path, gam_filter_path, aug_path]:
+                if dump_path and os.path.isfile(dump_path):
+                    context.write_output_file(job, dump_path)        
+            raise e
+        
+        
+        gam_id, pileup_id, aug_graph_id = None, None, None
+        if keep_gam and filter_opts:
+            gam_id = context.write_intermediate_file(job, gam_filter_path)
+        # We can't keep the pileup because there isn't one.
+        if keep_augmented:
+            aug_graph_id = context.write_intermediate_file(job, aug_path)
+        
     else:
+        # When using vg call, we use a separate vg augment step and then run vg call
+        
+        # augment command with optional filter piped at beginning
+        augment_generated_opts = ['-Z', os.path.basename(trans_path)]
+        if keep_pileup:
+            augment_generated_opts += ['-P', os.path.basename(pu_path)]
+            
         # Make sure to use the augmentation mode for vg call (which can calculate supports)
         augment_generated_opts += ['-a', 'pileup']
         # And calculate the supports instead of the augmented gam
@@ -194,51 +250,45 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                     del augment_opts[i]
                     del augment_opts[i]
             augment_generated_opts += ['--min-aug-support', '9999999']
-            
-    augment_command = []
-    if filter_command is not None:
-        aug_gam_input = '-'
-        augment_command.append(filter_command)
-        if keep_gam:
-            augment_command.append(['tee', os.path.basename(gam_filter_path)])
-    else:
-        aug_gam_input = os.path.basename(gam_path)
-    augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
-                    '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
-
-    vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
-
-    # call
-    try:
-        if augment:
-            with open(aug_path, 'w') as aug_stream:
-                timer.start('call-filter-augment')
-                context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
-                timer.stop()
+                
+        augment_command = []
+        if filter_command is not None:
+            aug_gam_input = '-'
+            augment_command.append(filter_command)
+            if keep_gam:
+                augment_command.append(['tee', os.path.basename(gam_filter_path)])
         else:
-            # hack to skip augmentation
-            aug_path = vg_path
-            aug_gam_path = gam_path
-            
-        gam_id, pileup_id, aug_graph_id = None, None, None
-        if keep_gam and filter_opts:
-            gam_id = context.write_intermediate_file(job, gam_filter_path)
-        if keep_pileup:
-            pileup_id = context.write_intermediate_file(job, pu_path)
-        if keep_augmented:
-            aug_graph_id = context.write_intermediate_file(job, aug_path)
-        
-        with open(vcf_path, 'w') as vgcall_stdout:
-            if not genotype:
-                command = ['vg', 'call', os.path.basename(aug_path), '-t',
-                           str(context.config.calling_cores), '-S', sample_name,
-                           '-z', os.path.basename(trans_path),
-                           '-s', os.path.basename(support_path),
-                           '-b', os.path.basename(vg_path)]
+            aug_gam_input = os.path.basename(gam_path)
+        augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
+                        '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
+
+        # call
+        try:
+            if augment:
+                with open(aug_path, 'w') as aug_stream:
+                    timer.start('call-filter-augment')
+                    context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
+                    timer.stop()
             else:
-                command = ['vg', 'genotype', os.path.basename(aug_path), '-t',
-                           str(context.config.calling_cores), '-s', sample_name,
-                           '-v', '-E', '-G', os.path.basename(aug_gam_path)]
+                # hack to skip augmentation
+                aug_path = vg_path
+                aug_gam_path = gam_path
+                
+            gam_id, pileup_id, aug_graph_id = None, None, None
+            if keep_gam and filter_opts:
+                gam_id = context.write_intermediate_file(job, gam_filter_path)
+            if keep_pileup:
+                pileup_id = context.write_intermediate_file(job, pu_path)
+            if keep_augmented:
+                aug_graph_id = context.write_intermediate_file(job, aug_path)
+            
+            
+            command = ['vg', 'call', os.path.basename(aug_path), '-t',
+                       str(context.config.calling_cores), '-S', sample_name,
+                       '-z', os.path.basename(trans_path),
+                       '-s', os.path.basename(support_path),
+                       '-b', os.path.basename(vg_path)]
+                
             if call_opts:
                 command += call_opts
             for path_name in path_names:
@@ -250,20 +300,21 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             for seq_offset in seq_offsets:
                 command += ['-o', seq_offset]
 
-            timer.start('genotype' if genotype else 'call')
-            context.runner.call(job, command, work_dir=work_dir,
-                                 outfile=vgcall_stdout)
-            timer.stop()            
+            with open(vcf_path, 'w') as vgcall_stdout:
+                timer.start('call')
+                context.runner.call(job, command, work_dir=work_dir,
+                                     outfile=vgcall_stdout)
+                timer.stop()            
 
-        vcf_id = context.write_intermediate_file(job, vcf_path)
+            vcf_id = context.write_intermediate_file(job, vcf_path)
 
-    except Exception as e:
-        logging.error("Calling failed. Dumping files.")
-        for dump_path in [vg_path, pu_path, gam_filter_path,
-                          aug_path, support_path, trans_path, aug_gam_path]:
-            if dump_path and os.path.isfile(dump_path):
-                context.write_output_file(job, dump_path)        
-        raise e
+        except Exception as e:
+            logging.error("Calling failed. Dumping files.")
+            for dump_path in [vg_path, pu_path, gam_filter_path,
+                              aug_path, support_path, trans_path, aug_gam_path]:
+                if dump_path and os.path.isfile(dump_path):
+                    context.write_output_file(job, dump_path)        
+            raise e
         
     return vcf_id, pileup_id, xg_id, gam_id, aug_graph_id, timer
 
