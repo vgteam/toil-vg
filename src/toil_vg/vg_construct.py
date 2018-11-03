@@ -869,22 +869,35 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     job.fileStore.readGlobalFile(vcf_id, vcf_file)
     job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
 
+    # In some cases, our sample may be missing from a chromosome (ex NA12878 from Y in 1000 Genomes)
+    # bcftools -s won't work so we handle here as a special case, assuming no sample means no variants
+    cmd = ['bcftools', 'query', '--list-samples', os.path.basename(vcf_file)]
+    found_samples = context.runner.call(job, cmd, work_dir=work_dir, check_output=True)
+    found_sample = sample in found_samples.strip().split('\n')
+
     # filter down to sample in question
     cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample]]
-    if unphased_handling == 'skip':
-        cmd[0] += ['--phased']
     
-    # remove anything that's not alt (probably cleaner way to do this)
-    gfilter = 'GT="0" || GT="0|0" || GT="0/0"'
-    gfilter += ' || GT="." || GT=".|." || GT="./."'
-    gfilter += ' || GT=".|0" || GT="0/."'
-    gfilter += ' || GT="0|." || GT="./0"'
+    if found_sample:
+        # get rid of non-trivial genotypes so they don't end up in our graph
+        if unphased_handling == 'skip':
+            cmd[0] += ['--phased']
 
-    if unphased_handling == 'arbitrary':
-        # just phase unphased variants.  so 1/1 --> 1|1 etc
-        cmd.append(['sed', '-e', 's/\\([0-9,.]\\)\\/\\([0-9,.]\\)/\\1\\|\\2/g'])
-    
-    cmd.append(['bcftools', 'view', '-', '--output-type', 'z', '--exclude', gfilter])
+        # remove anything that's not alt (probably cleaner way to do this)
+        gfilter = 'GT="0" || GT="0|0" || GT="0/0"'
+        gfilter += ' || GT="." || GT=".|." || GT="./."'
+        gfilter += ' || GT=".|0" || GT="0/."'
+        gfilter += ' || GT="0|." || GT="./0"'
+
+        if unphased_handling == 'arbitrary':
+            # just phase unphased variants.  so 1/1 --> 1|1 etc
+            cmd.append(['sed', '-e', 's/\\([0-9,.]\\)\\/\\([0-9,.]\\)/\\1\\|\\2/g'])
+
+        cmd.append(['bcftools', 'view', '-', '--output-type', 'z', '--exclude', gfilter])
+    else:
+        # if the sample isn't in the vcf, then there are no variants of interest, so
+        # we report a header field without any samples
+        cmd[0] += ['--force-samples', '--header-only', '--output-type', 'z']            
 
     out_pos_name = remove_ext(remove_ext(os.path.basename(vcf_name), '.gz'), '.vcf')
     out_neg_name = out_pos_name + '_minus_{}.vcf.gz'.format(sample)
@@ -893,7 +906,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     with open(os.path.join(work_dir, out_pos_name), 'w') as out_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
 
-    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', out_pos_name], work_dir=work_dir)
+    context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', out_pos_name], work_dir=work_dir)
 
     pos_control_vcf_id = context.write_output_file(job, os.path.join(work_dir, out_pos_name))
     pos_control_tbi_id = context.write_output_file(job, os.path.join(work_dir, out_pos_name + '.tbi'))
@@ -905,7 +918,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     cmd = ['bcftools', 'isec', os.path.basename(vcf_file), out_pos_name, '-p', 'isec', '-O', 'z']
     context.runner.call(job, cmd, work_dir=work_dir)
 
-    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', 'isec/0000.vcf.gz'], work_dir=work_dir)
+    context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', 'isec/0000.vcf.gz'], work_dir=work_dir)
 
     neg_control_vcf_id = context.write_output_file(job, os.path.join(work_dir, 'isec', '0000.vcf.gz'),
                                                    out_store_path = out_neg_name)
