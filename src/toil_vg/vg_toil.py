@@ -18,6 +18,7 @@ import string
 import urlparse
 import getpass
 import logging
+import pkg_resources
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -25,6 +26,11 @@ from subprocess import Popen, PIPE
 from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
+try:
+    from version import version
+except:
+    # hope we can get it from pkg_resources
+    version = None
 from toil_vg.vg_common import *
 from toil_vg.vg_call import *
 from toil_vg.vg_index import *
@@ -58,7 +64,7 @@ def parse_args(args=None):
     # See http://docs.python.org/library/argparse.html#formatter-class
     parser = argparse.ArgumentParser(prog='toil-vg', description=main.__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    
+
     subparsers = parser.add_subparsers(dest='command')
     
     # Config subparser
@@ -109,6 +115,9 @@ def parse_args(args=None):
     # plot subparser
     parser_plot = subparsers.add_parser('plot', help='Plot the results of mapping and calling experiments')
     plot_subparser(parser_plot)
+
+    # version subparser
+    parser_version = subparsers.add_parser('version', help='Print version')
 
     return parser.parse_args(args)
 
@@ -353,6 +362,14 @@ def main():
     # Write out our config file that's necessary for all other subcommands
     if args.command == 'generate-config':
         config_main(args)
+        return
+    
+    if args.command == 'version':
+        # this is copied from toil.utils.toilMain
+        try:
+            print(pkg_resources.get_distribution('toil-vg').version)
+        except:
+            print("Version gathered from toil-vg.version: "+version)
         return
 
     # Otherwise, we are going to run an actual Toil pipeline
