@@ -236,6 +236,9 @@ augment-opts: ['-q', '10']
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
 call-opts: []
 
+# Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
+recall-opts: ['-u', '-n', '0']
+
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
 genotype-opts: []
 
@@ -478,6 +481,9 @@ augment-opts: ['-q', '10']
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
 call-opts: []
 
+# Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
+recall-opts: ['-u', '-n', '0']
+
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
 genotype-opts: []
 
@@ -519,7 +525,7 @@ def apply_config_file_args(args):
     """
 
     # turn --*_opts from strings to lists to be consistent with config file
-    for x_opts in ['map_opts', 'call_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
+    for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
                    'bwa_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
