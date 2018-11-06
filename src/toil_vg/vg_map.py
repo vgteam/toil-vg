@@ -339,8 +339,9 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
 
     cmd = [['samtools', 'view', os.path.basename(bam_path)]]
     cmd.append(['split', '-l', str(chunk_lines),
-                '--filter=cat <(samtools view -H {}) <(cat -) | '.format(os.path.basename(bam_path)) +
-                'samtools view -O BAM - > ${FILE}.bam', '-', 'bam_reads_chunk.'])
+                '--filter=cat <(samtools view -H {}) <(cat -)'.format(os.path.basename(bam_path)) +
+                ' | samtools view -O BAM --threads {} -'.format(max(1, int(context.config.fq_split_cores) - 1)) +
+                ' > $FILE.bam', '-', 'bam_reads_chunk.'])
 
     context.runner.call(job, cmd, work_dir = work_dir)
 
