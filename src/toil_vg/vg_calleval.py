@@ -464,7 +464,8 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
                  bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
                  vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved,
-                 freebayes, platypus, happy, sveval, recall):
+                 freebayes, platypus, happy, sveval, recall, min_sv_len, max_sv_len, sv_overlap,
+                 sv_region_overlap, sv_smooth):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -584,8 +585,12 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                     if sveval:
                         sveval_results[bam_caller_out_name]["clipped"] = \
                         bam_caller_job.addFollowOnJobFn(run_sv_eval, context, sample_name, bam_caller_vcf_tbi_id_pair,
-                                                        truth_vcf_id, truth_vcf_tbi_id, min_sv_len=20,
-                                                        sv_overlap=0.5, sv_region_overlap=1,
+                                                        truth_vcf_id, truth_vcf_tbi_id,
+                                                        min_sv_len=min_sv_len,
+                                                        max_sv_len=max_sv_len,
+                                                        sv_overlap=sv_overlap,
+                                                        sv_region_overlap=sv_region_overlap,
+                                                        sv_smooth=sv_smooth,
                                                         bed_id=bed_id,
                                                         out_name=bam_caller_out_name,
                                                         cores=context.config.vcfeval_cores,
@@ -616,8 +621,13 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                     if sveval:
                         sveval_results[bam_caller_out_name]["unclipped"] = \
                         bam_caller_job.addFollowOnJobFn(run_sv_eval, context, sample_name, bam_caller_vcf_tbi_id_pair,
-                                                        truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
-                                                        sv_overlap=0.5, sv_region_overlap=1, bed_id=None,
+                                                        truth_vcf_id, truth_vcf_tbi_id,
+                                                        min_sv_len=min_sv_len,
+                                                        max_sv_len=max_sv_len,
+                                                        sv_overlap=sv_overlap,
+                                                        sv_region_overlap=sv_region_overlap,
+                                                        sv_smooth=sv_smooth,
+                                                        bed_id=None,
                                                         out_name=bam_caller_out_name if not bed_id else bam_caller_out_name + '-unclipped',                                                        
                                                         cores=context.config.vcfeval_cores,
                                                         memory=context.config.vcfeval_mem,
@@ -671,8 +681,12 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                         if sveval:
                             sveval_results[out_name]["clipped"] = \
                             call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
-                                                      sv_overlap=0.5, sv_region_overlap=1,
+                                                      truth_vcf_id, truth_vcf_tbi_id,
+                                                      min_sv_len=min_sv_len,
+                                                      max_sv_len=max_sv_len,
+                                                      sv_overlap=sv_overlap,
+                                                      sv_region_overlap=sv_region_overlap,
+                                                      sv_smooth=sv_smooth,
                                                       bed_id = bed_id, out_name=out_name).rv()
                                                     
                     if not clip_only:
@@ -693,8 +707,12 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                         if sveval:
                             sveval_results[out_name]["unclipped"] = \
                             call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
-                                                      sv_overlap=0.5, sv_region_overlap=1,
+                                                      truth_vcf_id, truth_vcf_tbi_id,
+                                                      min_sv_len=min_sv_len,
+                                                      max_sv_len=max_sv_len,
+                                                      sv_overlap=sv_overlap,
+                                                      sv_region_overlap=sv_region_overlap,
+                                                      sv_smooth=sv_smooth,
                                                       bed_id = None,
                                                       out_name=out_name if not bed_id else out_name + '-unclipped').rv()
                             
@@ -823,6 +841,11 @@ def calleval_main(context, options):
                                      options.happy,
                                      options.sveval,
                                      options.recall,
+                                     options.min_sv_len,
+                                     options.max_sv_len,
+                                     options.sv_overlap,
+                                     options.sv_region_overlap,
+                                     options.sv_smooth,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
