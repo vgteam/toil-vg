@@ -584,7 +584,7 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                     if sveval:
                         sveval_results[bam_caller_out_name]["clipped"] = \
                         bam_caller_job.addFollowOnJobFn(run_sv_eval, context, sample_name, bam_caller_vcf_tbi_id_pair,
-                                                        truth_vcf_id, truth_vcf_tbi_id, min_sv_len=25,
+                                                        truth_vcf_id, truth_vcf_tbi_id, min_sv_len=20,
                                                         sv_overlap=0.5, sv_region_overlap=1,
                                                         bed_id=bed_id,
                                                         out_name=bam_caller_out_name,

@@ -66,6 +66,8 @@ def vcfeval_parse_args(parser):
                         help="run bed-based sv comparison.")
     parser.add_argument("--min_sv_len", type=int, default=20,
                         help="minimum length to consider when doing bed sv comparison (using --sveval)")
+    parser.add_argument("--max_sv_len", type=int, default=sys.maxint,
+                        help="maximum length to consider when doing bed sv comparison (using --sveval)")    
     parser.add_argument("--sv_region_overlap", type=float, default=1.0,
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
     parser.add_argument("--sv_overlap", type=float, default=0.5,
@@ -457,7 +459,8 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
     }
 
 def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = None,
-               indel_bed_path = None, snp_bed_path = None, multi_allele = 'max'):
+               indel_bed_path = None, snp_bed_path = None, multi_allele = 'max',
+               min_sv_len = 0, max_sv_len = sys.maxint):
     """ Convert a VCF into a bed file that we can use bedtools intersection tools on.  Used to use
     bedops' bed2vcf but it can't handle really long lines that come up in long SVs.  Indels are 
     expanded to cover their starting position plus length.  This doesn't make a whole lot of 
@@ -484,7 +487,10 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
                 if alt and len(alt) > max_alt_len:
                     max_alt_idx, max_alt_len = i, len(alt)                    
             for i, alt in enumerate(record.ALT):
-                if record.REF is not None and alt is not None and (i == max_alt_idx or multi_allele != 'max'):
+                if record.REF is not None and alt is not None and \
+                   (i == max_alt_idx or multi_allele != 'max') and \
+                   abs(len(alt) - len(record.REF)) + 1 >= min_sv_len and \
+                   abs(len(alt) - len(record.REF)) + 1 <= max_sv_len:
                     bed_line = '{}\t{}\t{}\t{}\n'.format(
                         record.CHROM, record.POS - 1, record.POS - 1 + max(len(record.REF), len(alt)),
                         '{} {} {}'.format(record.REF, alt, record.QUAL))
@@ -511,7 +517,8 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
         snp_bed_file.close()
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                min_sv_len, sv_overlap, sv_region_overlap, sv_smooth = 0, bed_id = None,  out_name = ''):
+                min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, sv_smooth = 0, bed_id = None,
+                out_name = ''):
     """ Run something like Peter Audano's bed-based comparison.  Uses bedtools and bedops to do
     overlap comparison between indels.  Of note: the actual sequence of insertions is never checked!"""
 
@@ -546,10 +553,12 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     baseline_del_name = '{}truth-del.bed'.format(out_name)
     vcf_to_bed(os.path.join(work_dir, call_vcf_name),
                ins_bed_path = os.path.join(work_dir, calls_ins_name),
-               del_bed_path = os.path.join(work_dir, calls_del_name))
+               del_bed_path = os.path.join(work_dir, calls_del_name),
+               min_sv_len = min_sv_len, max_sv_len = max_sv_len)
     vcf_to_bed(os.path.join(work_dir, vcfeval_baseline_name),
                ins_bed_path = os.path.join(work_dir, baseline_ins_name),
-               del_bed_path = os.path.join(work_dir, baseline_del_name))
+               del_bed_path = os.path.join(work_dir, baseline_del_name),
+               min_sv_len = min_sv_len, max_sv_len = max_sv_len)
     
     # now do the intersection comparison
 
@@ -813,7 +822,8 @@ def vcfeval_main(context, options):
                 sv_job = Job.wrapJobFn(run_sv_eval, context, None,
                                        (call_vcf_id, call_tbi_id),
                                        vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                                       options.min_sv_len, options.sv_overlap, options.sv_region_overlap,
+                                       options.min_sv_len, options.max_sv_len,
+                                       options.sv_overlap, options.sv_region_overlap,
                                        options.sv_smooth, bed_id, 
                                        cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                        disk=context.config.vcfeval_disk)
