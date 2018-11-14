@@ -464,10 +464,10 @@ mpmap-opts: ['--single-path-mode']
 #########################
 ### vg_call Arguments ###
 # Overlap option that is passed into make_chunks and call_chunk
-overlap: 5000
+overlap: 100000
 
 # Chunk size
-call-chunk-size: 2000000
+call-chunk-size: 2500000
 
 # Context expansion used for graph chunking
 chunk_context: 50
