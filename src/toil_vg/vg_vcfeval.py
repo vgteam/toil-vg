@@ -74,6 +74,8 @@ def vcfeval_parse_args(parser):
                         help="minimum reciprical overlap required for bed intersection to count as TP")
     parser.add_argument("--sv_smooth", type=int, default=0,
                         help="mege up svs (in calls and truth) that are at most this many bases apart")
+    parser.add_argument("--normalize", action="store_true",
+                        help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
 
 def validate_vcfeval_options(options):
     """ check some options """
@@ -82,8 +84,8 @@ def validate_vcfeval_options(options):
     assert options.call_vcf.endswith(".vcf.gz")
 
     assert not (options.happy or options.vcfeval) or options.vcfeval_fasta
+    assert not options.normalize or options.vcfeval_fasta
 
-    
 def parse_f1(summary_path):
     """ grab the best f1 out of vcfeval's summary.txt """
 
@@ -518,7 +520,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                 min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, sv_smooth = 0, bed_id = None,
-                out_name = ''):
+                out_name = '', fasta_path = None, fasta_id = None, normalize = False):
     """ Run something like Peter Audano's bed-based comparison.  Uses bedtools and bedops to do
     overlap comparison between indels.  Of note: the actual sequence of insertions is never checked!"""
 
@@ -542,6 +544,27 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         job.fileStore.readGlobalFile(bed_id, os.path.join(work_dir, regions_bed_name))
     else:
         regions_bed_name = None
+
+    # and the fasta
+    if fasta_id:
+        fasta_name = os.path.basename(fasta_path)
+        job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
+        if fasta_name.endswith('.gz'):
+            context.runner.call(job, ['bgzip', '-d', fasta_name], work_dir = work_dir)
+            fasta_name = fasta_name[:-3]
+
+    # optionalize normalization of both calls and truth with bcftools
+    if normalize:
+        norm_call_vcf_name = '{}calls-norm.vcf.gz'
+        norm_vcfeval_baseline_name = '{}truth-norm.vcf.gz'
+        for vcf_name, norm_name in [(call_vcf_name, norm_call_vcf_name),
+                                    (vcfeval_baseline_name, norm_vcfeval_baseline_name)]:
+            with open(os.path.join(work_dir, norm_name), 'w') as norm_file:
+                context.runner.call(job, ['bcftools', 'norm', vcf_name, '--output-type', 'z',
+                                      '--fasta-ref', fasta_name], work_dir = work_dir, outfile=norm_file)
+                context.runner.call(job, ['tabix', '--preset', 'vcf', norm_name], work_dir = work_dir)
+        call_vcf_name = norm_call_vcf_name
+        vcfeval_baseline_name = norm_vcfeval_baseline_name
 
     if out_name and not out_name.endswith('_'):
         out_name = '{}_'.format(out_name)
@@ -669,51 +692,6 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
 
     return results
 
-def expand_deletions(in_bed_name, out_bed_name):
-    """
-    Expand every deletion in a BED file and update its end coordinate to reflect its length.
-    with open(in_bed_name) as in_bed, open(out_ins_bed_name, 'w') as out_ins, open(out_del_bed_name, 'w') as out_del:
-    ** We do this before intersection with regions of interest **
-    """
-    with open(in_bed_name) as in_bed, open(out_bed_name, 'w') as out_bed:
-        for line in in_bed:
-            if line.strip():
-                toks = line.strip().split('\t')
-                ref_len = len(toks[5])
-                alt_len = len(toks[6])
-                if ref_len > alt_len:
-                    assert int(toks[2]) == int(toks[1]) + 1
-                    # expand the deletion
-                    toks[2] = str(int(toks[1]) + ref_len)
-                    out_bed.write('\t'.join(toks) + '\n')
-                else:
-                    # leave insertions as is for now
-                    out_bed.write(line)
-
-def expand_insertions(in_bed_name, out_ins_bed_name, out_del_bed_name, min_sv_size):
-    """
-    Go through every insertion in a BED file and update its end coordinate to reflect its length.  This is done
-    to compare two sets of insertions.  We also break out deletions into their own file. 
-    ** We do this after intersection with regions of interest but before comparison **
-    """
-    with open(in_bed_name) as in_bed, open(out_ins_bed_name, 'w') as out_ins, open(out_del_bed_name, 'w') as out_del:
-        for line in in_bed:
-            if line.strip():
-                toks = line.strip().split('\t')
-                ref_len = len(toks[5])
-                alt_len = len(toks[6])
-                # filter out some vg call nonsense
-                if toks[5] == '.' or toks[6] == '.':
-                    continue
-                if ref_len < alt_len and alt_len >= min_sv_size:
-                    assert int(toks[2]) == int(toks[1]) + 1
-                    # expand the insertion
-                    toks[2] = str(int(toks[1]) + alt_len)
-                    out_ins.write('\t'.join(toks) + '\n')
-                elif ref_len >= min_sv_size:
-                    # just filter out the deletion
-                    out_del.write(line)
-
 def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
                          tp_del, tp_del_baseline, fp_del, fn_del):
     """
@@ -824,7 +802,10 @@ def vcfeval_main(context, options):
                                        vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                                        options.min_sv_len, options.max_sv_len,
                                        options.sv_overlap, options.sv_region_overlap,
-                                       options.sv_smooth, bed_id, 
+                                       options.sv_smooth, bed_id,
+                                       fasta_path=options.vcfeval_fasta,
+                                       fasta_id=fasta_id,
+                                       normalize=options.normalize, 
                                        cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                        disk=context.config.vcfeval_disk)
                 init_job.addFollowOn(sv_job)

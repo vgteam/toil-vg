@@ -134,6 +134,8 @@ def validate_calleval_options(options):
     if options.surject or options.bams:
         require(options.freebayes or options.platypus,
                 '--freebayes and/or --platypus must be used with --bams and --surject')
+    if options.normalize:
+        require(options.vcfeval_fasta and options.sveval, '--vcfeval_fasta and --sveval required with --normalized')
 
 def run_bam_index(job, context, bam_file_id, bam_name):
     """
@@ -465,7 +467,7 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                  bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
                  vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved,
                  freebayes, platypus, happy, sveval, recall, min_sv_len, max_sv_len, sv_overlap,
-                 sv_region_overlap, sv_smooth):
+                 sv_region_overlap, sv_smooth, normalize):
     """
     top-level call-eval function. Runs the caller and genotype on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -593,6 +595,9 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                                                         sv_smooth=sv_smooth,
                                                         bed_id=bed_id,
                                                         out_name=bam_caller_out_name,
+                                                        fasta_path = 'ref.fasta',
+                                                        fasta_id = vcfeval_fasta_id,
+                                                        normalize = normalize,
                                                         cores=context.config.vcfeval_cores,
                                                         memory=context.config.vcfeval_mem,
                                                         disk=context.config.vcfeval_disk).rv()                    
@@ -628,7 +633,10 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                                                         sv_region_overlap=sv_region_overlap,
                                                         sv_smooth=sv_smooth,
                                                         bed_id=None,
-                                                        out_name=bam_caller_out_name if not bed_id else bam_caller_out_name + '-unclipped',                                                        
+                                                        out_name=bam_caller_out_name if not bed_id else bam_caller_out_name + '-unclipped',
+                                                        fasta_path = 'ref.fasta',
+                                                        fasta_id = vcfeval_fasta_id,
+                                                        normalize = normalize,
                                                         cores=context.config.vcfeval_cores,
                                                         memory=context.config.vcfeval_mem,
                                                         disk=context.config.vcfeval_disk).rv()                        
@@ -687,7 +695,10 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                                                       sv_overlap=sv_overlap,
                                                       sv_region_overlap=sv_region_overlap,
                                                       sv_smooth=sv_smooth,
-                                                      bed_id = bed_id, out_name=out_name).rv()
+                                                      bed_id = bed_id, out_name=out_name,
+                                                      fasta_path = 'ref.fasta',
+                                                      fasta_id = vcfeval_fasta_id,
+                                                      normalize = normalize).rv()
                                                     
                     if not clip_only:
                         # Also do unclipped
@@ -714,7 +725,10 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                                                       sv_region_overlap=sv_region_overlap,
                                                       sv_smooth=sv_smooth,
                                                       bed_id = None,
-                                                      out_name=out_name if not bed_id else out_name + '-unclipped').rv()
+                                                      out_name=out_name if not bed_id else out_name + '-unclipped',
+                                                      fasta_path = 'ref.fasta',
+                                                      fasta_id = vcfeval_fasta_id,
+                                                      normalize = normalize).rv()
                             
                     
                     vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
@@ -846,6 +860,7 @@ def calleval_main(context, options):
                                      options.sv_overlap,
                                      options.sv_region_overlap,
                                      options.sv_smooth,
+                                     options.normalize,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
