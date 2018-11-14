@@ -614,7 +614,7 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
     # Download the input from the store
     xg_path = os.path.join(work_dir, 'graph.vg.xg')
     job.fileStore.readGlobalFile(xg_file_id, xg_path)
-    gam_path = os.path.join(work_dir, '{}.gam'.format(sample_name))
+    gam_path = os.path.join(work_dir, '{}_{}.gam'.format(sample_name, tag))
     job.fileStore.readGlobalFile(alignment_file_id, gam_path)
 
     # Sort and index the GAM file if index not provided
