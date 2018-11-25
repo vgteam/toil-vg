@@ -839,7 +839,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     # We subtract the private variants from the original VCF, and then remove the samples we're excluding.
     cmd = [['bcftools', 'isec', '--complement', os.path.basename(vcf_file), os.path.basename(private_vcf_name),
             '--write', '1'],
-           ['bcftools', 'view', '-', '--samples', '^' + (','.join(samples)),
+           ['bcftools', 'view', '-', '--samples', '^' + (','.join(samples)), '--trim-alt-alleles',
             '--force-samples', '--output-type', 'z']]
     with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
@@ -876,7 +876,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     found_sample = sample in found_samples.strip().split('\n')
 
     # filter down to sample in question
-    cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample]]
+    cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample, '--trim-alt-alleles']]
     
     if found_sample:
         # get rid of non-trivial genotypes so they don't end up in our graph
