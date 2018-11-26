@@ -717,7 +717,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
     results['TP-baseline-INS'] = wc(tp_ins_baseline)
     results['FP-INS'] = wc(fp_ins)
     results['FN-INS'] = wc(fn_ins)
-    ins_pr = pr(results['TP-INS'], results['FP-INS'], results['FN-INS'])
+    ins_pr = pr(results['TP-baseline-INS'], results['FP-INS'], results['FN-INS'])
     results['Precision-INS'] = ins_pr[0]
     results['Recall-INS'] = ins_pr[1]
     results['F1-INS'] = ins_pr[2]
@@ -726,7 +726,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
     results['TP-baseline-DEL'] = wc(tp_del_baseline)
     results['FP-DEL'] = wc(fp_del)
     results['FN-DEL'] = wc(fn_del)
-    del_pr = pr(results['TP-DEL'], results['FP-DEL'], results['FN-DEL'])
+    del_pr = pr(results['TP-baseline-DEL'], results['FP-DEL'], results['FN-DEL'])
     results['Precision-DEL'] = del_pr[0]
     results['Recall-DEL'] = del_pr[1]
     results['F1-DEL'] = del_pr[2]
@@ -735,7 +735,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
     results['TP-baseline'] = results['TP-baseline-INS'] + results['TP-baseline-DEL']    
     results['FP'] = results['FP-INS'] + results['FP-DEL']
     results['FN'] = results['FN-INS'] + results['FN-DEL']
-    tot_pr = pr(results['TP'], results['FP'], results['FN'])
+    tot_pr = pr(results['TP-baseline'], results['FP'], results['FN'])
     results['Precision'] = tot_pr[0]
     results['Recall'] = tot_pr[1]
     results['F1'] = tot_pr[2]
