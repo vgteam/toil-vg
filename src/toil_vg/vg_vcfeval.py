@@ -474,7 +474,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
     if del_bed_path:
         del_bed_file = open(del_bed_path, 'w')
     if indel_bed_path:
-        del_bed_file = open(indel_bed_path, 'w')
+        indel_bed_file = open(indel_bed_path, 'w')
     if snp_bed_path:
         snp_bed_file = open(snp_bed_path, 'w')
 
@@ -487,7 +487,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
             max_alt_idx, max_alt_len = -1, 0
             for i, alt in enumerate(record.ALT):
                 if alt and len(alt) > max_alt_len:
-                    max_alt_idx, max_alt_len = i, len(alt)                    
+                    max_alt_idx, max_alt_len = i, len(alt)
             for i, alt in enumerate(record.ALT):
                 if record.REF is not None and alt is not None and \
                    (i == max_alt_idx or multi_allele != 'max') and \

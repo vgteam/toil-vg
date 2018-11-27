@@ -12,3 +12,4 @@ __pycache__
 /bin/awscli
 *.DONE
 *.docker
+*~
