@@ -463,10 +463,7 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
 def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = None,
                indel_bed_path = None, snp_bed_path = None, multi_allele = 'max',
                min_sv_len = 0, max_sv_len = sys.maxint):
-    """ Convert a VCF into a bed file that we can use bedtools intersection tools on.  Used to use
-    bedops' bed2vcf but it can't handle really long lines that come up in long SVs.  Indels are 
-    expanded to cover their starting position plus length.  This doesn't make a whole lot of 
-    sense for insertions, but it's useful for comparison purposes."""
+    """ Convert a VCF into a bed file that we can use bedtools intersection tools on."""
     if bed_path:
         bed_file = open(bed_path, 'w')
     if ins_bed_path:
@@ -493,9 +490,16 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
                    (i == max_alt_idx or multi_allele != 'max') and \
                    abs(len(alt) - len(record.REF)) + 1 >= min_sv_len and \
                    abs(len(alt) - len(record.REF)) + 1 <= max_sv_len:
+                    # The size of the SV
+                    sv_len = max(len(record.REF), len(alt))
+                    # The amount of reference genome affected
+                    ref_len = len(record.REF)
                     bed_line = '{}\t{}\t{}\t{}\n'.format(
-                        record.CHROM, record.POS - 1, record.POS - 1 + max(len(record.REF), len(alt)),
-                        '{} {} {}'.format(record.REF, alt, record.QUAL))
+                        record.CHROM,
+                        record.POS - 1, record.
+                        POS - 1 + ref_len,
+                        '{} {} {} {}'.format(record.REF, alt, record.QUAL,
+                                             sv_len))
                     if bed_path:
                         bed_file.write(bed_line)
                     if ins_bed_path and len(record.REF) < len(alt):
