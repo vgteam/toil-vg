@@ -462,7 +462,7 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
 
 def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = None,
                indel_bed_path = None, snp_bed_path = None, multi_allele = 'max',
-               min_sv_len = 0, max_sv_len = sys.maxint):
+               min_sv_len = 0, max_sv_len = sys.maxint, ins_ref_len=10):
     """ Convert a VCF into a bed file that we can use bedtools intersection tools on."""
     if bed_path:
         bed_file = open(bed_path, 'w')
@@ -492,8 +492,12 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
                    abs(len(alt) - len(record.REF)) + 1 <= max_sv_len:
                     # The size of the SV
                     sv_len = max(len(record.REF), len(alt))
-                    # The amount of reference genome affected
-                    ref_len = len(record.REF)
+                    # The amount of reference genome affected or the error
+                    # allowed for insertions
+                    if len(record.REF) < len(alt):
+                        ref_len = ins_ref_len
+                    else:
+                        ref_len = len(record.REF)
                     bed_line = '{}\t{}\t{}\t{}\n'.format(
                         record.CHROM,
                         record.POS - 1, record.
@@ -524,6 +528,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                 min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, sv_smooth = 0, bed_id = None,
+                ins_ref_len=10,
                 out_name = '', fasta_path = None, fasta_id = None, normalize = False):
     """ Run a bed-based comparison.  Uses bedtools and bedops to do overlap
     comparison between indels. Of note: the actual sequence of insertions is
@@ -582,11 +587,13 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     vcf_to_bed(os.path.join(work_dir, call_vcf_name),
                ins_bed_path = os.path.join(work_dir, calls_ins_name),
                del_bed_path = os.path.join(work_dir, calls_del_name),
-               min_sv_len = min_sv_len, max_sv_len = max_sv_len)
+               min_sv_len = min_sv_len, max_sv_len = max_sv_len,
+               ins_ref_len = ins_ref_len)
     vcf_to_bed(os.path.join(work_dir, vcfeval_baseline_name),
                ins_bed_path = os.path.join(work_dir, baseline_ins_name),
                del_bed_path = os.path.join(work_dir, baseline_del_name),
-               min_sv_len = min_sv_len, max_sv_len = max_sv_len)
+               min_sv_len = min_sv_len, max_sv_len = max_sv_len,
+               ins_ref_len = ins_ref_len)
     
     # now do the intersection comparison
 
