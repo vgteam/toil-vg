@@ -110,10 +110,15 @@ def add_mapeval_options(parser):
 
     parser.add_argument('--bwa', action='store_true',
                         help='run bwa mem on the reads, and add to comparison')
-    parser.add_argument('--fasta', type=make_url, default=None,
-                        help='fasta sequence file (required for bwa. if a bwa index exists for this file, it will be used)')
     parser.add_argument('--bwa-opts', type=str,
                         help='arguments for bwa mem (wrapped in \"\").')
+    parser.add_argument('--minimap2', action-'store_true',
+                        help='run minimap2 on the reads, and add to comparison')
+    parser.add_argument('--minimap2-opts', type=str,
+                        help='arguments for minimap2 (wrapped in \"\").')
+    parser.add_argument('--fasta', type=make_url, default=None,
+                        help='fasta sequence file (required for bwa or minimap2. If indexes exists for this file, they will be used)')
+   
     
     # We can compare all the scores against those from a particular GAM, if asked.
     parser.add_argument('--compare-gam-scores', default=None,
@@ -199,9 +204,11 @@ def validate_options(options):
     require(not options.fastq or all(map(lambda x : x.endswith('.gz'), options.fastq)),
             'only gzipped fastqs (ending with .gz) accepted by --fastq')
             
-    # check bwa / bam input parameters.  
+    # check bwa / minimap2 / bam input parameters.  
     if options.bwa:
         require(options.fasta, '--fasta required for bwa')
+    if options.minimap2:
+        require(options.fasta, '--fasta required for minimap2')
     if options.bams:
         require(options.bam_names and len(options.bams) == len(options.bam_names),
                  '--bams and --bam-names must have same number of inputs')
@@ -281,7 +288,9 @@ def parse_int(value):
 def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=False):
     """
     convert a bam to fastq (or pair of fastqs).  add_suffix will stick a _1 or _2 on
-    paired reads (needed for vg, but not bwa)
+    paired reads (needed for vg, but not bwa or minimap2)
+    
+    Note that even turning off paired_mode may not dissuade minimap2 from pairing up your reads.
     """
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -425,33 +434,109 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a fastq.  optionally run in paired mode
     return id of bam file
     """
+    
+    requeue_promise = ensure_disk(job, run_bwa_mem, [context, fq_reads_ids, minimap2_index_ids, paired_mode], {},
+        fq_reads_ids, bwa_index_ids.values())
+    if requeue_promise is not None:
+        # We requeued ourselves with more disk to accomodate our inputs
+        return requeue_promise
 
-    # We need to compute the total size of our inputs, expected intermediates,
-    # and outputs, and re-queue ourselves if we don't have enough disk.
-    required_disk = 0
-    for fastq_id in fq_reads_ids:
-        # We need all the FASTQs downloaded
-        required_disk += fastq_id.size
-        
-    # Say we need room for the aligned BAM, and the intermediate SAM file.
-    # TODO: Is this factor sufficient?
-    required_disk *= 8
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # read the reads
+    fq_file_names = []
+    for i, fq_reads_id in enumerate(fq_reads_ids):
+        fq_file_names.append(os.path.join(work_dir, 'reads{}.fq.gz'.format(i)))
+        job.fileStore.readGlobalFile(fq_reads_id, fq_file_names[-1])
+
+    # and the index files
+    fasta_file = os.path.join(work_dir, 'reference.fa')
+    for suf, idx_id in bwa_index_ids.items():
+        job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
+
+    # output positions file
+    bam_file = os.path.join(work_dir, 'bwa-mem')
+    if paired_mode:
+        bam_file += '-pe'
+    bam_file += '.bam'
     
-    for idx_id in bwa_index_ids.values():
-        # We also need room for the indexes
-        required_disk += idx_id.size
-    
-    # Add some padding
-    required_disk += 1024 ** 3
+    # if we're paired, must make some split files
+    if paired_mode:
+
+        # run bwa-mem on the paired end input
+        start_time = timeit.default_timer()
+        cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
+                os.path.basename(fq_file_names[0])]
+        if len(fq_file_names) == 2:
+            cmd += [os.path.basename(fq_file_names[1])]
+        else:
+            # if one file comes in, it had better be interleaved
+            cmd += ['-p']
+        cmd += context.config.bwa_opts
         
-    if job.disk < required_disk:
-        # Re-queue with more disk
-        RealtimeLogger.info("Re-queueing run_bwa_mem with {} bytes of disk; originally had {}".format(required_disk, job.disk))
-        requeued = job.addChildJobFn(run_bwa_mem, context, fq_reads_ids, bwa_index_ids, paired_mode,
-            cores=job.cores, memory=job.memory,
-            disk=required_disk)
-        return requeued.rv()
+        with open(bam_file + '.sam', 'w') as out_sam:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
+
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+
+        # we take care to mimic output message from vg_map.py, so we can mine them both for the jenkins
+        # report        
+        RealtimeLogger.info("Aligned aligned-linear_0.gam. Process took {} seconds with paired-end bwa-mem".format(
+            run_time))
             
+        # separate samtools for docker (todo find image with both)
+        # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
+        cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
+        with open(bam_file, 'w') as out_bam:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+
+    # single end
+    else:
+        assert len(fq_file_names) == 1
+
+        # run bwa-mem on single end input
+        start_time = timeit.default_timer()
+        cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
+                os.path.basename(fq_file_names[0])] + context.config.bwa_opts
+
+        with open(bam_file + '.sam', 'w') as out_sam:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
+
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+
+        # we take care to mimic output message from vg_map.py, so we can mine them both for the jenkins
+        # report
+        RealtimeLogger.info("Aligned aligned-linear_0.gam. Process took {} seconds with single-end bwa-mem".format(
+            run_time))            
+
+        # separate samtools for docker (todo find image with both)
+        # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
+        cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
+        with open(bam_file, 'w') as out_bam:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
+
+
+    # return our id for the output bam file
+    bam_file_id = context.write_output_file(job, bam_file)
+
+    return bam_file_id, run_time
+    
+def run_minimap2(job, context, fq_reads_ids, minimap2_index_ids):
+    """
+    Run minimap2 on reads in one or two fastq files. Always pairs up reads if
+    two files or passed, or if one file is passed and reads are correctly named
+    and interleaved. Returns a BAM file ID and the runtime.
+    
+    Automatically converts minimap2's SAM output to BAM.
+    """
+
+    requeue_promise = ensure_disk(job, run_minimap2, [context, fq_reads_ids, minimap2_index_ids], {},
+        fq_reads_ids, minimap2_index_ids.values())
+    if requeue_promise is not None:
+        # We requeued ourselves with more disk to accomodate our inputs
+        return requeue_promise
 
     work_dir = job.fileStore.getLocalTempDir()
 
