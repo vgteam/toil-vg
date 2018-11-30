@@ -598,6 +598,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                min_sv_len = min_sv_len, max_sv_len = max_sv_len,
                ins_ref_len = ins_ref_len)
     
+    
     # now do the intersection comparison
 
     """
@@ -653,8 +654,9 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         # read overlap file and compute coverage
         # for insertions we count the total size of inserted sequence
         # in nearby insertions of the other set
-        cov_call = cov_base = {}
-        with open(ol_name, 'w') as ol_file:
+        cov_call = {}
+        cov_base = {}
+        with open(ol_name) as ol_file:
             for line in ol_file:
                 line = line.rstrip().split('\t')
                 bp_ol = int(line[8])
@@ -713,9 +715,9 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
 
         # read original beds and classify into TP, FP, FN
         # TP and FN as subsets of the baseline set
-        tp_file = open(tp_name)
-        fn_file = open(fn_name)
-        with open(baseline_bed_name) as bed_file:
+        tp_file = open(os.path.join(work_dir, tp_rev_name), 'w')
+        fn_file = open(os.path.join(work_dir, fn_name), 'w')
+        with open(os.path.join(work_dir, baseline_bed_name)) as bed_file:
             for line in bed_file:
                 line_s = line.rstrip().split('\t')
                 sv_info = line_s[3]
@@ -730,8 +732,8 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         tp_file.close()
         fn_file.close()
         # FP as subsets of the calls set
-        fp_file = open(fp_name)
-        with open(calls_bed_name) as bed_file:
+        fp_file = open(os.path.join(work_dir, fp_name), 'w')
+        with open(os.path.join(work_dir, calls_bed_name)) as bed_file:
             for line in bed_file:
                 line_s = line.rstrip().split('\t')
                 sv_info = line_s[3]
@@ -746,8 +748,9 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
 
         # Delete temporary files
         os.remove(ol_name)
-        os.remove(base_sel_name)
-        os.remove(call_sel_name)
+        if bed_id:
+            os.remove(base_sel_name)
+            os.remove(call_sel_name)
 
     # summarize results into a table
     results = summarize_sv_results(os.path.join(work_dir, tp_ins_name),
@@ -802,7 +805,8 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
 
     # results in dict
     results = {}
-    results['TP-INS'] = wc(tp_ins)
+    # results['TP-INS'] = wc(tp_ins)
+    results['TP-INS'] = 'NA'
     results['TP-baseline-INS'] = wc(tp_ins_baseline)
     results['FP-INS'] = wc(fp_ins)
     results['FN-INS'] = wc(fn_ins)
@@ -811,7 +815,8 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
     results['Recall-INS'] = ins_pr[1]
     results['F1-INS'] = ins_pr[2]
 
-    results['TP-DEL'] = wc(tp_del)
+    # results['TP-DEL'] = wc(tp_del)
+    results['TP-DEL'] = 'NA'
     results['TP-baseline-DEL'] = wc(tp_del_baseline)
     results['FP-DEL'] = wc(fp_del)
     results['FN-DEL'] = wc(fn_del)
@@ -820,7 +825,8 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
     results['Recall-DEL'] = del_pr[1]
     results['F1-DEL'] = del_pr[2]
 
-    results['TP'] = results['TP-INS'] + results['TP-DEL']
+    # results['TP'] = results['TP-INS'] + results['TP-DEL']
+    results['TP'] = 'NA'
     results['TP-baseline'] = results['TP-baseline-INS'] + results['TP-baseline-DEL']    
     results['FP'] = results['FP-INS'] + results['FP-DEL']
     results['FN'] = results['FN-INS'] + results['FN-DEL']
