@@ -624,7 +624,6 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--paired-only',
                    '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
@@ -634,7 +633,8 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
         
         # TODO: Minimap2 is quite inaccurate on this tiny test. Maybe it only works well at larger scales?
-        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'minimap2-pe'], 0.6)
+        # Note that mpmap2 only runs on paired end reads.
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'minimap2-pe'], 0.6)
 
     def _run(self, args):
         log.info('Running %r', args)

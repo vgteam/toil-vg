@@ -836,6 +836,43 @@ def run_bwa_index(job, context, fasta_file_id, bwa_index_ids=None, intermediate=
             context.write_output_file(job, fasta_file)
 
     return bwa_index_ids
+    
+def run_minimap2_index(job, context, fasta_file_id, minimap2_index_id=None, intermediate=False, copy_fasta=False):
+    """
+    Make a minimap2 index for a fasta sequence if not given in input.
+    
+    If intermediate is set to True, do not output it. Otherwise, output it
+    as minimap2.fa.mmi.
+    
+    Returns the index file ID.
+    
+    If copy_fasta is True (and intermediate is False), also output the input FASTA to the out store.
+    
+    """
+    if not minimap2_index_id:
+        work_dir = job.fileStore.getLocalTempDir()
+        # Download the FASTA file to be indexed
+        # It would be nice to name it the same as the actual input FASTA but we'd have to peek at the options
+        fasta_file = os.path.join(work_dir, 'minimap2.fa')
+        job.fileStore.readGlobalFile(fasta_file_id, fasta_file)
+        
+        # Say where the index should go
+        index_file = os.path.join(work_dir, 'minimap2.fa.mmi')
+        
+        # Make the index
+        cmd = ['minimap2', '-d', os.path.basename(index_file), os.path.basename(fasta_file)]
+        context.runner.call(job, cmd, work_dir = work_dir)
+        
+        # Work out how to output the files
+        write_file = context.write_intermediate_file if intermediate else context.write_output_file
+        
+        minimap2_index_id = write_file(job, index_file)
+        
+        if copy_fasta and not intermediate:
+            # We ought to upload the FASTA also.
+            context.write_output_file(job, fasta_file)
+
+    return minimap2_index_id
         
 
 def run_indexing(job, context, inputGraphFileIDs,

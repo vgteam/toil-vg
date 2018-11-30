@@ -36,7 +36,7 @@ from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
     parse_plot_sets, title_to_filename, ensure_disk
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
-from toil_vg.vg_index import run_indexing, run_bwa_index
+from toil_vg.vg_index import run_indexing, run_bwa_index, run_minimap2_index
 from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ def add_mapeval_options(parser):
     parser.add_argument('--minimap2-opts', type=str,
                         help='arguments for minimap2 (wrapped in \"\").')
     parser.add_argument('--fasta', type=make_url, default=None,
-                        help='fasta sequence file (required for bwa or minimap2. If indexes exists for this file, they will be used)')
+                        help='fasta sequence file (required for bwa or minimap2. If .fa.* indexes exists for this file, they will be used)')
    
     
     # We can compare all the scores against those from a particular GAM, if asked.
@@ -535,7 +535,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
 
     requeue_promise = ensure_disk(job, run_minimap2, [context, fq_reads_ids, fasta_id],
         {'minimap2_index_id': minimap2_index_id, 'paired_mode': paired_mode},
-        itertools.chain(fq_reads_ids, [minimap2_index_id] if minimap2_index_id is not None else []))
+        itertools.chain(fq_reads_ids, [minimap2_index_id] if minimap2_index_id is not None else [fasta_id]))
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
@@ -548,16 +548,18 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         fq_file_names.append(os.path.join(work_dir, 'reads{}.fq.gz'.format(i)))
         job.fileStore.readGlobalFile(fq_reads_id, fq_file_names[-1])
 
-    # and the index files
-    fasta_file = os.path.join(work_dir, 'reference.fa')
-    index_file = os.path.join(work_dir, 'reference.mmi')
-    
+    # and the reference, which can be a pre-made index or the raw FASTA
+    ref_filename = None
     if minimap2_index_id is not None:
         # Download the index
+        index_file = os.path.join(work_dir, 'reference.fa.mmi')
         job.fileStore.readGlobalFile(minimap2_index_id, index_file)
+        ref_filename = index_file
     else:
         # Download the FASTA
+        fasta_file = os.path.join(work_dir, 'reference.fa')
         job.fileStore.readGlobalFile(fasta_id, fasta_file)
+        ref_filename = fatsa_file
         
 
     # output positions file
@@ -573,11 +575,10 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         start_time = timeit.default_timer()
         cmd = (['minimap2', '-t', str(context.config.alignment_cores)] +
             context.config.minimap2_opts +
-            [os.path.basename(fasta_file), os.path.basename(fq_file_names[0])])
+            [os.path.basename(ref_filename), os.path.basename(fq_file_names[0])])
         if len(fq_file_names) == 2:
             cmd.append(os.path.basename(fq_file_names[1]))
         # If one file comes in, it had better be interleaved
-        # TODO: read minimap2_index_id if privided
         
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
@@ -603,8 +604,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         start_time = timeit.default_timer()
         cmd = (['minimap2', '-t', str(context.config.alignment_cores)] +
             context.config.minimap2_opts +
-            [os.path.basename(fasta_file), os.path.basename(fq_file_names[0])])
-        # TODO: read minimap2_index_id if provided
+            [os.path.basename(ref_filename), os.path.basename(fq_file_names[0])])
 
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
@@ -1205,6 +1205,9 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     def paired_conditions(conditions_in):
         for condition in conditions_in:
             for paired in matrix["paired"]:
+                if condition["aligner"] == "minimap2" and not paired:
+                    # Don't run minimap2 in unpaired mode; it will pair up all pairable inputs
+                    continue
                 extended = dict(condition)
                 extended.update({"paired": paired})
                 yield extended
@@ -1416,7 +1419,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             
             
             # Save the condition results
-            tagged_name = 'bwa' + tag_string
+            tagged_name = 'bwa-mem' + tag_string
             results_dict[tagged_name]['bam'] =  bwa_mem_job.rv(0)
             results_dict[tagged_name]['runtime'] =  bwa_mem_job.rv(1)
             results_dict[tagged_name]['paired'] = condition['paired']
@@ -1431,18 +1434,15 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 minimap2_start_job = Job()
                 job.addChild(minimap2_start_job)
                
-                # TODO: make a minimap2 index, something like this, when we implement its indexing.
-                # For now just index at mapping time.
-               
                 # Replace the passed in index IDs with generated index IDs, if they aren't generated yet.
-                #minimap2_index_job = minimap2_start_job.addChildJobFn(run_minimap2_index, context,
-                #                                                      fasta_file_id,
-                #                                                      minimap2_index_ids=minimap2_index_ids,
-                #                                                      intermediate=True,
-                #                                                      cores=context.config.minimap2_index_cores,
-                #                                                      memory=context.config.minimap2_index_mem,
-                #                                                      disk=context.config.minimap2_index_disk)
-                #minimap2_index_id = minimap2_index_ids.rv()
+                minimap2_index_job = minimap2_start_job.addChildJobFn(run_minimap2_index, context,
+                                                                      fasta_file_id,
+                                                                      minimap2_index_id=minimap2_index_id,
+                                                                      intermediate=True,
+                                                                      cores=context.config.minimap2_index_cores,
+                                                                      memory=context.config.minimap2_index_mem,
+                                                                      disk=context.config.minimap2_index_disk)
+                minimap2_index_id = minimap2_index_job.rv()
                     
             if condition["paired"]:
                 # Do paired-end minimap2
@@ -2239,7 +2239,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                 id_range_file_ids, snarl_file_ids,
                 vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
                 reads_fastq_file_ids,
-                fasta_file_id, bwa_index_ids, bam_file_ids,
+                fasta_file_id, bwa_index_ids, minimap2_index_id, bam_file_ids,
                 pe_bam_file_ids, true_read_stats_file_id):
     """
     Main Toil job, and main entrypoint for use of vg_mapeval as a library.
@@ -2375,6 +2375,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                                                fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids,
                                                fasta_file_id, matrix,
                                                bwa_index_ids=bwa_index_ids,
+                                               minimap2_index_id=minimap2_index_id,
                                                ignore_quals=options.ignore_quals, surject=options.surject)
                                                
     # Grab the results dict organized by generated condition name, each
@@ -2926,6 +2927,7 @@ def make_mapeval_plan(toil, options):
             
     plan.fasta_file_id = None
     plan.bwa_index_ids = None
+    plan.minimap2_index_id = None
     if options.fasta:
         # Load the fasta, which we may want for BWA or minimap2
         plan.fasta_file_id = toil.importFile(options.fasta)
@@ -2937,12 +2939,15 @@ def make_mapeval_plan(toil, options):
             try:
                 plan.bwa_index_ids[suf] = toil.importFile(fidx)
             except:
-                logger.info('No bwa index found for {}, will regenerate'.format(options.fasta))
+                logger.info('No bwa index found for {}, will regenerate if needed'.format(options.fasta))
                 plan.bwa_index_ids = None
                 break
                 
-       # TODO: load minimap2 indexes
-        
+        # Load minimap2 indexes
+        try:
+            plan.minimap2_index_id = toil.importFile('{}{}'.format(options.fasta, '.mmi'))
+        except:
+            logger.info('No minimap2 index found for {}, will regenerate if needed'.format(options.fasta))
         
     if options.truth:
         plan.true_read_stats_file_id = toil.importFile(options.truth)
@@ -2992,7 +2997,8 @@ def mapeval_main(context, options):
                                      plan.reads_bam_file_id,
                                      plan.reads_fastq_file_ids,
                                      plan.fasta_file_id, 
-                                     plan.bwa_index_ids, 
+                                     plan.bwa_index_ids,
+                                     plan.minimap2_index_id,
                                      plan.bam_file_ids,
                                      plan.pe_bam_file_ids, 
                                      plan.true_read_stats_file_id)
