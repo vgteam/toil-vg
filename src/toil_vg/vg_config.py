@@ -159,7 +159,7 @@ samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 
 # Docker image to use for minimap2
-minimap2-docker: 'evolbioinfo/minimap2:2.14'
+minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
@@ -414,7 +414,7 @@ samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 
 # Docker image to use for minimap2
-minimap2-docker: 'evolbioinfo/minimap2:2.14'
+minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
