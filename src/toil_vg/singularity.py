@@ -38,8 +38,8 @@ def singularityCall(job,
              These defaults are removed if singularity_parmaters is passed, so be sure to pass them if they are desired.
     :param file outfile: Pipe output of Singularity call to file handle
     """
-    _singularity(job, tool=tool, parameters=parameters, workDir=workDir, singularityParameters=singularityParameters,
-            outfile=outfile, checkOutput=False)
+    return _singularity(job, tool=tool, parameters=parameters, workDir=workDir, singularityParameters=singularityParameters,
+                        outfile=outfile, checkOutput=False)
 
 
 def singularityCheckOutput(job,

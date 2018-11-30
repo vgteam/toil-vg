@@ -436,7 +436,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     """
     
     requeue_promise = ensure_disk(job, run_bwa_mem, [context, fq_reads_ids, bwa_index_ids, paired_mode], {},
-        fq_reads_ids, bwa_index_ids.values())
+        itertools.chain(fq_reads_ids, bwa_index_ids.values()))
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
@@ -535,7 +535,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
 
     requeue_promise = ensure_disk(job, run_minimap2, [context, fq_reads_ids, fasta_id],
         {'minimap2_index_id': minimap2_index_id, 'paired_mode': paired_mode},
-        fq_reads_ids, [minimap2_index_id] if minimap2_index_id is not None else [])
+        itertools.chain(fq_reads_ids, [minimap2_index_id] if minimap2_index_id is not None else []))
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
