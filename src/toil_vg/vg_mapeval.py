@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
-    parse_plot_sets, title_to_filename
+    parse_plot_sets, title_to_filename, ensure_disk
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing, run_bwa_index
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -112,7 +112,7 @@ def add_mapeval_options(parser):
                         help='run bwa mem on the reads, and add to comparison')
     parser.add_argument('--bwa-opts', type=str,
                         help='arguments for bwa mem (wrapped in \"\").')
-    parser.add_argument('--minimap2', action-'store_true',
+    parser.add_argument('--minimap2', action='store_true',
                         help='run minimap2 on the reads, and add to comparison')
     parser.add_argument('--minimap2-opts', type=str,
                         help='arguments for minimap2 (wrapped in \"\").')
@@ -435,7 +435,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     return id of bam file
     """
     
-    requeue_promise = ensure_disk(job, run_bwa_mem, [context, fq_reads_ids, minimap2_index_ids, paired_mode], {},
+    requeue_promise = ensure_disk(job, run_bwa_mem, [context, fq_reads_ids, bwa_index_ids, paired_mode], {},
         fq_reads_ids, bwa_index_ids.values())
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
@@ -523,17 +523,19 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
 
     return bam_file_id, run_time
     
-def run_minimap2(job, context, fq_reads_ids, minimap2_index_ids):
+def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, paired_mode=True):
     """
     Run minimap2 on reads in one or two fastq files. Always pairs up reads if
     two files or passed, or if one file is passed and reads are correctly named
-    and interleaved. Returns a BAM file ID and the runtime.
+    and interleaved; paired_mode just controlls output naming. Returns a BAM
+    file ID and the runtime.
     
     Automatically converts minimap2's SAM output to BAM.
     """
 
-    requeue_promise = ensure_disk(job, run_minimap2, [context, fq_reads_ids, minimap2_index_ids], {},
-        fq_reads_ids, minimap2_index_ids.values())
+    requeue_promise = ensure_disk(job, run_minimap2, [context, fq_reads_ids, fasta_id],
+        {'minimap2_index_id': minimap2_index_id, 'paired_mode': paired_mode},
+        fq_reads_ids, [minimap2_index_id] if minimap2_index_id is not None else [])
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
@@ -548,11 +550,18 @@ def run_minimap2(job, context, fq_reads_ids, minimap2_index_ids):
 
     # and the index files
     fasta_file = os.path.join(work_dir, 'reference.fa')
-    for suf, idx_id in bwa_index_ids.items():
-        job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
+    index_file = os.path.join(work_dir, 'reference.mmi')
+    
+    if minimap2_index_id is not None:
+        # Download the index
+        job.fileStore.readGlobalFile(minimap2_index_id, index_file)
+    else:
+        # Download the FASTA
+        job.fileStore.readGlobalFile(fasta_id, fasta_file)
+        
 
     # output positions file
-    bam_file = os.path.join(work_dir, 'bwa-mem')
+    bam_file = os.path.join(work_dir, 'minimap2')
     if paired_mode:
         bam_file += '-pe'
     bam_file += '.bam'
@@ -560,16 +569,15 @@ def run_minimap2(job, context, fq_reads_ids, minimap2_index_ids):
     # if we're paired, must make some split files
     if paired_mode:
 
-        # run bwa-mem on the paired end input
+        # run minimap2 on the paired end input
         start_time = timeit.default_timer()
-        cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(fq_file_names[0])]
+        cmd = (['minimap2', '-t', str(context.config.alignment_cores)] +
+            context.config.minimap2_opts +
+            [os.path.basename(fasta_file), os.path.basename(fq_file_names[0])])
         if len(fq_file_names) == 2:
-            cmd += [os.path.basename(fq_file_names[1])]
-        else:
-            # if one file comes in, it had better be interleaved
-            cmd += ['-p']
-        cmd += context.config.bwa_opts
+            cmd.append(os.path.basename(fq_file_names[1]))
+        # If one file comes in, it had better be interleaved
+        # TODO: read minimap2_index_id if privided
         
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
@@ -577,10 +585,9 @@ def run_minimap2(job, context, fq_reads_ids, minimap2_index_ids):
         end_time = timeit.default_timer()
         run_time = end_time - start_time
 
-        # we take care to mimic output message from vg_map.py, so we can mine them both for the jenkins
-        # report        
-        RealtimeLogger.info("Aligned aligned-linear_0.gam. Process took {} seconds with paired-end bwa-mem".format(
-            run_time))
+        # Don't do any specific log-mine-able message format
+        RealtimeLogger.info("Aligned {}. Process took {} seconds with paired-end minimap2".format(
+            bam_file, run_time))
             
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
@@ -592,10 +599,12 @@ def run_minimap2(job, context, fq_reads_ids, minimap2_index_ids):
     else:
         assert len(fq_file_names) == 1
 
-        # run bwa-mem on single end input
+        # run minimap2 on single end input
         start_time = timeit.default_timer()
-        cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
-                os.path.basename(fq_file_names[0])] + context.config.bwa_opts
+        cmd = (['minimap2', '-t', str(context.config.alignment_cores)] +
+            context.config.minimap2_opts +
+            [os.path.basename(fasta_file), os.path.basename(fq_file_names[0])])
+        # TODO: read minimap2_index_id if provided
 
         with open(bam_file + '.sam', 'w') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
@@ -603,10 +612,9 @@ def run_minimap2(job, context, fq_reads_ids, minimap2_index_ids):
         end_time = timeit.default_timer()
         run_time = end_time - start_time
 
-        # we take care to mimic output message from vg_map.py, so we can mine them both for the jenkins
-        # report
-        RealtimeLogger.info("Aligned aligned-linear_0.gam. Process took {} seconds with single-end bwa-mem".format(
-            run_time))            
+        # Don't do any specific log-mine-able message format
+        RealtimeLogger.info("Aligned {}. Process took {} seconds with single-end bwa-mem".format(
+            bam_file, run_time))            
 
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
@@ -1064,18 +1072,22 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
 
 def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, gam_file_ids,
                        reads_fastq_single_ids, reads_fastq_paired_ids, reads_fastq_paired_for_vg_ids,
-                       fasta_file_id, bwa_index_ids, matrix, ignore_quals, surject):
+                       fasta_file_id, matrix, bwa_index_ids=[], minimap2_index_id=None, ignore_quals=False, surject=False):
     """
     
     Run alignments, if alignment files have not already been provided.
     
-    Returns a list of graph/gam names (with condition tags), a list of
-    associated gam file IDs, a list of associated xg index IDs, and a list of
-    BAM file IDs (or Nones) for realigned read BAMs, and a list of running
-    times (for map commands not including toil-vg overhead)
+    Returns a dict from output condition name (with condition tags added) to
+    dicts, each of which may have "gam", "bam", "xg", "paired", and "runtime".
+    "gam" is the alligned GAM fiel ID if computed, "bam" is the alligned or
+    surjected BAM file ID if present, and "xg" is the XG index aligned against,
+    if applicable. "paired" is True or False depending on if paired-end mapping
+    was used. "runtime" is the running time of the alignment in seconds,
+    without toil-vg overhead. Note that right now surjected BAMs live in their
+    own conditions with their own names.
     
-    We need to modify the name and index lists because we synthesize paired-end
-    versions of existing entries.
+    We synthesize paired-end versions of existing entries, supplementing the
+    input GAM name and index lists.
     
     Determines what conditions and combinations of conditions to run by looking
     at the "matrix" parameter, which is a dict from string variable name to a
@@ -1084,7 +1096,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     
     Variables to be used in the matrix are:
     
-    "aligner": ["vg", "bwa"]
+    "aligner": ["vg", "bwa", "minimap2"]
     
     "multipath": [True, False]
     
@@ -1103,6 +1115,9 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # The input GAM names must be unique
     RealtimeLogger.info('Input GAM names: {}'.format(gam_names))
     assert(len(set(gam_names)) == len(gam_names))
+    
+    # Make the dict we will put out output values in
+    results_dict = collections.defaultdict(dict)
 
     # scrape out the xg ids, don't need others any more after this step
     xg_ids = [index_id['xg'] for index_id in index_ids]
@@ -1128,13 +1143,6 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
         RealtimeLogger.info('Applied {} xg overrides'.format(overridden))
     else:
         RealtimeLogger.info('No xg overrides applied')
-
-    # the ids and names we pass forward
-    out_xg_ids = xg_ids if gam_file_ids else []
-    out_gam_names = gam_names if gam_file_ids else []
-
-    # the map times
-    map_times = [None] * len(gam_file_ids) if gam_file_ids else []
 
     # we use this hack to run multiple batches of mpmap opts
     mpmap_opts_list = [context.config.mpmap_opts]
@@ -1235,8 +1243,13 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     
     # If bwa is not run, we need some Nones for its results
     bwa_bam_file_ids, bwa_mem_times = [None, None], [None, None]
-    # And if it is run it will all run under this job, which starts out as None
+    # And if it is run, it will all run under this job, which starts out as None.
+    # This is to coordinate index construction.
     bwa_start_job = None
+    
+    # If minimap2 is run, it will all run under this job, which starts out as None.
+    # This is to coordinate index construction.
+    minimap2_start_job = None
 
     # If --surject option used, keep track of the various surjection output in one dict
     surjected_results = {'bam_file_ids' : [],
@@ -1359,20 +1372,23 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                                                                 disk=mapping_context.config.misc_disk))
                                     
             for i, map_job in enumerate(map_jobs):
-                # Update our output lists for every mapping job we are running
-                gam_file_ids.append(map_job.rv(0))
-                map_times.append(map_job.rv(1))
-                out_xg_ids.append(xg_ids[i])
-                out_gam_names.append(gam_names[i] + tag_string)
-                if condition['paired']:
-                    surjected_results['pe_bam_file_ids'].append(map_job.rv(2))
-                    surjected_results['pe_bam_names'].append(out_gam_names[-1] + '-surject')
-                else:
-                    surjected_results['bam_file_ids'].append(map_job.rv(2))
-                    surjected_results['bam_names'].append(out_gam_names[-1] + '-surject')
+                # Update our output dict for every mapping job we are running
+                tagged_name = gam_names[i] + tag_string
+                results_dict[tagged_name]['gam'] = map_job.rv(0)
+                results_dict[tagged_name]['runtime'] = map_job.rv(1)
+                results_dict[tagged_name]['xg'] = xg_ids[i]
+                results_dict[tagged_name]['paired'] = condition['paired']
+                
+                # And do the surjected condition
+                surjected_name = tagged_name + '-surject'
+                results_dict[surjected_name]['bam'] = map_job.rv(2)
+                results_dict[surjected_name]['paired'] = condition['paired']
             
         elif condition["aligner"] == "bwa":
             # Run BWA.
+            
+            tag_string = ""
+            
             if bwa_start_job is None:
                 # If we do any BWA we need this job to exist
                 bwa_start_job = Job()
@@ -1388,34 +1404,81 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             if condition["paired"]:
                 # Do paired-end BWA
                 assert reads_fastq_paired_ids
+                tag_string += "-pe"
                 bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_paired_ids, bwa_index_ids, True,
                                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                              disk=context.config.alignment_disk)
-                bwa_bam_file_ids[1] = bwa_mem_job.rv(0)
-                bwa_mem_times[1] = bwa_mem_job.rv(1)
             else:
                 # Do single-ended
                 assert reads_fastq_single_ids
                 bwa_mem_job = bwa_start_job.addFollowOnJobFn(run_bwa_mem, context, reads_fastq_single_ids, bwa_index_ids, False,
                                                              cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                              disk=context.config.alignment_disk)
-                bwa_bam_file_ids[0] = bwa_mem_job.rv(0)
-                bwa_mem_times[0] = bwa_mem_job.rv(1)
+            
+            
+            # Save the condition results
+            tagged_name = 'bwa' + tag_string
+            results_dict[tagged_name]['bam'] =  bwa_mem_job.rv(0)
+            results_dict[tagged_name]['runtime'] =  bwa_mem_job.rv(0)
+            results_dict[tagged_name]['paired'] = condition['paired']
+                
+        elif condition["aligner"] == "minimap2":
+            # Run minimap2.
+            
+            tag_string = ""
+            
+            if minimap2_start_job is None:
+                # If we do any minimap2 we need this job to exist
+                minimap2_start_job = Job()
+                job.addChild(minimap2_start_job)
+               
+                # TODO: make a minimap2 index, something like this, when we implement its indexing.
+                # For now just index at mapping time.
+               
+                # Replace the passed in index IDs with generated index IDs, if they aren't generated yet.
+                #minimap2_index_job = minimap2_start_job.addChildJobFn(run_minimap2_index, context,
+                #                                                      fasta_file_id,
+                #                                                      minimap2_index_ids=minimap2_index_ids,
+                #                                                      intermediate=True,
+                #                                                      cores=context.config.minimap2_index_cores,
+                #                                                      memory=context.config.minimap2_index_mem,
+                #                                                      disk=context.config.minimap2_index_disk)
+                #minimap2_index_id = minimap2_index_ids.rv()
+                    
+            if condition["paired"]:
+                # Do paired-end minimap2
+                assert reads_fastq_paired_ids
+                tag_string += "-pe"
+                minimap2_job = minimap2_start_job.addFollowOnJobFn(run_minimap2, context, reads_fastq_paired_ids, fasta_file_id,
+                                                                   minimap2_index_id, True,
+                                                                   cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                                   disk=context.config.alignment_disk)
+            else:
+                # Do single-ended
+                assert reads_fastq_single_ids
+                minimap2_job = minimap2_start_job.addFollowOnJobFn(run_minimap2, context, reads_fastq_single_ids, fasta_file_id,
+                                                                   minimap2_index_id, False,
+                                                                   cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                                   disk=context.config.alignment_disk)
+            
+            # Save the condition results
+            tagged_name = 'minimap2' + tag_string
+            results_dict[tagged_name]['bam'] =  bwa_mem_job.rv(0)
+            results_dict[tagged_name]['runtime'] =  bwa_mem_job.rv(0)
+            results_dict[tagged_name]['paired'] = condition['paired']
 
-    # GAM names must be unique
-    RealtimeLogger.info('Output GAM names: {}'.format(out_gam_names))
-    assert(len(set(out_gam_names)) == len(out_gam_names))
-
-    return (out_gam_names, gam_file_ids, out_xg_ids, map_times, bwa_bam_file_ids,
-            bwa_mem_times, surjected_results)
+    # Return the disct with all the results organized by condition.
+    return results_dict
     
-def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
-                            bam_names, bam_file_ids, pe_bam_names, pe_bam_file_ids,
-                            bwa_bam_file_ids, surjected_results, true_read_stats_file_id,
+def run_map_eval_comparison(job, context, mapping_condition_dict, true_read_stats_file_id,
                             mapeval_threshold, score_baseline_name=None, original_read_gam=None,
                             downsample_portion=None, gbwt_usage_tag_gam_name=None):
     """
     run the mapping comparison.  Dump some tables into the outstore.
+    
+    Takes a dict from condition name to condition dict, with some subset of
+    "gam", "bam", "xg", "paired", a file of true read positions, and a
+    correctness comparison threshold distance.
     
     Returns a pair of the position comparison results and the score comparison
     results.
@@ -1443,127 +1506,89 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     
     """
     
-    # munge out the returned pair of BAMs
-    if bwa_bam_file_ids[0] is not None:
-        bam_file_ids.append(bwa_bam_file_ids[0])
-        bam_names.append('bwa-mem')
-    if bwa_bam_file_ids[1] is not None:
-        pe_bam_file_ids.append(bwa_bam_file_ids[1])
-        pe_bam_names.append('bwa-mem-pe')
-
-    # and also in the surjected BAMs to the lists we're passing along to comparison
-    for bam_name, surjected_bam_file_id in zip(surjected_results['bam_names'],
-                                               surjected_results['bam_file_ids']):
-        if surjected_bam_file_id:
-            if type(surjected_bam_file_id) is list:
-                assert len(surjected_bam_file_id) == 1
-                bam_file_ids.append(surjected_bam_file_id[0])
-            else:
-                bam_file_ids.append(surjected_bam_file_id)
-            bam_names.append(bam_name)
-    for pe_bam_name, surjected_pe_bam_file_id in zip(surjected_results['pe_bam_names'],
-                                                     surjected_results['pe_bam_file_ids']):
-        if surjected_pe_bam_file_id:
-            if type(surjected_pe_bam_file_id) is list:
-                assert len(surjected_pe_bam_file_id) == 1
-                pe_bam_file_ids.append(surjected_pe_bam_file_id[0])
-            else:
-                pe_bam_file_ids.append(surjected_pe_bam_file_id)
-            pe_bam_names.append(pe_bam_name)
-        
-    # We need to keep the BAM stats jobs around to wait on them
-    bam_stats_jobs = []
-
-    # get the bwa read alignment statistics, one id for each bam_name
-    bam_stats_file_ids = []
-    for bam_i, bam_id in enumerate(bam_file_ids):
-        
-        # What job ensures we have the alignments to evaluate?
-        parent_job = job
-        if downsample_portion is not None and downsample_portion != 1.0:
-            # Downsample the BAM
-            parent_job = job.addChildJobFn(downsample_bam, context, bam_id, downsample_portion,
-                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                           disk=bam_id.size * 2)
-            bam_id = parent_job.rv()
+    # We're going to use mapping_condition_dict and add in "stats" for each BAM or GAM.
+    # TODO: If there's both a BAM and a GAM, the BAM will win and provide the stats.
     
-        name = '{}-{}.bam'.format(bam_names[bam_i], bam_i)
-        bam_stats_jobs.append(parent_job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, False,
-                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                       disk=context.config.alignment_disk))
-        bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
-    # separate flow for paired end bams because different logic used
-    pe_bam_stats_file_ids = []
-    for bam_i, bam_id in enumerate(pe_bam_file_ids):
-        
-        # What job ensures we have the alignments to evaluate?
-        parent_job = job
-        if downsample_portion is not None and downsample_portion != 1.0:
-            # Downsample the BAM
-            parent_job = job.addChildJobFn(downsample_bam, context, bam_id, downsample_portion,
-                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                           disk=bam_id.size * 2)
-            bam_id = parent_job.rv()
+    # We need to keep the GAM and BAM stats jobs around to wait on them
+    stats_jobs = []
     
-        name = '{}-{}.bam'.format(pe_bam_names[bam_i], bam_i)
-        bam_stats_jobs.append(parent_job.addChildJobFn(extract_bam_read_stats, context, name, bam_id, True,
-                                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                       disk=context.config.alignment_disk))
-        pe_bam_stats_file_ids.append(bam_stats_jobs[-1].rv())
-
-    # get the gam read alignment statistics, one for each gam_name (todo: run vg map like we do bwa?)
-    gam_stats_file_ids = []
-    # We also need to keep the jobs around so we can enforce that things run after them.
-    gam_stats_jobs = []
-    for gam_i, gam_id in enumerate(gam_file_ids):
-        name = '{}-{}.gam'.format(gam_names[gam_i], gam_i)
-        # run_mapping will return a list of gam_ids.  since we don't
-        # specify id ranges, this will always have one entry
-        gam = gam_id
-        if type(gam_id) is list:
-            assert len(gam_id) == 1
-            gam = gam_id[0]
-        RealtimeLogger.info('Work on GAM {} = {} named {} with XG id {}'.format(gam_i, gam, gam_names[gam_i], xg_file_ids[gam_i]))
+    for condition_number, (name, condition) in enumerate(mapping_condition_dict.iteritems()):
+        if 'bam' in condition:
+            # Compute bam stats
+            
+            # What bam do we want?
+            bam_id = condition['bam']
+            
+            # What job ensures we have the alignments to evaluate?
+            parent_job = job
+            if downsample_portion is not None and downsample_portion != 1.0:
+                # Downsample the BAM
+                parent_job = job.addChildJobFn(downsample_bam, context, bam_id, downsample_portion,
+                                               cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                               disk=bam_id.size * 2)
+                # Replace it with the downsampled version
+                bam_id = parent_job.rv()
         
-        # What job ensures we have the alignments to evaluate?
-        parent_job = job
-        if downsample_portion is not None and downsample_portion != 1.0:
-            # Downsample the GAM
-            parent_job = job.addChildJobFn(downsample_gam, context, gam, downsample_portion,
-                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                           disk=gam.size * 2)
-            gam = parent_job.rv()
+            bam_filename = '{}-{}.bam'.format(name, condition_number)
+            stats_jobs.append(parent_job.addChildJobFn(extract_bam_read_stats, context, bam_filename, bam_id, condition['paired'],
+                                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                           disk=context.config.alignment_disk))
+            
+            # Save back to the condition
+            condition['stats'] = stats_jobs[-1].rv()
+           
+        elif 'gam' in condition:
+            # Compute gam stats
+           
+            gam_filename = '{}-{}.gam'.format(name, condition_number)
         
-        # Make a job to annotate the GAM
-        annotate_job = parent_job.addChildJobFn(annotate_gam, context, xg_file_ids[gam_i], gam,
-                                                cores=context.config.misc_cores, memory=context.config.alignment_mem,
-                                                disk=context.config.alignment_disk)
-        
-        # Determine the annotations to promote to tags
-        generate_tags = []
-        if gam_names[gam_i] == gbwt_usage_tag_gam_name:
-            # We need to produce tags for the haplotype-scored-ness annotation
-            # for this GAM condition so we can propagate them later.
-            generate_tags.append('haplotype_score_used')
-        
-        # Then compute stats on the annotated GAM
-        gam_stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
-                                                            name, annotate_job.rv(),
-                                                            generate_tags=generate_tags,
-                                                            cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                            disk=context.config.alignment_disk))
-        
-        gam_stats_file_ids.append(gam_stats_jobs[-1].rv())
-
+            # What GAM do we want?
+            gam_id = condition['gam']
+            
+            if type(gam_id) is list:
+                # Sometimes (TODO: when?) we work with lists of GAMs
+                assert len(gam_id) == 1
+                gam_id = gam_id[0]
+            
+            # What job ensures we have the alignments to evaluate?
+            parent_job = job
+            if downsample_portion is not None and downsample_portion != 1.0:
+                # Downsample the GAM
+                parent_job = job.addChildJobFn(downsample_gam, context, gam_id, downsample_portion,
+                                               cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                               disk=gam_id.size * 2)
+                gam_id = parent_job.rv()
+            
+            # Make a job to annotate the GAM
+            annotate_job = parent_job.addChildJobFn(annotate_gam, context, condition['xg'], gam_id,
+                                                    cores=context.config.misc_cores, memory=context.config.alignment_mem,
+                                                    disk=context.config.alignment_disk)
+            
+            # Determine the annotations to promote to tags
+            generate_tags = []
+            if name == gbwt_usage_tag_gam_name:
+                # We need to produce tags for the haplotype-scored-ness annotation
+                # for this GAM condition so we can propagate them later.
+                generate_tags.append('haplotype_score_used')
+            
+            # Then compute stats on the annotated GAM
+            stats_jobs.append(annotate_job.addFollowOnJobFn(extract_gam_read_stats, context,
+                                                                gam_filename, annotate_job.rv(),
+                                                                generate_tags=generate_tags,
+                                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                                disk=context.config.alignment_disk))
+            
+            # Commit the stats back to the condition dict
+            condition['stats'] = stats_jobs[-1].rv()
+            
     # compare all our positions, and dump results to the out store. Get a tuple
     # of individual comparison files and overall stats file.
     position_comparison_job = job.addChildJobFn(run_map_eval_compare_positions, context,
-                                                true_read_stats_file_id, gam_names, gam_stats_file_ids,
-                                                bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids,
+                                                true_read_stats_file_id, mapping_condition_dict,
                                                 mapeval_threshold, gbwt_usage_tag_gam_name=gbwt_usage_tag_gam_name,
                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                 disk=context.config.misc_disk)
-    for dependency in itertools.chain(gam_stats_jobs, bam_stats_jobs):
+    for dependency in stats_jobs:
         dependency.addFollowOn(position_comparison_job)
     position_comparison_results = position_comparison_job.rv()
     
@@ -1572,21 +1597,17 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
     score_comparisons = {}
     
     if score_baseline_name is not None:
-        # We want to compare the scores from all the GAMs against a baseline
+        # We want to compare the scores from all the GAMs against a baseline GAM
         
-        # Make a dict mapping from assigned GAM name in gam_names to the stats file for that GAM's alignment
-        name_to_stats_id = dict(itertools.izip(gam_names, gam_stats_file_ids))
-        
-        # Find the baseline scores
-        baseline_stats_id = name_to_stats_id[score_baseline_name]
+        # Find the baseline GAM stats and scores
+        baseline_stats_id = mapping_condition_dict[score_baseline_name]['stats']
         
         # compare all our scores against the baseline, and dump results to the
         # out store. 
         score_comp_job = job.addChildJobFn(run_map_eval_compare_scores, context, score_baseline_name, baseline_stats_id,
-                                           gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
-                                           pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
+                                           mapping_condition_dict, cores=context.config.misc_cores,
                                            memory=context.config.misc_mem, disk=context.config.misc_disk)
-        for dependency in itertools.chain(gam_stats_jobs, bam_stats_jobs):
+        for dependency in stats_jobs:
             dependency.addFollowOn(score_comp_job)
                              
         # Get a tuple of individual comparison files and overall stats file.
@@ -1597,18 +1618,17 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
         # First compute its stats file
         stats_job = job.addChildJobFn(extract_gam_read_stats, context,
-                                      name, original_read_gam,
+                                      'input.gam', original_read_gam,
                                       cores=context.config.misc_cores, memory=context.config.misc_mem,
                                       disk=context.config.alignment_disk)
         
         # compare all our scores against this other baseline, and dump results
         # to the out store.
         score_comp_job = stats_job.addFollowOnJobFn(run_map_eval_compare_scores, context, 'input', stats_job.rv(),
-                                                    gam_names, gam_stats_file_ids, bam_names, bam_stats_file_ids,
-                                                    pe_bam_names, pe_bam_stats_file_ids, cores=context.config.misc_cores,
+                                                    mapping_condition_dict, cores=context.config.misc_cores,
                                                     memory=context.config.misc_mem, disk=context.config.misc_disk)
                                                     
-        for dependency in itertools.chain(gam_stats_jobs, bam_stats_jobs):
+        for dependency in stats_jobs:
             dependency.addFollowOn(score_comp_job)
                                                     
         # Save the results
@@ -1618,12 +1638,14 @@ def run_map_eval_comparison(job, context, xg_file_ids, gam_names, gam_file_ids,
         
     return position_comparison_results, score_comparisons
 
-def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_names, gam_stats_file_ids,
-                         bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids, mapeval_threshold,
+def run_map_eval_compare_positions(job, context, true_read_stats_file_id, mapping_condition_dict, mapeval_threshold,
                          gbwt_usage_tag_gam_name=None):
     """
     Compare the read positions for each read across the different aligmment
     methods.
+    
+    Takes a stats file for the true read positions, and a dict of conditions by
+    name, each of which may have a "stats" stats file.
     
     Produces a bunch of individual comparison files against the truth (in TSV
     format), a combined "positions.results.tsv" across all aligners, and a
@@ -1632,50 +1654,39 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, gam_na
     If gbwt_usage_tag_gam_name is set, propagates the GBWT usage tag from the
     stats file for that GAM to the stats files for all the other conditions.
     
-    Returns the list of comparison files, and the stats file ID.
+    Returns a dict of comparison file IDs by condition name, and the stats file ID.
     """
 
-    # merge up all the output data into one list
-    names = gam_names + bam_names + pe_bam_names
-    stats_file_ids = gam_stats_file_ids + bam_stats_file_ids + pe_bam_stats_file_ids
-    
-    # Make sure each name appears only once overall
-    assert(len(set(names)) == len(names))
-    
     # This is the job that roots the position comparison
     root = job
     
     if gbwt_usage_tag_gam_name is not None:
-        # We want to propagate the GBWT usage tag from this GAM's stats file. Find it.
-        tag_gam_index = gam_names.index(gbwt_usage_tag_gam_name)
-        tag_stats_id = gam_stats_file_ids[tag_gam_index]
+        # We want to propagate the GBWT usage tag from this condition's stats file. Find it.
+        tag_stats_id = mapping_condition_dict[gbwt_usage_tag_gam_name]['stats']
         
-        # This holds the IDs of the stats files that have had the tags propagated.
-        propagated_stats_file_ids = []
-        for other_id in stats_file_ids:
-            propagate_job = job.addChildJobFn(propagate_tag, context, tag_stats_id, other_id, 'haplotype_score_used',
-                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                              disk=context.config.alignment_disk)
-            propagated_stats_file_ids.append(propagate_job.rv())
+        for name, condition in mapping_condition_dict.iteritems():
+            # We will replace the stats files with (promises for) the stats files with the tag propagated
+            
+            if 'stats' in condition:
+                # Propagate stats
+                propagate_job = job.addChildJobFn(propagate_tag, context, tag_stats_id, condition['stats'], 'haplotype_score_used',
+                                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                  disk=context.config.alignment_disk)
+                condition['stats'] = propagate_job.rv()
         
         # Mak a new root for the position comparison after that.
         root = Job()
         job.addFollowOn(root)
         
-        # Use the improved stats files instead fo the old ones
-        stats_file_ids = propagated_stats_file_ids
-        
-        
-
-    compare_ids = []
-    for name, stats_file_id in zip(names, stats_file_ids):
+    compare_ids = {}
+    for name, condition in mapping_condition_dict.iteritems():
         # When the (modified) individual stats files are ready, run the position comparison
-        compare_ids.append(root.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
-                                              stats_file_id, mapeval_threshold,
-                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                              disk=context.config.alignment_disk).rv())
+        compare_ids[name] = root.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
+                                               condition['stats'], mapeval_threshold,
+                                               cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                               disk=context.config.alignment_disk).rv()
 
-    position_comp_file_id = root.addFollowOnJobFn(run_process_position_comparisons, context, names, compare_ids,
+    position_comp_file_id = root.addFollowOnJobFn(run_process_position_comparisons, context, compare_ids,
                                                   cores=context.config.misc_cores, memory=context.config.misc_mem,
                                                   disk=context.config.alignment_disk).rv(1)
                                          
@@ -1809,10 +1820,12 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
     return out_id
     
 
-def run_process_position_comparisons(job, context, names, compare_ids):
+def run_process_position_comparisons(job, context, compare_ids):
     """
     Write some raw tables of position comparisons to the output.  Compute some
     stats for each graph.
+    
+    Takes a dict from condition name to position comparison results file ID.
 
     The position results file format is a TSV of:
     correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
@@ -1823,14 +1836,11 @@ def run_process_position_comparisons(job, context, names, compare_ids):
 
     work_dir = job.fileStore.getLocalTempDir()
 
-    map_stats = []
+    # This maps from condition name to a list of accuracy, AUC, QQ, and F1 results
+    map_stats = {}
     
-    RealtimeLogger.info("Processing position comparisons for conditions: {}".format(names))
+    RealtimeLogger.info("Processing position comparisons for conditions: {}".format(list(compare_ids.keys())))
     
-    # Only allow each condition to appear once.
-    # If this is violated, something has gone wrong in our naming.
-    assert(len(set(names)) == len(names))
-
     # make the position.results.tsv and position.stats.tsv
     results_file = os.path.join(work_dir, 'position.results.tsv')
     with open(results_file, 'w') as out_stream:
@@ -1869,29 +1879,31 @@ def run_process_position_comparisons(job, context, names, compare_ids):
                     # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
                     out_results.list_line(list(parts) + ['.', count])
 
-        for name, compare_id in itertools.izip(names, compare_ids):
+        for name, compare_id in compare_ids.iteritems():
             compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
             job.fileStore.readGlobalFile(compare_id, compare_file)
             context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
 
-            map_stats.append([job.addChildJobFn(run_acc, context, name, compare_id, cores=context.config.misc_cores,
-                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                              job.addChildJobFn(run_auc, context, name, compare_id, cores=context.config.misc_cores,
-                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                              job.addChildJobFn(run_qq, context, name, compare_id, cores=context.config.misc_cores,
-                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                              job.addChildJobFn(run_max_f1, context, name, compare_id, cores=context.config.misc_cores,
-                                                memory=context.config.misc_mem, disk=context.config.misc_disk).rv()])
+            map_stats[name] = [job.addChildJobFn(run_acc, context, name, compare_id, cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                               job.addChildJobFn(run_auc, context, name, compare_id, cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                               job.addChildJobFn(run_qq, context, name, compare_id, cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                               job.addChildJobFn(run_max_f1, context, name, compare_id, cores=context.config.misc_cores,
+                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()]
             
     position_results_id = context.write_output_file(job, results_file)
 
-    return job.addFollowOnJobFn(run_write_position_stats, context, names, map_stats).rv(), position_results_id
+    return job.addFollowOnJobFn(run_write_position_stats, context, map_stats).rv(), position_results_id
 
-def run_write_position_stats(job, context, names, map_stats):
+def run_write_position_stats(job, context, map_stats):
     """
     write the position comparison statistics as tsv, both to the Toil fileStore
     and to the out_store as "stats.tsv".
+    
+    Takes a dict from condition name to stats list of accuracy, AUC, QQ, and F1.
     
     Returns the ID of the file written.
     
@@ -1902,7 +1914,7 @@ def run_write_position_stats(job, context, names, map_stats):
     stats_file = os.path.join(work_dir, 'stats.tsv')
     with open(stats_file, 'w') as stats_out:
         stats_out.write('aligner\tcount\tacc\tauc\tqq-r\tmax-f1\n')
-        for name, stats in zip(names, map_stats):
+        for name, stats in map_stats.iteritems():
             stats_out.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
                                                           stats[1][0], stats[2], stats[3]))
 
@@ -2085,11 +2097,13 @@ def run_qq(job, context, name, compare_id):
 
     return r2
     
-def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file_id, gam_names, gam_stats_file_ids,
-                                bam_names, bam_stats_file_ids, pe_bam_names, pe_bam_stats_file_ids):
+def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file_id, mapping_condition_dict):
     """
     Compare scores in the given stats files in the lists to those in the given
     baseline stats file.
+    
+    Takes a dict from condition name to condition results dict, containing a
+    'stats' file for each condition.
     
     Stats file format is a TSV of:
     read name, contig name, contig offset, score, mapping quality
@@ -2100,47 +2114,48 @@ def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file
     Will also save a concatenated TSV file, with score difference and quoted
     aligner/condition name, as score.results.<baseline_name>.tsv
     
-    Returns the list of comparison file IDs and the score results file ID.
+    Returns a dict from condition name to comparison file ID, and the overall
+    score results file ID.
     
     For now, just ignores BAMs because we don't pull in pysam to parse out their
     scores.
     
     """
     
-    # merge up all the condition names and file IDs into synchronized lists
-    # TODO: until we can extract the scores from BAMs, just process the GAMs
-    names = gam_names
-    stats_file_ids = gam_stats_file_ids
+    compare_ids = {}
+    for name, condition in mapping_condition_dict.iteritems():
+        if 'gam' not in condition:
+            # TODO: For now we only process GAMs because only they have their scores extracted
+            continue
     
-    RealtimeLogger.info(names)
-    RealtimeLogger.info(stats_file_ids)
+        compare_ids[name] = job.addChildJobFn(compare_scores, context, baseline_name, baseline_stats_file_id,
+                                              name, condition['stats'],
+                                              cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                              disk=context.config.misc_disk).rv()
 
-    compare_ids = []
-    for name, stats_file_id in zip(names, stats_file_ids):
-        compare_ids.append(job.addChildJobFn(compare_scores, context, baseline_name, baseline_stats_file_id, name, stats_file_id,
-                                             cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                             disk=context.config.misc_disk).rv())
-
-    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, context, baseline_name, names, compare_ids,
+    stats_job = job.addFollowOnJobFn(run_process_score_comparisons, context, baseline_name, compare_ids,
                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
                                      
     return compare_ids, stats_job.rv()
 
-def run_process_score_comparisons(job, context, baseline_name, names, compare_ids):
+def run_process_score_comparisons(job, context, baseline_name, compare_ids):
     """
     Write some raw tables of score comparisons against the given baseline to the
     output.  Compute some stats for each graph.
+    
+    Takes a baseline condition name, and a dict from condition name to score
+    comparison file ID.
     
     Returns the file ID of the overall stats file "score.stats.<baseline name>.tsv".
     """
 
     work_dir = job.fileStore.getLocalTempDir()
 
-    # Holds a list (by aligner) of lists (by type of statistic) of stats info
+    # Holds a dict (by condition) of lists (by type of statistic) of stats info
     # (that might be tuples, depending on the stat)
     # TODO: Change this to dicts by stat type.
-    map_stats = []
+    map_stats = {}
 
     # make the score.results.tsv, which holds score differences and aligner/condition names.
     results_file = os.path.join(work_dir, 'score.{}.results.tsv'.format(baseline_name))
@@ -2162,22 +2177,22 @@ def run_process_score_comparisons(job, context, baseline_name, names, compare_id
                             raise RuntimeError('Invalid comparison file line ' + content)
                         out_results.line(toks[1], a)
 
-        for name, compare_id in itertools.izip(names, compare_ids):
+        for name, compare_id in compare_ids.iteritems():
             compare_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
             job.fileStore.readGlobalFile(compare_id, compare_file)
             context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
 
             # Tabulate overall statistics
-            map_stats.append([job.addChildJobFn(run_portion_worse, context, name, compare_id,
-                                                cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                disk=context.config.misc_disk).rv()])
+            map_stats[name] = [job.addChildJobFn(run_portion_worse, context, name, compare_id,
+                                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                                 disk=context.config.misc_disk).rv()]
             
     context.write_output_file(job, results_file)
     
-    return job.addFollowOnJobFn(run_write_score_stats, context, baseline_name, names, map_stats).rv()
+    return job.addFollowOnJobFn(run_write_score_stats, context, baseline_name, map_stats).rv()
     
-def run_write_score_stats(job, context, baseline_name, names, map_stats):
+def run_write_score_stats(job, context, baseline_name, map_stats):
     """
     write the score comparison statistics against the baseline with the given
     name as tsv named "score.stats.<baseline name>.tsv".
@@ -2193,7 +2208,7 @@ def run_write_score_stats(job, context, baseline_name, names, map_stats):
         # Put each stat as a different column.
         stats_out = tsv.TsvWriter(stats_out_file)
         stats_out.comment('aligner\tcount\tworse')
-        for name, stats in zip(names, map_stats):
+        for name, stats in map_stats.iteritems():
             stats_out.line(name, stats[0][0], stats[0][1])
 
     return context.write_output_file(job, stats_file)
@@ -2355,31 +2370,27 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                                                xg_comparison_ids,
                                                options.gam_names, gam_file_ids,
                                                fq_reads_ids, fq_paired_reads_ids, fq_paired_reads_for_vg_ids,
-                                               fasta_file_id, bwa_index_ids, matrix,
-                                               options.ignore_quals, options.surject)
+                                               fasta_file_id, matrix,
+                                               bwa_index_ids=bwa_index_ids,
+                                               ignore_quals=options.ignore_quals, surject=options.surject)
                                                
-    # Unpack the alignment job's return values
-    # TODO: we're clobbering input values...
-    (gam_names, gam_file_ids, xg_ids, vg_map_times, bwa_bam_file_ids, bwa_map_times, surjected_results) = (
-         alignment_job.rv(0), alignment_job.rv(1), alignment_job.rv(2),
-         alignment_job.rv(3), alignment_job.rv(4), alignment_job.rv(5),
-         alignment_job.rv(6))
-
+    # Grab the results dict organized by generated condition name, each
+    # containing "gam", "bam", "xg", "runtime", "paired" keys as appropriate.
+    mapping_condition_dict = alignment_job.rv()
+                                               
     # We make a root for comparison here to encapsulate its follow-on chain
     comparison_parent_job = Job()
     alignment_job.addFollowOn(comparison_parent_job)
 
     # Dump out the running times into map_times.tsv
-    comparison_parent_job.addChildJobFn(run_write_map_times, context, gam_names, vg_map_times, bwa_map_times)
+    comparison_parent_job.addChildJobFn(run_write_map_times, context, mapping_condition_dict)
 
     if options.skip_eval:
         # Skip evaluation
         return None
 
     # Otherwise, do mapping evaluation comparison (the rest of the workflow)
-    comparison_job = comparison_parent_job.addChildJobFn(run_map_eval_comparison, context, xg_ids,
-                     gam_names, gam_file_ids, options.bam_names, bam_file_ids,
-                     options.pe_bam_names, pe_bam_file_ids, bwa_bam_file_ids, surjected_results,
+    comparison_job = comparison_parent_job.addChildJobFn(run_map_eval_comparison, context, mapping_condition_dict,
                      true_read_stats_file_id, options.mapeval_threshold, options.compare_gam_scores, reads_gam_file_id,
                      downsample_portion=options.downsample,
                      gbwt_usage_tag_gam_name=options.gbwt_baseline,
@@ -2775,24 +2786,24 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     # Return our pairs of file names and file IDS
     return out_name_id_pairs
 
-def run_write_map_times(job, context, gam_names, vg_map_times, bwa_map_times):
+def run_write_map_times(job, context, mapping_condition_dict):
     """
     Make a table of running times (in seconds) for mapping.  These times do not include 
     toil-vg overhead like downloading and chunking
+    
+    Takes in a dict by mapped condition name of condition dicts, each may have
+    a "runtime" key with a float runtime in seconds.
     """
 
     work_dir = job.fileStore.getLocalTempDir()
     times_path = os.path.join(work_dir, 'map_times.tsv')
     with open(times_path, 'w') as times_file:
         times_file.write('aligner\tmap time (s)\n')
-        for name, map_time in zip(gam_names, vg_map_times):
-            if map_time is not None:
-                times_file.write('{}\t{}\n'.format(name, round(map_time, 5)))
-        if bwa_map_times[0] is not None:
-            times_file.write('bwa-mem\t{}\n'.format(round(bwa_map_times[0], 5)))
-        if bwa_map_times[1] is not None:
-            times_file.write('bwa-mem-pe\t{}\n'.format(round(bwa_map_times[1], 5)))
-
+        
+        for name, results in mapping_condition_dict.iteritems():
+            if results.get('runtime') is not None:
+                times_file.write('{}\t{}\n'.format(name, round(results.get('runtime'), 5)))
+        
     context.write_output_file(job, times_path)
 
 def make_mapeval_plan(toil, options):
@@ -2900,7 +2911,7 @@ def make_mapeval_plan(toil, options):
         for sample_reads in options.fastq:
             plan.reads_fastq_file_ids.append(toil.importFile(sample_reads))
                                 
-    # Input bwa data        
+    # Input bam data        
     plan.bam_file_ids = []
     if options.bams:
         for bam in options.bams:
@@ -2913,6 +2924,10 @@ def make_mapeval_plan(toil, options):
     plan.fasta_file_id = None
     plan.bwa_index_ids = None
     if options.fasta:
+        # Load the fasta, which we may want for BWA or minimap2
+        plan.fasta_file_id = toil.importFile(options.fasta)
+    
+        # Load any BWA indexes
         plan.bwa_index_ids = dict()
         for suf in ['.amb', '.ann', '.bwt', '.pac', '.sa']:
             fidx = '{}{}'.format(options.fasta, suf)
@@ -2922,8 +2937,10 @@ def make_mapeval_plan(toil, options):
                 logger.info('No bwa index found for {}, will regenerate'.format(options.fasta))
                 plan.bwa_index_ids = None
                 break
-        if not plan.bwa_index_ids:
-            plan.fasta_file_id = toil.importFile(options.fasta)
+                
+       # TODO: load minimap2 indexes
+        
+        
     if options.truth:
         plan.true_read_stats_file_id = toil.importFile(options.truth)
     else:
