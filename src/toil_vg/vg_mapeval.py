@@ -1269,8 +1269,24 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     
     RealtimeLogger.info('Condition matrix: {}'.format(matrix))
     
+    condition_number = 0
+    
+    if not do_vg_mapping:
+        # We shouldn't run vg. gam_names is actually condition names, and gams is the mapped gams to re-use
+        
+        for name, gam_id, xg_id in itertools.izip(gam_names, gam_file_ids, xg_ids):
+            # Synthesize a set of condition results for each pre-aligned GAM
+            results_dict[name]['gam'] = gam_id
+            results_dict[name]['runtime'] = 0
+            results_dict[name]['xg'] = xg_id
+            # TODO: tag as paired or not?
+   
     for condition in condition_generator([{}]):
         # For each condition
+        
+        RealtimeLogger.info('Condition {}: {}'.format(condition_number, condition))
+        condition_number += 1
+        
         if condition["aligner"] == "vg" and do_vg_mapping:
             # This condition requires running vg and we aren't just using pre-run GAMs.
             
@@ -1465,6 +1481,8 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             results_dict[tagged_name]['bam'] =  minimap2_job.rv(0)
             results_dict[tagged_name]['runtime'] =  minimap2_job.rv(1)
             results_dict[tagged_name]['paired'] = condition['paired']
+            
+    RealtimeLogger.info('Processed {} total conditions'.format(condition_number))
 
     # Return the disct with all the results organized by condition.
     return results_dict
