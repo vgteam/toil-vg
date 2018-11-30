@@ -1380,6 +1380,8 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                     surjected_name = tagged_name + '-surject'
                     results_dict[surjected_name]['bam'] = map_job.rv(2)
                     results_dict[surjected_name]['paired'] = condition['paired']
+                    # Fake the runtime as being the same
+                    results_dict[surjected_name]['runtime'] = map_job.rv(1)
             
         elif condition["aligner"] == "bwa":
             # Run BWA.
@@ -1416,7 +1418,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             # Save the condition results
             tagged_name = 'bwa' + tag_string
             results_dict[tagged_name]['bam'] =  bwa_mem_job.rv(0)
-            results_dict[tagged_name]['runtime'] =  bwa_mem_job.rv(0)
+            results_dict[tagged_name]['runtime'] =  bwa_mem_job.rv(1)
             results_dict[tagged_name]['paired'] = condition['paired']
                 
         elif condition["aligner"] == "minimap2":
@@ -1461,7 +1463,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             # Save the condition results
             tagged_name = 'minimap2' + tag_string
             results_dict[tagged_name]['bam'] =  minimap2_job.rv(0)
-            results_dict[tagged_name]['runtime'] =  minimap2_job.rv(0)
+            results_dict[tagged_name]['runtime'] =  minimap2_job.rv(1)
             results_dict[tagged_name]['paired'] = condition['paired']
 
     # Return the disct with all the results organized by condition.
@@ -2361,6 +2363,10 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
     if options.bwa:
         # Make sure to run the BWA aligner too
         matrix["aligner"].append("bwa")
+        
+    if options.minimap2:
+        # Make sure to run the minimap2 aligner too
+        matrix["aligner"].append("minimap2")
     
     # Then after indexing, do alignment
     alignment_job = index_job.addFollowOnJobFn(run_map_eval_align, context, index_job.rv(),
