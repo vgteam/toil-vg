@@ -87,6 +87,8 @@ def add_mapeval_options(parser):
                         help='run gbwt-free control runs')
     parser.add_argument('--use-snarls', action='store_true',
                         help='also import <index-base>.snarls and use it during multipath alignment')
+    parser.add_argument('--strip-snarls', action='store_true',
+                        help='run snarls-free control runs')
     parser.add_argument('--vg-graphs', nargs='+', type=make_url, default=[],
                         help='vg graphs to use in place of gams or indexes.  indexes'
                         ' will be built as required')
@@ -238,6 +240,10 @@ def validate_options(options):
     if options.use_snarls:
         require(options.multipath or options.multipath_only,
                 '--use-snarls only affects the multipath mapper (--multipath or --multipath-only)')
+                
+    if options.strip_snarls:
+        require(options.use_snarls,
+                '--strip-snarls only makes sense with --use-snarls')
 
     if options.gams:
         require(len(options.index_bases) == len(options.gams),
@@ -559,7 +565,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         # Download the FASTA
         fasta_file = os.path.join(work_dir, 'reference.fa')
         job.fileStore.readGlobalFile(fasta_id, fasta_file)
-        ref_filename = fatsa_file
+        ref_filename = fasta_file
         
 
     # output positions file
@@ -1105,6 +1111,8 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     "paired": [True, False]
     
     "gbwt": [False, True, <float log recombination penalty override>, ...]
+    
+    "snarls": [True, False] (only affects mpmap)
    
     Additionally, mpmap_opts and more_mpmap_opts from the context's config are
     consulted, doubling the mpmap runs if more_mpmap_opts is set.
@@ -1225,6 +1233,18 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             else:
                 yield condition
                 
+    # This one expands vg conditions by whether to use the snarls file for mpmap
+    def snarls_conditions(conditions_in):
+        for condition in conditions_in:
+            if condition["aligner"] == "vg" and condition["multipath"] == True:
+                # Only mpmap conditions can be no-snarls
+                for use_snarls in matrix["snarls"]:
+                    extended = dict(condition)
+                    extended.update({"snarls": use_snarls})
+                    yield extended
+            else:
+                yield condition
+                
     # We use this to compose all the generators together
     def compose_two_generators(gen1, gen2):
         def composed_generator(x):
@@ -1234,7 +1254,14 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # Define the list of functions to nest, innermost first. To add another
     # independent variable to the experiment, write another condition-expanding
     # generator function above and put it at the end of this list.
-    condition_steps = [aligner_conditions, multipath_conditions, multipath_opts_conditions, paired_conditions, gbwt_conditions]
+    condition_steps = [
+        aligner_conditions,
+        multipath_conditions,
+        multipath_opts_conditions,
+        paired_conditions,
+        gbwt_conditions,
+        snarls_conditions
+    ]
     # Make the master condition generator by composing all the generator
     # functions, left-inside-right. To use it, pass it a list of an empty dict
     # and loop over the fleshed-out condition dicts it generates.
@@ -1303,9 +1330,16 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 else:
                     # It must be a number
                     tag_string += "-gbwt{}".format(condition["gbwt"])
+                    
            
             if condition["multipath"]:
                 # Doing multipath mapping
+                
+                if not condition["snarls"] and True in matrix["snarls"]:
+                    # We have no snarls but some people have snarls.
+                    # Only relevant for multipath
+                    tag_string += "-nosnarls"
+                
                 tag_string += "-mp"
                 tag_string += (str(condition["opt_num"]) if condition["opt_num"] > 0 else '')
                 
@@ -1362,6 +1396,13 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                     indexes = dict(indexes)
                     if indexes.has_key("gbwt"):
                         del indexes["gbwt"]
+                        
+                if not condition.get("snarls", True):
+                    # Drop the snarls index if present for the non-snarls conditions
+                    # TODO: what if some graphs are missing snarls files?
+                    indexes = dict(indexes)
+                    if indexes.has_key("snarls"):
+                        del indexes["snarls"]
                         
                 if not read_chunk_jobs.has_key(tuple(fastq_ids)):
                     # We have not yet asked to split the appropriate FASTQs.
@@ -2348,7 +2389,8 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
         "aligner": ["vg"],
         "paired": [],
         "multipath": [],
-        "gbwt": []
+        "gbwt": [],
+        "snarls": [],
     }
     
     if not options.multipath_only:
@@ -2377,6 +2419,15 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
     if (not gbwt_file_ids) or options.strip_gbwt:
         # We have no GBWTs or we want to run without them too
         matrix["gbwt"].append(False)
+    
+    if snarl_file_ids:  
+        # We can use snarls in mpmap
+        matrix["snarls"].append(True)
+    
+    if not snarl_file_ids or options.strip_snarls:
+        # Have a snarls-files-free condition.
+        # Note that this is the condition that gets a tag.
+        matrix["snarls"].append(False)
         
     if options.bwa:
         # Make sure to run the BWA aligner too

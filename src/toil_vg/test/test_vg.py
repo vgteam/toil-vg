@@ -635,6 +635,54 @@ class VGCGLTest(TestCase):
         # TODO: Minimap2 is quite inaccurate on this tiny test. Maybe it only works well at larger scales?
         # Note that mpmap2 only runs on paired end reads.
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'minimap2-pe'], 0.6)
+        
+    def test_12_sim_small_mapeval_snarls(self):
+        ''' 
+        Test running mapeval with and without snarls
+        '''
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
+        self.chrom_fa_nz = self._ci_input_path('small.fa')
+        self._download_input('NA12877.brca1.bam_1.fq.gz')
+        self.baseline = self._ci_input_path('small.vcf.gz')
+        self.bed_regions = self._ci_input_path('small_regions.bed')
+        
+        # Index the graphs
+        self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--graphs', self.test_vg_graph, '--chroms', 'x',
+                   '--gcsa_index_cores', '8',
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        # Simulate the reads
+        self._run(['toil-vg', 'sim', self.jobStoreLocal,
+                   os.path.join(self.local_outstore, 'small.xg'), '2000',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+                   
+        # Run mapeval with minimap2
+        self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
+                   '--index-bases', os.path.join(self.local_outstore, 'small'),
+                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
+                   '--gam-names', 'vg', 
+                   '--use-snarls', '--strip-snarls', '--multipath', '--paired-only',
+                   '--realTimeLogging', '--logInfo',
+                   '--alignment_cores', '8',
+                   '--maxCores', '8'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+        
+        # Note that snarls only matter for mpmap
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'vg-mp-pe', 'vg-nosnarls-mp-pe'], 0.8)
 
     def _run(self, args):
         log.info('Running %r', args)
