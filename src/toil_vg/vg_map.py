@@ -163,8 +163,9 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
     If the 'gbwt' index is present and gbwt_penalty is specified, the default
     recombination penalty will be overridden.
     
-    returns outputgams, paired with total map time (excluding toil-vg overhead
-    such as transferring and splitting files)
+    returns output gams, one per chromosome, the total mapping time (excluding
+    toil-vg overhead such as transferring and splitting files), and output
+    BAMs, one per chromosome, if computed.
     """
     
     # Make sure we have exactly one type of input
@@ -366,6 +367,10 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     Takes a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges', 'gbwt',
     'snarls') to index file ID. Some indexes are extra and specifying them will
     change mapping behavior.
+    
+    Returns a list of per-contig GAMs, the total allignment runtime, and a list
+    of per-contig BAM file IDs (which is only nonempty when surject is true).
+    
     """
     
     # this will be a list of lists.
@@ -667,6 +672,10 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
 def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_ids, gam_chunk_running_times):
     """
     Merge together gams, doing each chromosome in parallel
+    
+    Also totals up runtimes
+    
+    Returns the merged GAMs as a list, one per chromosome, and the total allignment runtime
     """
     
     if id_ranges_file_id is not None:

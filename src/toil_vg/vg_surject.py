@@ -92,6 +92,8 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
     
     """
     
+    RealtimeLogger.info("Surjecting read chunks {} to BAM".format(reads_chunk_ids))
+    
     # this will be a list of lists.
     # bam_chunk_file_ids[i][j], will correspond to the jth path (from id_ranges)
     # for the ith gam chunk (generated from fastq shard i)

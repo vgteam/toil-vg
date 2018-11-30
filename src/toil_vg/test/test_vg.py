@@ -49,7 +49,7 @@ class VGCGLTest(TestCase):
 
     def setUp(self):
         # Set this to True to poke around in the outsores for debug purposes
-        self.saveWorkDir = False
+        self.saveWorkDir = True
         self.workdir = './toil-vgci_work' if self.saveWorkDir else tempfile.mkdtemp()
         if not os.path.exists(self.workdir):
             os.makedirs(self.workdir)
@@ -301,7 +301,6 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
-
         
     def test_04_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
@@ -589,6 +588,52 @@ class VGCGLTest(TestCase):
 
         # check gbwt not empty
         self.assertGreater(os.path.getsize(gbwt_path), 250000)
+        
+    def test_11_sim_small_mapeval_minimap2(self):
+        ''' 
+        Test minimap2 support in mapeval 
+        '''
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
+        self.chrom_fa_nz = self._ci_input_path('small.fa')
+        self._download_input('NA12877.brca1.bam_1.fq.gz')
+        self.baseline = self._ci_input_path('small.vcf.gz')
+        self.bed_regions = self._ci_input_path('small_regions.bed')
+        
+        # Index the graphs
+        self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--graphs', self.test_vg_graph, '--chroms', 'x',
+                   '--gcsa_index_cores', '8',
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        # Simulate the reads
+        self._run(['toil-vg', 'sim', self.jobStoreLocal,
+                   os.path.join(self.local_outstore, 'small.xg'), '2000',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+                   
+        # Run mapeval with minimap2
+        self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--paired-only',
+                   '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
+                   '--index-bases', os.path.join(self.local_outstore, 'small'),
+                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
+                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
+                   '--alignment_cores', '8',
+                   '--maxCores', '8', '--minimap2', '--fasta', self.chrom_fa])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+        
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'minimap2-pe'], 0.8)
 
     def _run(self, args):
         log.info('Running %r', args)
