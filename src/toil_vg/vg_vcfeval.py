@@ -477,6 +477,8 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
 
     with open(vcf_path, 'r') as vcf_file:
         vcf_reader = vcf.Reader(vcf_file)
+        # reference genotype or missing information to filter out (checking the first sample)
+        gt_to_rm = ['.', './.', '0/0', '0', '0|0']
         for record in vcf_reader:
             # Find the longest alt.  If multi_allele is set to 'max', we ignore everything
             # else.  Eventually we want to enhance the rest of the comparison to properly
@@ -489,7 +491,8 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
                 if record.REF is not None and alt is not None and \
                    (i == max_alt_idx or multi_allele != 'max') and \
                    abs(len(alt) - len(record.REF)) + 1 >= min_sv_len and \
-                   abs(len(alt) - len(record.REF)) + 1 <= max_sv_len:
+                   abs(len(alt) - len(record.REF)) + 1 <= max_sv_len and\
+                   record.samples[0]['GT'] not in gt_to_rm:
                     # The size of the SV
                     sv_len = max(len(record.REF), len(alt))
                     # The amount of reference genome affected or the error
