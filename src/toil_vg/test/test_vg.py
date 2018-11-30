@@ -54,12 +54,16 @@ class VGCGLTest(TestCase):
         if not os.path.exists(self.workdir):
             os.makedirs(self.workdir)
         self.jobStoreLocal = '{}/local-testvg-{}'.format(self.workdir, uuid4())
+        
+        # Determine if we can use Docker or not
+        self.containerType = os.environ.get('TOIL_VG_TEST_CONTAINER', 'Docker')
 
         # input files all in same bucket folder, which is specified (only) here:
         self.bucket_name = 'vg-data'
         self.folder_name = 'toil_vg_ci'
         
         self.base_command = ['toil-vg', 'run',
+                             '--container', self.containerType,
                              '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                              '--call_chunk_size', '20000',
                              '--gcsa_index_cores', '8',
@@ -110,6 +114,7 @@ class VGCGLTest(TestCase):
         self.chrom_fa = self._ci_input_path('small.fa.gz')
         
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
@@ -119,7 +124,9 @@ class VGCGLTest(TestCase):
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'sample',
                    os.path.join(self.local_outstore, 'small.xg'),
                    os.path.join(self.local_outstore, 'small.gcsa'),
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--fastq', self.sample_reads,
                    '--alignment_cores', '8', '--reads_per_chunk', '8000',
                    '--realTimeLogging', '--logInfo'])
@@ -127,13 +134,16 @@ class VGCGLTest(TestCase):
         
         self._run(['toil-vg', 'call', self.jobStoreLocal,
                    os.path.join(self.local_outstore, 'small.xg'), 'sample',
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore, 
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--gams', os.path.join(self.local_outstore, 'sample_default.gam'), 
                    '--chroms', 'x', '--call_chunk_size', '20000', '--calling_cores', '4',
                    '--realTimeLogging', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal,
+                   '--container', self.containerType,
                    '--call_vcf', os.path.join(self.local_outstore, 'sample.vcf.gz'),
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_fasta', self.chrom_fa, self.local_outstore,
@@ -158,6 +168,7 @@ class VGCGLTest(TestCase):
         self.bed_regions = self._ci_input_path('small_regions.bed')
 
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
@@ -166,7 +177,9 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'sim', self.jobStoreLocal,
                    os.path.join(self.local_outstore, 'small.xg'), '2000',
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--gam', '--sim_chunks', '5', '--maxCores', '8',
                    '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -174,7 +187,9 @@ class VGCGLTest(TestCase):
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'sample',
                    os.path.join(self.local_outstore, 'small.xg'),
                    os.path.join(self.local_outstore, 'small.gcsa'),
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--alignment_cores', '3', '--reads_per_chunk', '1000',
                    '--realTimeLogging', '--logInfo', '--interleaved'])
@@ -183,7 +198,9 @@ class VGCGLTest(TestCase):
         # check running mapeval on the gams
 
         self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--truth', os.path.join(self.local_outstore, 'true.pos'),
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
@@ -199,7 +216,9 @@ class VGCGLTest(TestCase):
         os.remove(os.path.join(self.local_outstore, 'stats.tsv'))
 
         self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
@@ -215,7 +234,9 @@ class VGCGLTest(TestCase):
         os.unlink(os.path.join(self.local_outstore, 'plots/plot-qq.svg'))
         os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.svg'))
         self._run(['toil-vg', 'plot', self.jobStoreLocal,
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
                    '--realTimeLogging', '--logInfo',
                    '--maxCores', '8'])
@@ -226,7 +247,9 @@ class VGCGLTest(TestCase):
 
         # check running calleval on the mapeval output
         self._run(['toil-vg', 'calleval', self.jobStoreLocal,
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--chroms', 'x',
                    '--xg_paths', os.path.join(self.local_outstore, 'small.xg'),
                    os.path.join(self.local_outstore, 'small.xg'),
@@ -257,14 +280,18 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'sim', self.jobStoreLocal,
                    os.path.join(self.local_outstore, 'small.xg'), '2000',
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--gam', '--sim_chunks', '5', '--maxCores', '8',
                    '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '1',
                    '--fastq', os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz')])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    '--truth', os.path.join(self.local_outstore, 'true.pos'),
                    '--vg-graphs', self.test_vg_graph,
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
@@ -295,7 +322,8 @@ class VGCGLTest(TestCase):
 
         self._run(self.base_command +
                   [self.jobStoreLocal, 'NA12877',
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--clean', 'never',
                    '--fastq', self.sample_reads, self.sample_reads2, '--graphs',
                    self.test_vg_graph, '--chroms', '17', '--index_name', 'index',
                    '--vcf_offsets', '43044293',
@@ -307,7 +335,8 @@ class VGCGLTest(TestCase):
         # repeat but with bam reads (and not recreating gcsa)
         self._run(self.base_command +
                   [self.jobStoreLocal, 'NA12877',
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--clean', 'never',
                    '--bam_input_reads', self.bam_reads,  '--graphs',
                    self.test_vg_graph, '--chroms', '17',
                    '--gcsa_index', os.path.join(self.local_outstore, 'index.gcsa'),
@@ -338,7 +367,8 @@ class VGCGLTest(TestCase):
         
         self._run(self.base_command +
                   [self.jobStoreLocal, 'NA12877',
-                   self.local_outstore, '--clean', 'never',
+                   self.local_outstore,
+                   '--clean', 'never',
                    '--fastq', self.sample_reads, '--graphs',
                    self.test_vg_graph, self.test_vg_graph2, '--chroms', '17', '13',
                    '--vcf_offsets', '43044293', '32314860', '--interleaved',
@@ -361,7 +391,9 @@ class VGCGLTest(TestCase):
         self.xg_index = os.path.join(self.local_outstore, 'genome.xg')        
 
         outstore = self.local_outstore + '.2'
-        self._run(['toil-vg', 'call', self.jobStoreLocal, '--clean', 'never',
+        self._run(['toil-vg', 'call', self.jobStoreLocal,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
                    '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
                    '--call_chunk_size', '23000', '--calling_cores', '4',
@@ -380,7 +412,9 @@ class VGCGLTest(TestCase):
 
         ''' Test surject
         '''
-        self._run(['toil-vg', 'surject', self.jobStoreLocal, '--clean', 'never', outstore,
+        self._run(['toil-vg', 'surject', self.jobStoreLocal,
+                   '--container', self.containerType,
+                   '--clean', 'never', outstore,
                    '--reads_per_chunk', '20000',
                    '--gam_input_reads', self.sample_gam, '--paths', '13', '17',
                    '--xg_index', self.xg_index, '--alignment_cores', '2'])
@@ -388,7 +422,9 @@ class VGCGLTest(TestCase):
 
         ''' Test recall
         '''
-        self._run(['toil-vg', 'call', self.jobStoreLocal, '--clean', 'never',
+        self._run(['toil-vg', 'call', self.jobStoreLocal,
+                   '--container', self.containerType,
+                   '--clean', 'never',
                    self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
                    '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
                    '--call_chunk_size', '23000', '--calling_cores', '4',
@@ -432,6 +468,7 @@ class VGCGLTest(TestCase):
         in_region = '17:43044294-43125482'
         
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
@@ -527,6 +564,7 @@ class VGCGLTest(TestCase):
 
         # make a snp1kg graph with alt paths
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', 'snp1kg-BRCA1', '--alt_paths', '--pangenome'])
@@ -538,6 +576,7 @@ class VGCGLTest(TestCase):
 
         # make a gbwt and xg index
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
                    '--clean', 'never',
                    '--xg_index', '--graphs', vg_path, '--chroms', '17',
                    '--vcf_phasing', in_vcf, '--index_name', 'my_index',
