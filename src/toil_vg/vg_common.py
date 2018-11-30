@@ -79,6 +79,7 @@ def get_container_tool_map(options):
     cmap[0]["pigz"] = options.pigz_docker
     cmap[0]["samtools"] = options.samtools_docker
     cmap[0]["bwa"] = options.bwa_docker
+    cmap[0]["minimap2"] = options.minimap2_docker
     cmap[0]["Rscript"] = options.r_docker
     cmap[0]["vcfremovesamples"] = options.vcflib_docker
     cmap[0]["freebayes"] = options.freebayes_docker
