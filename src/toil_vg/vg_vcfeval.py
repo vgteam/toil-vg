@@ -70,8 +70,8 @@ def vcfeval_parse_args(parser):
                         help="maximum length to consider when doing bed sv comparison (using --sveval)")    
     parser.add_argument("--sv_region_overlap", type=float, default=1.0,
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
-    parser.add_argument("--sv_overlap", type=float, default=0.5,
-                        help="minimum reciprical overlap required for bed intersection to count as TP")
+    parser.add_argument("--sv_overlap", type=float, default=0.8,
+                        help="minimum overlap coverage required for bed intersection to count as TP")
     parser.add_argument("--normalize", action="store_true",
                         help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
 
@@ -733,7 +733,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                     # skip if not in selected region
                     continue
                 sv_len = int(sv_info.split()[3])
-                if sv_info in cov_base and cov_base[sv_info] >= .8 * sv_len:
+                if sv_info in cov_base and cov_base[sv_info] >= sv_overlap * sv_len:
                     tp_file.write(line)
                 else:
                     fn_file.write(line)
@@ -750,7 +750,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                     # skip if not in selected region
                     continue
                 sv_len = int(sv_info.split()[3])
-                if sv_info not in cov_call or cov_call[sv_info] < .8 * sv_len:
+                if sv_info not in cov_call or cov_call[sv_info] < sv_overlap * sv_len:
                     fp_file.write(line)
                 else:
                     tp_file.write(line)
