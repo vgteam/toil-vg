@@ -502,9 +502,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
                     else:
                         ref_len = len(record.REF)
                     bed_line = '{}\t{}\t{}\t{}\n'.format(
-                        record.CHROM,
-                        record.POS - 1, record.
-                        POS - 1 + ref_len,
+                        record.CHROM, record.POS - 1, record.POS - 1 + ref_len,
                         '{} {} {} {}'.format(record.REF, alt, record.QUAL,
                                              sv_len))
                     if bed_path:
@@ -607,14 +605,9 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     the size difference is not too big, to avoid large SVs masking),
     it is considered matched. This is robust to call fragmentation.
 
-    The coverage measure is derived from pairwise overlap from bedtools:
+    The coverage measure is computed by
 
-    bedtools intersect -a SV_FILE_A.bed -b SV_FILE_B -wo
-
-    To be sure that we count bases only once, the second set of SV
-    should be merged first:
-
-    bedtools merge -i SV_FILE_B
+    bedtools coverage -a SV_FILE_A.bed -b SV_FILE_B
     """
 
     tp_ins_name = '{}ins-TP-call.bed'.format(out_name)
@@ -631,7 +624,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
 
         # smooth out features so, say, two side-by-side deltions get treated as one. this is in keeping with
         # the coarse-grained nature of the analysis and is optional
-        if sv_smooth > 0:
+        if False and sv_smooth > 0: # Deactivated for now because merging loses the variant information
             calls_merge_name = calls_bed_name[:-4] + '_merge.bed'
             baseline_merge_name = baseline_bed_name[:-4] + '_merge.bed'            
             with open(os.path.join(work_dir, calls_merge_name), 'w') as calls_merge_file:
@@ -643,39 +636,70 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             calls_bed_name = calls_merge_name
             baseline_bed_name = baseline_merge_name
 
-        # run the overlap described above for insertions and deletions
-        ol_name = os.path.join(work_dir, '{}-svol.bed'.format(out_name))
-        with open(ol_name, 'w') as ol_file:
-            bedcmd = ['bedtools', 'intersect', '-a', calls_bed_name,
-                      '-b', baseline_bed_name, '-wo']
-            context.runner.call(job, bedcmd, work_dir=work_dir,
-                                outfile=ol_file)
-
-        # read overlap file and compute coverage
+        # compute coverage for each variant
         # for insertions we count the total size of inserted sequence
         # in nearby insertions of the other set
         cov_call = {}
         cov_base = {}
-        with open(ol_name) as ol_file:
-            for line in ol_file:
-                line = line.rstrip().split('\t')
-                bp_ol = int(line[8])
-                call_id = line[3]
-                base_id = line[7]
-                # update coverage of the call variant
-                if sv_type == 'ins':
+        ol_name = os.path.join(work_dir, '{}svol.bed'.format(out_name))
+        if sv_type == 'ins':
+            # for insertions, pairwise overlap
+            with open(ol_name, 'w') as ol_file:
+                bedcmd = ['bedtools', 'intersect', '-a', calls_bed_name,
+                          '-b', baseline_bed_name, '-wo']
+                context.runner.call(job, bedcmd, work_dir=work_dir,
+                                    outfile=ol_file)
+            with open(ol_name) as ol_file:
+                for line in ol_file:
+                    line = line.rstrip().split('\t')
+                    call_id = line[3]
+                    base_id = line[7]
+                    # update coverage of the call variant
                     bp_ol = int(base_id.split()[3])
-                if call_id in cov_call:
-                    cov_call[call_id] += bp_ol
-                else:
-                    cov_call[call_id] = bp_ol
-                # update coverage of the baseline variant
-                if sv_type == 'ins':
+                    if call_id in cov_call:
+                        cov_call[call_id] += bp_ol
+                    else:
+                        cov_call[call_id] = bp_ol
+                    # update coverage of the baseline variant
                     bp_ol = int(call_id.split()[3])
-                if base_id in cov_base:
-                    cov_base[base_id] += bp_ol
-                else:
-                    cov_base[base_id] = bp_ol
+                    if base_id in cov_base:
+                        cov_base[base_id] += bp_ol
+                    else:
+                        cov_base[base_id] = bp_ol
+        else:
+            # for deletion, coverage measure
+            # Note: in bedtools <2.24 the behavior was inverted between -a/-b
+            # first coverage of calls by the truth set
+            with open(ol_name, 'w') as ol_file:
+                bedcmd = ['bedtools', 'coverage', '-a', calls_bed_name,
+                          '-b', baseline_bed_name]
+                context.runner.call(job, bedcmd, work_dir=work_dir,
+                                    outfile=ol_file)    
+            with open(ol_name) as ol_file:
+                for line in ol_file:
+                    line = line.rstrip().split('\t')
+                    call_id = line[3]
+                    bp_ol = int(line[5])
+                    if call_id in cov_call:
+                        cov_call[call_id] += bp_ol
+                    else:
+                        cov_call[call_id] = bp_ol
+            # then coverage of true variant by the calls
+            with open(ol_name, 'w') as ol_file:
+                bedcmd = ['bedtools', 'coverage', '-b', calls_bed_name,
+                          '-a', baseline_bed_name]
+                context.runner.call(job, bedcmd, work_dir=work_dir,
+                                    outfile=ol_file)    
+            with open(ol_name) as ol_file:
+                for line in ol_file:
+                    line = line.rstrip().split('\t')
+                    base_id = line[3]
+                    bp_ol = int(line[5])
+                    if base_id in cov_base:
+                        cov_base[base_id] += bp_ol
+                    else:
+                        cov_base[base_id] = bp_ol
+                    
 
         # check if svs overlap input regions
         """
@@ -725,7 +749,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                     # skip if not in selected region
                     continue
                 sv_len = int(sv_info.split()[3])
-                if sv_info in cov_base and cov_base[sv_info] > .8 * sv_len:
+                if sv_info in cov_base and cov_base[sv_info] >= .8 * sv_len:
                     tp_file.write(line)
                 else:
                     fn_file.write(line)
@@ -733,6 +757,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         fn_file.close()
         # FP as subsets of the calls set
         fp_file = open(os.path.join(work_dir, fp_name), 'w')
+        tp_file = open(os.path.join(work_dir, tp_name), 'w')
         with open(os.path.join(work_dir, calls_bed_name)) as bed_file:
             for line in bed_file:
                 line_s = line.rstrip().split('\t')
@@ -743,11 +768,14 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                 sv_len = int(sv_info.split()[3])
                 if sv_info not in cov_call or cov_call[sv_info] < .8 * sv_len:
                     fp_file.write(line)
+                else:
+                    tp_file.write(line)
         fp_file.close()
+        tp_file.close()
         # todo: should we write them out in vcf as well? yes
 
         # Delete temporary files
-        os.remove(ol_name)
+        # os.remove(ol_name)
         if bed_id:
             os.remove(base_sel_name)
             os.remove(call_sel_name)
@@ -805,8 +833,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
 
     # results in dict
     results = {}
-    # results['TP-INS'] = wc(tp_ins)
-    results['TP-INS'] = 'NA'
+    results['TP-INS'] = wc(tp_ins)
     results['TP-baseline-INS'] = wc(tp_ins_baseline)
     results['FP-INS'] = wc(fp_ins)
     results['FN-INS'] = wc(fn_ins)
@@ -815,8 +842,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
     results['Recall-INS'] = ins_pr[1]
     results['F1-INS'] = ins_pr[2]
 
-    # results['TP-DEL'] = wc(tp_del)
-    results['TP-DEL'] = 'NA'
+    results['TP-DEL'] = wc(tp_del)
     results['TP-baseline-DEL'] = wc(tp_del_baseline)
     results['FP-DEL'] = wc(fp_del)
     results['FN-DEL'] = wc(fn_del)
@@ -825,8 +851,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
     results['Recall-DEL'] = del_pr[1]
     results['F1-DEL'] = del_pr[2]
 
-    # results['TP'] = results['TP-INS'] + results['TP-DEL']
-    results['TP'] = 'NA'
+    results['TP'] = results['TP-INS'] + results['TP-DEL']
     results['TP-baseline'] = results['TP-baseline-INS'] + results['TP-baseline-DEL']    
     results['FP'] = results['FP-INS'] + results['FP-DEL']
     results['FN'] = results['FN-INS'] + results['FN-DEL']
