@@ -72,8 +72,6 @@ def vcfeval_parse_args(parser):
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
     parser.add_argument("--sv_overlap", type=float, default=0.5,
                         help="minimum reciprical overlap required for bed intersection to count as TP")
-    parser.add_argument("--sv_smooth", type=int, default=0,
-                        help="mege up svs (in calls and truth) that are at most this many bases apart")
     parser.add_argument("--normalize", action="store_true",
                         help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
 
@@ -528,7 +526,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
         snp_bed_file.close()
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
-                min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, sv_smooth = 0, bed_id = None,
+                min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, bed_id = None,
                 ins_ref_len=10,
                 out_name = '', fasta_path = None, fasta_id = None, normalize = False):
     """ Run a bed-based comparison.  Uses bedtools and bedops to do overlap
@@ -621,20 +619,6 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     for tp_name, tp_rev_name, calls_bed_name, baseline_bed_name, fp_name, fn_name, sv_type in \
         [(tp_ins_name, tp_ins_rev_name, calls_ins_name, baseline_ins_name, fp_ins_name, fn_ins_name, 'ins'),
          (tp_del_name, tp_del_rev_name, calls_del_name, baseline_del_name, fp_del_name, fn_del_name, 'del')]:
-
-        # smooth out features so, say, two side-by-side deltions get treated as one. this is in keeping with
-        # the coarse-grained nature of the analysis and is optional
-        if False and sv_smooth > 0: # Deactivated for now because merging loses the variant information
-            calls_merge_name = calls_bed_name[:-4] + '_merge.bed'
-            baseline_merge_name = baseline_bed_name[:-4] + '_merge.bed'            
-            with open(os.path.join(work_dir, calls_merge_name), 'w') as calls_merge_file:
-                context.runner.call(job, ['bedtools', 'merge', '-d', str(sv_smooth), '-i', calls_bed_name],
-                                    work_dir = work_dir, outfile = calls_merge_file)
-            with open(os.path.join(work_dir, baseline_merge_name), 'w') as baseline_merge_file:
-                context.runner.call(job, ['bedtools', 'merge', '-d', str(sv_smooth), '-i', baseline_bed_name],
-                                    work_dir = work_dir, outfile = baseline_merge_file)
-            calls_bed_name = calls_merge_name
-            baseline_bed_name = baseline_merge_name
 
         # compute coverage for each variant
         # for insertions we count the total size of inserted sequence
@@ -922,7 +906,7 @@ def vcfeval_main(context, options):
                                        vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                                        options.min_sv_len, options.max_sv_len,
                                        options.sv_overlap, options.sv_region_overlap,
-                                       options.sv_smooth, bed_id,
+                                       bed_id,
                                        fasta_path=options.vcfeval_fasta,
                                        fasta_id=fasta_id,
                                        normalize=options.normalize, 
