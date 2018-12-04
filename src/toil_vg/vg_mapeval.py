@@ -1390,9 +1390,12 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             for i, indexes in enumerate(index_ids):
                 # Map or mpmap, paired or not as appropriate, against each index set.
                 
+                if condition["gbwt"] and indexes.get("gbwt") is None:
+                    # Don't run the GBWT condition when no GBWT file exists for an index set
+                    continue
+                
                 if not condition["gbwt"]:
                     # Drop the GBWT index if present for the non-GBWT conditions
-                    # TODO: we know things don't have GBWTs because their GBWT and no-GBWT results are the same...
                     indexes = dict(indexes)
                     if indexes.has_key("gbwt"):
                         del indexes["gbwt"]
