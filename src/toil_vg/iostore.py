@@ -501,7 +501,10 @@ class FileIOStore(IOStore):
         
         if os.path.exists(real_output_path):
             # At least try to get existing files out of the way first.
-            os.unlink(real_output_path)
+            try:
+                os.unlink(real_output_path)
+            except:
+                pass
             
         # Rename the temp file to the right place, atomically
         os.rename(temp_path, real_output_path)
