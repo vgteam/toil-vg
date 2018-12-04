@@ -1773,10 +1773,13 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
     
     work_dir = job.fileStore.getLocalTempDir()
     
+    # Download the input data. Make sure we get copies of the stats files so we can sort them in place.
+    # If we don't pass mutable=true, we can end up with mutable links into the actual main copy.
+    # See <https://github.com/DataBiosphere/toil/issues/2496>
     from_stats_file = os.path.join(work_dir, 'from.tsv')
-    job.fileStore.readGlobalFile(from_id, from_stats_file, cache=False)
+    job.fileStore.readGlobalFile(from_id, from_stats_file, mutable=True)
     to_stats_file = os.path.join(work_dir, 'to.tsv')
-    job.fileStore.readGlobalFile(to_id, to_stats_file, cache=False)
+    job.fileStore.readGlobalFile(to_id, to_stats_file, mutable=True)
 
     # Sort the input files in place
     cmd = ['sort', os.path.basename(from_stats_file), '-k', '1', '-o', os.path.basename(from_stats_file)]
