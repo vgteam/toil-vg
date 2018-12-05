@@ -1781,15 +1781,17 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
     to_stats_file = os.path.join(work_dir, 'to.tsv')
     job.fileStore.readGlobalFile(to_id, to_stats_file, mutable=True)
 
-    # Sort the input files in place
-    cmd = ['sort', os.path.basename(from_stats_file), '-k', '1', '-o', os.path.basename(from_stats_file)]
+    # Sort the input files. We tried to do this in place but Toil can't seem to keep our writes to just us.
+    from_stats_sorted = from_stats_file + '.sorted'
+    to_stats_sorted = to_stats_file + '.sorted'
+    cmd = ['sort', os.path.basename(from_stats_file), '-k', '1', '-o', os.path.basename(from_stats_sorted)]
     context.runner.call(job, cmd, work_dir = work_dir)
-    cmd = ['sort', os.path.basename(to_stats_file), '-k', '1', '-o', os.path.basename(to_stats_file)]
+    cmd = ['sort', os.path.basename(to_stats_file), '-k', '1', '-o', os.path.basename(to_stats_sorted)]
     context.runner.call(job, cmd, work_dir = work_dir)
     
     
-    with open(from_stats_file) as from_stream, \
-        open(to_stats_file) as to_stream, \
+    with open(from_stats_sorted) as from_stream, \
+        open(to_stats_sorted) as to_stream, \
         job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
         
         # Read the file we are pulling the tag from
@@ -1875,8 +1877,8 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
         except:
             
             logging.error("Tag propagation failed. Dumping files.")
-            context.write_output_file(job, from_stats_file)
-            context.write_output_file(job, to_stats_file)
+            context.write_output_file(job, from_stats_sorted)
+            context.write_output_file(job, to_stats_sorted)
             
             raise
             
