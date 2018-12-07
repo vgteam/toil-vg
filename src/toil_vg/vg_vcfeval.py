@@ -72,6 +72,8 @@ def vcfeval_parse_args(parser):
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
     parser.add_argument("--sv_overlap", type=float, default=0.8,
                         help="minimum overlap coverage required for bed intersection to count as TP")
+    parser.add_argument("--ins_max_gap", type=int, default=10,
+                        help="maximum distance between insertions to be compared")
     parser.add_argument("--normalize", action="store_true",
                         help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
 
@@ -907,6 +909,7 @@ def vcfeval_main(context, options):
                                        options.min_sv_len, options.max_sv_len,
                                        options.sv_overlap, options.sv_region_overlap,
                                        bed_id,
+                                       ins_ref_len=options.ins_max_gap,
                                        fasta_path=options.vcfeval_fasta,
                                        fasta_id=fasta_id,
                                        normalize=options.normalize, 
