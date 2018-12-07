@@ -703,7 +703,8 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             * -u: Print matching SV call only once (even if it intersects with multiple variants)
             * Probably has no effect because of -f 0.50 and the way merging is done, but I leave it in in case I tweak something.
             """            
-        sel_call = sel_base = {}
+        sel_call = {}
+        sel_base = {}
         if bed_id:
             call_sel_name = os.path.join(work_dir, '{}-call-regions.bed'.format(out_name))
             with open(call_sel_name, 'w') as sel_file:
