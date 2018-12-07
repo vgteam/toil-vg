@@ -79,6 +79,7 @@ def get_container_tool_map(options):
     cmap[0]["pigz"] = options.pigz_docker
     cmap[0]["samtools"] = options.samtools_docker
     cmap[0]["bwa"] = options.bwa_docker
+    cmap[0]["minimap2"] = options.minimap2_docker
     cmap[0]["Rscript"] = options.r_docker
     cmap[0]["vcfremovesamples"] = options.vcflib_docker
     cmap[0]["freebayes"] = options.freebayes_docker
@@ -764,4 +765,51 @@ def title_to_filename(kind, i, title, extension):
         part_list.append('.{}'.format(extension))
         
     return ''.join(part_list)
+    
+    
+def ensure_disk(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8, padding=1024 ** 3):
+    """
+    Ensure that the currently running job has enough disk to load all the given
+    file IDs (passed as any number of lists of file IDs), and process them,
+    producing factor times as much data, plus padding.
+    
+    Takes the job, the function that is the job, the list of arguments passed
+    in (except the job object), the dict of keyword args passed in, and then
+    a file ID list or iterable.
+    
+    If there is not enough disk, re-queues the job with more disk, and returns
+    the promise for the result.
+    
+    If there is enough disk, returns None
+    
+    TODO: Convert to promised requirements if it is sufficiently expressive.
+    """
+    
+    # We need to compute the total size of our inputs, expected intermediates,
+    # and outputs, and re-queue ourselves if we don't have enough disk.
+    required_disk = 0
+    
+    for file_id in file_id_list:
+        # For each file in the collection
+        # Say we need space for it
+        required_disk += file_id.size
+    
+    
+    # Multiply out for intermediates and results
+    # TODO: Allow different factors for different file IDs
+    # We only need to multiply e.g. BAM files, not indexes
+    required_disk *= factor
+   
+    # Add some padding
+    required_disk += padding
+        
+    if job.disk < required_disk:
+        # Re-queue with more disk
+        RealtimeLogger.info("Re-queueing job with {} bytes of disk; originally had {}".format(required_disk, job.disk))
+        requeued = job.addChildJobFn(job_fn, *job_fn_args, cores=job.cores, memory=job.memory, disk=required_disk, **job_fn_kwargs)
+        return requeued.rv()
+    else:
+        # Disk we have is OK
+        return None
+            
 
