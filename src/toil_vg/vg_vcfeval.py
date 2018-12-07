@@ -74,6 +74,8 @@ def vcfeval_parse_args(parser):
                         help="minimum overlap coverage required for bed intersection to count as TP")
     parser.add_argument("--ins_max_gap", type=int, default=10,
                         help="maximum distance between insertions to be compared")
+    parser.add_argument("--del_min_rol", type=float, default=0.1,
+                        help="the minimum reciprocal overlap when computing coverage on deletions")
     parser.add_argument("--normalize", action="store_true",
                         help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
 
@@ -529,7 +531,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                 min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, bed_id = None,
-                ins_ref_len=10,
+                ins_ref_len=10, del_min_rol=.1, 
                 out_name = '', fasta_path = None, fasta_id = None, normalize = False):
     """ Run a bed-based comparison.  Uses bedtools and bedops to do overlap
     comparison between indels. Of note: the actual sequence of insertions is
@@ -656,9 +658,12 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             # for deletion, coverage measure
             # Note: in bedtools <2.24 the behavior was inverted between -a/-b
             # first coverage of calls by the truth set
+            rol_params = []
+            if del_min_rol > 0:
+                rol_params = ['-r', '-f', del_min_rol]
             with open(ol_name, 'w') as ol_file:
                 bedcmd = ['bedtools', 'coverage', '-a', calls_bed_name,
-                          '-b', baseline_bed_name]
+                          '-b', baseline_bed_name] + rol_params
                 context.runner.call(job, bedcmd, work_dir=work_dir,
                                     outfile=ol_file)    
             with open(ol_name) as ol_file:
@@ -673,7 +678,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             # then coverage of true variant by the calls
             with open(ol_name, 'w') as ol_file:
                 bedcmd = ['bedtools', 'coverage', '-b', calls_bed_name,
-                          '-a', baseline_bed_name]
+                          '-a', baseline_bed_name] + rol_params
                 context.runner.call(job, bedcmd, work_dir=work_dir,
                                     outfile=ol_file)    
             with open(ol_name) as ol_file:
@@ -910,6 +915,7 @@ def vcfeval_main(context, options):
                                        options.sv_overlap, options.sv_region_overlap,
                                        bed_id,
                                        ins_ref_len=options.ins_max_gap,
+                                       del_min_rol=options.del_min_rol,
                                        fasta_path=options.vcfeval_fasta,
                                        fasta_id=fasta_id,
                                        normalize=options.normalize, 
