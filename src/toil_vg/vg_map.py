@@ -67,6 +67,8 @@ def map_parse_args(parser, stand_alone = False):
                         help="Path to snarls file")
     parser.add_argument("--fastq", nargs='+', type=make_url,
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
+    parser.add_argument("--fq_split_cores", type=int,
+                        help="number of threads used to split input FASTQs")   
     parser.add_argument("--gam_input_reads", type=make_url, default=None,
                         help="Input reads in GAM format")
     parser.add_argument("--bam_input_reads", type=make_url, default=None,
@@ -78,7 +80,7 @@ def map_parse_args(parser, stand_alone = False):
     parser.add_argument("--alignment_cores", type=int,
                         help="number of threads during the alignment step")
     parser.add_argument("--gam_index_cores", type=int,
-                        help="number of threads used for gam indexing")    
+                        help="number of threads used for gam indexing")
     parser.add_argument("--interleaved", action="store_true", default=False,
                         help="treat fastq as interleaved read pairs.  overrides map-args")
     parser.add_argument("--map_opts", type=str,
