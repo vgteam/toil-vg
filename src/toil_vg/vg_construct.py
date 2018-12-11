@@ -274,9 +274,6 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             output['neg-control'] = [neg_control_vcf_ids, neg_control_vcf_names, neg_control_tbi_ids,
                                      neg_output_name, neg_region_names]
 
-        if haplo_sample and haplo_sample == control_sample:
-            output['haplo'] = output['pos-control']
-
     # For our sample graph, we're going to need to start by making someing like the positive control, but
     # filtering for phased variants.  Note that making the actual graphs from these vcfs is a two step
     # process, where a graph is constructed then haplotypes extracted.
@@ -305,32 +302,21 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
 
 
     # we want a vcf to make a gbwt out of for making haplo graphs
-    # we re-use the vcf from the positive control if available, but we give it a
-    # different name and construct different .vg graphs going forward to allow for
-    # different construction (ie the haplo graph will always get alt paths that we don't
-    # necessarily want in the control)
     if haplo_sample:
         hap_control_vcf_ids, hap_control_tbi_ids = [], []
         hap_control_vcf_names = []
         
-        if haplo_sample != pos_control_sample:
-        
-            for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
-                make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
-                                                  pos_only = True, unphased_handling=handle_unphased,
-                                                  cores=context.config.construct_cores,
-                                                  memory=context.config.construct_mem,
-                                                  disk=context.config.construct_disk)
-                hap_control_vcf_ids.append(make_controls.rv(0))
-                hap_control_tbi_ids.append(make_controls.rv(1))
-                
-                vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
-                hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
-                
-        else:
-            hap_control_vcf_ids = pos_control_vcf_ids
-            hap_control_tbi_ids = pos_control_tbi_ids
-            hap_control_vcf_names = [n.replace('.vcf.gz', '_haplo.vcf.gz') for n in pos_control_vcf_names]
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
+                                              pos_only = True, unphased_handling=handle_unphased,
+                                              cores=context.config.construct_cores,
+                                              memory=context.config.construct_mem,
+                                              disk=context.config.construct_disk)
+            hap_control_vcf_ids.append(make_controls.rv(0))
+            hap_control_tbi_ids.append(make_controls.rv(1))
+
+            vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+            hap_control_vcf_names.append('{}_{}_haplo.vcf.gz'.format(vcf_base, haplo_sample))
             
         if regions:
             hap_region_names = [output_name + '_{}_haplo'.format(haplo_sample)  + '_' + c.replace(':','-') for c in regions]
