@@ -421,7 +421,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           max_node_size, gbwt_index or haplo_extraction or alt_paths,
                                           flat_alts, regions,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
-                                          normalize)
+                                          normalize and name != 'haplo')
 
         mapping_id = construct_job.rv('mapping')
         
