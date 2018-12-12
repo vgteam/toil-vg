@@ -640,20 +640,20 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             with open(ol_name) as ol_file:
                 for line in ol_file:
                     line = line.rstrip().split('\t')
-                    call_id = line[3]
-                    base_id = line[7]
+                    call_size = int(line[3].split()[3])
+                    call_id = '{}.{}.{}'.format(line[0], line[1], line[3])
+                    base_size = int(line[7].split()[3])
+                    base_id = '{}.{}.{}'.format(line[4], line[5], line[7])
                     # update coverage of the call variant
-                    bp_ol = int(base_id.split()[3])
                     if call_id in cov_call:
-                        cov_call[call_id] += bp_ol
+                        cov_call[call_id] += base_size
                     else:
-                        cov_call[call_id] = bp_ol
+                        cov_call[call_id] = base_size
                     # update coverage of the baseline variant
-                    bp_ol = int(call_id.split()[3])
                     if base_id in cov_base:
-                        cov_base[base_id] += bp_ol
+                        cov_base[base_id] += call_size
                     else:
-                        cov_base[base_id] = bp_ol
+                        cov_base[base_id] = call_size
         else:
             # for deletion, coverage measure
             # Note: in bedtools <2.24 the behavior was inverted between -a/-b
@@ -669,7 +669,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             with open(ol_name) as ol_file:
                 for line in ol_file:
                     line = line.rstrip().split('\t')
-                    call_id = line[3]
+                    call_id = '{}.{}.{}'.format(line[0], line[1], line[3])
                     bp_ol = int(line[5])
                     if call_id in cov_call:
                         cov_call[call_id] += bp_ol
@@ -684,7 +684,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             with open(ol_name) as ol_file:
                 for line in ol_file:
                     line = line.rstrip().split('\t')
-                    base_id = line[3]
+                    base_id = '{}.{}.{}'.format(line[0], line[1], line[3])
                     bp_ol = int(line[5])
                     if base_id in cov_base:
                         cov_base[base_id] += bp_ol
@@ -716,7 +716,8 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             with open(call_sel_name) as bed_file:
                 for line in bed_file:
                     line = line.rstrip().split('\t')
-                    sel_call[line[3]] = True
+                    svid = '{}.{}.{}'.format(line[0], line[1], line[3])
+                    sel_call[svid] = True
             base_sel_name = os.path.join(work_dir, '{}-base-regions.bed'.format(out_name))
             with open(base_sel_name, 'w') as sel_file:
                 bedcmd = ['bedtools', 'intersect', '-a', baseline_bed_name,
@@ -727,7 +728,8 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             with open(base_sel_name) as bed_file:
                 for line in bed_file:
                     line = line.rstrip().split('\t')
-                    sel_base[line[3]] = True
+                    svid = '{}.{}.{}'.format(line[0], line[1], line[3])
+                    sel_base[svid] = True
 
         # read original beds and classify into TP, FP, FN
         # TP and FN as subsets of the baseline set
@@ -737,11 +739,12 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             for line in bed_file:
                 line_s = line.rstrip().split('\t')
                 sv_info = line_s[3]
-                if bed_id and sv_info not in sel_base:
+                sv_len = int(sv_info.split()[3])
+                sv_id = '{}.{}.{}'.format(line_s[0], line_s[1], sv_info)
+                if bed_id and sv_id not in sel_base:
                     # skip if not in selected region
                     continue
-                sv_len = int(sv_info.split()[3])
-                if sv_info in cov_base and cov_base[sv_info] >= sv_overlap * sv_len:
+                if sv_id in cov_base and cov_base[sv_id] >= sv_overlap * sv_len:
                     tp_file.write(line)
                 else:
                     fn_file.write(line)
@@ -754,11 +757,12 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             for line in bed_file:
                 line_s = line.rstrip().split('\t')
                 sv_info = line_s[3]
-                if bed_id and sv_info not in sel_call:
+                sv_len = int(sv_info.split()[3])
+                sv_id = '{}.{}.{}'.format(line_s[0], line_s[1], sv_info)
+                if bed_id and sv_id not in sel_call:
                     # skip if not in selected region
                     continue
-                sv_len = int(sv_info.split()[3])
-                if sv_info not in cov_call or cov_call[sv_info] < sv_overlap * sv_len:
+                if sv_id not in cov_call or cov_call[sv_id] < sv_overlap * sv_len:
                     fp_file.write(line)
                 else:
                     tp_file.write(line)
