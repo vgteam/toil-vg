@@ -585,12 +585,12 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         vcfeval_baseline_name = norm_vcfeval_baseline_name
 
     ## Run sveval R package
-    summary_name = os.path.join(work_dir, '{}sv_accuracy.tsv'.format(out_name))
-    sveval_cmd = 'sveval::svevalOl("{}", "{}"'.format(os.path.join(work_dir, call_vcf_name),
-                                                      os.path.join(work_dir, vcfeval_baseline_name))
+    summary_name = '{}sv_accuracy.tsv'.format(out_name)
+    sveval_cmd = 'sveval::svevalOl("{}", "{}"'.format(call_vcf_name,
+                                                      vcfeval_baseline_name)
     sveval_cmd += ', outfile="{}"'.format(summary_name)
     sveval_cmd += ', min.cov={}'.format(sv_overlap)
-    sveval_cmd += ', out.bed.prefix="{}"'.format(os.path.join(work_dir, out_name))
+    sveval_cmd += ', out.bed.prefix="{}"'.format(out_name)
     if min_sv_len > 0:
         sveval_cmd += ', min.size={}'.format(min_sv_len)
     if max_sv_len < sys.maxint:
@@ -606,6 +606,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     r_cmd_file = 'sveval.R'
     with open(os.path.join(work_dir, r_cmd_file), 'w') as r_file:
         r_file.write(sveval_cmd + '\n')
+    print(sveval_cmd)
     context.runner.call(job, ['R', '-f', r_cmd_file], work_dir=work_dir)
     summary_id = context.write_output_file(job, os.path.join(work_dir, summary_name))
     
