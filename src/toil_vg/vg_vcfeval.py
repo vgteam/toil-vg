@@ -70,10 +70,12 @@ def vcfeval_parse_args(parser):
                         help="maximum length to consider when doing bed sv comparison (using --sveval)")    
     parser.add_argument("--sv_region_overlap", type=float, default=1.0,
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
-    parser.add_argument("--sv_overlap", type=float, default=0.8,
+    parser.add_argument("--sv_overlap", type=float, default=0.5,
                         help="minimum overlap coverage required for bed intersection to count as TP")
-    parser.add_argument("--ins_max_gap", type=int, default=10,
+    parser.add_argument("--ins_max_gap", type=int, default=30,
                         help="maximum distance between insertions to be compared")
+    parser.add_argument("--ins_seq_comp", action="store_true",
+                        help="compare insertion sequence instead of their size only.")
     parser.add_argument("--del_min_rol", type=float, default=0.1,
                         help="the minimum reciprocal overlap when computing coverage on deletions")
     parser.add_argument("--normalize", action="store_true",
@@ -531,7 +533,7 @@ def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = No
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                 min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, bed_id = None,
-                ins_ref_len=10, del_min_rol=.1, 
+                ins_ref_len=10, del_min_rol=.1, ins_seq_comp=False, 
                 out_name = '', fasta_path = None, fasta_id = None, normalize = False):
     """ Run a bed-based comparison.  Uses bedtools and bedops to do overlap
     comparison between indels. Of note: the actual sequence of insertions is
@@ -583,20 +585,28 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         vcfeval_baseline_name = norm_vcfeval_baseline_name
 
     ## Run sveval R package
-    sveval_cmd = '\'sveval::svevalOl("{}", "{}"'.format(os.path.join(work_dir, call_vcf_name),
+    summary_name = os.path.join(work_dir, '{}sv_accuracy.tsv'.format(out_name))
+    sveval_cmd = 'sveval::svevalOl("{}", "{}"'.format(os.path.join(work_dir, call_vcf_name),
                                                       os.path.join(work_dir, vcfeval_baseline_name))
-    sveval_cmd += ', outfile="{}"'.format(os.path.join(work_dir, summary_name))
+    sveval_cmd += ', outfile="{}"'.format(summary_name)
     sveval_cmd += ', min.cov={}'.format(sv_overlap)
     sveval_cmd += ', out.bed.prefix="{}"'.format(os.path.join(work_dir, out_name))
-    sveval_cmd += ', min.size={}'.format(min_sv_len)
-    sveval_cmd += ', max.size={}'.format(max_sv_len)
+    if min_sv_len > 0:
+        sveval_cmd += ', min.size={}'.format(min_sv_len)
+    if max_sv_len < sys.maxint:
+        sveval_cmd += ', max.size={}'.format(max_sv_len)
     sveval_cmd += ', max.ins.dist={}'.format(ins_ref_len)
     sveval_cmd += ', min.del.rol={}'.format(del_min_rol)
     if bed_id:
         sveval_cmd += ', bed.regions="{}"'.format(regions_bed_name)
         sveval_cmd += ', bed.regions.ol={}'.format(sv_region_overlap)
-    sveval_cmd += ')\''
-    context.runner.call(job, ['R', '-e', sveval_cmd], work_dir=work_dir)
+    if ins_seq_comp:
+        sveval_cmd += ', ins.seq.comp=TRUE'
+    sveval_cmd += ')'
+    r_cmd_file = 'sveval.R'
+    with open(os.path.join(work_dir, r_cmd_file), 'w') as r_file:
+        r_file.write(sveval_cmd + '\n')
+    context.runner.call(job, ['R', '-f', r_cmd_file], work_dir=work_dir)
     summary_id = context.write_output_file(job, os.path.join(work_dir, summary_name))
     
     # tar up some relevant data
@@ -609,7 +619,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                         work_dir = work_dir)
     archive_id = context.write_output_file(job, os.path.join(work_dir, tar_dir + '.tar.gz'))
 
-    return results
+    return True
 
 def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
                          tp_del, tp_del_baseline, fp_del, fn_del):
@@ -724,6 +734,7 @@ def vcfeval_main(context, options):
                                        bed_id,
                                        ins_ref_len=options.ins_max_gap,
                                        del_min_rol=options.del_min_rol,
+                                       ins_seq_comp=options.ins_seq_comp,
                                        fasta_path=options.vcfeval_fasta,
                                        fasta_id=fasta_id,
                                        normalize=options.normalize, 
