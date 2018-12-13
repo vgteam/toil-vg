@@ -897,5 +897,44 @@ def ensure_disk(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8,
     else:
         # Disk we have is OK
         return None
+        
+def run_concat_files(job, context, file_ids, dest_name=None, header=None):
+    """
+    Utility job to concatenate some files. Returns the concatenated file ID.
+    If given a dest_name, writes the result to the out store with the given name.
+    (We wanted to use name, but that kwarg is reserved by Toil.)
+    If given a header, prepends the header to the file with a trailing newline.
+    """
+    
+    requeue_promise = ensure_disk(job, run_concat_files, [context, file_ids],
+        {"dest_name": dest_name, "header": header}, file_ids, factor=2)
+    if requeue_promise is not None:
+        # We requeued ourselves with more disk to accomodate our inputs
+        return requeue_promise
+
+    
+    work_dir = job.fileStore.getLocalTempDir()
+
+    out_name = os.path.join(work_dir, 'output.dat' if dest_name is None else dest_name)
+
+    # Concatenate all the files
+    # TODO: We don't use the trick where we append to the first file to save a copy. Should we?
+    with open(out_name, 'w') as out_file:
+        if header is not None:
+            # Put the header if specified
+            out_file.write(header + '\n')
+        for file_id in file_ids:
+            with job.fileStore.readGlobalFileStream(file_id) as in_file:
+                # Then beam over each file
+                shutil.copyfileobj(in_file, out_file)
+
+    if dest_name is None:
+        # Send back an intermediate file
+        RealtimeLogger.info("Concatenated {} files into intermediate file {}".format(len(file_ids), out_name)) 
+        return context.write_intermediate_file(job, out_name)
+    else:
+        # Write to outstore under the given name.
+        RealtimeLogger.info("Concatenated {} files into output file {} -> {}".format(len(file_ids), out_name, dest_name)) 
+        return context.write_output_file(job, out_name, dest_name)
             
 
