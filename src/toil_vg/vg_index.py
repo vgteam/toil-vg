@@ -581,32 +581,6 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       disk=job.disk,
                                       preemptable=job.preemptable).rv()
                                       
-def run_concat_files(job, context, file_ids, name=None):
-    """
-    Utility job to concatenate some files. Returns the concatenated file ID.
-    If given a name, writes the result to the out store with the given name.
-    """
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Download all the files
-    file_names = [job.fileStore.readGlobalFile(file_id) for file_id in file_ids]
-
-    out_name = os.path.join(work_dir, 'output.dat')
-
-    # Concatenate all the files
-    # TODO: We don't use the trick where we append to the first file to save a copy. Should we?
-    with open(out_name, 'w') as out_file:
-        for file_name in file_names:
-            with open(file_name) as in_file:
-                shutil.copyfileobj(in_file, out_file)
-
-    if name is None:
-        # Send back an intermediate file
-        return context.write_intermediate_file(job, out_name)
-    else:
-        # Write to outstore under the given name.
-        return context.write_output_file(job, out_name, name)
-    
 def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None):
     """
     Compute the snarls of the graph.

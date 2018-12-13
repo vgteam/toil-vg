@@ -1932,7 +1932,7 @@ def run_process_position_comparisons(job, context, compare_ids):
     # Return the position stats file, built from all the individual stat calculations, and the concatenated position.results.tsv.
     return (job.addFollowOnJobFn(run_write_position_stats, context, map_stats).rv(),
         job.addFollowOnJobFn(run_concat_files, context, results_files,
-            name='position.results.tsv',
+            dest_name='position.results.tsv',
             header='\t'.join(['correct', 'mq', 'tags', 'aligner', 'read', 'count'])).rv())
     
 def run_summarize_position_comparison(job, context, compare_id, aligner_name):
