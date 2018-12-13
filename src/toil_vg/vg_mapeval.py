@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
-    parse_plot_sets, title_to_filename, ensure_disk
+    parse_plot_sets, title_to_filename, ensure_disk, run_concat_files
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing, run_bwa_index, run_minimap2_index
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -833,7 +833,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     Produces a TSV of the form:
     read name, correctness flag (0/1), MAPQ, comma-separated tag list (or '.')
 
-    Returns output file ID.
+    Returns output file ID, and exports it as <name>.compare.positions.
     
     mapeval_threshold is the distance within which a mapping is held to have hit
     the correct position.
@@ -943,7 +943,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 test_fields = next(test_reader, None)
                 test_line += 1
         
-    out_file_id = context.write_intermediate_file(job, out_file)
+    out_file_id = context.write_output_file(job, out_file)
     return out_file_id
     
 def compare_scores(job, context, baseline_name, baseline_file_id, name, score_file_id):
@@ -1888,82 +1888,105 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
 
 def run_process_position_comparisons(job, context, compare_ids):
     """
-    Write some raw tables of position comparisons to the output.  Compute some
+    Write some raw tables of position comparisons to the output. Compute some
     stats for each graph.
     
-    Takes a dict from condition name to position comparison results file ID.
+    Takes a dict from condition name to position comparison results file ID. Those input files have the format:
+    
+    read name, correct flag, mapq, tags
 
-    The position results file format is a TSV of:
+    The position results file we produce is a TSV of:
     correct flag, mapping quality, tag list (or '.'), method name, read name (or '.'), weight (or 1)
-
+    
+    The position results file has a header.
     
     Returns (the stats file's file ID, the position results file's ID)
     """
 
-    work_dir = job.fileStore.getLocalTempDir()
-
     # This maps from condition name to a list of accuracy, AUC, QQ, and F1 results
     map_stats = {}
-    
+   
+    # This will hold a list of position stats summary files to be concatenated into position.results.tsv
+    results_files = []
+   
     RealtimeLogger.info("Processing position comparisons for conditions: {}".format(list(compare_ids.keys())))
     
-    # make the position.results.tsv and position.stats.tsv
-    results_file = os.path.join(work_dir, 'position.results.tsv')
-    with open(results_file, 'w') as out_stream:
-        out_results = tsv.TsvWriter(out_stream)
-        # Put a header
-        out_results.list_line(['correct', 'mq', 'tags', 'aligner', 'read', 'count'])
-
-        def write_tsv(comp_file, method):
-            """
-            Read the given comparison TSV for the given condition name, and dump
-            it to the combined results file.
-            """
+    for name, compare_id in compare_ids.iteritems():
+        # Each per-condition per-read input comparison file has been already exported, so we can just use it.
+        
+        # Compute the summary file and add it to the list to concatenate
+        results_files.append(job.addChildJobFn(run_summarize_position_comparison, context, compare_id, name,
+            cores=context.config.misc_cores, memory=context.config.misc_mem, disk=context.config.misc_disk).rv())
+    
+        # Compute position stats from the per-read files
+        # TODO: Modify these to use the summary files
+        map_stats[name] = [job.addChildJobFn(run_acc, context, name, compare_id, cores=context.config.misc_cores,
+                                             memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                           job.addChildJobFn(run_auc, context, name, compare_id, cores=context.config.misc_cores,
+                                             memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                           job.addChildJobFn(run_qq, context, name, compare_id, cores=context.config.misc_cores,
+                                             memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
+                           job.addChildJobFn(run_max_f1, context, name, compare_id, cores=context.config.misc_cores,
+                                             memory=context.config.misc_mem, disk=context.config.misc_disk).rv()]
             
-            # The vg R scripts are responsible for determining a smart method name sort order now.
-           
-            with open(comp_file) as comp_in_stream:
-                comp_in = tsv.TsvReader(comp_in_stream)
-                # This will hold counts for (correct, mq, tags, method) tuples.
-                # Tags are represented as a string.
-                # We only summarize correct reads.
-                summary_counts = Counter()
-                # Wrong reads are just dumped as they occur with count 1
-                for toks in comp_in:
-                    # Label the read fields so we can see what we're doing
-                    # Note that empty 'tags' columns may not be read by the TSV reader.
-                    read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
-                    
-                    if read['correct'] == '1':
-                        # Correct, so summarize
-                        summary_counts[(read['correct'], read['mapq'], read.get('tags', '.'), method)] += 1
-                    else:
-                        # Incorrect, write the whole line
-                        out_results.line(read['correct'], read['mapq'], read.get('tags', '.'), method, read['name'], 1)
-                for parts, count in summary_counts.iteritems():
-                    # Write summary lines with empty read names
-                    # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
-                    out_results.list_line(list(parts) + ['.', count])
+    # Return the position stats file, built from all the individual stat calculations, and the concatenated position.results.tsv.
+    return (job.addFollowOnJobFn(run_write_position_stats, context, map_stats).rv(),
+        job.addFollowOnJobFn(run_concat_files, context, results_files,
+            name='position.results.tsv',
+            header='\t'.join(['correct', 'mq', 'tags', 'aligner', 'read', 'count'])).rv())
+    
+def run_summarize_position_comparison(job, context, compare_id, aligner_name):
+    """
+    Takes a position comparison results file ID. The file is a TSV with
+    format:
+    
+    read name, correct flag, mapq, tags
+    
+    Compresses into a position results file, without header, where correct
+    reads are summarized and only wrong reads appear individually.
 
-        for name, compare_id in compare_ids.iteritems():
-            compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-            job.fileStore.readGlobalFile(compare_id, compare_file)
-            context.write_output_file(job, compare_file)
-            write_tsv(compare_file, name)
+    The position results file format is a TSV of: correct flag, mapping
+    quality, tag list (or '.'), aligner name, read name (or '.'), weight (or 1)
 
-            map_stats[name] = [job.addChildJobFn(run_acc, context, name, compare_id, cores=context.config.misc_cores,
-                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                               job.addChildJobFn(run_auc, context, name, compare_id, cores=context.config.misc_cores,
-                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                               job.addChildJobFn(run_qq, context, name, compare_id, cores=context.config.misc_cores,
-                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv(),
-                               job.addChildJobFn(run_max_f1, context, name, compare_id, cores=context.config.misc_cores,
-                                                 memory=context.config.misc_mem, disk=context.config.misc_disk).rv()]
+    """
+   
+    requeue_promise = ensure_disk(job, run_summarize_position_comparison, [context, compare_id, aligner_name], {},
+        [compare_id], factor=2)
+    if requeue_promise is not None:
+        # We requeued ourselves with more disk to accomodate our inputs
+        return requeue_promise
+   
+    with job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
+        # Write TSV to the output compressed file
+        writer = tsv.TsvWriter(out_stream)
+        
+        with job.fileStore.readGlobalFileStream(compare_id) as in_stream:
+            # Read it from the input per-read file
+            reader = tsv.TsvReader(in_stream)
             
-    position_results_id = context.write_output_file(job, results_file)
-
-    return job.addFollowOnJobFn(run_write_position_stats, context, map_stats).rv(), position_results_id
-
+            # This will hold counts for (correct, mq, tags, method) tuples.
+            # Tags are represented as a string.
+            # We only summarize correct reads.
+            summary_counts = Counter()
+            # Wrong reads are just dumped as they occur with count 1
+            for toks in reader:
+                # Label the read fields so we can see what we're doing
+                # Note that empty 'tags' columns may not be read by the TSV reader.
+                read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
+                
+                if read['correct'] == '1':
+                    # Correct, so summarize
+                    summary_counts[(read['correct'], read['mapq'], read.get('tags', '.'), aligner_name)] += 1
+                else:
+                    # Incorrect, write the whole line
+                    writer.line(read['correct'], read['mapq'], read.get('tags', '.'), aligner_name, read['name'], 1)
+            for parts, count in summary_counts.iteritems():
+                # Write summary lines with empty read names
+                # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
+                writer.list_line(list(parts) + ['.', count])
+                
+    return out_id
+      
 def run_write_position_stats(job, context, map_stats):
     """
     write the position comparison statistics as tsv, both to the Toil fileStore
