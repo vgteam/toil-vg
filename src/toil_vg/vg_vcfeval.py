@@ -707,7 +707,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
         prec = float(tp) / float(tp + fp) if tp + fp else 0
         rec = float(tp) / float(tp + fn) if tp + fn else 0
         f1 = 2.0 * tp / float(2 * tp + fp + fn) if tp else 0
-        return prec, rec, f1
+        return round(prec, 4), round(rec, 4), round(f1, 4)
 
     header = []
     row = []
