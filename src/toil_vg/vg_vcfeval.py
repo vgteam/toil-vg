@@ -465,7 +465,7 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
 def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = None,
                indel_bed_path = None, snp_bed_path = None, multi_allele = 'max',
                min_sv_len = 0, max_sv_len = sys.maxint, ins_ref_len=10):
-    """ Convert a VCF into a bed file that we can use bedtools intersection tools on."""
+    """ Convert a VCF into a bed file that we can use bedtools intersection tools on. Not used if we use the sveval R package"""
     if bed_path:
         bed_file = open(bed_path, 'w')
     if ins_bed_path:
@@ -582,217 +582,24 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         call_vcf_name = norm_call_vcf_name
         vcfeval_baseline_name = norm_vcfeval_baseline_name
 
-    # convert vcfs to BEDs, making an indel, insertions and a deletions bed for each vcf
-    calls_ins_name = '{}calls-ins.bed'.format(out_name)
-    calls_del_name = '{}calls-del.bed'.format(out_name)
-    baseline_ins_name = '{}truth-ins.bed'.format(out_name)
-    baseline_del_name = '{}truth-del.bed'.format(out_name)
-    vcf_to_bed(os.path.join(work_dir, call_vcf_name),
-               ins_bed_path = os.path.join(work_dir, calls_ins_name),
-               del_bed_path = os.path.join(work_dir, calls_del_name),
-               min_sv_len = min_sv_len, max_sv_len = max_sv_len,
-               ins_ref_len = ins_ref_len)
-    vcf_to_bed(os.path.join(work_dir, vcfeval_baseline_name),
-               ins_bed_path = os.path.join(work_dir, baseline_ins_name),
-               del_bed_path = os.path.join(work_dir, baseline_del_name),
-               min_sv_len = min_sv_len, max_sv_len = max_sv_len,
-               ins_ref_len = ins_ref_len)
-    
-    
-    # now do the intersection comparison
-
-    """
-    To compare SV calls among sets, we use a coverage-based approach.
-    If a call is covered at least 80% by calls in the other set (and
-    the size difference is not too big, to avoid large SVs masking),
-    it is considered matched. This is robust to call fragmentation.
-
-    The coverage measure is computed by
-
-    bedtools coverage -a SV_FILE_A.bed -b SV_FILE_B
-    """
-
-    tp_ins_name = '{}ins-TP-call.bed'.format(out_name)
-    tp_del_name = '{}del-TP-call.bed'.format(out_name)
-    tp_ins_rev_name = '{}ins-TP-baseline.bed'.format(out_name)
-    tp_del_rev_name = '{}del-TP-baseline.bed'.format(out_name)
-    fp_ins_name = '{}ins-FP.bed'.format(out_name)
-    fp_del_name = '{}del-FP.bed'.format(out_name)
-    fn_ins_name = '{}ins-FN.bed'.format(out_name)
-    fn_del_name = '{}del-FN.bed'.format(out_name)
-    for tp_name, tp_rev_name, calls_bed_name, baseline_bed_name, fp_name, fn_name, sv_type in \
-        [(tp_ins_name, tp_ins_rev_name, calls_ins_name, baseline_ins_name, fp_ins_name, fn_ins_name, 'ins'),
-         (tp_del_name, tp_del_rev_name, calls_del_name, baseline_del_name, fp_del_name, fn_del_name, 'del')]:
-
-        # compute coverage for each variant
-        # for insertions we count the total size of inserted sequence
-        # in nearby insertions of the other set
-        cov_call = {}
-        cov_base = {}
-        ol_name = os.path.join(work_dir, '{}svol.bed'.format(out_name))
-        if sv_type == 'ins':
-            # for insertions, pairwise overlap
-            with open(ol_name, 'w') as ol_file:
-                bedcmd = ['bedtools', 'intersect', '-a', calls_bed_name,
-                          '-b', baseline_bed_name, '-wo']
-                context.runner.call(job, bedcmd, work_dir=work_dir,
-                                    outfile=ol_file)
-            with open(ol_name) as ol_file:
-                for line in ol_file:
-                    line = line.rstrip().split('\t')
-                    call_id = line[3]
-                    base_id = line[7]
-                    # update coverage of the call variant
-                    bp_ol = int(base_id.split()[3])
-                    if call_id in cov_call:
-                        cov_call[call_id] += bp_ol
-                    else:
-                        cov_call[call_id] = bp_ol
-                    # update coverage of the baseline variant
-                    bp_ol = int(call_id.split()[3])
-                    if base_id in cov_base:
-                        cov_base[base_id] += bp_ol
-                    else:
-                        cov_base[base_id] = bp_ol
-        else:
-            # for deletion, coverage measure
-            # Note: in bedtools <2.24 the behavior was inverted between -a/-b
-            # first coverage of calls by the truth set
-            rol_params = []
-            if del_min_rol > 0:
-                rol_params = ['-r', '-f', del_min_rol]
-            with open(ol_name, 'w') as ol_file:
-                bedcmd = ['bedtools', 'coverage', '-a', calls_bed_name,
-                          '-b', baseline_bed_name] + rol_params
-                context.runner.call(job, bedcmd, work_dir=work_dir,
-                                    outfile=ol_file)    
-            with open(ol_name) as ol_file:
-                for line in ol_file:
-                    line = line.rstrip().split('\t')
-                    call_id = line[3]
-                    bp_ol = int(line[5])
-                    if call_id in cov_call:
-                        cov_call[call_id] += bp_ol
-                    else:
-                        cov_call[call_id] = bp_ol
-            # then coverage of true variant by the calls
-            with open(ol_name, 'w') as ol_file:
-                bedcmd = ['bedtools', 'coverage', '-b', calls_bed_name,
-                          '-a', baseline_bed_name] + rol_params
-                context.runner.call(job, bedcmd, work_dir=work_dir,
-                                    outfile=ol_file)    
-            with open(ol_name) as ol_file:
-                for line in ol_file:
-                    line = line.rstrip().split('\t')
-                    base_id = line[3]
-                    bp_ol = int(line[5])
-                    if base_id in cov_base:
-                        cov_base[base_id] += bp_ol
-                    else:
-                        cov_base[base_id] = bp_ol
-                    
-
-        # check if svs overlap input regions
-        """
-            bedtools intersect -a SV_FILE.bed -b sd_regions_200_0.bed -wa -f 0.50 -u
-            
-            * Get all SV variants that intersect SDs
-            * -wa: Print whole SV record (not just the intersecting part)
-            * -f 0.50: Require 50% of the SV to be in the SD
-            * Prevents very large DELs from being tagged if they intersect with part of a region.
-            * -u: Print matching SV call only once (even if it intersects with multiple variants)
-            * Probably has no effect because of -f 0.50 and the way merging is done, but I leave it in in case I tweak something.
-            """            
-        sel_call = {}
-        sel_base = {}
-        if bed_id:
-            call_sel_name = os.path.join(work_dir, '{}-call-regions.bed'.format(out_name))
-            with open(call_sel_name, 'w') as sel_file:
-                bedcmd = ['bedtools', 'intersect', '-a', calls_bed_name,
-                          '-b', regions_bed_name,
-                          '-wa', '-f', str(sv_region_overlap), '-u']
-                context.runner.call(job, bedcmd, work_dir=work_dir,
-                                    outfile=sel_file)
-            with open(call_sel_name) as bed_file:
-                for line in bed_file:
-                    line = line.rstrip().split('\t')
-                    sel_call[line[3]] = True
-            base_sel_name = os.path.join(work_dir, '{}-base-regions.bed'.format(out_name))
-            with open(base_sel_name, 'w') as sel_file:
-                bedcmd = ['bedtools', 'intersect', '-a', baseline_bed_name,
-                          '-b', regions_bed_name,
-                          '-wa', '-f', str(sv_region_overlap), '-u']
-                context.runner.call(job, bedcmd, work_dir=work_dir,
-                                    outfile=sel_file)
-            with open(base_sel_name) as bed_file:
-                for line in bed_file:
-                    line = line.rstrip().split('\t')
-                    sel_base[line[3]] = True
-
-        # read original beds and classify into TP, FP, FN
-        # TP and FN as subsets of the baseline set
-        tp_file = open(os.path.join(work_dir, tp_rev_name), 'w')
-        fn_file = open(os.path.join(work_dir, fn_name), 'w')
-        with open(os.path.join(work_dir, baseline_bed_name)) as bed_file:
-            for line in bed_file:
-                line_s = line.rstrip().split('\t')
-                sv_info = line_s[3]
-                if bed_id and sv_info not in sel_base:
-                    # skip if not in selected region
-                    continue
-                sv_len = int(sv_info.split()[3])
-                if sv_info in cov_base and cov_base[sv_info] >= sv_overlap * sv_len:
-                    tp_file.write(line)
-                else:
-                    fn_file.write(line)
-        tp_file.close()
-        fn_file.close()
-        # FP as subsets of the calls set
-        fp_file = open(os.path.join(work_dir, fp_name), 'w')
-        tp_file = open(os.path.join(work_dir, tp_name), 'w')
-        with open(os.path.join(work_dir, calls_bed_name)) as bed_file:
-            for line in bed_file:
-                line_s = line.rstrip().split('\t')
-                sv_info = line_s[3]
-                if bed_id and sv_info not in sel_call:
-                    # skip if not in selected region
-                    continue
-                sv_len = int(sv_info.split()[3])
-                if sv_info not in cov_call or cov_call[sv_info] < sv_overlap * sv_len:
-                    fp_file.write(line)
-                else:
-                    tp_file.write(line)
-        fp_file.close()
-        tp_file.close()
-        # todo: should we write them out in vcf as well? yes
-
-        # Delete temporary files
-        # os.remove(ol_name)
-        if bed_id:
-            os.remove(base_sel_name)
-            os.remove(call_sel_name)
-
-    # summarize results into a table
-    results = summarize_sv_results(os.path.join(work_dir, tp_ins_name),
-                                   os.path.join(work_dir, tp_ins_rev_name),
-                                   os.path.join(work_dir, fp_ins_name),
-                                   os.path.join(work_dir, fn_ins_name),
-                                   os.path.join(work_dir, tp_del_name),
-                                   os.path.join(work_dir, tp_del_rev_name),
-                                   os.path.join(work_dir, fp_del_name),
-                                   os.path.join(work_dir, fn_del_name))
-
-    # write the results to a file
-    summary_name = os.path.join(work_dir, '{}sv_accuracy.tsv'.format(out_name))
-    with open(summary_name, 'w') as summary_file:
-        header = ['Cat', 'TP', 'TP-baseline', 'FP', 'FN', 'Precision', 'Recall', 'F1']
-        summary_file.write('#' + '\t'.join(header) +'\n')
-        summary_file.write('\t'.join(str(x) for x in ['Total'] + [results[c] for c in header[1:]]) + '\n')
-        summary_file.write('\t'.join(str(x) for x in ['INS'] + [results['{}-INS'.format(c)] for c in header[1:]]) + '\n')
-        summary_file.write('\t'.join(str(x) for x in ['DEL'] + [results['{}-DEL'.format(c)] for c in header[1:]]) + '\n')
+    ## Run sveval R package
+    sveval_cmd = '\'sveval::svevalOl("{}", "{}"'.format(os.path.join(work_dir, call_vcf_name),
+                                                      os.path.join(work_dir, vcfeval_baseline_name))
+    sveval_cmd += ', outfile="{}"'.format(os.path.join(work_dir, summary_name))
+    sveval_cmd += ', min.cov={}'.format(sv_overlap)
+    sveval_cmd += ', out.bed.prefix="{}"'.format(os.path.join(work_dir, out_name))
+    sveval_cmd += ', min.size={}'.format(min_sv_len)
+    sveval_cmd += ', max.size={}'.format(max_sv_len)
+    sveval_cmd += ', max.ins.dist={}'.format(ins_ref_len)
+    sveval_cmd += ', min.del.rol={}'.format(del_min_rol)
+    if bed_id:
+        sveval_cmd += ', bed.regions="{}"'.format(regions_bed_name)
+        sveval_cmd += ', bed.regions.ol={}'.format(sv_region_overlap)
+    sveval_cmd += ')\''
+    context.runner.call(job, ['R', '-e', sveval_cmd], work_dir=work_dir)
     summary_id = context.write_output_file(job, os.path.join(work_dir, summary_name))
-
-    # tar up some relavant data
+    
+    # tar up some relevant data
     tar_dir = os.path.join(work_dir, '{}sv_evaluation'.format(out_name))
     os.makedirs(tar_dir)
     for dir_file in os.listdir(work_dir):
@@ -808,7 +615,7 @@ def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
                          tp_del, tp_del_baseline, fp_del, fn_del):
     """
     Use the various bed files to compute accuracies.  Also return a tarball of 
-    all the files used.
+    all the files used. Not used anymore if sveval R package.
     """
     def wc(f):
         with open(f) as ff:
