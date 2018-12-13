@@ -296,7 +296,8 @@ to do: Should go somewhere more central """
                 # Open an IPv4 TCP socket, since we know Docker uses IPv4 only
                 listen_sock = socket.socket(socket.AF_INET)
                 # Bind it to an OS-selected port on all interfaces, since we can't determine the Docker interface
-                listen_sock.bind((socket.INADDR_ANY, 0))
+                # TODO: socket.INADDR_ANY ought to work here but is rejected for being an int.
+                listen_sock.bind(('', 0))
                 
                 # Start listening
                 listen_sock.listen(1)
@@ -312,11 +313,15 @@ to do: Should go somewhere more central """
                 # Redirect the command output to that port using Bash networking
                 # Your Docker needs to be 18.03+ to support host.docker.internal
                 # Your container needs to have bash with networking support
-                parameters = args + [['bash', '-c', 'exec 3<>/dev/tcp/host.docker.internal/{}; cat <({}) - >&3'.format(
+                parameters = args + [['bash', '-c', 'exec 3<>/dev/tcp/host.docker.internal/{}; cat <(echo {}) - >&3'.format(
                     listen_port, security_cookie)]]
+
+                RealtimeLogger.debug("Listening on port {} for output from Docker container".format(listen_port))
                 
                 # We can't populate the FD until we accept, which we can't do
                 # until the Docker comes up and is trying to connect.
+
+            RealtimeLogger.debug("Final Docker command: {}".format(" | ".join(" ".join(x) for x in parameters)))
                 
             # Start the container detached so we don't wait on it
             container = apiDockerCall(job, tool, parameters,
@@ -336,6 +341,8 @@ to do: Should go somewhere more central """
                 for attempt in range(3):
                 
                     connection_sock, remote_address = listen_sock.accept()
+
+                    RealtimeLogger.info("Got connection from {}".format(remote_address))
                     
                     # Set a 10 second timeout for the cookie
                     connection_sock.settimeout(10)
@@ -343,10 +350,9 @@ to do: Should go somewhere more central """
                     # Check the security cookie
                     received_cookie_and_newline = connection_sock.recv(len(security_cookie) + 1)
                     
-                    if received_cookie_and_newline != security_cookie + '/n':
+                    if received_cookie_and_newline != security_cookie + "\n":
                         # Incorrect security cookie.
-                        RealtimeLogger.warning("Received incorect security cookie message from {}: {}".format(
-                            remote_address, received_cookie_and_newline))
+                        RealtimeLogger.warning("Received incorect security cookie message from {}".format(remote_address))
                         continue
                     else:
                         # This is the container we are looking for
