@@ -15,6 +15,9 @@ import pkg_resources, tempfile, datetime
 import logging
 from distutils.spawn import find_executable
 import collections
+import socket
+import uuid
+import platform
 
 from toil.common import Toil
 from toil.job import Job
@@ -259,19 +262,67 @@ to do: Should go somewhere more central """
             # We can't just redirect stdout of the container from the API, so
             # we do something more complicated.
             
-            # Set up a FIFO to receive it
-            fifo_dir = tempfile.mkdtemp()
-            fifo_host_path = os.path.join(fifo_dir, 'stdout.fifo')
-            os.mkfifo(fifo_host_path)
+            # Now we need to populate an FD that spits out the container output.
+            output_fd = None
             
-            # Mount the FIFO in the container.
-            # The container doesn't actually have to have the mountpoint directory in its filesystem.
-            volumes[fifo_dir] = {'bind': '/control', 'mode': 'rw'}
+            # We may be able to use a FIFO, or we may need a network connection.
+            # FIFO sharing between host and container only works on Linux.
+            use_fifo = (platform.system() == 'Linux')
             
-            # Redirect the command output by tacking on another pipeline stage
-            parameters = args + [['dd', 'of=/control/stdout.fifo']]
-            
-            
+            if use_fifo:
+                # On a Linux host we can just use a FIFO from the container to the host
+                
+                # Set up a FIFO to receive it
+                fifo_dir = tempfile.mkdtemp()
+                fifo_host_path = os.path.join(fifo_dir, 'stdout.fifo')
+                os.mkfifo(fifo_host_path)
+                
+                # Mount the FIFO in the container.
+                # The container doesn't actually have to have the mountpoint directory in its filesystem.
+                volumes[fifo_dir] = {'bind': '/control', 'mode': 'rw'}
+                
+                # Redirect the command output by tacking on another pipeline stage
+                parameters = args + [['dd', 'of=/control/stdout.fifo']]
+                
+                # Open the FIFO into nonblocking mode. See
+                # <https://stackoverflow.com/a/5749687> and
+                # <http://shallowsky.com/blog/programming/python-read-characters.html>
+                output_fd = os.open(fifo_host_path, os.O_RDONLY | os.O_NONBLOCK)
+                
+            else:
+                # On a Mac host we can't because of https://github.com/docker/for-mac/issues/483
+                # We need to go over the network instead.
+                
+                # Open an IPv4 TCP socket, since we know Docker uses IPv4 only
+                listen_sock = socket.socket(socket.AF_INET)
+                # Bind it to an OS-selected port on all interfaces, since we can't determine the Docker interface
+                # TODO: socket.INADDR_ANY ought to work here but is rejected for being an int.
+                listen_sock.bind(('', 0))
+                
+                # Start listening
+                listen_sock.listen(1)
+                
+                # Get the port we got given
+                listen_port = listen_sock.getsockname()[1]
+                
+                # Generate a random security cookie. Since we can't really stop
+                # Internet randos from connecting to our socket, we bail out on
+                # any connection that doesn't start with this cookie and a newline.
+                security_cookie = str(uuid.uuid4())
+                
+                # Redirect the command output to that port using Bash networking
+                # Your Docker needs to be 18.03+ to support host.docker.internal
+                # Your container needs to have bash with networking support
+                parameters = args + [['bash', '-c', 'exec 3<>/dev/tcp/host.docker.internal/{}; cat <(echo {}) - >&3'.format(
+                    listen_port, security_cookie)]]
+
+                RealtimeLogger.debug("Listening on port {} for output from Docker container".format(listen_port))
+                
+                # We can't populate the FD until we accept, which we can't do
+                # until the Docker comes up and is trying to connect.
+
+            RealtimeLogger.debug("Final Docker command: {}".format(" | ".join(" ".join(x) for x in parameters)))
+                
             # Start the container detached so we don't wait on it
             container = apiDockerCall(job, tool, parameters,
                                       volumes=volumes,
@@ -282,14 +333,42 @@ to do: Should go somewhere more central """
             
             RealtimeLogger.debug("Asked for container {}".format(container.id))
             
-            # If the Docker container goes badly enough, it may not even
-            # open the other end of the FIFO. So we can't just wait for it
-            # to EOF before checking on the Docker.
-            
-            # Open the FIFO into nonblocking mode. See
-            # <https://stackoverflow.com/a/5749687> and
-            # <http://shallowsky.com/blog/programming/python-read-characters.html>
-            fifo_fd = os.open(fifo_host_path, os.O_RDONLY | os.O_NONBLOCK)
+            if not use_fifo:
+                # Try and accept a connection from the container.
+                # Make sure there's a timeout so we don't accept forever
+                listen_sock.settimeout(10)
+                
+                for attempt in range(3):
+                
+                    connection_sock, remote_address = listen_sock.accept()
+
+                    RealtimeLogger.info("Got connection from {}".format(remote_address))
+                    
+                    # Set a 10 second timeout for the cookie
+                    connection_sock.settimeout(10)
+                    
+                    # Check the security cookie
+                    received_cookie_and_newline = connection_sock.recv(len(security_cookie) + 1)
+                    
+                    if received_cookie_and_newline != security_cookie + "\n":
+                        # Incorrect security cookie.
+                        RealtimeLogger.warning("Received incorect security cookie message from {}".format(remote_address))
+                        continue
+                    else:
+                        # This is the container we are looking for
+                        # Go into nonblocking mode which our read code expects
+                        connection_sock.setblocking(True)
+                        # Set the FD
+                        output_fd = connection_sock.fileno()
+                        break
+
+                if output_fd is None:
+                    # We can't get ahold of the Docker in time
+                    raise RuntimeError("Could not establish network connection for Docker output!")
+                    
+            # If the Docker container goes badly enough, it may not even open
+            # the other end of the connection. So we can't just wait for it to
+            # EOF before checking on the Docker.
             
             # Now read ought to throw if there is no data. But
             # <https://stackoverflow.com/q/38843278> and some testing suggest
@@ -309,15 +388,16 @@ to do: Should go somewhere more central """
                 while True:
                     # While there still might be data in the pipe
                     
-                    # Select on the pipe with a timeout, so we don't spin constantly waiting for data
-                    can_read, can_write, had_error = select.select([fifo_fd], [], [fifo_fd], 10)
+                    if output_fd is not None:
+                        # Select on the pipe with a timeout, so we don't spin constantly waiting for data
+                        can_read, can_write, had_error = select.select([output_fd], [], [output_fd], 10)
                     
                     if len(can_read) > 0 or len(had_error) > 0:
                         # There is data available or something else weird about our FIFO.
                     
                         try:
                             # Do a nonblocking read. Since we checked with select we never should get "" unless there's an EOF.
-                            data = os.read(fifo_fd, 4096)
+                            data = os.read(output_fd, 4096)
                             
                             if data == "":
                                 # We didn't throw and we got nothing, so it must be EOF.
@@ -362,16 +442,22 @@ to do: Should go somewhere more central """
                             continue
                             
             finally:
-                # No matter what happens, close our end of the FIFO
-                os.close(fifo_fd)
+                # No matter what happens, close our end of the connection
+                os.close(output_fd)
+                
+                if not use_fifo:
+                    # Also close the listening socket
+                    listen_sock.close()
                     
                         
             # Now our data is all sent.
             # Wait on the container and get its return code.
             return_code = container.wait()
             
-            os.unlink(fifo_host_path)
-            os.rmdir(fifo_dir)
+            if use_fifo:
+                # Clean up the FIFO files
+                os.unlink(fifo_host_path)
+                os.rmdir(fifo_dir)
             
         else:
             # No piping needed.
