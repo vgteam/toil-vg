@@ -1955,8 +1955,13 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
-   
-    with job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
+  
+    # TODO: We want to just stream the output, but because of
+    # https://github.com/DataBiosphere/toil/issues/1020 if we do that
+    # downstream jobs can't get the size of the file we wrote.
+    work_dir = job.fileStore.getLocalTempDir()
+    out_filename = os.path.join(work_dir, 'position.results.{}.tsv'.format(aligner_name))
+    with open(out_filename, 'w') as out_stream:
         # Write TSV to the output compressed file
         writer = tsv.TsvWriter(out_stream)
         
@@ -1985,7 +1990,7 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
                 # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
                 writer.list_line(list(parts) + ['.', count])
                 
-    return out_id
+    return context.write_intermediate_file(job, out_filename)
       
 def run_write_position_stats(job, context, map_stats):
     """
