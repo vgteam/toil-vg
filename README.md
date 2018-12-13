@@ -34,7 +34,7 @@ See the [Wiki](https://github.com/vgteam/toil-vg/wiki) in addition to below for 
 toil-vg can run vg, along with some other tools, via [Docker](http://www.docker.com).  Docker can be installed locally (not required when running via cgcloud), as follows. 
 * [**Linux Docker Installation**](https://docs.docker.com/engine/installation/linux/): If running `docker version` doesn't work, try adding user to docker group with `sudo usermod -aG docker $USER`, then log out and back in.
 * [**Mac Docker Installation**](https://docs.docker.com/docker-for-mac/): If running `docker version` doesn't work, try adding docker environment variables: `docker-machine start; docker-machine env; eval "$(docker-machine env default)"`
-* **Running Without Docker**: If Docker is not installed or is disabled with `--container None`, toil-vg requires the following command line tools to be installed on the system: `vg, pigz, bcftools, tabix`.  `jq`, `samtools`, `rtg vcfeval`, 'hap.py', and 'Platypus.py' are also necessary for certain tests. 
+* **Running Without Docker**: If Docker is not installed or is disabled with `--container None`, toil-vg requires the following command line tools to be installed on the system: `vg, pigz, bcftools, tabix`.  `jq`, `samtools`, `rtg vcfeval`, `bedtools`, [`sveval` R package](https://github.com/jmonlong/sveval), 'hap.py', and 'Platypus.py' are also necessary for certain tests. 
     
 
 ## Configuration

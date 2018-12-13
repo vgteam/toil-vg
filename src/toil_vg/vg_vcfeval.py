@@ -464,80 +464,11 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
         "archive": out_archive_id
     }
 
-def vcf_to_bed(vcf_path, bed_path = None, ins_bed_path = None, del_bed_path = None,
-               indel_bed_path = None, snp_bed_path = None, multi_allele = 'max',
-               min_sv_len = 0, max_sv_len = sys.maxint, ins_ref_len=10):
-    """ Convert a VCF into a bed file that we can use bedtools intersection tools on. Not used if we use the sveval R package"""
-    if bed_path:
-        bed_file = open(bed_path, 'w')
-    if ins_bed_path:
-        ins_bed_file = open(ins_bed_path, 'w')
-    if del_bed_path:
-        del_bed_file = open(del_bed_path, 'w')
-    if indel_bed_path:
-        indel_bed_file = open(indel_bed_path, 'w')
-    if snp_bed_path:
-        snp_bed_file = open(snp_bed_path, 'w')
-
-    with open(vcf_path, 'r') as vcf_file:
-        vcf_reader = vcf.Reader(vcf_file)
-        # reference genotype or missing information to filter out (checking the first sample)
-        gt_to_rm = ['.', './.', '0/0', '0', '0|0']
-        for record in vcf_reader:
-            # Find the longest alt.  If multi_allele is set to 'max', we ignore everything
-            # else.  Eventually we want to enhance the rest of the comparison to properly
-            # handle genotypes.
-            max_alt_idx, max_alt_len = -1, 0
-            for i, alt in enumerate(record.ALT):
-                if alt and len(alt) > max_alt_len:
-                    max_alt_idx, max_alt_len = i, len(alt)
-            for i, alt in enumerate(record.ALT):
-                if record.REF is not None and alt is not None and \
-                   (i == max_alt_idx or multi_allele != 'max') and \
-                   abs(len(alt) - len(record.REF)) + 1 >= min_sv_len and \
-                   abs(len(alt) - len(record.REF)) + 1 <= max_sv_len and\
-                   record.samples[0]['GT'] not in gt_to_rm:
-                    # The size of the SV
-                    sv_len = max(len(record.REF), len(alt))
-                    # The amount of reference genome affected or the error
-                    # allowed for insertions
-                    if len(record.REF) < len(alt):
-                        ref_len = ins_ref_len
-                    else:
-                        ref_len = len(record.REF)
-                    bed_line = '{}\t{}\t{}\t{}\n'.format(
-                        record.CHROM, record.POS - 1, record.POS - 1 + ref_len,
-                        '{} {} {} {}'.format(record.REF, alt, record.QUAL,
-                                             sv_len))
-                    if bed_path:
-                        bed_file.write(bed_line)
-                    if ins_bed_path and len(record.REF) < len(alt):
-                        ins_bed_file.write(bed_line)
-                    elif del_bed_path and len(record.REF) > len(alt):
-                        del_bed_file.write(bed_line)
-                    if indel_bed_path and len(record.REF) != len(alt):
-                        indel_bed_file.write(bed_line)
-                    elif snp_bed_path and len(record.REF) == len(alt):
-                        snp_bed_file.write(bed_line)
-
-    if bed_path:
-        bed_file.close()
-    if ins_bed_path:
-        ins_bed_file.close()
-    if del_bed_path:
-        del_bed_file.close()
-    if indel_bed_path:
-        indel_bed_file.close()
-    if snp_bed_path:
-        snp_bed_file.close()
-
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                 min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, bed_id = None,
                 ins_ref_len=10, del_min_rol=.1, ins_seq_comp=False, 
                 out_name = '', fasta_path = None, fasta_id = None, normalize = False):
-    """ Run a bed-based comparison.  Uses bedtools and bedops to do overlap
-    comparison between indels. Of note: the actual sequence of insertions is
-    never checked!"""
+    """ Run a overlap-based evaluation using the sveval R package (https://github.com/jmonlong/sveval)"""
 
     # make a local work directory
     work_dir = job.fileStore.getLocalTempDir()
@@ -621,56 +552,6 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     archive_id = context.write_output_file(job, os.path.join(work_dir, tar_dir + '.tar.gz'))
 
     return True
-
-def summarize_sv_results(tp_ins, tp_ins_baseline, fp_ins, fn_ins,
-                         tp_del, tp_del_baseline, fp_del, fn_del):
-    """
-    Use the various bed files to compute accuracies.  Also return a tarball of 
-    all the files used. Not used anymore if sveval R package.
-    """
-    def wc(f):
-        with open(f) as ff:
-            return sum(1 for line in ff)
-
-    def pr(tp, fp, fn):
-        prec = float(tp) / float(tp + fp) if tp + fp else 0
-        rec = float(tp) / float(tp + fn) if tp + fn else 0
-        f1 = 2.0 * tp / float(2 * tp + fp + fn) if tp else 0
-        return prec, rec, f1
-
-    header = []
-    row = []
-
-    # results in dict
-    results = {}
-    results['TP-INS'] = wc(tp_ins)
-    results['TP-baseline-INS'] = wc(tp_ins_baseline)
-    results['FP-INS'] = wc(fp_ins)
-    results['FN-INS'] = wc(fn_ins)
-    ins_pr = pr(results['TP-baseline-INS'], results['FP-INS'], results['FN-INS'])
-    results['Precision-INS'] = ins_pr[0]
-    results['Recall-INS'] = ins_pr[1]
-    results['F1-INS'] = ins_pr[2]
-
-    results['TP-DEL'] = wc(tp_del)
-    results['TP-baseline-DEL'] = wc(tp_del_baseline)
-    results['FP-DEL'] = wc(fp_del)
-    results['FN-DEL'] = wc(fn_del)
-    del_pr = pr(results['TP-baseline-DEL'], results['FP-DEL'], results['FN-DEL'])
-    results['Precision-DEL'] = del_pr[0]
-    results['Recall-DEL'] = del_pr[1]
-    results['F1-DEL'] = del_pr[2]
-
-    results['TP'] = results['TP-INS'] + results['TP-DEL']
-    results['TP-baseline'] = results['TP-baseline-INS'] + results['TP-baseline-DEL']    
-    results['FP'] = results['FP-INS'] + results['FP-DEL']
-    results['FN'] = results['FN-INS'] + results['FN-DEL']
-    tot_pr = pr(results['TP-baseline'], results['FP'], results['FN'])
-    results['Precision'] = tot_pr[0]
-    results['Recall'] = tot_pr[1]
-    results['F1'] = tot_pr[2]
-
-    return results                    
 
 def vcfeval_main(context, options):
     """ command line access to toil vcf eval logic"""
