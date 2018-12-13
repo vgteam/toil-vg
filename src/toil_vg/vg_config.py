@@ -82,6 +82,11 @@ bwa-index-cores: 1
 bwa-index-mem: '4G'
 bwa-index-disk: '2G'
 
+# Resources for minimap2 indexing.
+minimap2-index-cores: 1
+minimap2-index-mem: '4G'
+minimap2-index-disk: '2G'
+
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs
 fq-split-cores: 1
@@ -139,7 +144,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.12.1-34-g3cc48e35-t255-run'
+vg-docker: 'quay.io/vgteam/vg:v1.12.1-56-g2956132f-t259-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
@@ -152,6 +157,9 @@ samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 
 # Docker image to use for bwa
 bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
+
+# Docker image to use for minimap2
+minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
@@ -261,6 +269,9 @@ sim-opts: ['--read-length', '150', '--frag-len', '570', '--frag-std-dev', '165',
 # Options to pass to bwa
 bwa-opts: []
 
+# Options to pass to minimap2
+minimap2-opts: ['-ax', 'sr']
+
 """)
 
 whole_genome_config = textwrap.dedent("""
@@ -329,6 +340,11 @@ bwa-index-cores: 1
 bwa-index-mem: '40G'
 bwa-index-disk: '40G'
 
+# Resources for minimap2 indexing.
+minimap2-index-cores: 1
+minimap2-index-mem: '40G'
+minimap2-index-disk: '40G'
+
 # Resources for fastq splitting and gam merging
 # Important to assign as many cores as possible here for large fastq inputs
 fq-split-cores: 32
@@ -366,7 +382,7 @@ vcfeval-disk: '64G'
 # Resources for vg sim
 sim-cores: 2
 sim-mem: '20G'
-sim-disk: '200G'
+sim-disk: '100G'
 
 ###########################################
 ### Arguments Shared Between Components ###
@@ -386,7 +402,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.12.1-34-g3cc48e35-t255-run'
+vg-docker: 'quay.io/vgteam/vg:v1.12.1-56-g2956132f-t259-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'vandhanak/bcftools:1.3.1'
@@ -399,6 +415,9 @@ samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
 
 # Docker image to use for bwa
 bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
+
+# Docker image to use for minimap2
+minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
 jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
@@ -509,6 +528,9 @@ sim-opts: ['--read-length', '150', '--frag-len', '570', '--frag-std-dev', '165',
 # Options to pass to bwa
 bwa-opts: []
 
+# Options to pass to minimap2
+minimap2-opts: ['-ax', 'sr']
+
 
 """)
 
@@ -532,7 +554,7 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
+                   'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
 

@@ -31,7 +31,11 @@ The 'clean' target undoes the effect of 'develop', and 'sdist'.
 
 The 'test' target runs toil-vg's unit tests. Set the 'tests' variable to run a particular test, e.g.
 
-	make test tests=src/toil/test/sort/sortTest.py::SortTest::testSort
+	make test tests=src/toil_vg/test/test_vg.py::VGCGLTest::test_01_sim_small
+	
+By default it will try to use Docker. You can disable this by also passing container=None
+
+	make test container=None tests=src/toil_vg/test/test_vg.py::VGCGLTest::test_01_sim_small
 
 The 'pypi' target publishes the current commit of toil-vg to PyPI after enforcing that the working
 copy and the index are clean, and tagging it as an unstable .dev build.
@@ -45,6 +49,7 @@ help:
 python=python2.7
 pip=pip2.7
 tests=src
+container=Docker
 extras=
 
 
@@ -75,11 +80,7 @@ clean_sdist:
 
 
 test: check_venv check_build_reqs
-	$(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
-
-integration-test: check_venv check_build_reqs sdist
-	TOIL_TEST_INTEGRATIVE=True $(python) run_tests.py integration-test $(tests)
-
+	TOIL_VG_TEST_CONTAINER=$(container) $(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
 
 pypi: check_venv check_clean_working_copy check_running_on_jenkins
 	test "$$ghprbActualCommit" \

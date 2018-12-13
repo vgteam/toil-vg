@@ -92,6 +92,8 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
     
     """
     
+    RealtimeLogger.info("Surjecting read chunks {} to BAM".format(reads_chunk_ids))
+    
     # this will be a list of lists.
     # bam_chunk_file_ids[i][j], will correspond to the jth path (from id_ranges)
     # for the ith gam chunk (generated from fastq shard i)
@@ -196,19 +198,14 @@ def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
     flat_ids = [x for l in bam_chunk_file_ids for x in l]
     
     # How much disk do we think we will need to have the merged and unmerged copies of these BAMs?
-    # Ask for 1 GB more than the total size of all the files
-    required_disk = 2 * sum((file_id.size for file_id in flat_ids)) + 1024 * 1024 * 1024
+    # Make sure we have it
     
-    if job.disk < required_disk:
-        # We need to re-queue ourselves with more disk.
-        RealtimeLogger.info("Re-queueing run_merge_bams with {} bytes of disk; originally had {}".format(required_disk, job.disk))
-        requeued = job.addChildJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
-            cores=job.cores,
-            memory=job.memory,
-            disk=required_disk)
-        
-        return requeued.rv()
-        
+    requeue_promise = ensure_disk(job, run_merge_bams, [output_name, context, bam_chunk_file_ids], {},
+        flat_ids, factor=2)
+    if requeue_promise is not None:
+        # We requeued ourselves with more disk to accomodate our inputs
+        return requeue_promise
+    
     # Otherwise, we have enough disk
 
     # Define work directory for docker calls
