@@ -72,7 +72,7 @@ def vcfeval_parse_args(parser):
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
     parser.add_argument("--sv_overlap", type=float, default=0.5,
                         help="minimum overlap coverage required for bed intersection to count as TP")
-    parser.add_argument("--ins_max_gap", type=int, default=30,
+    parser.add_argument("--ins_max_gap", type=int, default=20,
                         help="maximum distance between insertions to be compared")
     parser.add_argument("--ins_seq_comp", action="store_true",
                         help="compare insertion sequence instead of their size only.")
@@ -538,7 +538,6 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     r_cmd_file = 'sveval.R'
     with open(os.path.join(work_dir, r_cmd_file), 'w') as r_file:
         r_file.write(sveval_cmd + '\n')
-    print(sveval_cmd)
     context.runner.call(job, ['R', '-f', r_cmd_file], work_dir=work_dir)
     summary_id = context.write_output_file(job, os.path.join(work_dir, summary_name))
     
@@ -552,7 +551,15 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                         work_dir = work_dir)
     archive_id = context.write_output_file(job, os.path.join(work_dir, tar_dir + '.tar.gz'))
 
-    return True
+    # Read and return total F1 etc (used in vg_mapeval.py)
+    results = {}
+    with open(os.path.join(work_dir, summary_name)) as summary_file:
+        headers = summary_file.next().rstrip().split('\t')
+        total_res = summary_file.next().rstrip().split('\t')
+        for idx in range(len(headers)):
+            if headers[idx] in ['precision', 'recall', 'F1']:
+                results[headers[idx]] = float(total_res[idx])
+    return results
 
 
 def vcfeval_main(context, options):
