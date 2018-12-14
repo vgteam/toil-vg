@@ -556,7 +556,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     tar_dir = os.path.join(work_dir, '{}sv_evaluation'.format(out_name))
     os.makedirs(tar_dir)
     for dir_file in os.listdir(work_dir):
-        if os.path.splitext(dir_file)[1] in ['.bed', '.tsv', '.vcf.gz', '.vcf.gz.tbi']:
+        if any(dir_file.endswith(ext) for ext in ['.bed', '.tsv', '.vcf.gz', '.vcf.gz.tbi']):
             shutil.copy2(os.path.join(work_dir, dir_file), os.path.join(tar_dir, dir_file))
     context.runner.call(job, ['tar', 'czf', os.path.basename(tar_dir) + '.tar.gz', os.path.basename(tar_dir)],
                         work_dir = work_dir)
