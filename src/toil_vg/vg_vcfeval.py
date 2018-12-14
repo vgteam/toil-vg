@@ -495,9 +495,20 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     if fasta_id:
         fasta_name = os.path.basename(fasta_path)
         job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
+        # bcftools won't left-align indels over softmasked bases: make sure upper case        
+        fa_upper_cmd = ['awk',  'BEGIN{FS=\" \"}{if(!/>/){print toupper($0)}else{print $1}}']
         if fasta_name.endswith('.gz'):
-            context.runner.call(job, ['bgzip', '-d', fasta_name], work_dir = work_dir)
+            cmd = [['bgzip', '-d', '-c', fasta_name]]
+            if normalize:
+                cmd.append(fa_upper_cmd)
             fasta_name = fasta_name[:-3]
+            with open(os.path.join(work_dir, fasta_name), 'w') as fasta_file:
+                context.runner.call(job, cmd, work_dir = work_dir, outfile=fasta_file)
+        elif normalize:
+            upper_fasta_name = os.path.splitext(fasta_name)[0] + '_upper.fa'
+            with open(os.path.join(work_dir, upper_fasta_name), 'w') as fasta_file:
+                context.runner.call(job, fa_upper_cmd + [fasta_name], work_dir = work_dir, outfile=fasta_file)
+            fasta_name = upper_fasta_name
 
     if out_name and not out_name.endswith('_'):
         out_name = '{}_'.format(out_name)
