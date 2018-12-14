@@ -551,14 +551,18 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                         work_dir = work_dir)
     archive_id = context.write_output_file(job, os.path.join(work_dir, tar_dir + '.tar.gz'))
 
-    # Read and return total F1 etc (used in vg_mapeval.py)
+    # Read and return total F1 etc (used in vg_calleval.py)
     results = {}
     with open(os.path.join(work_dir, summary_name)) as summary_file:
-        headers = summary_file.next().rstrip().split('\t')
-        total_res = summary_file.next().rstrip().split('\t')
-        for idx in range(len(headers)):
-            if headers[idx] in ['precision', 'recall', 'F1']:
-                results[headers[idx]] = float(total_res[idx])
+        summary_lines = [line for line in summary_file]
+    if len(summary_lines) == 1:
+        # if no results, we assume there were no SVs and just fill with 0s
+        summary_lines.append('\t'.join(['0'] * len(summary_lines[0])))
+    headers = summary_lines[0].rstrip().split('\t')
+    total_res = summary_lines[1].rstrip().split('\t')
+    for idx in range(len(headers)):
+        if headers[idx] in ['precision', 'recall', 'F1']:
+            results[headers[idx]] = float(total_res[idx])
     return results
 
 
