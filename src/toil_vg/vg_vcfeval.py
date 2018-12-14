@@ -495,9 +495,20 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     if fasta_id:
         fasta_name = os.path.basename(fasta_path)
         job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
+        # bcftools won't left-align indels over softmasked bases: make sure upper case        
+        fa_upper_cmd = ['awk',  'BEGIN{FS=\" \"}{if(!/>/){print toupper($0)}else{print $1}}']
         if fasta_name.endswith('.gz'):
-            context.runner.call(job, ['bgzip', '-d', fasta_name], work_dir = work_dir)
+            cmd = [['bgzip', '-d', '-c', fasta_name]]
+            if normalize:
+                cmd.append(fa_upper_cmd)
             fasta_name = fasta_name[:-3]
+            with open(os.path.join(work_dir, fasta_name), 'w') as fasta_file:
+                context.runner.call(job, cmd, work_dir = work_dir, outfile=fasta_file)
+        elif normalize:
+            upper_fasta_name = os.path.splitext(fasta_name)[0] + '_upper.fa'
+            with open(os.path.join(work_dir, upper_fasta_name), 'w') as fasta_file:
+                context.runner.call(job, fa_upper_cmd + [fasta_name], work_dir = work_dir, outfile=fasta_file)
+            fasta_name = upper_fasta_name
 
     if out_name and not out_name.endswith('_'):
         out_name = '{}_'.format(out_name)
@@ -510,7 +521,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
                                     (vcfeval_baseline_name, norm_vcfeval_baseline_name)]:
             with open(os.path.join(work_dir, norm_name), 'w') as norm_file:
                 context.runner.call(job, ['bcftools', 'norm', vcf_name, '--output-type', 'z',
-                                          '--fasta-ref', fasta_name, '--multiallelics', '+'],
+                                          '--fasta-ref', fasta_name],
                                     work_dir = work_dir, outfile=norm_file)
                 context.runner.call(job, ['tabix', '--preset', 'vcf', norm_name], work_dir = work_dir)
         call_vcf_name = norm_call_vcf_name
@@ -545,7 +556,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     tar_dir = os.path.join(work_dir, '{}sv_evaluation'.format(out_name))
     os.makedirs(tar_dir)
     for dir_file in os.listdir(work_dir):
-        if os.path.splitext(dir_file)[1] in ['.bed', '.tsv', '.vcf.gz', '.vcf.gz.tbi']:
+        if any(dir_file.endswith(ext) for ext in ['.bed', '.tsv', '.vcf.gz', '.vcf.gz.tbi']):
             shutil.copy2(os.path.join(work_dir, dir_file), os.path.join(tar_dir, dir_file))
     context.runner.call(job, ['tar', 'czf', os.path.basename(tar_dir) + '.tar.gz', os.path.basename(tar_dir)],
                         work_dir = work_dir)
