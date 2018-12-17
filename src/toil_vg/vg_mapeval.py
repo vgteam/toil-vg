@@ -1080,7 +1080,8 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
 
 def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, gam_file_ids,
                        reads_fastq_single_ids, reads_fastq_paired_ids, reads_fastq_paired_for_vg_ids,
-                       fasta_file_id, matrix, bwa_index_ids=[], minimap2_index_id=None, ignore_quals=False, surject=False):
+                       fasta_file_id, matrix, bwa_index_ids=[], minimap2_index_id=None, ignore_quals=False,
+                       surject=False, validate=False):
     """
     
     Run alignments, if alignment files have not already been provided.
@@ -1426,6 +1427,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                                                                 reads_chunk_ids=read_chunk_job.rv(),
                                                                 bam_output=False, surject=surject,
                                                                 gbwt_penalty=gbwt_penalty,
+                                                                validate=validate,
                                                                 cores=mapping_context.config.misc_cores,
                                                                 memory=mapping_context.config.misc_mem,
                                                                 disk=mapping_context.config.misc_disk))
@@ -2481,7 +2483,8 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                                                fasta_file_id, matrix,
                                                bwa_index_ids=bwa_index_ids,
                                                minimap2_index_id=minimap2_index_id,
-                                               ignore_quals=options.ignore_quals, surject=options.surject)
+                                               ignore_quals=options.ignore_quals, surject=options.surject,
+                                               validate=options.validate)
                                                
     # Grab the results dict organized by generated condition name, each
     # containing "gam", "bam", "xg", "runtime", "paired" keys as appropriate.
