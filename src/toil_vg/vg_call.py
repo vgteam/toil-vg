@@ -94,7 +94,6 @@ def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     with open(sorted_vcf_path, "w") as outfile:
         drunner.call(job, [['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
                      work_dir=vcf_dir)
-    with open(sorted_vcf_path, "a") as outfile:
         drunner.call(job, [['bcftools', 'view', '-H', vcf_name],
                       ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
                      work_dir=vcf_dir)
