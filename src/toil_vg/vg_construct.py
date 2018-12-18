@@ -42,8 +42,10 @@ def construct_subparser(parser):
 
     parser.add_argument("--fasta", default=[], type=make_url, nargs='+',
                         help="Reference sequence in fasta or fasta.gz (single fasta or 1/region in same order as --regions)")
-    parser.add_argument("--vcf", default=[], type=make_url, nargs='+',
-                        help="Variants to make graph from (single vcf or 1/region in same order as --regions)")
+    parser.add_argument("--vcf", default=[], nargs='+',
+                        help="Variants to make graph from (single vcf or 1/region in same order as --regions).  "
+                        "VCFs separated by commas will be merged together and treated as one using bcftools merge "
+                        "(so must be over distinct sample sets).")
     parser.add_argument("--regions", default=[], nargs='+',
                         help="1-based inclusive VCF coordinates in the form of SEQ or SEQ:START-END")
     parser.add_argument("--fasta_regions", action="store_true",
@@ -154,6 +156,36 @@ def validate_construct_options(options):
     require(not options.haplo_sample or not options.sample_graph or
             (options.haplo_sample == options.sample_graph),
             '--haplo_sample and --sample_graph must be the same')
+
+
+def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
+    """
+    run bctools merge on a list of vcfs and return just one.  note that 
+    bcftools merge expectes non-overlapping sample sets
+    """
+    assert len(vcf_file_ids) == len(vcf_names) == len(tbi_file_ids)
+    if len(vcf_file_ids) == 1:
+        return vcf_file_ids[0], vcf_names[0], tbi_file_ids[0]
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    names = []
+    for vcf_id, vcf_name, tbi_id in zip(vcf_file_ids, vcf_names, tbi_file_ids):
+        job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, vcf_name))
+        job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name) + '.tbi')
+        names.append(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
+    if len(names) != len(set(names)):
+        raise RuntimeError('vcf merging expects unique filenames')
+
+    merged_name = '_'.join(names) + '.vcf.gz'
+    with open(os.path.join(work_dir, merged_name), 'w') as merged_file:
+        context.runner.call(job, ['bcftools', 'merge', '--missing-to-ref', '--output-type', 'z'] + vcf_names,
+                           work_dir = work_dir, outfile = merged_file)
+    context.runner.call(job, ['tabix', '--preset', 'vcf', merged_name], work_dir = work_dir)
+
+    return (context.write_output_file(job, os.path.join(work_dir, merged_name)),
+            merged_name,
+            context.write_output_file(job, os.path.join(work_dir, merged_name) + '.tbi'))
 
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
@@ -1287,11 +1319,10 @@ def construct_main(context, options):
             inputVCFFileIDs = []
             inputVCFNames = []
             inputTBIFileIDs = []
-            if options.vcf:
-                for vcf in options.vcf:
-                    inputVCFFileIDs.append(toil.importFile(vcf))
-                    inputVCFNames.append(os.path.basename(vcf))
-                    inputTBIFileIDs.append(toil.importFile(vcf + '.tbi'))
+            for vcf_batch in options.vcf:
+                inputVCFFileIDs.append([toil.importFile(make_url(vcf)) for vcf in vcf_batch.split(',')])
+                inputVCFNames.append([os.path.basename(vcf) for vcf in vcf_batch.split(',')])
+                inputTBIFileIDs.append([toil.importFile(make_url(vcf + '.tbi')) for vcf in vcf_batch.split(',')])
             
             inputBWAFastaID=None
             if options.bwa_reference:
@@ -1305,6 +1336,24 @@ def construct_main(context, options):
                    
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
+
+            # Merge up comma-separated vcfs with bcftools merge
+            merged_vcf_names = []
+            merged_vcf_ids = []
+            merged_tbi_ids = []
+            for vcf_ids, vcf_names, tbi_ids in zip(inputVCFFileIDs, inputVCFNames, inputTBIFileIDs):
+                if len(vcf_ids) == 1:
+                    merged_vcf_ids.append(vcf_ids[0])
+                    merged_vcf_names.append(vcf_names[0])
+                    merged_tbi_ids.append(tbi_ids[0])
+                else:
+                    input_vcf_merge_job = init_job.addChildJobFn(run_merge_vcfs, context, vcf_ids, vcf_names, tbi_ids,
+                                                                 cores=context.config.construct_cores,
+                                                                 memory=context.config.construct_mem,
+                                                                 disk=context.config.construct_disk)
+                    merged_vcf_ids.append(input_vcf_merge_job.rv(0))
+                    merged_vcf_names.append(input_vcf_merge_job.rv(1))
+                    merged_tbi_ids.append(input_vcf_merge_job.rv(2))
 
             # Unzip the fasta
             for i, fasta in enumerate(options.fasta):
@@ -1327,8 +1376,8 @@ def construct_main(context, options):
                 
             # Automatically make and name a bunch of vcfs
             vcf_job = cur_job.addFollowOnJobFn(run_generate_input_vcfs, context, 
-                                               inputVCFFileIDs, inputVCFNames,
-                                               inputTBIFileIDs, 
+                                               merged_vcf_ids, merged_vcf_names,
+                                               merged_tbi_ids, 
                                                regions,
                                                options.out_name,
                                                do_primary = options.primary,
