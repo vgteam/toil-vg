@@ -93,6 +93,8 @@ def map_parse_args(parser, stand_alone = False):
                         help="write BAM output directly")
     parser.add_argument("--surject", action="store_true",
                         help="surject output, producing BAM in addition to GAM alignments")
+    parser.add_argument("--validate", action="store_true",
+                        help="run vg validate on ouput GAMs")
     
 def validate_map_options(context, options):
     """
@@ -142,7 +144,7 @@ def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_re
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
                 indexes, reads_file_ids=None, reads_chunk_ids=None,
                 bam_output=False, surject=False, 
-                gbwt_penalty=None):
+                gbwt_penalty=None, validate=False):
     """
     Split the fastq, then align each chunk.
     
@@ -191,6 +193,7 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
                               interleaved, multipath, indexes, reads_chunk_ids,
                               bam_output=bam_output, surject=surject,
                               gbwt_penalty=gbwt_penalty,
+                              validate=validate,
                               cores=context.config.misc_cores,
                               memory=context.config.misc_mem, disk=context.config.misc_disk)
                  
@@ -362,7 +365,7 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
     
 def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
                         indexes, reads_chunk_ids,
-                        bam_output=False, surject=False, gbwt_penalty=None):
+                        bam_output=False, surject=False, gbwt_penalty=None, validate=False):
     """
     align all fastq chunks in parallel
     
@@ -395,6 +398,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
                                                       indexes,
                                                       bam_output=bam_output,
                                                       gbwt_penalty=gbwt_penalty,
+                                                      validate=validate,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
         if not bam_output:
@@ -437,7 +441,7 @@ def run_zip_surject_input(job, context, gam_chunk_file_ids):
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
                         chunk_filename_ids, chunk_id, indexes,
-                        bam_output=False, gbwt_penalty=None, always_check_population=True):
+                        bam_output=False, gbwt_penalty=None, always_check_population=True, validate=False):
                         
     """
     Align a chunk of reads.
@@ -572,8 +576,14 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         command = vg_parts
         try:
             context.runner.call(job, command, work_dir = work_dir, outfile=alignment_file)
+            end_time = timeit.default_timer()
+            if validate:
+                alignment_file.flush()
+                context.runner.call(job, ['vg', 'validate', '--xg', os.path.basename(xg_file),
+                                          '--gam', os.path.basename(output_file)], work_dir = work_dir)
         except:
             # Dump everything we need to replicate the alignment
+            end_time = timeit.default_timer()
             logging.error("Mapping failed. Dumping files.")
             context.write_output_file(job, xg_file)
             context.write_output_file(job, gcsa_file)
@@ -588,7 +598,6 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             raise
         
         # Mark when it's done
-        end_time = timeit.default_timer()
         run_time = end_time - start_time
 
     paired_end = '-i' in vg_parts or '--interleaved' in vg_parts or len(chunk_filename_ids) > 1
@@ -789,6 +798,7 @@ def map_main(context, options):
                                      options.interleaved, options.multipath, indexes,
                                      reads_file_ids=inputReadsFileIDs,
                                      bam_output=options.bam_output, surject=options.surject,
+                                     validate=options.validate,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

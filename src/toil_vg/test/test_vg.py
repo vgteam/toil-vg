@@ -472,7 +472,7 @@ class VGCGLTest(TestCase):
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
                    '--neg_control', 'HG00096', '--sample_graph', 'HG00096',
-                   '--filter_ceph', '--realTimeLogging', '--logInfo',
+                   '--filter_ceph', '--realTimeLogging', '--logInfo', '--validate',
                    '--haplo_sample', 'HG00096', '--min_af', '0.6'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -628,7 +628,7 @@ class VGCGLTest(TestCase):
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                   '--alignment_cores', '8',
+                   '--alignment_cores', '8', '--validate',
                    '--maxCores', '8', '--minimap2', '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
         
@@ -663,7 +663,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--gam', '--sim_chunks', '5', '--maxCores', '8',
-                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
+                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1', '--validate'])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
         # Run mapeval with minimap2

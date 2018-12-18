@@ -65,6 +65,8 @@ def sim_subparser(parser):
                         help="use error profile derived from given reads (ignores -l, -N, -f from sim_opts)")
     parser.add_argument("--out_name", type=str,
                         help="prefix for output file names")
+    parser.add_argument("--validate", action="store_true",
+                        help="run vg validate on simulated GAM")
                         
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -81,10 +83,13 @@ def validate_sim_options(options):
             'random seed must be greater than 0 (vg sim ignores seed 0)')
     require(options.gam or len(options.drop_contigs_matching) == 0,
             'can only drop reads annotated as from particular contigs if producing GAM')
+    require(options.gam or not options.validate,
+            '--validate on applicable to --gam output')
     
 def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
             xg_file_ids, xg_annot_file_id, tag_bed_ids = [], paths = [],
-            drop_contigs_matching = [], fastq_id = None, out_name = None):
+            drop_contigs_matching = [], fastq_id = None, out_name = None,
+            validate = False):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
@@ -119,7 +124,7 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
                                                       xg_annot_file_id, chunk_reads, chunk_i, xg_i,
                                                       tag_bed_ids=tag_bed_ids, paths=paths,
                                                       drop_contigs_matching=drop_contigs_matching,
-                                                      fastq_id=fastq_id,
+                                                      fastq_id=fastq_id, validate=validate,
                                                       cores=context.config.sim_cores, memory=context.config.sim_mem,
                                                       disk=context.config.sim_disk).rv()
             sim_out_id_infos.append(sim_out_id_info)
@@ -145,7 +150,7 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
 
 
 def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, num_reads, chunk_i, xg_i,
-                  tag_bed_ids = [], paths = [], drop_contigs_matching = [], fastq_id = None):
+                  tag_bed_ids = [], paths = [], drop_contigs_matching = [], fastq_id = None, validate = False):
     """
     simulate some reads (and optionally gam)
     determine with true positions in xg_annot_file_id, into a true position TSV file
@@ -237,6 +242,9 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         with open(gam_json, 'w') as output_json:
             try:
                 context.runner.call(job, cmd, work_dir = work_dir, outfile=output_json)
+                if validate:
+                    context.runner.call(job, ['vg', 'validate', '--xg', os.path.basename(xg_file),
+                                              '--gam', os.path.basename(gam_file)], work_dir = work_dir)
             except:
                 # Dump everything we need to replicate the problem
                 context.write_output_file(job, xg_file)
@@ -404,6 +412,7 @@ def sim_main(context, options):
                                      drop_contigs_matching = options.drop_contigs_matching,
                                      fastq_id = inputFastqFileID,
                                      out_name = options.out_name,
+                                     validate = options.validate,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
