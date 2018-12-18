@@ -14,6 +14,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_call import sort_vcf
 
 logger = logging.getLogger(__name__)
 
@@ -513,17 +514,32 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     if out_name and not out_name.endswith('_'):
         out_name = '{}_'.format(out_name)
             
-    # optionalize normalization of both calls and truth with bcftools
+    # optional normalization of both calls and truth with bcftools
     if normalize:
         norm_call_vcf_name = '{}calls-norm.vcf.gz'.format(out_name)
         norm_vcfeval_baseline_name = '{}truth-norm.vcf.gz'.format(out_name)
         for vcf_name, norm_name in [(call_vcf_name, norm_call_vcf_name),
                                     (vcfeval_baseline_name, norm_vcfeval_baseline_name)]:
             with open(os.path.join(work_dir, norm_name), 'w') as norm_file:
-                context.runner.call(job, ['bcftools', 'norm', vcf_name, '--output-type', 'z',
-                                          '--fasta-ref', fasta_name],
-                                    work_dir = work_dir, outfile=norm_file)
-                context.runner.call(job, ['tabix', '--preset', 'vcf', norm_name], work_dir = work_dir)
+                # haploid variants throw off bcftools norm --multiallelic +both (TODO: stop making them in vg call)
+                norm_cmd = [['bcftools', 'view', vcf_name, '--exclude', 'GT="0" || GT="." || GT="1"']]
+
+                # variants need to be broken up with -both to insure they're fully left-aligned
+                norm_cmd.append(['bcftools', 'norm', '-',  '--fasta-ref', fasta_name, '--multiallelic', '-both'])
+
+                # merge up variants back up at the same position
+                # (TODO: sveval will need to properly support these cases.  it may end
+                #        up being simpler to keep/put them on separate lines at that point)
+                norm_cmd.append(['bcftools', 'norm', '-', '--fasta-ref', fasta_name, '--multiallelic', '+both',
+                                 '--output-type' ,'z'])
+                context.runner.call(job, norm_cmd, work_dir = work_dir, outfile=norm_file)
+                
+            # bcftools norm --multiallelic -both can apparently unsort the vcf, so we sort it before indexing...
+            sort_vcf(job, context.runner, os.path.join(work_dir, norm_name),
+                     os.path.join(work_dir, norm_name + '_sorted.vcf'))
+            shutil.move(os.path.join(work_dir, norm_name + '_sorted.vcf'), os.path.join(work_dir, norm_name[:-3]))
+            context.runner.call(job, ['bgzip', '--force', norm_name[:-3]], work_dir = work_dir)
+            context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', norm_name], work_dir = work_dir)
         call_vcf_name = norm_call_vcf_name
         vcfeval_baseline_name = norm_vcfeval_baseline_name
 
