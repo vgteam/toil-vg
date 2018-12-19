@@ -147,10 +147,10 @@ container: """ + ("Docker" if test_docker() else "None") + """
 vg-docker: 'quay.io/vgteam/vg:v1.12.1-81-g91917140-t266-run'
 
 # Docker image to use for bcftools
-bcftools-docker: 'vandhanak/bcftools:1.3.1'
+bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
 
 # Docker image to use for tabix
-tabix-docker: 'vandhanak/bcftools:1.3.1'
+tabix-docker: 'lethalfang/tabix:1.7'
 
 # Docker image to use for samtools
 samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
@@ -405,10 +405,10 @@ container: """ + ("Docker" if test_docker() else "None") + """
 vg-docker: 'quay.io/vgteam/vg:v1.12.1-81-g91917140-t266-run'
 
 # Docker image to use for bcftools
-bcftools-docker: 'vandhanak/bcftools:1.3.1'
+bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
 
 # Docker image to use for tabix
-tabix-docker: 'vandhanak/bcftools:1.3.1'
+tabix-docker: 'lethalfang/tabix:1.7'
 
 # Docker image to use for samtools
 samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
