@@ -43,13 +43,19 @@ def construct_subparser(parser):
     parser.add_argument("--fasta", default=[], type=make_url, nargs='+',
                         help="Reference sequence in fasta or fasta.gz (single fasta or 1/region in same order as --regions)")
     parser.add_argument("--vcf", default=[], nargs='+',
-                        help="Variants to make graph from (single vcf or 1/region in same order as --regions).  "
+                        help="Variants to make graph from (single vcf or 1/region IN SAME ORDER AS REGIONS (as passed in by --regions"
+                        " or scanned in from --fasta_regions or --regions_file)).  "
                         "VCFs separated by commas will be merged together and treated as one using bcftools merge "
                         "(so must be over distinct sample sets).")
     parser.add_argument("--regions", default=[], nargs='+',
                         help="1-based inclusive VCF coordinates in the form of SEQ or SEQ:START-END")
+    parser.add_argument("--regions_file", default=None,
+                        help="List of regions (replaces --regions). Only first column of each line considered (so .fai acceptable)")
     parser.add_argument("--fasta_regions", action="store_true",
-                        help="Infer regions from fasta file.  If multiple vcfs specified, any regions found that are not in --regions will be added without variants (useful for decoy sequences)")    
+                        help="Infer regions from fasta file.  If multiple vcfs specified, any regions found that are not in --regions will be added without variants (useful for decoy sequences)")
+    parser.add_argument("--ignore_regions_keywords", default=[], nargs='+',
+                        help="Ignore sequence names with given keywords when using --fasta_regions or --regions_file "
+                        "(useful for alt and HLA sequences in hg38)")
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
@@ -66,6 +72,11 @@ def construct_subparser(parser):
                         help="Normalize the graphs")
     parser.add_argument("--validate", action="store_true",
                         help="Run vg validate on constructed graphs")
+    # useful for mixing, say, UCSC references with 1KG VCFs
+    parser.add_argument("--add_chr_prefix", action="store_true",
+                        help="add \"chr\" prefix to chromosome names if not already present")
+    parser.add_argument("--remove_chr_prefix", action="store_true",
+                        help="remove \"chr\" prefix from chromosome names")
     
     # Toggles for the different types of graph(s) that can be made.  Indexing and above options
     # will be applied to each one.  The output names will be prefixed with out_name. 
@@ -101,6 +112,7 @@ def construct_subparser(parser):
                         'ignore variants, just using the reference allele. \"keep\": keep the unphased variants, '
                         'breaking up the haplotype paths (potential downstream effects on indexing). \"arbitrary\": '
                         'choose an arbitrary phasing for the unphased variants')
+
     
     # Add common indexing options shared with vg_index
     index_toggle_parse_args(parser)
@@ -116,8 +128,14 @@ def validate_construct_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    require(options.regions or options.fasta_regions,
+    require(options.regions or options.fasta_regions or options.regions_file,
             '--regions or --fasta_regions required')
+    require(not options.regions_file or not (options.fasta_regions or options.regions),
+            '--regions_file cannot be used with --regions or --fasta_regions')
+    require(not options.ignore_regions_keywords or (options.fasta_regions or options.regions_file),
+            '--ignore_regions_keywords can only be used with --fasta_regions or --regions_file')
+    require(not options.add_chr_prefix or not options.remove_chr_prefix,
+            '--add_chr_prefix cannot be used with --remove_chr_prefix')
     require(options.vcf == [] or len(options.vcf) == 1 or not options.regions or
             len(options.vcf) <= len(options.regions),
             'if many vcfs specified, cannot have more vcfs than --regions')
@@ -157,6 +175,21 @@ def validate_construct_options(options):
             (options.haplo_sample == options.sample_graph),
             '--haplo_sample and --sample_graph must be the same')
 
+def chr_name_map(to_ucsc):
+    """
+    return a name map for chromosome name conversion in dict and string format
+    """
+    name_map = {}
+    name_str = ''
+    # TODO:  Should we do something with MT <==> chrM ?
+    for i in [c for c in range(22)] + ['X', 'Y']:
+        if to_ucsc:
+            name_str += '{}\tchr{}\n'.format(i, i)
+            name_map[str(i)] = 'chr{}'.format(i)
+        else:
+            name_str += 'chr{}\t{}\n'.format(i, i)
+            name_map['chr{}'.format(i)] = str(i)
+    return name_map, name_str    
 
 def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
     """
@@ -202,9 +235,9 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
 
     return context.write_intermediate_file(job, fasta_file[:-3])
 
-def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None):
+def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None, ignore_regions_keywords = []):
     """
-    if no regions specified, scrape them out of the (uncompressed) fasta
+    scrape regions out of the (uncompressed) fasta, appending them to given regions list if provided
     """
 
     work_dir = job.fileStore.getLocalTempDir()
@@ -223,10 +256,105 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
     for line in grep_output.split('\n'):
         if len(line) > 1:
             name = line.split()[0]
-            if name.startswith('>') and (not regions or name[1:] not in regions):
+            if name.startswith('>') and (not regions or name[1:] not in regions) and \
+               not any ([kw in name[1:] for kw in ignore_regions_keywords]):
                 seq_names.append(name[1:])
     
-    return seq_names    
+    return seq_names
+
+def run_scan_regions_file(job, context, regions_id, ignore_regions_keywords):
+    """
+    Read a list of regions
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+    regions_path = os.path.join(work_dir, 'regions.tsv')
+    job.fileStore.readGlobalFile(regions_id, regions_path)
+    out_regions = []
+    with open(regions_path) as regions_file:
+        for line in regions_file:
+            region_name = line.strip().split()[0]
+            if len(region_name) > 0 and not any([kw in region_name for kw in ignore_regions_keywords]):
+                out_regions.append(region_name)
+    return out_regions
+
+def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids):
+    """
+    Apply name mappings to regions list, fasta files and vcf files.  if to_ucsc is true we convert
+    1 -> chr1 etc.  otherwise, we go the other way.  
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    name_map, name_str = chr_name_map(to_ucsc)
+    out_regions = []
+    something_to_rename = False
+
+    # map the regions
+    for region in regions:
+        region_name = region.split(':')[0]
+        if region_name in name_map:
+            something_to_rename = True
+            out_regions.append(name_map[region_name] + region[len(region_name):])
+        else:
+            something_to_rename = something_to_rename or region_name in name_map.values()
+            out_regions.append(region)
+
+    # map the fasta
+    out_fasta_ids = []    
+    out_fasta_names = []
+    if something_to_rename:
+        for fasta_id, fasta_name in zip(fasta_ids, fasta_names):
+            assert not fasta_name.endswith('.gz')
+            in_fasta_name = os.path.basename(fasta_name)
+            job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, in_fasta_name))
+            out_fasta_name = os.path.splitext(fasta_name)[0] + '-renamed' + os.path.splitext(fasta_name)[1]
+            with open(os.path.join(work_dir, out_fasta_name), 'w') as out_fasta_file, \
+                 open(os.path.join(work_dir, in_fasta_name)) as in_fasta_file:
+                # TODO: is this too slow in python?
+                for line in in_fasta_file:
+                    if line.startswith('>'):
+                        region_name = line[1:].split()[0]
+                        if region_name in name_map:
+                            out_fasta_file.write('>{}\n'.format(name_map[region_name]))
+                        else:
+                            out_fasta_file.write(line)
+                    else:
+                        out_fasta_file.write(line)
+            out_fasta_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, out_fasta_name)))
+            out_fasta_names.append(out_fasta_name)
+    else:
+        out_fasta_ids = fasta_ids
+        out_fasta_names = fasta_names
+
+    # map the vcf
+    out_vcf_ids = []
+    out_vcf_names = []
+    out_tbi_ids = []
+    if something_to_rename:
+        # make our name mapping file
+        name_map_path = os.path.join(work_dir, 'name_map.tsv')
+        with open(name_map_path, 'w') as name_map_file:
+            name_map_file.write(name_str)
+        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+            assert vcf_name.endswith('.vcf.gz')
+            in_vcf_name = os.path.basename(vcf_name)
+            job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, in_vcf_name))
+            job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, in_vcf_name + '.tbi'))
+            out_vcf_name = in_vcf_name[:-7] + '-renamed.vcf.gz'
+            context.runner.call(job, ['bcftools', 'annotate', '--rename-chrs', os.path.basename(name_map_path),
+                                      '--output-type', 'z', '--output', out_vcf_name, os.path.basename(in_vcf_name)],
+                                work_dir = work_dir)
+            context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', out_vcf_name], work_dir = work_dir)
+            out_vcf_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name)))
+            out_vcf_names.append(out_vcf_name)
+            out_tbi_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name + '.tbi')))
+    else:
+        out_vcf_ids = vcf_ids
+        out_vcf_names = vcf_names
+        out_tbi_ids = tbi_ids
+
+    return out_regions, out_fasta_ids, out_fasta_names, out_vcf_ids, out_vcf_names, out_tbi_ids    
+
         
 def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name,
@@ -1327,6 +1455,9 @@ def construct_main(context, options):
             inputBWAFastaID=None
             if options.bwa_reference:
                 inputBWAFastaID = toil.importFile(options.bwa_reference)
+
+            if options.regions_file:
+                inputRegionsFileID = toil.importFile(options.regions_file)
             
             end_time = timeit.default_timer()
             logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
@@ -1362,17 +1493,37 @@ def construct_main(context, options):
                                                                   os.path.basename(fasta)).rv()
                     inputFastaNames[i] = inputFastaNames[i][:-3]
 
-            # Extract fasta sequence names and append them to regions
-            if options.fasta_regions:
+            if options.regions_file:
+                cur_job = init_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, options.ignore_regions_keywords)
+                regions = cur_job.rv()
+            elif options.fasta_regions:
+                # Extract fasta sequence names and append them to regions
                 scrape_fasta_job = init_job.addFollowOnJobFn(run_scan_fasta_sequence_names, context,
                                                              inputFastaFileIDs[0],
                                                              inputFastaNames[0],
-                                                             options.regions)
+                                                             options.regions,
+                                                             options.ignore_regions_keywords)
                 cur_job = scrape_fasta_job
                 regions = scrape_fasta_job.rv()
             else:
                 cur_job = init_job
                 regions = options.regions
+
+            # Preproces chromosome names everywhere to be consistent,
+            # either mapping from 1-->chr1 etc, or going the other way
+            if options.add_chr_prefix or options.remove_chr_prefix:
+                cur_job = cur_job.addFollowOnJobFn(run_fix_chrom_names, context,
+                                                   options.add_chr_prefix,
+                                                   regions,
+                                                   inputFastaFileIDs,
+                                                   inputFastaNames,
+                                                   merged_vcf_ids,
+                                                   merged_vcf_names,
+                                                   merged_tbi_ids)
+                regions = cur_job.rv(0)
+                inputFastaFileIDs, inputFastaFileNames = cur_job.rv(1), cur_job.rv(2)
+                merged_vcf_ids, merged_vcf_names, merged_tbi_ids = cur_job.rv(3), cur_job.rv(4), cur_job.rv(5)
+                
                 
             # Automatically make and name a bunch of vcfs
             vcf_job = cur_job.addFollowOnJobFn(run_generate_input_vcfs, context, 
