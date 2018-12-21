@@ -684,6 +684,35 @@ class VGCGLTest(TestCase):
         # Note that snarls only matter for mpmap
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'vg-mp-pe', 'vg-nosnarls-mp-pe'], 0.8)
 
+    def test_13_construct_naming_options(self):
+        """
+        Make sure we don't get crashes when mixing and matching chromosomes with and without chr
+        prefix when using the appropriate options
+        """
+        in_vcf = self._ci_input_path('1kg_hg38-BRCA1.vcf.gz')
+        in_tbi = in_vcf + '.tbi'
+        self._download_input('17.fa')
+        fa_path = os.path.join(self.workdir, '17.fa')
+        subprocess.check_call(['sed', '-i', 's/17/chr17/g', fa_path])        
+        in_region = '17:43044294-43125482'
+        
+        self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--fasta', fa_path, '--vcf', in_vcf, '--regions', in_region,
+                   '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
+                   '--realTimeLogging', '--logInfo', '--validate', '--add_chr_prefix'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--fasta', fa_path, '--vcf', in_vcf, '--regions', in_region,
+                   '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
+                   '--realTimeLogging', '--logInfo', '--validate', '--remove_chr_prefix'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+
     def _run(self, args):
         log.info('Running %r', args)
         subprocess.check_call(args)
