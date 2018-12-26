@@ -191,6 +191,28 @@ def chr_name_map(to_ucsc):
             name_map['chr{}'.format(i)] = str(i)
     return name_map, name_str    
 
+def run_merge_all_vcfs(job, context, vcf_file_ids_list, vcf_names_list, tbi_file_ids_list):
+    """
+    takes a lists of lists of input vcfs.  make child merge job for each list
+    """
+    out_vcf_ids_list = []
+    out_names_list = []
+    out_tbi_ids_list = []
+    for vcf_file_ids, vcf_names, tbi_file_ids in zip(vcf_file_ids_list, vcf_names_list, tbi_file_ids_list):
+        if len(vcf_file_ids) > 1:
+            merge_job = job.addChildJobFn(run_merge_vcfs, context, vcf_file_ids, vcf_names, tbi_file_ids,
+                                          cores=context.config.construct_cores,
+                                          memory=context.config.construct_mem,
+                                          disk=context.config.construct_disk)
+            out_vcf_ids_list.append(merge_job.rv(0))
+            out_names_list.append(merge_job.rv(1))
+            out_tbi_ids_list.append(merge_job.rv(2))
+        else:
+            out_vcf_ids_list.append(vcf_file_ids[0])
+            out_names_list.append(vcf_names[0])
+            out_tbi_ids_list.append(tbi_file_ids[0])
+    return out_vcf_ids_list, out_names_list, out_tbi_ids_list
+        
 def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
     """
     run bctools merge on a list of vcfs and return just one.  note that 
@@ -277,7 +299,8 @@ def run_scan_regions_file(job, context, regions_id, ignore_regions_keywords):
                 out_regions.append(region_name)
     return out_regions
 
-def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids):
+def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
+                        vcf_ids_list, vcf_names_list, tbi_ids_list):
     """
     Apply name mappings to regions list, fasta files and vcf files.  if to_ucsc is true we convert
     1 -> chr1 etc.  otherwise, we go the other way.  
@@ -298,6 +321,34 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names, 
         else:
             something_to_rename = something_to_rename or region_name in name_map.values()
             out_regions.append(region)
+
+    # map the vcf
+    out_vcf_ids = []
+    out_vcf_names = []
+    out_tbi_ids = []
+    if something_to_rename:
+        # make our name mapping file
+        name_map_path = os.path.join(work_dir, 'name_map.tsv')
+        with open(name_map_path, 'w') as name_map_file:
+            name_map_file.write(name_str)
+        name_map_id = context.write_intermediate_file(job, name_map_path)
+        
+        for vcf_ids, vcf_names, tbi_ids in zip(vcf_ids_list, vcf_names_list, tbi_ids_list):
+            out_vcf_ids.append([])
+            out_vcf_names.append([])
+            out_tbi_ids.append([])
+            for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+                vcf_rename_job = job.addChildJobFn(run_fix_vcf_chrom_names, context, vcf_id, vcf_name, tbi_id, name_map_id,
+                                                   cores=context.config.construct_cores,
+                                                   memory=context.config.construct_mem,
+                                                   disk=context.config.construct_disk)
+                out_vcf_ids[-1].append(vcf_rename_job.rv(0))
+                out_vcf_names[-1].append(vcf_rename_job.rv(1))
+                out_tbi_ids[-1].append(vcf_rename_job.rv(2))
+    else:
+        out_vcf_ids = vcf_ids_list
+        out_vcf_names = vcf_names_list
+        out_tbi_ids = tbi_ids_list
 
     # map the fasta
     out_fasta_ids = []    
@@ -324,37 +375,31 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names, 
             out_fasta_names.append(out_fasta_name)
     else:
         out_fasta_ids = fasta_ids
-        out_fasta_names = fasta_names
-
-    # map the vcf
-    out_vcf_ids = []
-    out_vcf_names = []
-    out_tbi_ids = []
-    if something_to_rename:
-        # make our name mapping file
-        name_map_path = os.path.join(work_dir, 'name_map.tsv')
-        with open(name_map_path, 'w') as name_map_file:
-            name_map_file.write(name_str)
-        for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
-            assert vcf_name.endswith('.vcf.gz')
-            in_vcf_name = os.path.basename(vcf_name)
-            job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, in_vcf_name))
-            job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, in_vcf_name + '.tbi'))
-            out_vcf_name = in_vcf_name[:-7] + '-renamed.vcf.gz'
-            context.runner.call(job, ['bcftools', 'annotate', '--rename-chrs', os.path.basename(name_map_path),
-                                      '--output-type', 'z', '--output', out_vcf_name, os.path.basename(in_vcf_name)],
-                                work_dir = work_dir)
-            context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', out_vcf_name], work_dir = work_dir)
-            out_vcf_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name)))
-            out_vcf_names.append(out_vcf_name)
-            out_tbi_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name + '.tbi')))
-    else:
-        out_vcf_ids = vcf_ids
-        out_vcf_names = vcf_names
-        out_tbi_ids = tbi_ids
+        out_fasta_names = fasta_names        
 
     return out_regions, out_fasta_ids, out_fasta_names, out_vcf_ids, out_vcf_names, out_tbi_ids    
 
+def run_fix_vcf_chrom_names(job, context, vcf_id, vcf_name, tbi_id, name_file_id):
+    """
+    use bcftools annotate to rename chromosomes in a vcf
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+    name_map_path = os.path.join(work_dir, 'name_map.tsv')
+    job.fileStore.readGlobalFile(name_file_id, name_map_path)
+
+    assert vcf_name.endswith('.vcf.gz')
+    in_vcf_name = os.path.basename(vcf_name)
+    job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, in_vcf_name))
+    job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, in_vcf_name + '.tbi'))
+    out_vcf_name = in_vcf_name[:-7] + '-renamed.vcf.gz'
+    context.runner.call(job, ['bcftools', 'annotate', '--rename-chrs', os.path.basename(name_map_path),
+                              '--output-type', 'z', '--output', out_vcf_name, os.path.basename(in_vcf_name)],
+                        work_dir = work_dir)
+    context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', out_vcf_name], work_dir = work_dir)
+    return (context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name)),
+            out_vcf_name,
+            context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name + '.tbi')))
+    
         
 def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name,
@@ -1467,24 +1512,8 @@ def construct_main(context, options):
                    
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
-
-            # Merge up comma-separated vcfs with bcftools merge
-            merged_vcf_names = []
-            merged_vcf_ids = []
-            merged_tbi_ids = []
-            for vcf_ids, vcf_names, tbi_ids in zip(inputVCFFileIDs, inputVCFNames, inputTBIFileIDs):
-                if len(vcf_ids) == 1:
-                    merged_vcf_ids.append(vcf_ids[0])
-                    merged_vcf_names.append(vcf_names[0])
-                    merged_tbi_ids.append(tbi_ids[0])
-                else:
-                    input_vcf_merge_job = init_job.addChildJobFn(run_merge_vcfs, context, vcf_ids, vcf_names, tbi_ids,
-                                                                 cores=context.config.construct_cores,
-                                                                 memory=context.config.construct_mem,
-                                                                 disk=context.config.construct_disk)
-                    merged_vcf_ids.append(input_vcf_merge_job.rv(0))
-                    merged_vcf_names.append(input_vcf_merge_job.rv(1))
-                    merged_tbi_ids.append(input_vcf_merge_job.rv(2))
+            # Current job in follow-on chain
+            cur_job = init_job
 
             # Unzip the fasta
             for i, fasta in enumerate(options.fasta):
@@ -1493,21 +1522,20 @@ def construct_main(context, options):
                                                                   os.path.basename(fasta)).rv()
                     inputFastaNames[i] = inputFastaNames[i][:-3]
 
+            # Parse the regions from file
             if options.regions_file:
-                cur_job = init_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, options.ignore_regions_keywords)
+                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, options.ignore_regions_keywords)
                 regions = cur_job.rv()
             elif options.fasta_regions:
                 # Extract fasta sequence names and append them to regions
-                scrape_fasta_job = init_job.addFollowOnJobFn(run_scan_fasta_sequence_names, context,
-                                                             inputFastaFileIDs[0],
-                                                             inputFastaNames[0],
-                                                             options.regions,
-                                                             options.ignore_regions_keywords)
-                cur_job = scrape_fasta_job
-                regions = scrape_fasta_job.rv()
+                cur_job = cur_job.addFollowOnJobFn(run_scan_fasta_sequence_names, context,
+                                                   inputFastaFileIDs[0],
+                                                   inputFastaNames[0],
+                                                   options.regions,
+                                                   options.ignore_regions_keywords)
+                regions = cur_job.rv()
             else:
-                cur_job = init_job
-                regions = options.regions
+                regions = options.regions                
 
             # Preproces chromosome names everywhere to be consistent,
             # either mapping from 1-->chr1 etc, or going the other way
@@ -1517,18 +1545,26 @@ def construct_main(context, options):
                                                    regions,
                                                    inputFastaFileIDs,
                                                    inputFastaNames,
-                                                   merged_vcf_ids,
-                                                   merged_vcf_names,
-                                                   merged_tbi_ids)
+                                                   inputVCFFileIDs,
+                                                   inputVCFNames,
+                                                   inputTBIFileIDs,
+                                                   cores=context.config.construct_cores,
+                                                   memory=context.config.construct_mem,
+                                                   disk=context.config.construct_disk)
                 regions = cur_job.rv(0)
                 inputFastaFileIDs, inputFastaFileNames = cur_job.rv(1), cur_job.rv(2)
-                merged_vcf_ids, merged_vcf_names, merged_tbi_ids = cur_job.rv(3), cur_job.rv(4), cur_job.rv(5)
-                
+                inputVCFFileIDs, inputTBIFileIDs = cur_job.rv(3), cur_job.rv(5)
+
+            # Merge up comma-separated vcfs with bcftools merge
+            cur_job = cur_job.addFollowOnJobFn(run_merge_all_vcfs, context,
+                                                   inputVCFFileIDs, inputVCFNames, inputTBIFileIDs)
+            inputVCFFileIDs = cur_job.rv(0)
+            inputVCFNames = cur_job.rv(1)
+            inputTBIFileIDs = cur_job.rv(2)
                 
             # Automatically make and name a bunch of vcfs
-            vcf_job = cur_job.addFollowOnJobFn(run_generate_input_vcfs, context, 
-                                               merged_vcf_ids, merged_vcf_names,
-                                               merged_tbi_ids, 
+            vcf_job = cur_job.addFollowOnJobFn(run_generate_input_vcfs, context,
+                                               inputVCFFileIDs, inputVCFNames, inputTBIFileIDs,
                                                regions,
                                                options.out_name,
                                                do_primary = options.primary,
