@@ -231,5 +231,5 @@ def plot_main(context, options):
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
-    print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
+    logger.info("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     

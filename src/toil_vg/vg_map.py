@@ -763,7 +763,9 @@ def map_main(context, options):
         if not toil.options.restart:
 
             start_time = timeit.default_timer()
-           
+
+            logger.info('Importing input files into Toil')
+            
             # Make an index collection
             indexes = {}
            
@@ -815,5 +817,5 @@ def map_main(context, options):
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
-    print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
+    logger.info("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     

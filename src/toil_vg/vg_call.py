@@ -785,6 +785,8 @@ def call_main(context, options):
 
             start_time = timeit.default_timer()
 
+            logger.info('Importing input files into Toil')
+
             # Upload local files to the job store
             inputXGFileID = toil.importFile(options.xg_path)
             inputGamFileIDs = []
@@ -821,7 +823,7 @@ def call_main(context, options):
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
-    print("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
+    logger.info("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
     
     
     
