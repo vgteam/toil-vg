@@ -699,7 +699,11 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 # many graphs again and maybe a single merged graph with the
                 # reference removed.
                 join_job = sample_job.addFollowOnJobFn(run_join_graphs, context, sample_job.rv(),
-                                                       False, region_names, name, sample_merge_output_name)
+                                                       False, region_names, name, sample_merge_output_name,
+                                                       cores=context.config.construct_cores,
+                                                       memory=context.config.construct_mem,
+                                                       disk=context.config.construct_disk)
+)
                 # Want to keep a whole-genome withref xg index around for mapeval purposes
                 if len(regions) > 1 and xg_index:
                     construct_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
@@ -833,8 +837,10 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
                                                   disk=context.config.construct_disk).rv())
 
     return child_job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
-                                      region_names, name, merge_output_name).rv()
-
+                                      region_names, name, merge_output_name,
+                                      cores=context.config.construct_cores,
+                                      memory=context.config.construct_mem,
+                                      disk=context.config.construct_disk).rv()
 
 def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name, merge_output_name = None):
     """
