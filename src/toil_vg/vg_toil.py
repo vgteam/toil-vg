@@ -294,7 +294,7 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
     """ Run variant calling on the chromosomes in parallel """
 
     if id_ranges_file_id:
-        chroms = [x[0] for x in parse_id_ranges(job, id_ranges_file_id)]
+        chroms = [x[0] for x in parse_id_ranges(context, job, id_ranges_file_id)]
     else:
         chroms = options.chroms
     assert len(chr_gam_ids) == len(chroms)

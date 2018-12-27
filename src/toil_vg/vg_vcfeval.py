@@ -156,7 +156,7 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], kind=None, numbe
         # rtg gets naming information from directory structure, so we read each file into
         # its own dir
         os.makedirs(os.path.join(work_dir, name))
-        job.fileStore.readGlobalFile(file_id, table_path)
+        context.read_jobstore_file(job, file_id, table_path)
         RealtimeLogger.info('Downloaded {} to {}'.format(file_id, table_path))
 
     # Make sure the kind has 'roc' in it
@@ -205,8 +205,8 @@ def run_extract_sample_truth_vcf(job, context, sample, input_baseline_id, input_
     
     # Download the truth vcf
     vcfeval_baseline_name = 'full-truth.vcf.gz'
-    job.fileStore.readGlobalFile(input_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
-    job.fileStore.readGlobalFile(input_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))    
+    context.read_jobstore_file(job, input_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
+    context.read_jobstore_file(job, input_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))    
     
     # Make the single-sample VCF
     single_name = 'single-truth-{}.vcf.gz'.format(sample)
@@ -248,21 +248,21 @@ def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     # download the vcf
     call_vcf_id, call_tbi_id = vcf_tbi_id_pair[0], vcf_tbi_id_pair[1]
     call_vcf_name = "calls.vcf.gz"
-    job.fileStore.readGlobalFile(vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
-    job.fileStore.readGlobalFile(vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
+    context.read_jobstore_file(job, vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
+    context.read_jobstore_file(job, vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
 
     # and the truth vcf
     vcfeval_baseline_name = 'truth.vcf.gz'
-    job.fileStore.readGlobalFile(vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
-    job.fileStore.readGlobalFile(vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))    
+    context.read_jobstore_file(job, vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
+    context.read_jobstore_file(job, vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))    
     # download the fasta (make sure to keep input extension)
     fasta_name = "fa_" + os.path.basename(fasta_path)
-    job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
+    context.read_jobstore_file(job, fasta_id, os.path.join(work_dir, fasta_name))
 
     # download the bed regions
     bed_name = "bed_regions.bed" if bed_id else None
     if bed_id:
-        job.fileStore.readGlobalFile(bed_id, os.path.join(work_dir, bed_name))
+        context.read_jobstore_file(job, bed_id, os.path.join(work_dir, bed_name))
 
     # use out_name if specified, otherwise sample
     if sample and not out_name:
@@ -384,28 +384,28 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
     # download the vcf
     call_vcf_id, call_tbi_id = vcf_tbi_id_pair[0], vcf_tbi_id_pair[1]
     call_vcf_name = "calls.vcf.gz"
-    job.fileStore.readGlobalFile(vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
-    job.fileStore.readGlobalFile(vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
+    context.read_jobstore_file(job, vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
+    context.read_jobstore_file(job, vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
 
     # and the truth vcf
     vcfeval_baseline_name = 'truth.vcf.gz'
-    job.fileStore.readGlobalFile(vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
-    job.fileStore.readGlobalFile(vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
+    context.read_jobstore_file(job, vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
+    context.read_jobstore_file(job, vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
     
     # download the fasta (make sure to keep input extension)
     fasta_name = "fa_" + os.path.basename(fasta_path)
-    job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
+    context.read_jobstore_file(job, fasta_id, os.path.join(work_dir, fasta_name))
 
     # download or create the fasta index which is required by hap.py
     if fasta_idx_id:
-        job.fileStore.readGlobalFile(fasta_idx_id, os.path.join(work_dir, fasta_name + '.fai'))
+        context.read_jobstore_file(job, fasta_idx_id, os.path.join(work_dir, fasta_name + '.fai'))
     else:
         context.runner.call(job, ['samtools', 'faidx', fasta_name], work_dir=work_dir)
 
     # download the bed regions
     bed_name = "bed_regions.bed" if bed_id else None
     if bed_id:
-        job.fileStore.readGlobalFile(bed_id, os.path.join(work_dir, bed_name))
+        context.read_jobstore_file(job, bed_id, os.path.join(work_dir, bed_name))
 
     # use out_name if specified, otherwise sample
     if sample and not out_name:
@@ -477,25 +477,25 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     # download the vcf
     call_vcf_id, call_tbi_id = vcf_tbi_id_pair[0], vcf_tbi_id_pair[1]
     call_vcf_name = "{}calls.vcf.gz".format(out_name)
-    job.fileStore.readGlobalFile(vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
-    job.fileStore.readGlobalFile(vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
+    context.read_jobstore_file(job, vcf_tbi_id_pair[0], os.path.join(work_dir, call_vcf_name))
+    context.read_jobstore_file(job, vcf_tbi_id_pair[1], os.path.join(work_dir, call_vcf_name + '.tbi'))
 
     # and the truth vcf
     vcfeval_baseline_name = '{}truth.vcf.gz'.format(out_name)
-    job.fileStore.readGlobalFile(vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
-    job.fileStore.readGlobalFile(vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
+    context.read_jobstore_file(job, vcfeval_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
+    context.read_jobstore_file(job, vcfeval_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))
 
     # and the regions bed
     if bed_id:
         regions_bed_name = '{}regions.bed'.format(out_name)
-        job.fileStore.readGlobalFile(bed_id, os.path.join(work_dir, regions_bed_name))
+        context.read_jobstore_file(job, bed_id, os.path.join(work_dir, regions_bed_name))
     else:
         regions_bed_name = None
 
     # and the fasta
     if fasta_id:
         fasta_name = os.path.basename(fasta_path)
-        job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, fasta_name))
+        context.read_jobstore_file(job, fasta_id, os.path.join(work_dir, fasta_name))
         # bcftools won't left-align indels over softmasked bases: make sure upper case        
         fa_upper_cmd = ['awk',  'BEGIN{FS=\" \"}{if(!/>/){print toupper($0)}else{print $1}}']
         if fasta_name.endswith('.gz'):

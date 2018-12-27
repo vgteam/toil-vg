@@ -149,6 +149,23 @@ class Context(object):
         
         # Save to Toil
         return job.fileStore.writeGlobalFile(path)
+
+    def read_jobstore_file(self, job, file_id, user_path = None, cache = True, mutable = False):
+        """
+        Wrap Toil's file reading to be able to toggle caching.  This is to work around
+
+        https://github.com/DataBiosphere/toil/issues/1532 
+
+        where using the normal API is quadratic in the number of files read, even when toggling off the cache.
+        So when reading lots of files, ie in the various chunk-merging jobs, one needs to use cache=False.
+        """
+        if cache:
+            return job.fileStore.readGlobalFile(file_id, userPath = user_path, mutable = mutable)
+        else:
+            if not user_path:
+                user_path = job.fileStore.getLocalTempFile()
+            job.fileStore.jobStore.readFile(file_id, user_path)
+        return user_path
             
     def to_options(self, options):
         """

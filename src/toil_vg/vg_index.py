@@ -157,12 +157,12 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
 
     # Download input 
     graph_filename = os.path.join(work_dir, graph_name)
-    job.fileStore.readGlobalFile(input_graph_id, graph_filename)
+    context.read_jobstore_file(job, input_graph_id, graph_filename)
     gbwt_filename = graph_filename + '.gbwt'
     if gbwt_id:
-        job.fileStore.readGlobalFile(gbwt_id, gbwt_filename)    
+        context.read_jobstore_file(job, gbwt_id, gbwt_filename)    
     if mapping_id:
-        job.fileStore.readGlobalFile(mapping_id, mapping_filename, mutable=True)
+        context.read_jobstore_file(job, mapping_id, mapping_filename, mutable=True)
 
     cmd = ['vg', 'prune', os.path.basename(graph_filename), '--threads', str(job.cores)]
     if context.config.prune_opts:
@@ -259,14 +259,14 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     
     for graph_i, prune_id in enumerate(prune_ids):
         prune_filename = os.path.join(work_dir, os.path.basename(graph_names[graph_i]) + '.prune')
-        job.fileStore.readGlobalFile(prune_id, prune_filename)
+        context.read_jobstore_file(job, prune_id, prune_filename, cache = False)
         prune_filenames.append(prune_filename)
 
     # Download the mapping_id
     mapping_filename = None
     if mapping_id:
         mapping_filename = os.path.join(work_dir, 'node_mapping')
-        job.fileStore.readGlobalFile(mapping_id, mapping_filename)
+        context.read_jobstore_file(job, mapping_id, mapping_filename)
 
     # Where do we put the GCSA2 index?
     gcsa_filename = "{}.gcsa".format(index_name)
@@ -305,8 +305,8 @@ def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
     out_name = 'genome.vcf.gz'
 
     for vcf_id, tbi_id, vcf_name in zip(vcf_ids, tbi_ids, vcf_names):
-        job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, vcf_name))
-        job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name + '.tbi'))
+        context.read_jobstore_file(job, vcf_id, os.path.join(work_dir, vcf_name))
+        context.read_jobstore_file(job, tbi_id, os.path.join(work_dir, vcf_name + '.tbi'))
 
     cmd = ['bcftools', 'concat'] + [vcf_name for vcf_name in vcf_names] + ['-O', 'z']
     with open(os.path.join(work_dir, out_name), 'w') as out_file:
@@ -444,7 +444,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     graph_filenames = []
     for i, graph_id in enumerate(inputGraphFileIDs):
         graph_filename = os.path.join(work_dir, graph_names[i])
-        job.fileStore.readGlobalFile(graph_id, graph_filename)
+        context.read_jobstore_file(job, graph_id, graph_filename, cache=False)
         graph_filenames.append(os.path.basename(graph_filename))
 
     # If we have a separate GBWT it will go here
@@ -455,8 +455,8 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     # Get the vcf file for loading phasing info
     if vcf_phasing_file_id:
         phasing_file = os.path.join(work_dir, 'phasing.vcf.gz')
-        job.fileStore.readGlobalFile(vcf_phasing_file_id, phasing_file)
-        job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
+        context.read_jobstore_file(job, vcf_phasing_file_id, phasing_file)
+        context.read_jobstore_file(job, tbi_phasing_file_id, phasing_file + '.tbi')
         phasing_opts = ['-v', os.path.basename(phasing_file)]
         
         if make_gbwt:
@@ -488,7 +488,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
             assert(file_id is not None)
             # Download the thread DBs
             file_name = os.path.join(work_dir, "threads{}.threads".format(i))
-            job.fileStore.readGlobalFile(file_id, file_name)
+            context.read_jobstore_file(job, file_id, file_name, cache=False)
             
             # Use each as an input to XG construction
             phasing_opts += ['--thread-db', os.path.basename(file_name)]
@@ -635,7 +635,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         # Download the one graph
         graph_id = inputGraphFileIDs[0]
         graph_filename = graph_names[0]
-        job.fileStore.readGlobalFile(graph_id, os.path.join(work_dir, graph_filename))
+        context.read_jobstore_file(job, graph_id, os.path.join(work_dir, graph_filename))
 
         # Where do we put the snarls?
         snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name if index_name is not None else "part"))
@@ -710,7 +710,7 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
 
     # download graph
     graph_filename = os.path.join(work_dir, graph_name)
-    job.fileStore.readGlobalFile(graph_id, graph_filename)
+    context.read_jobstore_file(job, graph_id, graph_filename)
 
     #run vg stats
     #expect result of form node-id-range <tab> first:last
@@ -746,7 +746,7 @@ def run_merge_gbwts(job, context, chrom_gbwt_ids, index_name):
     for i, gbwt_id in enumerate(chrom_gbwt_ids):
         if gbwt_id:
             gbwt_filename = os.path.join(work_dir, '{}.gbwt'.format(i))
-            job.fileStore.readGlobalFile(gbwt_id, gbwt_filename)
+            context.read_jobstore_file(job, gbwt_id, gbwt_filename, cache=False)
             gbwt_chrom_filenames.append(gbwt_filename)
 
     if len(gbwt_chrom_filenames) == 0:
@@ -794,7 +794,7 @@ def run_bwa_index(job, context, fasta_file_id, bwa_index_ids=None, intermediate=
         # Download the FASTA file to be indexed
         # It would be nice to name it the same as the actual input FASTA but we'd have to peek at the options
         fasta_file = os.path.join(work_dir, 'bwa.fa')
-        job.fileStore.readGlobalFile(fasta_file_id, fasta_file)
+        context.read_jobstore_file(job, fasta_file_id, fasta_file)
         cmd = ['bwa', 'index', os.path.basename(fasta_file)]
         context.runner.call(job, cmd, work_dir = work_dir)
         
@@ -828,7 +828,7 @@ def run_minimap2_index(job, context, fasta_file_id, minimap2_index_id=None, inte
         # Download the FASTA file to be indexed
         # It would be nice to name it the same as the actual input FASTA but we'd have to peek at the options
         fasta_file = os.path.join(work_dir, 'minimap2.fa')
-        job.fileStore.readGlobalFile(fasta_file_id, fasta_file)
+        context.read_jobstore_file(job, fasta_file_id, fasta_file)
         
         # Say where the index should go
         index_file = os.path.join(work_dir, 'minimap2.fa.mmi')

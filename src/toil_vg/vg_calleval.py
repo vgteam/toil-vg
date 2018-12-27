@@ -146,7 +146,7 @@ def run_bam_index(job, context, bam_file_id, bam_name):
 
     # download the input
     bam_path = os.path.join(work_dir, bam_name + '.bam')
-    job.fileStore.readGlobalFile(bam_file_id, bam_path)
+    context.read_jobstore_file(job, bam_file_id, bam_path)
 
     sort_bam_path = os.path.join(work_dir, 'sort.bam')
     sort_cmd = ['samtools', 'sort', os.path.basename(bam_path), '-o',
@@ -204,9 +204,9 @@ def run_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     fasta_path = os.path.join(work_dir, 'ref.fa')
     bam_path = os.path.join(work_dir, 'alignment.bam')
     bam_idx_path = bam_path + '.bai'
-    job.fileStore.readGlobalFile(fasta_file_id, fasta_path)
-    job.fileStore.readGlobalFile(bam_file_id, bam_path)
-    job.fileStore.readGlobalFile(bam_idx_id, bam_idx_path)
+    context.read_jobstore_file(job, fasta_file_id, fasta_path)
+    context.read_jobstore_file(job, bam_file_id, bam_path)
+    context.read_jobstore_file(job, bam_idx_id, bam_idx_path)
 
     # output
     vcf_path = os.path.join(work_dir, '{}-raw.vcf'.format(out_name))
@@ -452,8 +452,8 @@ def run_vcf_subset(job, context, vcf_file_id, tbi_file_id, regions):
     # download the input
     vcf_path = os.path.join(work_dir, 'input.vcf.gz')
     out_vcf_path = os.path.join(work_dir, 'output.vcf.gz')
-    job.fileStore.readGlobalFile(vcf_file_id, vcf_path)
-    job.fileStore.readGlobalFile(tbi_file_id, vcf_path + '.tbi')
+    context.read_jobstore_file(job, vcf_file_id, vcf_path)
+    context.read_jobstore_file(job, tbi_file_id, vcf_path + '.tbi')
 
     cmd = ['bcftools', 'view', os.path.basename(vcf_path), '--regions', ','.join(regions),
            '--output-type', 'z', '--output-file', os.path.basename(out_vcf_path)]

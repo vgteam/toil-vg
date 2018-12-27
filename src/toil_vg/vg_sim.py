@@ -164,19 +164,19 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
 
     # read the xg file
     xg_file = os.path.join(work_dir, 'index.xg')
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
+    context.read_jobstore_file(job, xg_file_id, xg_file)
 
     # read the fastq file
     if fastq_id:
         fastq_file = os.path.join(work_dir, 'error_template.fastq')
-        job.fileStore.readGlobalFile(fastq_id, fastq_file)
+        context.read_jobstore_file(job, fastq_id, fastq_file)
     else:
         fastq_file = None
     
     # and the annotation xg file
     if xg_annot_file_id:
         xg_annot_file = os.path.join(work_dir, 'annot_index.xg')
-        xg_annot_file = job.fileStore.readGlobalFile(xg_annot_file_id, xg_annot_file)
+        xg_annot_file = context.read_jobstore_file(job, xg_annot_file_id, xg_annot_file)
     else:
         xg_annot_file = xg_file
 
@@ -184,7 +184,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
     tag_beds = []
     for i, bed_id in enumerate(tag_bed_ids):
         bed_file = os.path.join(work_dir, 'tag_{}.bed'.format(i))
-        job.fileStore.readGlobalFile(bed_id, bed_file)
+        context.read_jobstore_file(job, bed_id, bed_file)
         tag_beds.append(bed_file)
 
     # run vg sim
@@ -315,7 +315,7 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
         with open(merged_reads_file, 'a') as out_reads:
             for i, reads_file_id in enumerate(sim_out_id_infos):
                 reads_file = os.path.join(work_dir, 'sim_reads_{}'.format(i))
-                job.fileStore.readGlobalFile(reads_file_id, reads_file)
+                context.read_jobstore_file(job, reads_file_id, reads_file, cache=False)
                 with open(reads_file) as rf:
                     shutil.copyfileobj(rf, out_reads)
 
@@ -331,12 +331,12 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
             
             for i, sim_out_id_info in enumerate(sim_out_id_infos):
                 gam_file = os.path.join(work_dir, 'sim_{}.gam'.format(i))
-                job.fileStore.readGlobalFile(sim_out_id_info[0], gam_file)
+                context.read_jobstore_file(job, sim_out_id_info[0], gam_file, cache=False)
                 with open(gam_file) as rf:
                     shutil.copyfileobj(rf, out_gam)
                     
                 true_file = os.path.join(work_dir, 'true_{}.pos'.format(i))
-                job.fileStore.readGlobalFile(sim_out_id_info[1], true_file)
+                context.read_jobstore_file(job, sim_out_id_info[1], true_file, cache=False)
                 with open(true_file) as rf:
                     shutil.copyfileobj(rf, out_true)
 

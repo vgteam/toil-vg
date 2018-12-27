@@ -226,8 +226,8 @@ def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
 
     names = []
     for vcf_id, vcf_name, tbi_id in zip(vcf_file_ids, vcf_names, tbi_file_ids):
-        job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, vcf_name))
-        job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name) + '.tbi')
+        context.read_jobstore_file(job, vcf_id, os.path.join(work_dir, vcf_name))
+        context.read_jobstore_file(job, tbi_id, os.path.join(work_dir, vcf_name) + '.tbi')
         names.append(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
     if len(names) != len(set(names)):
         raise RuntimeError('vcf merging expects unique filenames')
@@ -252,7 +252,7 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
 
     # Download input files
     fasta_file = os.path.join(work_dir, os.path.basename(fasta_name))
-    job.fileStore.readGlobalFile(fasta_id, fasta_file, mutable=True)
+    context.read_jobstore_file(job, fasta_id, fasta_file, mutable=True)
     context.runner.call(job, ['bgzip', '-d', os.path.basename(fasta_file)], work_dir=work_dir)
 
     return context.write_intermediate_file(job, fasta_file[:-3])
@@ -266,7 +266,7 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
 
     # Download input files
     fasta_file = os.path.join(work_dir, os.path.basename(fasta_name))
-    job.fileStore.readGlobalFile(fasta_id, fasta_file)
+    context.read_jobstore_file(job, fasta_id, fasta_file)
     
     # reluctant to use slow python library, so just running grep instead
     cmd = ['grep', '>', os.path.basename(fasta_file)]
@@ -290,7 +290,7 @@ def run_scan_regions_file(job, context, regions_id, ignore_regions_keywords):
     """
     work_dir = job.fileStore.getLocalTempDir()
     regions_path = os.path.join(work_dir, 'regions.tsv')
-    job.fileStore.readGlobalFile(regions_id, regions_path)
+    context.read_jobstore_file(job, regions_id, regions_path)
     out_regions = []
     with open(regions_path) as regions_file:
         for line in regions_file:
@@ -357,7 +357,7 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
         for fasta_id, fasta_name in zip(fasta_ids, fasta_names):
             assert not fasta_name.endswith('.gz')
             in_fasta_name = os.path.basename(fasta_name)
-            job.fileStore.readGlobalFile(fasta_id, os.path.join(work_dir, in_fasta_name))
+            context.read_jobstore_file(job, fasta_id, os.path.join(work_dir, in_fasta_name))
             out_fasta_name = os.path.splitext(fasta_name)[0] + '-renamed' + os.path.splitext(fasta_name)[1]
             with open(os.path.join(work_dir, out_fasta_name), 'w') as out_fasta_file, \
                  open(os.path.join(work_dir, in_fasta_name)) as in_fasta_file:
@@ -385,12 +385,12 @@ def run_fix_vcf_chrom_names(job, context, vcf_id, vcf_name, tbi_id, name_file_id
     """
     work_dir = job.fileStore.getLocalTempDir()
     name_map_path = os.path.join(work_dir, 'name_map.tsv')
-    job.fileStore.readGlobalFile(name_file_id, name_map_path)
+    context.read_jobstore_file(job, name_file_id, name_map_path)
 
     assert vcf_name.endswith('.vcf.gz')
     in_vcf_name = os.path.basename(vcf_name)
-    job.fileStore.readGlobalFile(vcf_id, os.path.join(work_dir, in_vcf_name))
-    job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, in_vcf_name + '.tbi'))
+    context.read_jobstore_file(job, vcf_id, os.path.join(work_dir, in_vcf_name))
+    context.read_jobstore_file(job, tbi_id, os.path.join(work_dir, in_vcf_name + '.tbi'))
     out_vcf_name = in_vcf_name[:-7] + '-renamed.vcf.gz'
     context.runner.call(job, ['bcftools', 'annotate', '--rename-chrs', os.path.basename(name_map_path),
                               '--output-type', 'z', '--output', out_vcf_name, os.path.basename(in_vcf_name)],
@@ -869,7 +869,8 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     region_files = []
     for region_graph_id, region_name in zip(region_graph_ids, region_names):
         region_file = '{}.vg'.format(region_name)
-        job.fileStore.readGlobalFile(region_graph_id, os.path.join(work_dir, region_file), mutable=True)
+        context.read_jobstore_file(job, region_graph_id, os.path.join(work_dir, region_file),
+                                   cache=False, mutable=True)
         region_files.append(region_file)
 
     if merge_output_name:
@@ -949,11 +950,11 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
 
     # Download input files
     fasta_file = os.path.join(work_dir, os.path.basename(fasta_name))
-    job.fileStore.readGlobalFile(fasta_id, fasta_file)
+    context.read_jobstore_file(job, fasta_id, fasta_file)
     if vcf_id:
         vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
-        job.fileStore.readGlobalFile(vcf_id, vcf_file)
-        job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
+        context.read_jobstore_file(job, vcf_id, vcf_file)
+        context.read_jobstore_file(job, tbi_id, vcf_file + '.tbi')
 
     cmd = ['vg', 'construct', '--reference', os.path.basename(fasta_file)]
     if vcf_id:
@@ -1007,8 +1008,8 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
 
     # Download the original VCF
     vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
-    job.fileStore.readGlobalFile(vcf_id, vcf_file)
-    job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
+    context.read_jobstore_file(job, vcf_id, vcf_file)
+    context.read_jobstore_file(job, tbi_id, vcf_file + '.tbi')
 
     vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
     # Where will the final filtered VCF go?
@@ -1060,8 +1061,8 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     work_dir = job.fileStore.getLocalTempDir()
 
     vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
-    job.fileStore.readGlobalFile(vcf_id, vcf_file)
-    job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
+    context.read_jobstore_file(job, vcf_id, vcf_file)
+    context.read_jobstore_file(job, tbi_id, vcf_file + '.tbi')
 
     # In some cases, our sample may be missing from a chromosome (ex NA12878 from Y in 1000 Genomes)
     # bcftools -s won't work so we handle here as a special case, assuming no sample means no variants
@@ -1131,8 +1132,8 @@ def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, mi
     work_dir = job.fileStore.getLocalTempDir()
 
     vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
-    job.fileStore.readGlobalFile(vcf_id, vcf_file)
-    job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
+    context.read_jobstore_file(job, vcf_id, vcf_file)
+    context.read_jobstore_file(job, tbi_id, vcf_file + '.tbi')
 
     vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
     af_vcf_name = '{}_minaf_{}.vcf.gz'.format(vcf_base, min_af)
@@ -1261,14 +1262,14 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
     work_dir = job.fileStore.getLocalTempDir()
 
     xg_path = os.path.join(work_dir, vg_name[:-3] + '.xg')
-    job.fileStore.readGlobalFile(xg_id, xg_path)
+    context.read_jobstore_file(job, xg_id, xg_path)
 
     vg_path = os.path.join(work_dir, vg_name)
-    job.fileStore.readGlobalFile(vg_id, vg_path)
+    context.read_jobstore_file(job, vg_id, vg_path)
 
     if gbwt_id:
         gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
-        job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
+        context.read_jobstore_file(job, gbwt_id, gbwt_path)
     
         # Check if there are any threads in the index
         # TODO: Won't be useful if the index covers multiple contigs because we aren't indexing one contig graph at a time.
@@ -1397,14 +1398,14 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
     work_dir = job.fileStore.getLocalTempDir()
 
     xg_path = os.path.join(work_dir, vg_name[:-3] + '.xg')
-    job.fileStore.readGlobalFile(xg_id, xg_path)
+    context.read_jobstore_file(job, xg_id, xg_path)
 
     vg_path = os.path.join(work_dir, vg_name)
-    job.fileStore.readGlobalFile(vg_id, vg_path)
+    context.read_jobstore_file(job, vg_id, vg_path)
 
     gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
     if gbwt_id:
-        job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
+        context.read_jobstore_file(job, gbwt_id, gbwt_path)
         
     # Check if there are any threads in the index
     assert(gbwt_id)

@@ -691,12 +691,12 @@ def require(expression, message):
     if not expression:
         raise Exception('\n\n' + message + '\n\n')
 
-def parse_id_ranges(job, id_ranges_file_id):
+def parse_id_ranges(context, job, id_ranges_file_id):
     """Returns list of triples chrom, start, end
     """
     work_dir = job.fileStore.getLocalTempDir()
     id_range_file = os.path.join(work_dir, 'id_ranges.tsv')
-    job.fileStore.readGlobalFile(id_ranges_file_id, id_range_file)
+    context.read_jobstore_file(job, id_ranges_file_id, id_range_file)
     return parse_id_ranges_file(id_range_file)
 
 def parse_id_ranges_file(id_ranges_filename):

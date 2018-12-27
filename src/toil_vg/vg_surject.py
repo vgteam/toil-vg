@@ -142,13 +142,13 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
     work_dir = job.fileStore.getLocalTempDir()
 
     xg_file = os.path.join(work_dir, "index.xg")
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
+    context.read_jobstore_file(job, xg_file_id, xg_file)
 
     gam_files = []
     reads_ext = 'gam'
     for j, chunk_filename_id in enumerate(chunk_filename_ids):
         gam_file = os.path.join(work_dir, 'reads_chunk_{}_{}.{}'.format(chunk_id, j, reads_ext))
-        job.fileStore.readGlobalFile(chunk_filename_id, gam_file)
+        context.read_jobstore_file(job, chunk_filename_id, gam_file)
         gam_files.append(gam_file)
     
     # And a temp file for our surject output
@@ -214,7 +214,7 @@ def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
     # Download our chunk files
     chunk_paths = [os.path.join(work_dir, 'chunk_{}.bam'.format(i)) for i in range(len(flat_ids))]
     for i, bam_chunk_file_id in enumerate(flat_ids):
-        job.fileStore.readGlobalFile(bam_chunk_file_id, chunk_paths[i])
+        context.read_jobstore_file(job, bam_chunk_file_id, chunk_paths[i])
 
     # todo: option to give name
     surject_path = os.path.join(work_dir, '{}.bam'.format(output_name))

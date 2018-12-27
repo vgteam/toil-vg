@@ -249,7 +249,7 @@ def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
     fastq_name = os.path.splitext(fastq_name)[0]
     if fastq_gzipped:
         fastq_name = os.path.splitext(fastq_name)[0]
-    job.fileStore.readGlobalFile(sample_fastq_id, fastq_path)
+    context.read_jobstore_file(job, sample_fastq_id, fastq_path)
 
     # Split up the fastq into chunks
 
@@ -295,7 +295,7 @@ def run_split_gam_reads(job, context, gam_input_reads, gam_reads_file_id):
 
     # We need the sample fastq for alignment
     gam_path = os.path.join(work_dir, os.path.basename(gam_input_reads))
-    job.fileStore.readGlobalFile(gam_reads_file_id, gam_path)
+    context.read_jobstore_file(job, gam_reads_file_id, gam_path)
 
     # Split up the gam into chunks
 
@@ -331,7 +331,7 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
 
     # We need the sample fastq for alignment
     bam_path = os.path.join(work_dir, os.path.basename(bam_input_reads))
-    job.fileStore.readGlobalFile(bam_reads_file_id, bam_path)
+    context.read_jobstore_file(job, bam_reads_file_id, bam_path)
 
     # Split up the bam into chunks
 
@@ -465,16 +465,16 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     graph_file = os.path.join(work_dir, "graph.vg")
 
     xg_file = graph_file + ".xg"
-    job.fileStore.readGlobalFile(indexes['xg'], xg_file)
+    context.read_jobstore_file(job, indexes['xg'], xg_file)
     gcsa_file = graph_file + ".gcsa"
-    job.fileStore.readGlobalFile(indexes['gcsa'], gcsa_file)
+    context.read_jobstore_file(job, indexes['gcsa'], gcsa_file)
     lcp_file = gcsa_file + ".lcp"
-    job.fileStore.readGlobalFile(indexes['lcp'], lcp_file)
+    context.read_jobstore_file(job, indexes['lcp'], lcp_file)
     
     if indexes.has_key('gbwt'):
         # We have a GBWT haplotype index available.
         gbwt_file =  graph_file + ".gbwt"
-        job.fileStore.readGlobalFile(indexes['gbwt'], gbwt_file)
+        context.read_jobstore_file(job, indexes['gbwt'], gbwt_file)
     else:
         gbwt_file = None
     
@@ -483,7 +483,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     reads_ext = 'gam' if gam_input_reads else 'bam' if bam_input_reads else 'fq.gz'
     for j, chunk_filename_id in enumerate(chunk_filename_ids):
         reads_file = os.path.join(work_dir, 'reads_chunk_{}_{}.{}'.format(chunk_id, j, reads_ext))
-        job.fileStore.readGlobalFile(chunk_filename_id, reads_file)
+        context.read_jobstore_file(job, chunk_filename_id, reads_file)
         reads_files.append(reads_file)
     
     # And a temp file for our aligner output
@@ -513,7 +513,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
                 # tracebacks aren't used, mpmap will ignore the snarls.
                 
                 snarls_file = graph_file + ".snarls"
-                job.fileStore.readGlobalFile(indexes['snarls'], snarls_file)
+                context.read_jobstore_file(job, indexes['snarls'], snarls_file)
                 
                 vg_parts += ['--snarls', os.path.basename(snarls_file)]
             else:
@@ -609,7 +609,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         # Break GAM into multiple chunks at the end. So we need the file
         # defining those chunks.
         id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
-        job.fileStore.readGlobalFile(indexes['id_ranges'], id_ranges_file)
+        context.read_jobstore_file(job, indexes['id_ranges'], id_ranges_file)
 
         # Chunk the gam up by chromosome
         gam_chunks = split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, output_file)
@@ -691,7 +691,7 @@ def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_
     
     if id_ranges_file_id is not None:
         # Get the real chromosome names
-        id_ranges = parse_id_ranges(job, id_ranges_file_id)
+        id_ranges = parse_id_ranges(context, job, id_ranges_file_id)
         chroms = [x[0] for x in id_ranges]
     else:
         # Dump everything in a single default chromosome chunk with a default
@@ -733,7 +733,7 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
         with open(output_file, 'a') as merge_file:
             for chunk_gam_id in chunk_file_ids:
                 tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
-                job.fileStore.readGlobalFile(chunk_gam_id, tmp_gam_file)
+                context.read_jobstore_file(job, chunk_gam_id, tmp_gam_file, cache=False)
                 with open(tmp_gam_file) as tmp_f:
                     shutil.copyfileobj(tmp_f, merge_file)
                 
@@ -743,7 +743,7 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
                 
     # checkpoint to out store
     if len(chunk_file_ids) == 1:
-        job.fileStore.readGlobalFile(chunk_file_ids[0], output_file)
+        context.read_jobstore_file(job, chunk_file_ids[0], output_file)
     return context.write_output_file(job, output_file)
 
 def map_main(context, options):

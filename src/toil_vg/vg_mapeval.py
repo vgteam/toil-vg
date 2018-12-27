@@ -302,7 +302,7 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
 
     # read the bam file
     bam_file = os.path.join(work_dir, 'input.bam')
-    job.fileStore.readGlobalFile(bam_file_id, bam_file)
+    context.read_jobstore_file(job, bam_file_id, bam_file)
     
     # if we're paired, must make some split files
     if paired_mode:
@@ -344,7 +344,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
 
     # read the gam file
     gam_file = os.path.join(work_dir, 'input.gam')
-    job.fileStore.readGlobalFile(gam_file_id, gam_file)
+    context.read_jobstore_file(job, gam_file_id, gam_file)
 
     write_fn = context.write_output_file if out_store else context.write_intermediate_file
     
@@ -402,7 +402,7 @@ def run_concat_fastqs(job, context, fq_reads_ids):
     fq_file_names = [os.path.join(work_dir, 'reads-{}.fq.gz'.format(i)) \
                      for i in range(len(fq_reads_ids))]
     for fq_id, fq_name in zip(fq_reads_ids, fq_file_names):
-        job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
+        context.read_jobstore_file(job, fq_id, fq_name, mutable=fq_name==fq_file_names[0])
 
     # concat the reads (should work fine for gzipped or not)
     with open(fq_file_names[0], 'a') as out_file:
@@ -426,7 +426,7 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
     out_ids = []
     
     for fq_id, fq_name,  out_name in zip(fq_reads_ids, fq_file_names, out_file_names):
-        job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
+        context.read_jobstore_file(job, fq_id, fq_name, mutable=fq_name==fq_file_names[0])
         cmd = [['pigz', '-dc', os.path.basename(fq_name)]]
         cmd.append(['sed', '-e', 's/_1$\|_2$//g'])
         cmd.append(['pigz', '-c', '-p', str(max(1, job.cores))])
@@ -453,12 +453,12 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     fq_file_names = []
     for i, fq_reads_id in enumerate(fq_reads_ids):
         fq_file_names.append(os.path.join(work_dir, 'reads{}.fq.gz'.format(i)))
-        job.fileStore.readGlobalFile(fq_reads_id, fq_file_names[-1])
+        context.read_jobstore_file(job, fq_reads_id, fq_file_names[-1])
 
     # and the index files
     fasta_file = os.path.join(work_dir, 'reference.fa')
     for suf, idx_id in bwa_index_ids.items():
-        job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
+        context.read_jobstore_file(job, idx_id, '{}{}'.format(fasta_file, suf))
 
     # output positions file
     bam_file = os.path.join(work_dir, 'bwa-mem')
@@ -552,19 +552,19 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
     fq_file_names = []
     for i, fq_reads_id in enumerate(fq_reads_ids):
         fq_file_names.append(os.path.join(work_dir, 'reads{}.fq.gz'.format(i)))
-        job.fileStore.readGlobalFile(fq_reads_id, fq_file_names[-1])
+        context.read_jobstore_file(job, fq_reads_id, fq_file_names[-1])
 
     # and the reference, which can be a pre-made index or the raw FASTA
     ref_filename = None
     if minimap2_index_id is not None:
         # Download the index
         index_file = os.path.join(work_dir, 'reference.fa.mmi')
-        job.fileStore.readGlobalFile(minimap2_index_id, index_file)
+        context.read_jobstore_file(job, minimap2_index_id, index_file)
         ref_filename = index_file
     else:
         # Download the FASTA
         fasta_file = os.path.join(work_dir, 'reference.fa')
-        job.fileStore.readGlobalFile(fasta_id, fasta_file)
+        context.read_jobstore_file(job, fasta_id, fasta_file)
         ref_filename = fasta_file
         
 
@@ -645,7 +645,7 @@ def downsample_bam(job, context, bam_file_id, fraction):
     in_file = os.path.join(work_dir, 'full.bam')
     out_file = os.path.join(work_dir, 'downsampled.bam')
     
-    job.fileStore.readGlobalFile(bam_file_id, in_file)
+    context.read_jobstore_file(job, bam_file_id, in_file)
     
     cmd = ['samtools', 'view', '-b', '-s', str(fraction), os.path.basename(in_file)]
     with open(out_file, 'w') as out_bam:
@@ -664,7 +664,7 @@ def downsample_gam(job, context, gam_file_id, fraction):
     in_file = os.path.join(work_dir, 'full.gam')
     out_file = os.path.join(work_dir, 'downsampled.gam')
     
-    job.fileStore.readGlobalFile(gam_file_id, in_file)
+    context.read_jobstore_file(job, gam_file_id, in_file)
     
     cmd = ['vg', 'filter', '-t', str(job.cores), '--downsample', str(fraction), os.path.basename(in_file)]
     with open(out_file, 'w') as out_gam:
@@ -694,7 +694,7 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
 
     # download input
     bam_file = os.path.join(work_dir, name)
-    job.fileStore.readGlobalFile(bam_file_id, bam_file)
+    context.read_jobstore_file(job, bam_file_id, bam_file)
 
     out_pos_file = bam_file + '.tsv'
 
@@ -731,9 +731,9 @@ def annotate_gam(job, context, xg_file_id, gam_file_id):
     # download input
     RealtimeLogger.info('Download XG from file {}'.format(xg_file_id))
     xg_file = os.path.join(work_dir, 'index.xg')
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
+    context.read_jobstore_file(job, xg_file_id, xg_file)
     gam_file = os.path.join(work_dir, 'reads.gam')
-    job.fileStore.readGlobalFile(gam_file_id, gam_file)
+    context.read_jobstore_file(job, gam_file_id, gam_file)
     
     annotated_gam_file = os.path.join(work_dir, 'annotated.gam')
     
@@ -773,7 +773,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
     work_dir = job.fileStore.getLocalTempDir()
 
     gam_file = os.path.join(work_dir, name)
-    job.fileStore.readGlobalFile(gam_file_id, gam_file)
+    context.read_jobstore_file(job, gam_file_id, gam_file)
 
     out_pos_file = gam_file + '.tsv'
                            
@@ -844,9 +844,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     work_dir = job.fileStore.getLocalTempDir()
 
     true_read_stats_file = os.path.join(work_dir, 'true.tsv')
-    job.fileStore.readGlobalFile(truth_file_id, true_read_stats_file)
+    context.read_jobstore_file(job, truth_file_id, true_read_stats_file)
     test_read_stats_file = os.path.join(work_dir, name + '.tsv')
-    job.fileStore.readGlobalFile(stats_file_id, test_read_stats_file)
+    context.read_jobstore_file(job, stats_file_id, test_read_stats_file)
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
@@ -967,9 +967,9 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
     work_dir = job.fileStore.getLocalTempDir()
 
     baseline_read_stats_file = os.path.join(work_dir, 'baseline.tsv')
-    job.fileStore.readGlobalFile(baseline_file_id, baseline_read_stats_file)
+    context.read_jobstore_file(job, baseline_file_id, baseline_read_stats_file)
     test_read_stats_file = os.path.join(work_dir, name + '.tsv')
-    job.fileStore.readGlobalFile(score_file_id, test_read_stats_file)
+    context.read_jobstore_file(job, score_file_id, test_read_stats_file)
 
     out_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
 
@@ -1779,9 +1779,9 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
     # If we don't pass mutable=true, we can end up with mutable links into the actual main copy.
     # See <https://github.com/DataBiosphere/toil/issues/2496>
     from_stats_file = os.path.join(work_dir, 'from.tsv')
-    job.fileStore.readGlobalFile(from_id, from_stats_file, mutable=True)
+    context.read_jobstore_file(job, from_id, from_stats_file, mutable=True)
     to_stats_file = os.path.join(work_dir, 'to.tsv')
-    job.fileStore.readGlobalFile(to_id, to_stats_file, mutable=True)
+    context.read_jobstore_file(job, to_id, to_stats_file, mutable=True)
 
     # Sort the input files. We tried to do this in place but Toil can't seem to keep our writes to just us.
     from_stats_sorted = from_stats_file + '.sorted'
@@ -2029,7 +2029,7 @@ def run_acc(job, context, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-    job.fileStore.readGlobalFile(compare_id, compare_file)
+    context.read_jobstore_file(job, compare_id, compare_file)
     
     total = 0
     correct = 0
@@ -2061,7 +2061,7 @@ def run_auc(job, context, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-    job.fileStore.readGlobalFile(compare_id, compare_file)
+    context.read_jobstore_file(job, compare_id, compare_file)
 
     try:
         data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2)).T
@@ -2099,7 +2099,7 @@ def run_max_f1(job, context, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-    job.fileStore.readGlobalFile(compare_id, compare_file)
+    context.read_jobstore_file(job, compare_id, compare_file)
 
     # Load up the correct/incorrect flag (data[_, 1]) and the scores (data[_, 2])
     data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
@@ -2165,7 +2165,7 @@ def run_qq(job, context, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.positions'.format(name))
-    job.fileStore.readGlobalFile(compare_id, compare_file)
+    context.read_jobstore_file(job, compare_id, compare_file)
 
     try:
         data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
@@ -2275,7 +2275,7 @@ def run_process_score_comparisons(job, context, baseline_name, compare_ids):
 
         for name, compare_id in compare_ids.iteritems():
             compare_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
-            job.fileStore.readGlobalFile(compare_id, compare_file)
+            context.read_jobstore_file(job, compare_id, compare_file)
             context.write_output_file(job, compare_file)
             write_tsv(compare_file, name)
 
@@ -2318,7 +2318,7 @@ def run_portion_worse(job, context, name, compare_id):
     work_dir = job.fileStore.getLocalTempDir()
 
     compare_file = os.path.join(work_dir, '{}.compare.scores'.format(name))
-    job.fileStore.readGlobalFile(compare_id, compare_file)
+    context.read_jobstore_file(job, compare_id, compare_file)
     
     total = 0
     worse = 0
@@ -2594,7 +2594,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     work_dir = job.fileStore.getLocalTempDir()
 
     position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
-    job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
+    context.read_jobstore_file(job, position_stats_file_id, position_stats_path)
 
     out_plot_tuples = []
     
@@ -2665,7 +2665,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     # Find our working directory and download the stats file
     work_dir = job.fileStore.getLocalTempDir()
     position_stats_path = os.path.join(work_dir, 'position_stats.tsv')
-    job.fileStore.readGlobalFile(position_stats_file_id, position_stats_path)
+    context.read_jobstore_file(job, position_stats_file_id, position_stats_path)
    
     RealtimeLogger.info('Making mapeval summary table...')
    

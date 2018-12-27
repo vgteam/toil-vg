@@ -129,13 +129,13 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     # Read our input files from the store
     vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
-    job.fileStore.readGlobalFile(vg_id, vg_path)
+    context.read_jobstore_file(job, vg_id, vg_path)
     gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
-    job.fileStore.readGlobalFile(gam_id, gam_path)
+    context.read_jobstore_file(job, gam_id, gam_path)
     xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
     defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
     if xg_id and defray:
-        job.fileStore.readGlobalFile(xg_id, xg_path)
+        context.read_jobstore_file(job, xg_id, xg_path)
         
     # Define paths for all the files we might make
     pu_path = os.path.join(work_dir, '{}.pu'.format(chunk_name))
@@ -344,13 +344,13 @@ def run_vg_genotype(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     # Read our input files from the store
     vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
-    job.fileStore.readGlobalFile(vg_id, vg_path)
+    context.read_jobstore_file(job, vg_id, vg_path)
     gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
-    job.fileStore.readGlobalFile(gam_id, gam_path)
+    context.read_jobstore_file(job, gam_id, gam_path)
     xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
     defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
     if xg_id and defray:
-        job.fileStore.readGlobalFile(xg_id, xg_path)
+        context.read_jobstore_file(job, xg_id, xg_path)
         
     # we only need an xg if using vg filter -D
     if not xg_id and defray:
@@ -480,7 +480,7 @@ def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, cli
 
     # output vcf name
     vcf_path = os.path.join(work_dir, 'chunk_{}_{}.vcf'.format(path_name, chunk_offset))
-    job.fileStore.readGlobalFile(vcf_id, vcf_path + '.us')
+    context.read_jobstore_file(job, vcf_id, vcf_path + '.us')
     
     # Sort the output
     sort_vcf(job, context.runner, vcf_path + '.us', vcf_path)
@@ -559,8 +559,8 @@ def run_merge_vcf(job, context, out_name, vcf_tbi_file_id_pair_list, call_timers
     for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
         vcf_file = os.path.join(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
         vcf_file_idx = '{}.tbi'.format(vcf_file)
-        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[0], vcf_file)
-        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[1], vcf_file_idx)
+        context.read_jobstore_file(job, vcf_tbi_file_id_pair[0], vcf_file, cache=False)
+        context.read_jobstore_file(job, vcf_tbi_file_id_pair[1], vcf_file_idx, cache=False)
         vcf_merging_file_key_list.append(os.path.basename(vcf_file))
 
     vcf_merged_file_key = "" 
@@ -612,16 +612,16 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
 
     # Download the input from the store
     xg_path = os.path.join(work_dir, 'graph.vg.xg')
-    job.fileStore.readGlobalFile(xg_file_id, xg_path)
+    context.read_jobstore_file(job, xg_file_id, xg_path)
     gam_path = os.path.join(work_dir, '{}_{}.gam'.format(sample_name, tag))
-    job.fileStore.readGlobalFile(alignment_file_id, gam_path)
+    context.read_jobstore_file(job, alignment_file_id, gam_path)
 
     # Sort and index the GAM file if index not provided
     timer = TimeTracker('call-gam-index')    
     if alignment_index_id:
         gam_sort_path = gam_path
         gam_index_path = gam_sort_path + '.gai'
-        job.fileStore.readGlobalFile(alignment_index_id, gam_index_path)
+        context.read_jobstore_file(job, alignment_index_id, gam_index_path)
     else:
         gam_sort_path = gam_path + '.sorted.gam'
         gam_index_path = gam_sort_path + '.gai'
@@ -740,7 +740,7 @@ def run_merge_vcf_chunks(job, context, path_name, clip_file_ids):
         
         # Download clip.vcf file from the store
         clip_path = os.path.join(work_dir, 'clip_{}.vcf'.format(chunk_i))
-        job.fileStore.readGlobalFile(clip_file_id, clip_path)
+        context.read_jobstore_file(job, clip_file_id, clip_path, cache=False)
 
         if chunk_i == 0:
             # copy everything including the header
