@@ -919,8 +919,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         # No merging happened, so the id-joined files need to be output files.
         # We assume they came in as intermediate files, even if we didn't join them.
         # So we defintiely have to write them.
-        for region_file in region_files:
-            to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
+        to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
                     
     return to_return 
         
