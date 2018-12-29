@@ -53,9 +53,9 @@ def construct_subparser(parser):
                         help="List of regions (replaces --regions). Only first column of each line considered (so .fai acceptable)")
     parser.add_argument("--fasta_regions", action="store_true",
                         help="Infer regions from fasta file.  If multiple vcfs specified, any regions found that are not in --regions will be added without variants (useful for decoy sequences)")
-    parser.add_argument("--ignore_regions_keywords", default=[], nargs='+',
-                        help="Ignore sequence names with given keywords when using --fasta_regions or --regions_file "
-                        "(useful for alt and HLA sequences in hg38)")
+    parser.add_argument("--regions_regex", default=[], nargs='+',
+                        help="Ignore sequence names not fully matching (union of) given regexes when using --fasta_regions or --regions_file"
+                        " (ex: --regions_regex \'chr[1-9,M,X,Y,EBV]+\' \'chr.*decoy\' to keep only chroms and decoys from hs38d1)")
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
@@ -124,6 +124,12 @@ def construct_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
 
+def re_fullmatch(regex, string, flags=0):
+    """Emulate python-3.4 re.fullmatch().
+    https://stackoverflow.com/questions/30212413/backport-python-3-4s-regular-expression-fullmatch-to-python-2
+    """
+    return re.match("(?:" + regex + r")\Z", string, flags=flags)
+    
 def validate_construct_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
@@ -132,8 +138,8 @@ def validate_construct_options(options):
             '--regions or --fasta_regions required')
     require(not options.regions_file or not (options.fasta_regions or options.regions),
             '--regions_file cannot be used with --regions or --fasta_regions')
-    require(not options.ignore_regions_keywords or (options.fasta_regions or options.regions_file),
-            '--ignore_regions_keywords can only be used with --fasta_regions or --regions_file')
+    require(not options.regions_regex or (options.fasta_regions or options.regions_file),
+            '--regions_regex can only be used with --fasta_regions or --regions_file')
     require(not options.add_chr_prefix or not options.remove_chr_prefix,
             '--add_chr_prefix cannot be used with --remove_chr_prefix')
     require(options.vcf == [] or len(options.vcf) == 1 or not options.regions or
@@ -257,7 +263,7 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
 
     return context.write_intermediate_file(job, fasta_file[:-3])
 
-def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None, ignore_regions_keywords = []):
+def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None, regions_regex = None):
     """
     scrape regions out of the (uncompressed) fasta, appending them to given regions list if provided
     """
@@ -279,12 +285,12 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
         if len(line) > 1:
             name = line.split()[0]
             if name.startswith('>') and (not regions or name[1:] not in regions) and \
-               not any ([kw in name[1:] for kw in ignore_regions_keywords]):
+               (not regions_regex or re_fullmatch(regions_regex, name[1:])):
                 seq_names.append(name[1:])
     
     return seq_names
 
-def run_scan_regions_file(job, context, regions_id, ignore_regions_keywords):
+def run_scan_regions_file(job, context, regions_id, regions_regex = None):
     """
     Read a list of regions
     """
@@ -295,7 +301,7 @@ def run_scan_regions_file(job, context, regions_id, ignore_regions_keywords):
     with open(regions_path) as regions_file:
         for line in regions_file:
             region_name = line.strip().split()[0]
-            if len(region_name) > 0 and not any([kw in region_name for kw in ignore_regions_keywords]):
+            if len(region_name) > 0 and (not regions_regex or re_fullmatch(regions_regex, region_name)):
                 out_regions.append(region_name)
     return out_regions
 
@@ -1527,9 +1533,11 @@ def construct_main(context, options):
                                                                   os.path.basename(fasta)).rv()
                     inputFastaNames[i] = inputFastaNames[i][:-3]
 
+            regions_regex = None if not options.regions_regex else '|'.join(options.regions_regex)
+
             # Parse the regions from file
             if options.regions_file:
-                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, options.ignore_regions_keywords)
+                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, regions_regex)
                 regions = cur_job.rv()
             elif options.fasta_regions:
                 # Extract fasta sequence names and append them to regions
@@ -1537,7 +1545,7 @@ def construct_main(context, options):
                                                    inputFastaFileIDs[0],
                                                    inputFastaNames[0],
                                                    options.regions,
-                                                   options.ignore_regions_keywords)
+                                                   regions_regex)
                 regions = cur_job.rv()
             else:
                 regions = options.regions                
