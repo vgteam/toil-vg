@@ -314,9 +314,9 @@ xg-index-disk: '100G'
 
 # Resources allotted for xg indexing by chromosome (used for GBWT).
 gbwt-index-cores: 4
-gbwt-index-mem: '50G'
+gbwt-index-mem: '35G'
 gbwt-index-disk: '100G'
-gbwt-index-preemptable: 'False'
+gbwt-index-preemptable: 'True'
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
