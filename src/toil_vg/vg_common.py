@@ -207,7 +207,7 @@ to do: Should go somewhere more central """
         
         """
 
-        RealtimeLogger.info("Docker Run: {}".format(" | ".join(" ".join(x) for x in args)))
+        RealtimeLogger.info(truncate_msg("Docker Run: {}".format(" | ".join(" ".join(x) for x in args))))
         start_time = timeit.default_timer()
 
         # we use the first argument to look up the tool in the docker map
@@ -537,7 +537,7 @@ to do: Should go somewhere more central """
         parameters used so far.  expect args as list of lists.  if (toplevel)
         list has size > 1, then piping interface used """
 
-        RealtimeLogger.info("Singularity Run: {}".format(" | ".join(" ".join(x) for x in args)))
+        RealtimeLogger.info(truncate_msg("Singularity Run: {}".format(" | ".join(" ".join(x) for x in args))))
         start_time = timeit.default_timer()
 
         # we use the first argument to look up the tool in the singularity map
@@ -585,7 +585,7 @@ to do: Should go somewhere more central """
     def call_directly(self, args, work_dir, outfile, errfile, check_output):
         """ Just run the command without docker """
 
-        RealtimeLogger.info("Run: {}".format(" | ".join(" ".join(x) for x in args)))
+        RealtimeLogger.info(truncate_msg("Run: {}".format(" | ".join(" ".join(x) for x in args))))
         start_time = timeit.default_timer()
 
         # Set up the child's environment
@@ -719,6 +719,17 @@ def remove_ext(string, ext):
         return string[:-len(ext)]
     else:
         return string
+
+def truncate_msg(msg, max_len=2000):
+    """
+    Truncate a message string so it doesn't get lost (todo: automatically do this in realtime logger class)
+    """
+    if len(msg) <= max_len:
+        return msg
+    else:
+        trunc_info = '<log message truncated to fit buffer>'
+        assert len(trunc_info) < max_len
+        return msg[:max_len-len(trunc_info)] + trunc_info
 
 class TimeTracker:
     """ helper dictionary to keep tabs on several named runtimes. """
