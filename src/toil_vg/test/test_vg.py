@@ -465,15 +465,16 @@ class VGCGLTest(TestCase):
         in_tbi = in_vcf + '.tbi'
         in_fa = self._ci_input_path('17.fa')
         in_region = '17:43044294-43125482'
+        out_name = 'snp1kg-BRCA1'
         
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
-                   '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
+                   '--out_name', out_name, '--pangenome', '--pos_control', 'HG00096',
                    '--neg_control', 'HG00096', '--sample_graph', 'HG00096',
                    '--filter_ceph', '--realTimeLogging', '--logInfo', '--validate',
-                   '--haplo_sample', 'HG00096', '--min_af', '0.6'])
+                   '--haplo_sample', 'HG00096', '--min_af', '0.6', '--keep_vcfs'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # This is a fairly superficial check without adding machinery to read vg files
@@ -483,7 +484,7 @@ class VGCGLTest(TestCase):
         prev_vcf_size = None
         for ext in ['', '_filter', '_minus_HG00096', '_HG00096_sample', '_HG00096_haplo', '_minaf_0.6']:
             if ext and ext not in ['_HG00096_haplo', '_minaf_0.6', '_HG00096_sample']:
-                vcf_file = os.path.join(self.local_outstore, '1kg_hg38-BRCA1{}.vcf.gz'.format(ext))
+                vcf_file = os.path.join(self.local_outstore, '{}-vcfs'.format(out_name), '1kg_hg38-BRCA1{}.vcf.gz'.format(ext))
 
                 assert os.path.isfile(vcf_file)
                 assert os.path.isfile(vcf_file + '.tbi')
@@ -496,7 +497,7 @@ class VGCGLTest(TestCase):
                     assert vcf_size < prev_vcf_size
                 prev_vcf_size = vcf_size
 
-            vg_file = os.path.join(self.local_outstore, 'snp1kg-BRCA1{}.vg'.format(ext))
+            vg_file = os.path.join(self.local_outstore, '{}{}.vg'.format(out_name, ext))
 
             assert os.path.isfile(vg_file)
 
