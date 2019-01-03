@@ -696,7 +696,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             haplo_index_job = construct_job.addFollowOnJobFn(run_make_haplo_indexes, context,
                                                              input_vcf_ids, input_tbi_ids,
                                                              vcf_names, joined_vg_ids, joined_vg_names,
-                                                             output_name_base, regions, haplo_extraction_sample)
+                                                             output_name_base, regions, haplo_extraction_sample,
+                                                             intermediate=merge_graphs)
             haplo_xg_ids = haplo_index_job.rv(0)
             gbwt_ids = haplo_index_job.rv(1)
             
@@ -751,7 +752,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 haplo_job = haplo_index_job.addFollowOnJobFn(run_make_haplo_graphs, context,
                                                              joined_vg_ids, joined_vg_names, haplo_xg_ids,
                                                              output_name_base, regions,
-                                                             haplo_extraction_sample, haplotypes, gbwt_ids)
+                                                             haplo_extraction_sample, haplotypes, gbwt_ids,
+                                                             intermediate = merge_graphs)
 
                 # we want an xg index from our thread graphs to pass to vg sim for each haplotype
                 for haplotype in haplotypes:
@@ -916,7 +918,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         context.runner.call(job, cmd, work_dir=work_dir)
         
         # save the mapping file
-        to_return['mapping'] = context.write_output_file(job, mapping_file)
+        to_return['mapping'] = context.write_intermediate_file(job, mapping_file)
     
     if merge_output_name is not None:
         # We want a sinbgle merged output file, so merge the graphs that we now know are in a joined ID space.
@@ -1132,7 +1134,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     if vcf_subdir:
         def write_fn(local_path, out_store_path = None):
             os_name = os.path.basename(local_path) if not out_store_path else os.path.basename(out_store_path)
-            return context.write_output_file(job, local_path, os.path.join(vcf_subdir, out_name))
+            return context.write_output_file(job, local_path, os.path.join(vcf_subdir, os_name))
     else:
         def write_fn(local_path, out_store_path = None):
             return context.write_intermediate_file(job, local_path)
@@ -1189,7 +1191,7 @@ def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, mi
     return out_vcf_id, out_tbi_id
 
 def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_names,
-                           output_name, regions, sample):
+                           output_name, regions, sample, intermediate = False):
     """
     return xg/gbwt for each chromosome for extracting haplotype thread graphs
     (to simulate from) or sample graphs (as positive control)
@@ -1239,7 +1241,8 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
         xg_name = remove_ext(vg_name, '.vg')
         xg_job = job.addChildJobFn(run_xg_indexing, context, [vg_id], [vg_name],
                                    xg_name, vcf_id, tbi_id,
-                                   make_gbwt=True, 
+                                   make_gbwt=True,
+                                   intermediate=intermediate,
                                    cores=context.config.xg_index_cores,
                                    memory=context.config.xg_index_mem,
                                    disk=context.config.xg_index_disk)
@@ -1249,7 +1252,8 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
     return xg_ids, gbwt_ids
 
 def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
-                          output_name, regions, sample, haplotypes, gbwt_ids):
+                          output_name, regions, sample, haplotypes, gbwt_ids,
+                          intermediate = False):
     """
     Make some haplotype graphs for threads in a gbwt. regions must be defined
     since we use the chromosome name to get the threads. Also, gbwt_ids must be
@@ -1281,6 +1285,7 @@ def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
         gbwt_id = None if not gbwt_ids else gbwt_ids[0] if len(gbwt_ids) == 1 else gbwt_ids[i]
         hap_job = job.addChildJobFn(run_make_haplo_thread_graphs, context, vg_id, vg_name,
                                     output_name, [region], xg_id, sample, haplotypes, gbwt_id,
+                                    intermediate = intermediate,
                                     cores=context.config.construct_cores,
                                     memory=context.config.construct_mem,
                                     disk=context.config.construct_disk)
@@ -1290,7 +1295,7 @@ def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
     return thread_vg_ids
 
 def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chroms, xg_id,
-                                 sample, haplotypes, gbwt_id):
+                                 sample, haplotypes, gbwt_id, intermediate = False):
     """
     make some haplotype graphs for threads in a gbwt
     
@@ -1363,7 +1368,8 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 cmd.append(filter_cmd)
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = trimmed_file)
 
-            thread_vg_ids.append(context.write_output_file(job, vg_trimmed_path))
+            write_fn = context.write_intermediate_file if intermediate else context.write_output_file
+            thread_vg_ids.append(write_fn(job, vg_trimmed_path))
             
         except:
             # Dump everything we need to replicate the thread extraction
