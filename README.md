@@ -21,7 +21,7 @@ Why use toil-vg?
 
 ## Installation
 
-Installation requires Python and [Toil](http://toil.readthedocs.io/en/latest/install/basic.html).  We recommend installing within a virtualenv as follows
+Installation requires Python and [Toil](https://toil.readthedocs.io/en/latest/gettingStarted/install.html).  We recommend installing within a virtualenv as follows
 
     virtualenv toilvenv
     source toilvenv/bin/activate
