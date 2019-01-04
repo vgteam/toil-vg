@@ -70,7 +70,7 @@ else
 	 MASTER_IP="$($PREFIX toil ssh-cluster --insecure --zone=us-west-2a --logOff "${CLUSTER_NAME}" hostname -i)"
 fi
 MASTER_IP="$(printf $MASTER_IP | sed -e 's/\r$//' -e 's/\n//')"
-MESOS_OPTS="--batchSystem=mesos --mesosMaster=${MASTER_IP}:5050"
+MESOS_OPTS="--batchSystem=mesos --mesosMaster=${MASTER_IP}:5050 --metrics"
 # Put together our Toil Options
 TOIL_OPTS="--provisioner aws ${NODE_OPTS} ${RETRY_OPTS} ${LOG_OPTS} ${MESOS_OPTS} ${TOIL_VG_OPTS}"
 

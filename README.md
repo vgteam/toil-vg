@@ -82,10 +82,10 @@ export TOIL_OS="./my-output"
 
 # Construct graph and all (XG, GBWT, GCSA, Snarls, id-ranges) indexes
 
-toil-vg construct $TOIL_JS $TOIL_OS --pangenome --out_name 1kg_hs38d1 --all_index --merge_graphs --fasta_regions --add_chr_prefix --whole_genome_config $TOIL_OPTS --fasta ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa --vcf $(for i in $(seq 1 22; echo X; echo Y); do echo ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/supporting/GRCh38_positions/ALL.chr${i}_GRCh38.genotypes.20170504.vcf.gz; done) 
+toil-vg construct $TOIL_JS $TOIL_OS --pangenome --out_name 1kg_hs38d1 --all_index --merge_graphs --fasta_regions --add_chr_prefix --whole_genome_config $TOIL_OPTS --fasta ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa --vcf $(for i in $(seq 1 22; echo X; echo Y); do echo ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/supporting/GRCh38_positions/ALL.chr${i}_GRCh38.genotypes.20170504.vcf.gz; done) --regions $(for i in $(seq 1 22; echo X; echo Y); do echo chr${i}; done)
 ```
 
-Filtering out low-frequency variants (often recommended) can be done by replacing `--pangenome` by `--min_af 0.01` (both options can be used to simultaneously create filtered and unfiltered graphs).  This command uses `--fasta_regions` to add every sequence from the input fasta file to the graph.  The `--regions_regex` option can be used to further fine-tune this.  For example, `--regions_regex 'chr[1-9,M,X,Y,EBV]+' 'chr.*decoy'` would only include chromosomes and decoys (and not unplaced scaffolds).
+Filtering out low-frequency variants (often recommended) can be done by replacing `--pangenome` by `--min_af 0.01` (both options can be used to simultaneously create filtered and unfiltered graphs).  This command uses `--fasta_regions` to add every sequence from the input fasta file to the graph.  The `--regions_regex` option can be used to further fine-tune this.  For example, `--regions_regex 'chr[M,EBV]' 'chr.*decoy'` would only add chrM, chrEBV and decoys  (and not unplaced scaffolds).  It is good practice to use `--regions` to explicitly define the regions corresponding to each VCF in order, whether or not `--fasta_regions` is used.  
 
 By default, this command will use every core on the system.  Use `--maxCores` to limit to fewer processes.  It is recommended to have 3TB disk, 256GB RAM and 32 cores to run this, and even then it will take several days to complete. See below for how the above command can be adapted to run on Amazon EC2.
 
@@ -114,7 +114,7 @@ Log onto the leader node with `toil ssh-cluster` as described above and open a `
 # Use maximum of 8 i3.8xlarge nodes with spot bit of $0.80
 export NODE_OPTS="--nodeTypes i3.8xlarge:0.80,i3.8xlarge --maxNodes 8"
 # Set Toil to use AWS autoscaling
-export AWS_OPTS="--defaultPreemptable --batchSystem mesos --provisioner aws --retryCount 3
+export AWS_OPTS="--defaultPreemptable --batchSystem mesos --provisioner aws --retryCount 3 --metrics"
 # Toil boilerplate
 export TOIL_OPTS="$NODE_OPTS $AWS_OPTS --realTimeLogging --logInfo --realTimeStderr"
 # S3 Bucket for Toil's temporary files
@@ -122,3 +122,5 @@ export TOIL_JS="aws:us-west-2:my-jobstore"
 # All output will be written here
 export TOIL_OS="aws:us-west-2/my-bucket/hs38d1-output"
 ```
+
+For a performance dashboard, browse to `localhost:3000` on the computer from which you ran `toil ssh-cluster` (this is enabled by the `--metrics` option above)
