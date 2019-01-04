@@ -55,7 +55,7 @@ def construct_subparser(parser):
                         help="Infer regions from fasta file.  If multiple vcfs specified, any regions found that are not in --regions will be added without variants (useful for decoy sequences)")
     parser.add_argument("--regions_regex", default=[], nargs='+',
                         help="Ignore sequence names not fully matching (union of) given regexes when using --fasta_regions or --regions_file"
-                        " (ex: --regions_regex \'chr[1-9,M,X,Y,EBV]+\' \'chr.*decoy\' to keep only chroms and decoys from hs38d1)")
+                        " (ex: --regions_regex \'chr[1-9,M,X,Y,EBV][0-9]{0,1}\' \'chr.*decoy\' to keep only chroms and decoys from hs38d1)")
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
