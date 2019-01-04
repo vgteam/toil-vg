@@ -1,6 +1,7 @@
-## TOIl-VG
+# TOIl-VG
+[UCSC Computational Genomics Lab](https://cgl.genomics.ucsc.edu/)
 
-[vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [toil](https://github.com/BD2KGenomics/toil)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
+[vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [Toil](http://toil.ucsc-cgl.org/)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
 
 * `toil-vg construct`: Create vg graphs and indexes from FASTA and VCF, constructing contigs in parallel.  
 * `toil-vg index`: Produce a GCSA, GBWT and/or XG index from input vg graphs.
@@ -11,14 +12,14 @@ Why use toil-vg?
 
 * Higher-level CLI simplifies tasks that require several complex bash and vg commands to do.  For example, constructing and indexing a graph from a 1000 Genomes VCF takes [dozens](https://github.com/vgteam/vg/wiki/Working-with-a-whole-genome-variation-graph) of [commands](https://github.com/jltsiren/gbwt/wiki/Construction-Benchmarks) using vg directly.  They can all (including those for downloading input data), and more, be replaced by a single call to `toil-vg construct`.
 * In practice, it is necessary to distribute mapping and calling jobs across multiple compute nodes when working with human-sized genomes.  toil-vg takes care of this. 
-* Toil's support for running on the cloud, resuming lost or failed jobs and running vg and other dependencies via Docker are further reasons to run toil-vg on large datasets.
+* [Toil's](http://toil.ucsc-cgl.org/) support for running on the cloud, resuming lost or failed jobs and running vg and other dependencies via Docker are further reasons to run toil-vg on large datasets.
 * toil-vg provides benchmarking scripts to run large vg experiments comparing different graphs, aligners, callers, mapping parameters, etc.
 
 #### Please contact us here on [github with any issues](https://github.com/BD2KGenomics/toil-vg/issues/new)
 
 #### See the [Wiki](https://github.com/vgteam/toil-vg/wiki) in addition to below for examples.
 
-### Installation
+## Installation
 
 Installation requires Python and [Toil](http://toil.readthedocs.io/en/latest/install/basic.html).  We recommend installing within a virtualenv as follows
 
@@ -39,7 +40,7 @@ Developers may want to work with the latest master branch from github instead:
     # After installing in this fashion, the tests can be run with
     make test
     
-#### Docker
+### Docker
 
 toil-vg can run vg, along with some other tools, via [Docker](http://www.docker.com).  Docker can be installed locally as follows:
 * [**Linux Docker Installation**](https://docs.docker.com/engine/installation/linux/): If running `docker version` doesn't work, try adding user to docker group with `sudo usermod -aG docker $USER`, then log out and back in.
@@ -47,7 +48,7 @@ toil-vg can run vg, along with some other tools, via [Docker](http://www.docker.
 * **Running Without Docker**: If Docker is not installed or is disabled with `--container None`, toil-vg requires the following command line tools to be installed on the system: `vg, pigz, bcftools, tabix`.  `jq`, `samtools`, `rtg vcfeval`, 'hap.py', and 'Platypus.py' are also necessary for certain tests. 
     
 
-### Configuration
+## Configuration
 
 A configuration file can be used as an alternative to most command line options.  A default configuration file can be generated using
 
@@ -61,13 +62,13 @@ To generate a default configuration for running at genome scale on a cluster wit
 
     toil-vg generate-config --whole_genome > config_wg.yaml
 
-### A Note on IO conventions
+## A Note on IO conventions
 
 The jobStore and outStore arguments to toil-vg are directories that will be created if they do not already exist.  When starting a new job, toil will complain if the jobStore exists, so use `toil clean <jobStore>` first.  When running on Mesos, these stores should be S3 buckets.  They are specified using the following format aws:region:bucket (see examples below).
 
 All other input files can either either be local (best to specify absolute path) or URLs specified in the normal manner, such as: `http://address/input_file` or `s3://bucket/input_file`.  The config file must always be local.  When using an S3 jobstore, it is preferable to pass input files from S3 as well, as they load much faster and less cluster time will be wasted importing data. 
 
-### Construct and index 1000 Genomes HS38D1 graph
+## Example: Construct and index 1000 Genomes HS38D1 graph
 
 The following command will construct and index a graph from the 1000 Genomes calls for the HS38D1 (GRCH38 + decoys) reference.  
 
@@ -88,9 +89,9 @@ Filtering out low-frequency variants (often recommended) can be done by replacin
 
 By default, this command will use every core on the system.  Use `--maxCores` to limit to fewer processes.  It is recommended to have 3TB disk, 256GB RAM and 32 cores to run this, and even then it will take several days to complete. See below for how the above command can be adapted to run on Amazon EC2.
 
-### Running on Amazon EC2 with Toil
+## Running on Amazon EC2 with Toil
 
-#### Create a leader node
+### Create a leader node
 
     wget https://raw.githubusercontent.com/BD2KGenomics/toil-vg/master/scripts/create-ec2-leader.sh
     ./create-ec2-leader.sh <leader-name> <keypair-name>
@@ -105,7 +106,7 @@ Destroy the leader when finished with it.  After logging out with `exit`:
 
     toil destroy-cluster -z us-west-2a myleader
 
-#### Run a job
+### Run a job
 
 Log onto the leader node with `toil ssh-cluster` as described above and open a `screen` session.  The same construction example as above can now be run after adapting the input environment variables as follows:
 
