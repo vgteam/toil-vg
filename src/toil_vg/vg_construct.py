@@ -53,9 +53,9 @@ def construct_subparser(parser):
                         help="List of regions (replaces --regions). Only first column of each line considered (so .fai acceptable)")
     parser.add_argument("--fasta_regions", action="store_true",
                         help="Infer regions from fasta file.  If multiple vcfs specified, any regions found that are not in --regions will be added without variants (useful for decoy sequences)")
-    parser.add_argument("--ignore_regions_keywords", default=[], nargs='+',
-                        help="Ignore sequence names with given keywords when using --fasta_regions or --regions_file "
-                        "(useful for alt and HLA sequences in hg38)")
+    parser.add_argument("--regions_regex", default=[], nargs='+',
+                        help="Ignore sequence names not fully matching (union of) given regexes when using --fasta_regions or --regions_file"
+                        " (ex: --regions_regex \'chr[1-9,M,X,Y,EBV]+\' \'chr.*decoy\' to keep only chroms and decoys from hs38d1)")
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
@@ -77,7 +77,8 @@ def construct_subparser(parser):
                         help="add \"chr\" prefix to chromosome names if not already present")
     parser.add_argument("--remove_chr_prefix", action="store_true",
                         help="remove \"chr\" prefix from chromosome names")
-    
+    parser.add_argument("--keep_vcfs", action="store_true",
+                        help="write the VCFs created to make the filtered and control graphs to the output store") 
     # Toggles for the different types of graph(s) that can be made.  Indexing and above options
     # will be applied to each one.  The output names will be prefixed with out_name. 
     parser.add_argument("--primary", action="store_true",
@@ -124,6 +125,12 @@ def construct_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
 
+def re_fullmatch(regex, string, flags=0):
+    """Emulate python-3.4 re.fullmatch().
+    https://stackoverflow.com/questions/30212413/backport-python-3-4s-regular-expression-fullmatch-to-python-2
+    """
+    return re.match("(?:" + regex + r")\Z", string, flags=flags)
+    
 def validate_construct_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
@@ -132,8 +139,8 @@ def validate_construct_options(options):
             '--regions or --fasta_regions required')
     require(not options.regions_file or not (options.fasta_regions or options.regions),
             '--regions_file cannot be used with --regions or --fasta_regions')
-    require(not options.ignore_regions_keywords or (options.fasta_regions or options.regions_file),
-            '--ignore_regions_keywords can only be used with --fasta_regions or --regions_file')
+    require(not options.regions_regex or (options.fasta_regions or options.regions_file),
+            '--regions_regex can only be used with --fasta_regions or --regions_file')
     require(not options.add_chr_prefix or not options.remove_chr_prefix,
             '--add_chr_prefix cannot be used with --remove_chr_prefix')
     require(options.vcf == [] or len(options.vcf) == 1 or not options.regions or
@@ -238,9 +245,9 @@ def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
                            work_dir = work_dir, outfile = merged_file)
     context.runner.call(job, ['tabix', '--preset', 'vcf', merged_name], work_dir = work_dir)
 
-    return (context.write_output_file(job, os.path.join(work_dir, merged_name)),
+    return (context.write_intermediate_file(job, os.path.join(work_dir, merged_name)),
             merged_name,
-            context.write_output_file(job, os.path.join(work_dir, merged_name) + '.tbi'))
+            context.write_intermediate_file(job, os.path.join(work_dir, merged_name) + '.tbi'))
 
     
 def run_unzip_fasta(job, context, fasta_id, fasta_name):
@@ -257,7 +264,7 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
 
     return context.write_intermediate_file(job, fasta_file[:-3])
 
-def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None, ignore_regions_keywords = []):
+def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None, regions_regex = None):
     """
     scrape regions out of the (uncompressed) fasta, appending them to given regions list if provided
     """
@@ -279,12 +286,12 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
         if len(line) > 1:
             name = line.split()[0]
             if name.startswith('>') and (not regions or name[1:] not in regions) and \
-               not any ([kw in name[1:] for kw in ignore_regions_keywords]):
+               (not regions_regex or re_fullmatch(regions_regex, name[1:])):
                 seq_names.append(name[1:])
     
     return seq_names
 
-def run_scan_regions_file(job, context, regions_id, ignore_regions_keywords):
+def run_scan_regions_file(job, context, regions_id, regions_regex = None):
     """
     Read a list of regions
     """
@@ -295,7 +302,7 @@ def run_scan_regions_file(job, context, regions_id, ignore_regions_keywords):
     with open(regions_path) as regions_file:
         for line in regions_file:
             region_name = line.strip().split()[0]
-            if len(region_name) > 0 and not any([kw in region_name for kw in ignore_regions_keywords]):
+            if len(region_name) > 0 and (not regions_regex or re_fullmatch(regions_regex, region_name)):
                 out_regions.append(region_name)
     return out_regions
 
@@ -411,7 +418,8 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             handle_unphased = None,
                             haplo_sample = None,
                             filter_samples = [],
-                            min_afs = []):
+                            min_afs = [],
+                            vcf_subdir = None):
     """
     Preprocessing step to make a bunch of vcfs if wanted:
     - positive control
@@ -421,6 +429,8 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
     - thresholded by a given minimum allele frequency
     returns a dictionary of name -> (vcf_id, vcf_name, tbi_id, merge_name, region_names) tuples
     where name can be used to, ex, tell the controls apart
+    if vcf_subdir is specified, the various created vcfs will be stored in a subfolder of that
+    name in the output store.  if it's not specified, then these intermediate vcfs will not be saved
     """
 
     output = dict()
@@ -439,7 +449,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
     if do_pan:
         output[output_name] = [vcf_ids, vcf_names, tbi_ids, output_name,
                                [output_name + '_' + c.replace(':','-') for c in regions] if regions else None]
-        
+
     # our positive control consists of the reference path and any variant in the sample
     if pos_control_sample or neg_control_sample:
         control_sample = pos_control_sample if pos_control_sample else neg_control_sample
@@ -453,6 +463,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id,
                                               control_sample,
                                               pos_only = not neg_control_sample,
+                                              vcf_subdir = vcf_subdir,
                                               cores=context.config.construct_cores,
                                               memory=context.config.construct_mem,
                                               disk=context.config.construct_disk)
@@ -491,6 +502,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             make_sample = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample_graph,
                                             pos_only = True, unphased_handling=handle_unphased,
+                                            vcf_subdir = vcf_subdir,
                                             cores=context.config.construct_cores,
                                             memory=context.config.construct_mem,
                                             disk=context.config.construct_disk)
@@ -516,6 +528,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
                                               pos_only = True, unphased_handling=handle_unphased,
+                                              vcf_subdir = vcf_subdir,
                                               cores=context.config.construct_cores,
                                               memory=context.config.construct_mem,
                                               disk=context.config.construct_disk)
@@ -542,6 +555,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             filter_job = job.addChildJobFn(run_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
                                            filter_samples,
+                                           vcf_subdir = vcf_subdir,
                                            cores=context.config.construct_cores,
                                            memory=context.config.construct_mem,
                                            disk=context.config.construct_disk)
@@ -568,6 +582,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             af_job = job.addChildJobFn(run_min_allele_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
                                        min_af,
+                                       vcf_subdir = vcf_subdir,
                                        cores=context.config.construct_cores,
                                        memory=context.config.construct_mem,
                                        disk=context.config.construct_disk)
@@ -681,7 +696,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             haplo_index_job = construct_job.addFollowOnJobFn(run_make_haplo_indexes, context,
                                                              input_vcf_ids, input_tbi_ids,
                                                              vcf_names, joined_vg_ids, joined_vg_names,
-                                                             output_name_base, regions, haplo_extraction_sample)
+                                                             output_name_base, regions, haplo_extraction_sample,
+                                                             intermediate=merge_graphs)
             haplo_xg_ids = haplo_index_job.rv(0)
             gbwt_ids = haplo_index_job.rv(1)
             
@@ -736,7 +752,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 haplo_job = haplo_index_job.addFollowOnJobFn(run_make_haplo_graphs, context,
                                                              joined_vg_ids, joined_vg_names, haplo_xg_ids,
                                                              output_name_base, regions,
-                                                             haplo_extraction_sample, haplotypes, gbwt_ids)
+                                                             haplo_extraction_sample, haplotypes, gbwt_ids,
+                                                             intermediate = merge_graphs)
 
                 # we want an xg index from our thread graphs to pass to vg sim for each haplotype
                 for haplotype in haplotypes:
@@ -901,7 +918,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         context.runner.call(job, cmd, work_dir=work_dir)
         
         # save the mapping file
-        to_return['mapping'] = context.write_output_file(job, mapping_file)
+        to_return['mapping'] = context.write_intermediate_file(job, mapping_file)
     
     if merge_output_name is not None:
         # We want a sinbgle merged output file, so merge the graphs that we now know are in a joined ID space.
@@ -997,7 +1014,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
 
     return context.write_intermediate_file(job, vg_path)
 
-def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
+def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples, vcf_subdir = None):
     """ 
     
     Use vcflib to remove all variants specifc to a set of samples.
@@ -1043,19 +1060,25 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples):
     with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
 
+    if vcf_subdir:
+        write_fn = lambda x: context.write_output_file(job, x, out_store_path = os.path.join(vcf_subdir, os.path.basename(x)))
+    else:
+        write_fn = lambda x: context.write_intermediate_file(job, x)
+        
     # Upload the final VCF
-    out_vcf_id = context.write_output_file(job, os.path.join(work_dir, filter_vcf_name))
+    out_vcf_id = write_fn(os.path.join(work_dir, filter_vcf_name))
 
     # Index it
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', filter_vcf_name],
                         work_dir=work_dir)
                                         
     # And upload the index
-    out_tbi_id = context.write_output_file(job, os.path.join(work_dir, filter_vcf_name) + '.tbi')
+    out_tbi_id = write_fn(os.path.join(work_dir, filter_vcf_name) + '.tbi')
     
     return out_vcf_id, out_tbi_id
     
-def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False, unphased_handling = None):
+def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False, unphased_handling = None,
+                          vcf_subdir = None):
     """ make a positive and negative control vcf 
     The positive control has only variants in the sample, the negative
     control has only variants not in the sample
@@ -1107,8 +1130,17 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
 
     context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', out_pos_name], work_dir=work_dir)
 
-    pos_control_vcf_id = context.write_output_file(job, os.path.join(work_dir, out_pos_name))
-    pos_control_tbi_id = context.write_output_file(job, os.path.join(work_dir, out_pos_name + '.tbi'))
+    # we don't write vcfs to the output store unless we have a subdir to dump them in
+    if vcf_subdir:
+        def write_fn(local_path, out_store_path = None):
+            os_name = os.path.basename(local_path) if not out_store_path else os.path.basename(out_store_path)
+            return context.write_output_file(job, local_path, os.path.join(vcf_subdir, os_name))
+    else:
+        def write_fn(local_path, out_store_path = None):
+            return context.write_intermediate_file(job, local_path)
+
+    pos_control_vcf_id = write_fn(os.path.join(work_dir, out_pos_name))
+    pos_control_tbi_id = write_fn(os.path.join(work_dir, out_pos_name + '.tbi'))
 
     if pos_only:
         return pos_control_vcf_id, pos_control_tbi_id, None, None
@@ -1119,14 +1151,12 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
 
     context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', 'isec/0000.vcf.gz'], work_dir=work_dir)
 
-    neg_control_vcf_id = context.write_output_file(job, os.path.join(work_dir, 'isec', '0000.vcf.gz'),
-                                                   out_store_path = out_neg_name)
-    neg_control_tbi_id = context.write_output_file(job, os.path.join(work_dir, 'isec', '0000.vcf.gz.tbi'),
-                                                   out_store_path = out_neg_name + '.tbi')
+    neg_control_vcf_id = write_fn(os.path.join(work_dir, 'isec', '0000.vcf.gz'), out_store_path = out_neg_name)
+    neg_control_tbi_id = write_fn(os.path.join(work_dir, 'isec', '0000.vcf.gz.tbi'), out_store_path = out_neg_name + '.tbi')
 
     return pos_control_vcf_id, pos_control_tbi_id, neg_control_vcf_id, neg_control_tbi_id
 
-def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, min_af):
+def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, min_af, vcf_subdir = None):
     """
     filter a vcf by allele frequency using bcftools --min-af
     """
@@ -1146,17 +1176,22 @@ def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, mi
     with open(os.path.join(work_dir, af_vcf_name), 'w') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=out_file)
 
-    out_vcf_id = context.write_output_file(job, os.path.join(work_dir, af_vcf_name))
+    if vcf_subdir:
+        write_fn = lambda x: context.write_output_file(job, x, out_store_path = os.path.join(vcf_subdir, os.path.basename(x)))
+    else:
+        write_fn = lambda x: context.write_intermediate_file(job, x)
+
+    out_vcf_id = write_fn(os.path.join(work_dir, af_vcf_name))
 
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', af_vcf_name],
                         work_dir=work_dir)
                                         
-    out_tbi_id = context.write_output_file(job, os.path.join(work_dir, af_vcf_name) + '.tbi')
+    out_tbi_id = write_fn(os.path.join(work_dir, af_vcf_name) + '.tbi')
     
     return out_vcf_id, out_tbi_id
 
 def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_names,
-                           output_name, regions, sample):
+                           output_name, regions, sample, intermediate = False):
     """
     return xg/gbwt for each chromosome for extracting haplotype thread graphs
     (to simulate from) or sample graphs (as positive control)
@@ -1206,7 +1241,8 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
         xg_name = remove_ext(vg_name, '.vg')
         xg_job = job.addChildJobFn(run_xg_indexing, context, [vg_id], [vg_name],
                                    xg_name, vcf_id, tbi_id,
-                                   make_gbwt=True, 
+                                   make_gbwt=True,
+                                   intermediate=intermediate,
                                    cores=context.config.xg_index_cores,
                                    memory=context.config.xg_index_mem,
                                    disk=context.config.xg_index_disk)
@@ -1216,7 +1252,8 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
     return xg_ids, gbwt_ids
 
 def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
-                          output_name, regions, sample, haplotypes, gbwt_ids):
+                          output_name, regions, sample, haplotypes, gbwt_ids,
+                          intermediate = False):
     """
     Make some haplotype graphs for threads in a gbwt. regions must be defined
     since we use the chromosome name to get the threads. Also, gbwt_ids must be
@@ -1248,6 +1285,7 @@ def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
         gbwt_id = None if not gbwt_ids else gbwt_ids[0] if len(gbwt_ids) == 1 else gbwt_ids[i]
         hap_job = job.addChildJobFn(run_make_haplo_thread_graphs, context, vg_id, vg_name,
                                     output_name, [region], xg_id, sample, haplotypes, gbwt_id,
+                                    intermediate = intermediate,
                                     cores=context.config.construct_cores,
                                     memory=context.config.construct_mem,
                                     disk=context.config.construct_disk)
@@ -1257,7 +1295,7 @@ def run_make_haplo_graphs(job, context, vg_ids, vg_names, xg_ids,
     return thread_vg_ids
 
 def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chroms, xg_id,
-                                 sample, haplotypes, gbwt_id):
+                                 sample, haplotypes, gbwt_id, intermediate = False):
     """
     make some haplotype graphs for threads in a gbwt
     
@@ -1330,7 +1368,8 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 cmd.append(filter_cmd)
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = trimmed_file)
 
-            thread_vg_ids.append(context.write_output_file(job, vg_trimmed_path))
+            write_fn = context.write_intermediate_file if intermediate else context.write_output_file
+            thread_vg_ids.append(write_fn(job, vg_trimmed_path))
             
         except:
             # Dump everything we need to replicate the thread extraction
@@ -1527,9 +1566,11 @@ def construct_main(context, options):
                                                                   os.path.basename(fasta)).rv()
                     inputFastaNames[i] = inputFastaNames[i][:-3]
 
+            regions_regex = None if not options.regions_regex else '|'.join(options.regions_regex)
+
             # Parse the regions from file
             if options.regions_file:
-                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, options.ignore_regions_keywords)
+                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, regions_regex)
                 regions = cur_job.rv()
             elif options.fasta_regions:
                 # Extract fasta sequence names and append them to regions
@@ -1537,7 +1578,7 @@ def construct_main(context, options):
                                                    inputFastaFileIDs[0],
                                                    inputFastaNames[0],
                                                    options.regions,
-                                                   options.ignore_regions_keywords)
+                                                   regions_regex)
                 regions = cur_job.rv()
             else:
                 regions = options.regions                
@@ -1580,7 +1621,8 @@ def construct_main(context, options):
                                                handle_unphased = options.handle_unphased,
                                                haplo_sample = options.haplo_sample,
                                                filter_samples = filter_samples,
-                                               min_afs = options.min_af)
+                                               min_afs = options.min_af,
+                                               vcf_subdir = '{}-vcfs'.format(options.out_name) if options.keep_vcfs else None)
                 
             # Construct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
