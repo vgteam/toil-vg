@@ -258,7 +258,7 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     prune_filenames = []
     
     for graph_i, prune_id in enumerate(prune_ids):
-        prune_filename = os.path.join(work_dir, os.path.basename(graph_names[graph_i]) + '.prune')
+        prune_filename = os.path.join(work_dir, remove_ext(os.path.basename(graph_names[graph_i]), '.vg') + '.prune.vg')
         job.fileStore.readGlobalFile(prune_id, prune_filename)
         prune_filenames.append(prune_filename)
 
@@ -280,8 +280,17 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
 
     for prune_filename in prune_filenames:
         command += [os.path.basename(prune_filename)]
-        
-    context.runner.call(job, command, work_dir=work_dir)
+
+    try:
+        context.runner.call(job, command, work_dir=work_dir)
+    except:
+        # Dump everything we need to replicate the index run
+        logging.error("GCSA indexing failed. Dumping files.")
+        for prune_filename in prune_filenames:
+            context.write_output_file(job, prune_filename)
+        if mapping_id:
+            context.write_output_file(job, mapping_filename)
+        raise
 
     # Checkpoint index to output store
     gcsa_file_id = context.write_output_file(job, os.path.join(work_dir, gcsa_filename))
