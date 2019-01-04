@@ -114,7 +114,7 @@ Log onto the leader node with `toil ssh-cluster` as described above and open a `
 # Use maximum of 8 i3.8xlarge nodes with spot bit of $0.80
 export NODE_OPTS="--nodeTypes i3.8xlarge:0.80,i3.8xlarge --maxNodes 8"
 # Set Toil to use AWS autoscaling
-export AWS_OPTS="--defaultPreemptable --batchSystem mesos --provisioner aws --retryCount 3
+export AWS_OPTS="--defaultPreemptable --batchSystem mesos --provisioner aws --retryCount 3 --metrics"
 # Toil boilerplate
 export TOIL_OPTS="$NODE_OPTS $AWS_OPTS --realTimeLogging --logInfo --realTimeStderr"
 # S3 Bucket for Toil's temporary files
@@ -122,3 +122,5 @@ export TOIL_JS="aws:us-west-2:my-jobstore"
 # All output will be written here
 export TOIL_OS="aws:us-west-2/my-bucket/hs38d1-output"
 ```
+
+For a performance dashboard, browse to `localhost:3000` on the computer from which you ran `toil ssh-cluster` (this is enabled by the `--metrics` option above)
