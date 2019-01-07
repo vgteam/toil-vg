@@ -1038,8 +1038,10 @@ def run_indexing(job, context, inputGraphFileIDs,
 
     gcsa_root_job = Job()
     # gcsa follows from chrom_xg jobs only if per-chromosome gbwts are needed for per-chromosome pruning
-    gcsa_predecessor_job = chrom_xg_root_job if gbwt_prune else child_job
-    gcsa_predecessor_job.addFollowOn(gcsa_root_job)
+    if gbwt_prune:
+        chrom_xg_root_job.addFollowOn(gcsa_root_job)
+    else:
+        child_job.addChild(gcsa_root_job)
     
     if not skip_gcsa:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
@@ -1058,26 +1060,26 @@ def run_indexing(job, context, inputGraphFileIDs,
     
     if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
         # Also we need an id ranges file in parallel with everything else
-        indexes['id_ranges'] = job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
-                                                 graph_names, index_name, chroms,
-                                                 cores=context.config.misc_cores,
-                                                 memory=context.config.misc_mem,
-                                                 disk=context.config.misc_disk).rv()
+        indexes['id_ranges'] = child_job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
+                                                       graph_names, index_name, chroms,
+                                                       cores=context.config.misc_cores,
+                                                       memory=context.config.misc_mem,
+                                                       disk=context.config.misc_disk).rv()
                                                  
     if not skip_snarls:
         # Also we need a snarl index in parallel with everything else
-        indexes['snarls'] = job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
-                                              graph_names, index_name,
-                                              cores=context.config.snarl_index_cores,
-                                              memory=context.config.snarl_index_mem,
-                                              disk=context.config.snarl_index_disk).rv()
+        indexes['snarls'] = child_job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
+                                                    graph_names, index_name,
+                                                    cores=context.config.snarl_index_cores,
+                                                    memory=context.config.snarl_index_mem,
+                                                    disk=context.config.snarl_index_disk).rv()
     
 
     if bwa_fasta_id:
         # We need to index a reference FASTA for BWA
-        indexes['bwa'] = job.addChildJobFn(run_bwa_index, context, bwa_fasta_id,
-                                           cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
-                                           disk=context.config.bwa_index_disk).rv()
+        indexes['bwa'] = child_job.addChildJobFn(run_bwa_index, context, bwa_fasta_id,
+                                                 cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
+                                                 disk=context.config.bwa_index_disk).rv()
         
     
     return indexes
