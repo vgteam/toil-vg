@@ -62,6 +62,8 @@ def construct_subparser(parser):
                         help="Save paths for alts with variant ID")
     parser.add_argument("--flat_alts", action="store_true",
                         help="flat alts")
+    parser.add_argument("--handle_svs", action="store_true",
+                        help="pass --handle-sv to vg construct to parse symbolic SV alts")
     parser.add_argument("--construct_cores", type=int,
                         help="Number of cores for vg construct")
     parser.add_argument("--out_name", default='graph',
@@ -619,7 +621,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
 
     
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
-                      max_node_size, alt_paths, flat_alts, regions,
+                      max_node_size, alt_paths, flat_alts, handle_svs, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       gcsa_index = False, xg_index = False, gbwt_index = False,
                       id_ranges_index = False, snarls_index = False,
@@ -644,7 +646,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, gbwt_index or haplo_extraction or alt_paths,
-                                          flat_alts, regions,
+                                          flat_alts, handle_svs, regions,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
                                           normalize and name != 'haplo', validate)
 
@@ -788,7 +790,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
-                               max_node_size, alt_paths, flat_alts, regions, region_names,
+                               max_node_size, alt_paths, flat_alts, handle_svs, regions, region_names,
                                sort_ids, join_ids, name, merge_output_name, normalize, validate):
     """
     
@@ -843,18 +845,18 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
         fasta_id = fasta_ids[0] if len(fasta_ids) == 1 else fasta_ids[i]
         fasta_name = fasta_names[0] if len(fasta_names) == 1 else fasta_names[i]
         region_graph_ids.append(child_job.addChildJobFn(run_construct_region_graph, context,
-                                                  fasta_id, fasta_name,
-                                                  vcf_id, vcf_name, tbi_id, region, region_name,
-                                                  max_node_size, alt_paths, flat_alts,
-                                                  # todo: bump as command line option?
-                                                  #       also, needed if we update vg docker image?
-                                                  is_chrom=not region or ':' not in region,
-                                                  sort_ids=sort_ids,
-                                                  normalize=normalize,
-                                                  validate=validate,      
-                                                  cores=context.config.construct_cores,
-                                                  memory=context.config.construct_mem,
-                                                  disk=context.config.construct_disk).rv())
+                                                        fasta_id, fasta_name,
+                                                        vcf_id, vcf_name, tbi_id, region, region_name,
+                                                        max_node_size, alt_paths, flat_alts, handle_svs,
+                                                        # todo: bump as command line option?
+                                                        #       also, needed if we update vg docker image?
+                                                        is_chrom=not region or ':' not in region,
+                                                        sort_ids=sort_ids,
+                                                        normalize=normalize,
+                                                        validate=validate,      
+                                                        cores=context.config.construct_cores,
+                                                        memory=context.config.construct_mem,
+                                                        disk=context.config.construct_disk).rv())
 
     return child_job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
                                       region_names, name, merge_output_name,
@@ -951,7 +953,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         
     
 def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_name, tbi_id,
-                               region, region_name, max_node_size, alt_paths, flat_alts,
+                               region, region_name, max_node_size, alt_paths, flat_alts, handle_svs,
                                is_chrom = False, sort_ids = True, normalize = False, validate = False):
     """
     Construct a graph from the vcf for a given region and return its file id.
@@ -993,6 +995,8 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         cmd += ['--alt-paths']
     if flat_alts:
         cmd += ['--flat-alts']
+    if handle_svs:
+        cmd += ['--handle-sv']
     if job.cores:
         cmd += ['--threads', job.cores]
 
@@ -1631,7 +1635,7 @@ def construct_main(context, options):
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths,
-                                     options.flat_alts, regions,
+                                     options.flat_alts, options.handle_svs, regions,
                                      merge_graphs = options.merge_graphs,
                                      sort_ids = True, join_ids = True,
                                      gcsa_index = options.gcsa_index or options.all_index,
