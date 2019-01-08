@@ -708,7 +708,7 @@ class VGCGLTest(TestCase):
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--fasta', fa_path, '--vcf', in_vcf, '--regions', in_region,
+                   '--fasta', fa_path, '--vcf', in_vcf, '--regions', in_region, '--handle_svs',
                    '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
                    '--realTimeLogging', '--logInfo', '--validate', '--remove_chr_prefix'])
         self._run(['toil', 'clean', self.jobStoreLocal])
