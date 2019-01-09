@@ -13,7 +13,7 @@ if ! [ -x "$(command -v toil)" ]; then
 fi
 
 NODE_TYPE="i3.8xlarge:0.90,i3.8xlarge"
-MAX_NODES="8"
+MAX_NODES="8,8"
 usage() {
     # Print usage to stderr
     exec 1>&2
