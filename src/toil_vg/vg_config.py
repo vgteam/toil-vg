@@ -58,7 +58,7 @@ xg-index-disk: '2G'
 gbwt-index-cores: 1
 gbwt-index-mem: '4G'
 gbwt-index-disk: '2G'
-gbwt-index-preemptable: 'True'
+gbwt-index-preemptable: True
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
@@ -70,7 +70,7 @@ prune-disk: '2G'
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
 gcsa-index-disk: '2G'
-gcsa-index-preemptable: 'True'
+gcsa-index-preemptable: True
 
 # Resources allotted for snarl indexing.
 snarl-index-cores: 1
@@ -316,7 +316,7 @@ xg-index-disk: '100G'
 gbwt-index-cores: 4
 gbwt-index-mem: '35G'
 gbwt-index-disk: '100G'
-gbwt-index-preemptable: 'True'
+gbwt-index-preemptable: True
 
 # Resources allotted for gcsa pruning.  Note that the vg mod commands used in
 # this stage generally cannot take advantage of more than one thread
@@ -328,7 +328,7 @@ prune-disk: '60G'
 gcsa-index-cores: 16
 gcsa-index-mem: '110G'
 gcsa-index-disk: '2200G'
-gcsa-index-preemptable: 'False'
+gcsa-index-preemptable: True
 
 # Resources alloted to snarl indexing
 snarl-index-cores: 1
