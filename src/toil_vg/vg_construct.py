@@ -115,6 +115,9 @@ def construct_subparser(parser):
                         'ignore variants, just using the reference allele. \"keep\": keep the unphased variants, '
                         'breaking up the haplotype paths (potential downstream effects on indexing). \"arbitrary\": '
                         'choose an arbitrary phasing for the unphased variants')
+    parser.add_argument("--pre_min_af", type=float, default=None,
+                        help="Run minimum allele frequency filter as preprocessing step on each input VCF.  "
+                        "Unlike --min_af, this will be applied before merging and any control graph construction")
 
     
     # Add common indexing options shared with vg_index
@@ -1608,9 +1611,29 @@ def construct_main(context, options):
                 inputFastaFileIDs, inputFastaFileNames = cur_job.rv(1), cur_job.rv(2)
                 inputVCFFileIDs, inputTBIFileIDs = cur_job.rv(3), cur_job.rv(5)
 
+            # do minimum allele frequency filter as preprocessing step
+            if options.pre_min_af:
+                min_af_job = Job()
+                cur_job.addFollowOn(min_af_job)
+                cur_job = min_af_job
+                af_vcf_ids_list, af_tbi_ids_list = [], []
+                for vcf_ids, vcf_names, tbi_ids in zip(inputVCFFileIDs, inputVCFNames, inputTBIFileIDs):
+                    af_vcf_ids, af_tbi_ids = [], []
+                    for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+                        af_job = min_af_job.addChildJobFn(run_min_allele_filter_vcf_samples, context, vcf_id,
+                                                          vcf_name, tbi_id, options.pre_min_af,
+                                                          cores=context.config.construct_cores,
+                                                          memory=context.config.construct_mem,
+                                                          disk=context.config.construct_disk)
+                        af_vcf_ids.append(af_job.rv(0))
+                        af_tbi_ids.append(af_job.rv(1))
+                    af_vcf_ids_list.append(af_vcf_ids)
+                    af_tbi_ids_list.append(af_tbi_ids)
+                inputVCFFileIDs, inputTBIFileIDs = af_vcf_ids_list, af_tbi_ids_list
+
             # Merge up comma-separated vcfs with bcftools merge
             cur_job = cur_job.addFollowOnJobFn(run_merge_all_vcfs, context,
-                                                   inputVCFFileIDs, inputVCFNames, inputTBIFileIDs)
+                                               inputVCFFileIDs, inputVCFNames, inputTBIFileIDs)
             inputVCFFileIDs = cur_job.rv(0)
             inputVCFNames = cur_job.rv(1)
             inputTBIFileIDs = cur_job.rv(2)
