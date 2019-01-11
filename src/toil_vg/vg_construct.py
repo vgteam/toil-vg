@@ -118,7 +118,8 @@ def construct_subparser(parser):
     parser.add_argument("--pre_min_af", type=float, default=None,
                         help="Run minimum allele frequency filter as preprocessing step on each input VCF.  "
                         "Unlike --min_af, this will be applied before merging and any control graph construction")
-
+    parser.add_argument("--mask_ambiguous", action="store_true",
+                        help="Convert IUPAC ambiguous characters in FASTA to Ns")
     
     # Add common indexing options shared with vg_index
     index_toggle_parse_args(parser)
@@ -271,6 +272,27 @@ def run_unzip_fasta(job, context, fasta_id, fasta_name):
     context.runner.call(job, ['bgzip', '-d', os.path.basename(fasta_file)], work_dir=work_dir)
 
     return context.write_intermediate_file(job, fasta_file[:-3])
+
+def run_mask_ambiguous(job, context, fasta_id, fasta_name):
+    """
+    Replace IUPAC characters (of any case) with Ns.  That's how they end up in the XG anyway,
+    and it will prevent some errors in vg construct if the VCF has N's but the fasta has something else. 
+    (todo: would need to apply same thing to the VCF to be more robust, but will hold off until having
+    a use case)
+    """
+
+    work_dir = job.fileStore.getLocalTempDir()
+
+    fasta_file = os.path.join(work_dir, os.path.basename(fasta_name))
+    mask_file = os.path.splitext(fasta_file)[0] + '-mask.fa'
+    job.fileStore.readGlobalFile(fasta_id, fasta_file, mutable=True)
+
+    fa_mask_cmd = ['awk',  'BEGIN{FS=\" \"}{if(!/>/){print gsub ( "[YRWSKMDVHBXyrwskmdvhbx]","N" ) ($0)}else{print $1}}',
+                   os.path.basename(fasta_file)]
+    with open(mask_file, 'w') as mf:
+        context.runner.call(job, fa_mask_cmd, outfile=mf, work_dir=work_dir)
+
+    return context.write_intermediate_file(job, mask_file), os.path.basename(mask_file)
 
 def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = None, regions_regex = None):
     """
@@ -1573,8 +1595,18 @@ def construct_main(context, options):
             for i, fasta in enumerate(options.fasta):
                 if fasta.endswith('.gz'):
                     inputFastaFileIDs[i] = init_job.addChildJobFn(run_unzip_fasta, context, inputFastaFileIDs[i], 
-                                                                  os.path.basename(fasta)).rv()
+                                                                  os.path.basename(fasta),
+                                                                  disk=context.config.construct_disk).rv()
                     inputFastaNames[i] = inputFastaNames[i][:-3]
+
+            # Mask out ambigous bases
+            if options.mask_ambiguous:
+                mask_root = Job()
+                cur_job.addFollowOn(mask_root)
+                cur_job = mask_root
+                for i, (fasta_id, fasta_name) in enumerate(zip(inputFastaFileIDs, inputFastaNames)):
+                    inputFastaFileIDs[i] = mask_root.addChildJobFn(run_mask_ambiguous, context, inputFastaFileIDs[i], inputFastaNames[i],
+                                                                   disk=context.config.construct_disk).rv(0)
 
             # do minimum allele frequency filter as preprocessing step
             if options.pre_min_af:
