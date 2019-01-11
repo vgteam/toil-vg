@@ -1576,6 +1576,26 @@ def construct_main(context, options):
                                                                   os.path.basename(fasta)).rv()
                     inputFastaNames[i] = inputFastaNames[i][:-3]
 
+            # do minimum allele frequency filter as preprocessing step
+            if options.pre_min_af:
+                min_af_job = Job()
+                cur_job.addFollowOn(min_af_job)
+                cur_job = min_af_job
+                af_vcf_ids_list, af_tbi_ids_list = [], []
+                for vcf_ids, vcf_names, tbi_ids in zip(inputVCFFileIDs, inputVCFNames, inputTBIFileIDs):
+                    af_vcf_ids, af_tbi_ids = [], []
+                    for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
+                        af_job = min_af_job.addChildJobFn(run_min_allele_filter_vcf_samples, context, vcf_id,
+                                                          vcf_name, tbi_id, options.pre_min_af,
+                                                          cores=context.config.construct_cores,
+                                                          memory=context.config.construct_mem,
+                                                          disk=context.config.construct_disk)
+                        af_vcf_ids.append(af_job.rv(0))
+                        af_tbi_ids.append(af_job.rv(1))
+                    af_vcf_ids_list.append(af_vcf_ids)
+                    af_tbi_ids_list.append(af_tbi_ids)
+                inputVCFFileIDs, inputTBIFileIDs = af_vcf_ids_list, af_tbi_ids_list
+                    
             regions_regex = None if not options.regions_regex else '|'.join(options.regions_regex)
 
             # Parse the regions from file
@@ -1610,26 +1630,6 @@ def construct_main(context, options):
                 regions = cur_job.rv(0)
                 inputFastaFileIDs, inputFastaFileNames = cur_job.rv(1), cur_job.rv(2)
                 inputVCFFileIDs, inputTBIFileIDs = cur_job.rv(3), cur_job.rv(5)
-
-            # do minimum allele frequency filter as preprocessing step
-            if options.pre_min_af:
-                min_af_job = Job()
-                cur_job.addFollowOn(min_af_job)
-                cur_job = min_af_job
-                af_vcf_ids_list, af_tbi_ids_list = [], []
-                for vcf_ids, vcf_names, tbi_ids in zip(inputVCFFileIDs, inputVCFNames, inputTBIFileIDs):
-                    af_vcf_ids, af_tbi_ids = [], []
-                    for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
-                        af_job = min_af_job.addChildJobFn(run_min_allele_filter_vcf_samples, context, vcf_id,
-                                                          vcf_name, tbi_id, options.pre_min_af,
-                                                          cores=context.config.construct_cores,
-                                                          memory=context.config.construct_mem,
-                                                          disk=context.config.construct_disk)
-                        af_vcf_ids.append(af_job.rv(0))
-                        af_tbi_ids.append(af_job.rv(1))
-                    af_vcf_ids_list.append(af_vcf_ids)
-                    af_tbi_ids_list.append(af_tbi_ids)
-                inputVCFFileIDs, inputTBIFileIDs = af_vcf_ids_list, af_tbi_ids_list
 
             # Merge up comma-separated vcfs with bcftools merge
             cur_job = cur_job.addFollowOnJobFn(run_merge_all_vcfs, context,
