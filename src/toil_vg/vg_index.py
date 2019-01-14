@@ -5,7 +5,7 @@ vg_index.py: index a graph so it can be mapped to
 """
 from __future__ import print_function
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
-import doctest, re, json, collections, time, timeit
+import doctest, re, json, collections, time, timeit, distutils
 import logging, logging.handlers, SocketServer, struct, socket, threading
 import string
 import urlparse
@@ -106,6 +106,8 @@ def index_parse_args(parser):
                         help="Use given GBWT for GCSA2 pruning")
     parser.add_argument("--gbwt_prune", action='store_true',
                         help="Use gbwt for gcsa pruning")
+    parser.add_argument("--force_phasing", type=lambda x:bool(distutils.util.strtobool(x)), default=None,
+                        help="Randomly phase unphased variants when making GBWT if set to True")
                         
 def validate_index_options(options):
     """
@@ -486,7 +488,9 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
             
             for region in gbwt_regions:
                 phasing_opts += ['--region', region]
-            
+
+            if context.config.force_phasing:
+                phasing_opts += ['--force-phasing']
     else:
         phasing_opts = []
         
