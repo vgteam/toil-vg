@@ -702,7 +702,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--fasta', fa_path, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
-                   '--realTimeLogging', '--logInfo', '--validate', '--add_chr_prefix'])
+                   '--realTimeLogging', '--logInfo', '--validate', '--add_chr_prefix', '--mask_ambiguous'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
