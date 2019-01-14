@@ -241,7 +241,7 @@ def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
 
     merged_name = '_'.join(names) + '.vcf.gz'
     with open(os.path.join(work_dir, merged_name), 'w') as merged_file:
-        cmd = [['bcftools', 'merge', '--missing-to-ref'] + vcf_names]
+        cmd = [['bcftools', 'merge', '--missing-to-ref', '--force-samples'] + vcf_names]
         # phase the ref/ref calls added by --missing-to-ref
         cmd.append(['sed', '-e', 's/0\/0/0\|0/g'])
         cmd.append(['bcftools', 'view', '-', '--output-type', 'z'])
