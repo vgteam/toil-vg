@@ -109,12 +109,6 @@ def construct_subparser(parser):
     parser.add_argument("--bwa_reference", type=make_url,
                         help="Make a BWA reference (set of indexes) from the given FASTA (not the --fasta FASTAs).")
 
-    parser.add_argument("--handle_unphased", default='arbitrary',
-                        choices=['skip', 'keep', 'arbitrary'],
-                        help='How to handle unphased variants in the VCF when creating the sample or haplo graph. \"skip\": '
-                        'ignore variants, just using the reference allele. \"keep\": keep the unphased variants, '
-                        'breaking up the haplotype paths (potential downstream effects on indexing). \"arbitrary\": '
-                        'choose an arbitrary phasing for the unphased variants')
     parser.add_argument("--pre_min_af", type=float, default=None,
                         help="Run minimum allele frequency filter as preprocessing step on each input VCF.  "
                         "Unlike --min_af, this will be applied before merging and any control graph construction")
@@ -247,7 +241,7 @@ def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
 
     merged_name = '_'.join(names) + '.vcf.gz'
     with open(os.path.join(work_dir, merged_name), 'w') as merged_file:
-        cmd = [['bcftools', 'merge', '--missing-to-ref'] + vcf_names]
+        cmd = [['bcftools', 'merge', '--missing-to-ref', '--force-samples'] + vcf_names]
         # phase the ref/ref calls added by --missing-to-ref
         cmd.append(['sed', '-e', 's/0\/0/0\|0/g'])
         cmd.append(['bcftools', 'view', '-', '--output-type', 'z'])
@@ -445,7 +439,6 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             pos_control_sample = None,
                             neg_control_sample = None,
                             sample_graph = None,
-                            handle_unphased = None,
                             haplo_sample = None,
                             filter_samples = [],
                             min_afs = [],
@@ -531,7 +524,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
 
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             make_sample = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample_graph,
-                                            pos_only = True, unphased_handling=handle_unphased,
+                                            pos_only = True,
                                             vcf_subdir = vcf_subdir,
                                             cores=context.config.construct_cores,
                                             memory=context.config.construct_mem,
@@ -557,7 +550,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
         
         for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
             make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
-                                              pos_only = True, unphased_handling=handle_unphased,
+                                              pos_only = True, 
                                               vcf_subdir = vcf_subdir,
                                               cores=context.config.construct_cores,
                                               memory=context.config.construct_mem,
@@ -1109,7 +1102,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples, vcf_
     
     return out_vcf_id, out_tbi_id
     
-def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False, unphased_handling = None,
+def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False,
                           vcf_subdir = None):
     """ make a positive and negative control vcf 
     The positive control has only variants in the sample, the negative
@@ -1133,19 +1126,11 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample, '--trim-alt-alleles']]
     
     if found_sample:
-        # get rid of non-trivial genotypes so they don't end up in our graph
-        if unphased_handling == 'skip':
-            cmd[0] += ['--phased']
-
         # remove anything that's not alt (probably cleaner way to do this)
         gfilter = 'GT="0" || GT="0|0" || GT="0/0"'
         gfilter += ' || GT="." || GT=".|." || GT="./."'
         gfilter += ' || GT=".|0" || GT="0/."'
         gfilter += ' || GT="0|." || GT="./0"'
-
-        if unphased_handling == 'arbitrary':
-            # just phase unphased variants.  so 1/1 --> 1|1 etc
-            cmd.append(['sed', '-e', 's/\\([0-9,.]\\)\\/\\([0-9,.]\\)/\\1\\|\\2/g'])
 
         cmd.append(['bcftools', 'view', '-', '--output-type', 'z', '--exclude', gfilter])
     else:
@@ -1680,7 +1665,6 @@ def construct_main(context, options):
                                                pos_control_sample = options.pos_control,
                                                neg_control_sample = options.neg_control,
                                                sample_graph = options.sample_graph,
-                                               handle_unphased = options.handle_unphased,
                                                haplo_sample = options.haplo_sample,
                                                filter_samples = filter_samples,
                                                min_afs = options.min_af,

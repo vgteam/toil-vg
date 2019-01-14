@@ -197,9 +197,6 @@ sveval-docker: 'jmonlong/sveval:latest'
 ##########################
 ### vg_index Arguments ###
 
-# Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
-index-name: 'genome'
-
 # Options to pass to vg prune.
 # (limit to general parameters, currently -k, -e, s.  
 # Rest decided by toil-vg via other options like prune-mode)
@@ -207,6 +204,9 @@ prune-opts: []
 
 # Options to pass to vg gcsa indexing
 gcsa-opts: []
+
+# Randomly phase unphased variants when constructing GBWT
+force-phasing: True
 
 ########################
 ### vg_map Arguments ###
@@ -456,9 +456,6 @@ sveval-docker: 'jmonlong/sveval:latest'
 ##########################
 ### vg_index Arguments ###
 
-# Name of index output files.  ex <name>.xg, <name>.gcsa etc. 
-index-name: 'genome'
-
 # Options to pass to vg prune.
 # (limit to general parameters, currently -k, -e, s.  
 # Rest decided by toil-vg via other options like prune-mode)
@@ -466,6 +463,9 @@ prune-opts: []
 
 # Options to pass to vg gcsa indexing
 gcsa-opts: []
+
+# Randomly phase unphased variants when constructing GBWT
+force-phasing: True
 
 ########################
 ### vg_map Arguments ###
@@ -588,7 +588,7 @@ def apply_config_file_args(args):
     for args_key in args.__dict__:
         # Add in missing program arguments to config option list and
         # overwrite config options with corresponding options that are not None in program arguments
-        if (args.__dict__[args_key]) or (args_key not in  options.__dict__.keys()):
+        if (args.__dict__[args_key] is not None) or (args_key not in  options.__dict__.keys()):
             options.__dict__[args_key] = args.__dict__[args_key]
             
     return options
