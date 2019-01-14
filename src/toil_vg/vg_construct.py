@@ -287,7 +287,7 @@ def run_mask_ambiguous(job, context, fasta_id, fasta_name):
     mask_file = os.path.splitext(fasta_file)[0] + '-mask.fa'
     job.fileStore.readGlobalFile(fasta_id, fasta_file, mutable=True)
 
-    fa_mask_cmd = ['awk',  'BEGIN{FS=\" \"}{if(!/>/){print gsub ( "[YRWSKMDVHBXyrwskmdvhbx]","N" ) ($0)}else{print $1}}',
+    fa_mask_cmd = ['awk',  'BEGIN{FS=\" \"}{if(!/>/){ gsub(/[YRWSKMDVHBXyrwskmdvhbx]/,"N"); print }else{print $1}}',
                    os.path.basename(fasta_file)]
     with open(mask_file, 'w') as mf:
         context.runner.call(job, fa_mask_cmd, outfile=mf, work_dir=work_dir)
