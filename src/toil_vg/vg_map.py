@@ -736,11 +736,7 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
                 job.fileStore.readGlobalFile(chunk_gam_id, tmp_gam_file)
                 with open(tmp_gam_file) as tmp_f:
                     shutil.copyfileobj(tmp_f, merge_file)
-                
-        chr_gam_id = context.write_intermediate_file(job, output_file)
-    else:
-        chr_gam_id = chunk_file_ids[0]
-                
+                                
     # checkpoint to out store
     if len(chunk_file_ids) == 1:
         job.fileStore.readGlobalFile(chunk_file_ids[0], output_file)
