@@ -218,15 +218,15 @@ def run_gcsa_prep(job, context, input_graph_ids,
     for graph_i, input_graph_id in enumerate(input_graph_ids):
         gbwt_id = chrom_gbwt_ids[graph_i] if chrom_gbwt_ids else None
         mapping_id = mapping_ids[-1] if mapping_ids and gbwt_id else None
-        prev_job = prune_jobs[-1] if prune_jobs and gbwt_id else prune_root_job
+        # toggle between parallel/sequential based on if we're unfolding or not
+        add_fn = prune_jobs[-1].addFollowOnJobFn if prune_jobs and gbwt_id else prune_root_job.addChildJobFn
         if not skip_pruning:
-            prune_job = prev_job.addFollowOnJobFn(run_gcsa_prune, context, graph_names[graph_i],
-                                                  input_graph_id, gbwt_id, mapping_id,
-                                                  cores=context.config.prune_cores,
-                                                  memory=context.config.prune_mem,
-                                                  disk=context.config.prune_disk)
+            prune_job = add_fn(run_gcsa_prune, context, graph_names[graph_i],
+                               input_graph_id, gbwt_id, mapping_id,
+                               cores=context.config.prune_cores,
+                               memory=context.config.prune_mem,
+                               disk=context.config.prune_disk)
             prune_id = prune_job.rv(0)
-            # toggle between parallel/sequential based on if we're unfolding or now
             if gbwt_id:
                 prune_jobs.append(prune_job)
                 mapping_ids.append(prune_job.rv(1))
@@ -273,7 +273,7 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     # Where do we put the GCSA2 index?
     gcsa_filename = "{}.gcsa".format(index_name)
 
-    command = ['vg', 'index', '--gcsa-name', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
+    command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['--threads', str(job.cores)]
     command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
     

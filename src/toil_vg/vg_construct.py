@@ -1030,8 +1030,19 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         cmd.append(['vg', 'ids', '--sort', '-'])
 
     vg_path = os.path.join(work_dir, region_name)
-    with open(vg_path, 'w') as vg_file:
-        context.runner.call(job, cmd, work_dir = work_dir, outfile = vg_file)
+    try:
+        with open(vg_path, 'w') as vg_file:
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = vg_file)
+    except:
+        # Dump everything we need to replicate the construction
+        logging.error("Construction failed. Dumping files.")
+
+        context.write_output_file(job, fasta_file)
+        if vcf_id:
+            context.write_output_file(job, vcf_file)
+            context.write_output_file(job, vcf_file + '.tbi')
+            
+        raise
         
     if validate:
         # Check the constructed and possibly modified graph for errors
