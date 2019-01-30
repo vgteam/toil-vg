@@ -273,7 +273,7 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     # Where do we put the GCSA2 index?
     gcsa_filename = "{}.gcsa".format(index_name)
 
-    command = ['vg', 'index', '--gcsa-name', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
+    command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['--threads', str(job.cores)]
     command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
     
