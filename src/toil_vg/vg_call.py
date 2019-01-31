@@ -783,28 +783,26 @@ def call_main(context, options):
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
-
-            logger.info('Importing input files into Toil')
+            importer = AsyncImporter(toil)
 
             # Upload local files to the job store
-            inputXGFileID = toil.importFile(options.xg_path)
+            inputXGFileID = importer.load(options.xg_path)
             inputGamFileIDs = []
             inputGamIndexFileIDs = []
             for inputGam in options.gams:
-                inputGamFileIDs.append(toil.importFile(inputGam))
+                inputGamFileIDs.append(importer.load(inputGam))
                 try:
                     inputGamIndexID = toil.importFile(inputGam + '.gai')
                 except:
                     inputGamIndexID = None
                 # we allow some GAMs to have indexes and some to have None
                 inputGamIndexFileIDs.append(inputGamIndexID)
-                
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+
+            importer.wait()
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_all_calling, context, inputXGFileID, inputGamFileIDs, inputGamIndexFileIDs,
+            root_job = Job.wrapJobFn(run_all_calling, context, importer.resolve(inputXGFileID),
+                                     importer.resolve(inputGamFileIDs), inputGamIndexFileIDs,
                                      options.chroms, options.vcf_offsets, options.sample_name,
                                      genotype=options.genotype, augment=not options.no_augment, recall=options.recall,
                                      cores=context.config.misc_cores,

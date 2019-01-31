@@ -368,21 +368,21 @@ def sim_main(context, options):
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
+            importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
             inputXGFileIDs = []
             for xg_index in options.xg_indexes:
-                inputXGFileIDs.append(toil.importFile(xg_index))
+                inputXGFileIDs.append(importer.load(xg_index))
             if options.annotate_xg:
-                inputAnnotXGFileID = toil.importFile(options.annotate_xg)
+                inputAnnotXGFileID = importer.load(options.annotate_xg)
             else:
                 inputAnnotXGFileID = None
             tagBEDIDs = []
             for url in options.tag_bed:
-                tagBEDIDs.append(toil.importFile(url))
+                tagBEDIDs.append(importer.load(url))
             if options.fastq:
-                inputFastqFileID = toil.importFile(options.fastq)
+                inputFastqFileID = importer.load(options.fastq)
             else:
                 inputFastqFileID = None
 
@@ -390,27 +390,26 @@ def sim_main(context, options):
             if options.fastq_out:
                 options.gam = True                
 
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+            importer.wait()
 
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
 
             # Unzip the fastq
             if options.fastq and options.fastq.endswith('.gz'):
-                inputFastqFileID = init_job.addChildJobFn(run_unzip_fasta, context, inputFastqFileID, 
+                inputFastqFileID = init_job.addChildJobFn(run_unzip_fasta, context, importer.resolve(inputFastqFileID), 
                                                           os.path.basename(options.fastq)).rv()
 
             # Make a root job
             root_job = Job.wrapJobFn(run_sim, context, options.num_reads, options.gam,
                                      options.fastq_out,
                                      options.seed, options.sim_chunks,
-                                     inputXGFileIDs,
-                                     inputAnnotXGFileID,
-                                     tag_bed_ids = tagBEDIDs,
+                                     importer.resolve(inputXGFileIDs),
+                                     importer.resolve(inputAnnotXGFileID),
+                                     tag_bed_ids = importer.resolve(tagBEDIDs),
                                      paths = options.path,
                                      drop_contigs_matching = options.drop_contigs_matching,
-                                     fastq_id = inputFastqFileID,
+                                     fastq_id = importer.resolve(inputFastqFileID),
                                      out_name = options.out_name,
                                      validate = options.validate,
                                      cores=context.config.misc_cores,

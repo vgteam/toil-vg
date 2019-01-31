@@ -567,7 +567,8 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
-                   '--out_name', 'snp1kg-BRCA1', '--alt_paths', '--pangenome'])
+                   '--out_name', 'snp1kg-BRCA1', '--alt_paths', '--pangenome',
+                   '--realTimeLogging', '--logInfo', '--realTimeStderr'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # check graph exists
@@ -580,7 +581,8 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--xg_index', '--graphs', vg_path, '--chroms', '17',
                    '--vcf_phasing', in_vcf, '--index_name', 'my_index',
-                   '--gbwt_index', '--xg_index_cores', '4'])
+                   '--gbwt_index', '--xg_index_cores', '4',
+                   '--realTimeLogging', '--logInfo', '--realTimeStderr'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # check gbwt exists

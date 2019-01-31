@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
-    parse_plot_sets, title_to_filename, ensure_disk, run_concat_files
+    parse_plot_sets, title_to_filename, ensure_disk, run_concat_files, AsyncImporter
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing, run_bwa_index, run_minimap2_index
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -2930,7 +2930,7 @@ def make_mapeval_plan(toil, options):
     # Make a plan
     plan = argparse.Namespace()
     
-    start_time = timeit.default_timer()
+    importer = AsyncImporter(toil)
             
     # Upload local files to the remote IO Store
     
@@ -2940,12 +2940,12 @@ def make_mapeval_plan(toil, options):
     plan.gam_file_ids = []
     if options.gams:
         for gam in options.gams:
-            plan.gam_file_ids.append(toil.importFile(gam))
+            plan.gam_file_ids.append(importer.load(gam))
 
     plan.vg_file_ids = []
     if options.vg_graphs:
         for graph in options.vg_graphs:
-            plan.vg_file_ids.append(toil.importFile(graph))
+            plan.vg_file_ids.append(importer.load(graph))
 
     plan.xg_file_ids = []
     plan.xg_comparison_ids = [] # optional override xg_file_ids for comparison
@@ -2960,15 +2960,15 @@ def make_mapeval_plan(toil, options):
                 ib, cib = ib.split(',')[0], make_url(ib.split(',')[1])
             else:
                 cib = ib
-            imported_xgs[ib + '.xg'] = toil.importFile(ib + '.xg')
+            imported_xgs[ib + '.xg'] = importer.load(ib + '.xg')
             plan.xg_file_ids.append(imported_xgs[ib + '.xg'])
             if cib and cib + '.xg' not in imported_xgs:
-                imported_xgs[cib + '.xg'] = toil.importFile(cib + '.xg')
+                imported_xgs[cib + '.xg'] = importer.load(cib + '.xg')
             plan.xg_comparison_ids.append(imported_xgs[cib + '.xg'])
             if not options.gams:
                 plan.gcsa_file_ids.append(
-                    (toil.importFile(ib + '.gcsa'),
-                    toil.importFile(ib + '.gcsa.lcp')))
+                    (importer.load(ib + '.gcsa'),
+                    importer.load(ib + '.gcsa.lcp')))
                     
                 if options.use_gbwt:
                     try:
@@ -2996,24 +2996,24 @@ def make_mapeval_plan(toil, options):
                 # multiple gam outputs not currently supported by evaluation pipeline
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
                 #    id_range_file_ids.append(
-                #        toil.importFile(ib + '_id_ranges.tsv'))
+                #        importer.load(ib + '_id_ranges.tsv'))
 
     plan.reads_xg_file_id = None
     if options.gam_input_xg:
         if options.gam_input_xg in imported_xgs:
             plan.reads_xg_file_id = imported_xgs[options.gam_input_xg]
         else:
-            plan.reads_xg_file_id = toil.importFile(options.gam_input_xg)
+            plan.reads_xg_file_id = importer.load(options.gam_input_xg)
                     
     # Import input reads to be realigned
     if options.gam_input_reads:
-        plan.reads_gam_file_id = toil.importFile(options.gam_input_reads)
+        plan.reads_gam_file_id = importer.load(options.gam_input_reads)
     else:
         plan.reads_gam_file_id = None
 
     # Import input reads to be realigned
     if options.bam_input_reads:
-        plan.reads_bam_file_id = toil.importFile(options.bam_input_reads)
+        plan.reads_bam_file_id = importer.load(options.bam_input_reads)
     else:
         plan.reads_bam_file_id = None
 
@@ -3021,24 +3021,24 @@ def make_mapeval_plan(toil, options):
     plan.reads_fastq_file_ids = []
     if options.fastq:
         for sample_reads in options.fastq:
-            plan.reads_fastq_file_ids.append(toil.importFile(sample_reads))
+            plan.reads_fastq_file_ids.append(importer.load(sample_reads))
                                 
     # Input bam data        
     plan.bam_file_ids = []
     if options.bams:
         for bam in options.bams:
-            plan.bam_file_ids.append(toil.importFile(bam))
+            plan.bam_file_ids.append(importer.load(bam))
     plan.pe_bam_file_ids = []
     if options.pe_bams:
         for bam in options.pe_bams:
-            plan.pe_bam_file_ids.append(toil.importFile(bam))
+            plan.pe_bam_file_ids.append(importer.load(bam))
             
     plan.fasta_file_id = None
     plan.bwa_index_ids = None
     plan.minimap2_index_id = None
     if options.fasta:
         # Load the fasta, which we may want for BWA or minimap2
-        plan.fasta_file_id = toil.importFile(options.fasta)
+        plan.fasta_file_id = importer.load(options.fasta)
     
         # Load any BWA indexes
         plan.bwa_index_ids = dict()
@@ -3058,14 +3058,13 @@ def make_mapeval_plan(toil, options):
             logger.info('No minimap2 index found for {}, will regenerate if needed'.format(options.fasta))
         
     if options.truth:
-        plan.true_read_stats_file_id = toil.importFile(options.truth)
+        plan.true_read_stats_file_id = importer.load(options.truth)
     else:
         plan.true_read_stats_file_id = None
 
-    end_time = timeit.default_timer()
-    logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+    importer.wait()
     
-    return plan
+    return importer.resolve(plan)
 
 def mapeval_main(context, options):
     """

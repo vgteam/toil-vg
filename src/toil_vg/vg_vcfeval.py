@@ -611,18 +611,24 @@ def vcfeval_main(context, options):
 
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
-            start_time = timeit.default_timer()
+            
+            importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
-            vcfeval_baseline_id = toil.importFile(options.vcfeval_baseline)
-            call_vcf_id = toil.importFile(options.call_vcf)
-            vcfeval_baseline_tbi_id = toil.importFile(options.vcfeval_baseline + '.tbi')
-            call_tbi_id = toil.importFile(options.call_vcf + '.tbi')            
-            fasta_id = toil.importFile(options.vcfeval_fasta) if options.vcfeval_fasta else None
-            bed_id = toil.importFile(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
+            vcfeval_baseline_id = importer.load(options.vcfeval_baseline)
+            call_vcf_id = importer.load(options.call_vcf)
+            vcfeval_baseline_tbi_id = importer.load(options.vcfeval_baseline + '.tbi', wait_on = vcfeval_baseline_id)
+            call_tbi_id = importer.load(options.call_vcf + '.tbi', wait_on = call_vcf_id)
+            fasta_id = importer.load(options.vcfeval_fasta) if options.vcfeval_fasta else None
+            bed_id = importer.load(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
 
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+            importer.wait()
+            vcfeval_baseline_id = importer.resolve(vcfeval_baseline_id)
+            call_vcf_id = importer.resolve(call_vcf_id)
+            vcfeval_baseline_tbi_id = importer.resolve(vcfeval_baseline_tbi_id)
+            call_tbi_id = importer.resolve(call_tbi_id)
+            fasta_id = importer.resolve(fasta_id)
+            bed_id = importer.resolve(bed_id)
 
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
