@@ -418,48 +418,48 @@ def pipeline_main(context, options):
 
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
-    
-            start_time = timeit.default_timer()
+
+            importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
             inputGraphFileIDs = []
             if options.graphs:
                 for graph in options.graphs:
-                    inputGraphFileIDs.append(toil.importFile(graph))
+                    inputGraphFileIDs.append(importer.load(graph))
             inputReadsFileIDs = []
             if options.fastq:
                 for sample_reads in options.fastq:
-                    inputReadsFileIDs.append(toil.importFile(sample_reads))
+                    inputReadsFileIDs.append(importer.load(sample_reads))
             elif options.gam_input_reads:
-                inputReadsFileIDs.append(toil.importFile(options.gam_input_reads))
+                inputReadsFileIDs.append(importer.load(options.gam_input_reads))
             else:
                 assert options.bam_input_reads
-                inputReadsFileIDs.append(toil.importFile(options.bam_input_reads))
+                inputReadsFileIDs.append(importer.load(options.bam_input_reads))
             if options.xg_index:
-                inputXGFileID = toil.importFile(options.xg_index)
+                inputXGFileID = importer.load(options.xg_index)
             else:
                 inputXGFileID = None
             if options.gcsa_index:
-                inputGCSAFileID = toil.importFile(options.gcsa_index)
-                inputLCPFileID = toil.importFile(options.gcsa_index + ".lcp")
+                inputGCSAFileID = importer.load(options.gcsa_index)
+                inputLCPFileID = importer.load(options.gcsa_index + ".lcp")
             else:
                 inputGCSAFileID = None
                 inputLCPFileID = None
             if options.gbwt_index:
-                inputGBWTFileID = toil.importFile(options.gbwt_index)
+                inputGBWTFileID = importer.load(options.gbwt_index)
             else:
                 inputGBWTFileID = None
             if options.id_ranges:
-                inputIDRangesFileID = toil.importFile(options.id_ranges)
+                inputIDRangesFileID = importer.load(options.id_ranges)
             else:
                 inputIDRangesFileID = None
             if options.vcfeval_baseline is not None:
                 assert options.vcfeval_baseline.endswith('.vcf.gz')
                 assert options.vcfeval_fasta is not None
-                inputVCFFileID = toil.importFile(options.vcfeval_baseline)
-                inputTBIFileID = toil.importFile(options.vcfeval_baseline + '.tbi')
-                inputFastaFileID = toil.importFile(options.vcfeval_fasta)
-                inputBedFileID = toil.importFile(options.vcfeval_bed_regions) \
+                inputVCFFileID = importer.load(options.vcfeval_baseline)
+                inputTBIFileID = importer.load(options.vcfeval_baseline + '.tbi', wait_on = inputVCFFileID)
+                inputFastaFileID = importer.load(options.vcfeval_fasta)
+                inputBedFileID = importer.load(options.vcfeval_bed_regions) \
                                  if options.vcfeval_bed_regions is not None else None
             else:
                 inputVCFFileID = None
@@ -469,19 +469,26 @@ def pipeline_main(context, options):
             inputPhasingVCFFileIDs = []
             inputPhasingTBIFileIDs = []
             for vcf in options.vcf_phasing:
-                inputPhasingVCFFileIDs.append(toil.importFile(vcf))
-                inputPhasingTBIFileIDs.append(toil.importFile(vcf + '.tbi'))          
+                inputPhasingVCFFileIDs.append(importer.load(vcf))
+                inputPhasingTBIFileIDs.append(importer.load(vcf + '.tbi', wait_on = inputPhasingTBIFileIDs[-1]))
 
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+            importer.wait()
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_pipeline_index, context, options, inputGraphFileIDs,
-                                     inputReadsFileIDs, inputXGFileID, inputGCSAFileID,
-                                     inputLCPFileID, inputGBWTFileID, inputIDRangesFileID,
-                                     inputVCFFileID, inputTBIFileID,
-                                     inputFastaFileID, inputBedFileID,
-                                     inputPhasingVCFFileIDs, inputPhasingTBIFileIDs,
+            root_job = Job.wrapJobFn(run_pipeline_index, context, options,
+                                     importer.resolve(inputGraphFileIDs),
+                                     importer.resolve(inputReadsFileIDs),
+                                     importer.resolve(inputXGFileID),
+                                     importer.resolve(inputGCSAFileID),
+                                     importer.resolve(inputLCPFileID),
+                                     importer.resolve(inputGBWTFileID),
+                                     importer.resolve(inputIDRangesFileID),
+                                     importer.resolve(inputVCFFileID),
+                                     importer.resolve(inputTBIFileID),
+                                     importer.resolve(inputFastaFileID),
+                                     importer.resolve(inputBedFileID),
+                                     importer.resolve(inputPhasingVCFFileIDs),
+                                     importer.resolve(inputPhasingTBIFileIDs),
                                      cores=context.config.misc_cores, memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
 

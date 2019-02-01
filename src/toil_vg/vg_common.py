@@ -18,6 +18,8 @@ import collections
 import socket
 import uuid
 import platform
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor, Future
 
 from toil.common import Toil
 from toil.job import Job
@@ -949,4 +951,55 @@ def run_concat_files(job, context, file_ids, dest_name=None, header=None):
         RealtimeLogger.info("Concatenated {} files into output file {} -> {}".format(len(file_ids), out_name, dest_name)) 
         return context.write_output_file(job, out_name, dest_name)
             
+class AsyncImporter(object):
+    """ 
+    Importing big files is a bottleneck.  We can improve things somewhat by using threads
+    """
+    def __init__(self, toil, max_threads = multiprocessing.cpu_count()):
+        self.executor = ThreadPoolExecutor(max_workers = max_threads)
+        self.toil = toil
+        self.start_time = timeit.default_timer()
+        self.count = 0
+        logger.info('Importing input files into Toil')
 
+    def load(self, file_path, wait_on = None):
+        """ 
+        Do a toil import asynchronously.  vg construct will actually fail if the tbi is 
+        imported after the vcf.gz, so the wait_on option is used, for example,
+        to make sure indexes get imported after the file they index 
+        """
+        self.count += 1
+        def wait_import():
+            if wait_on:
+                wait_on.result()
+            return self.toil.importFile(file_path)
+        return self.executor.submit(wait_import)
+
+    def wait(self):
+        """ 
+        Wait until everything's finished running.  Doesn't do much, in effect, beyond
+        the log message...
+        """
+        self.executor.shutdown(wait = True)
+        end_time = timeit.default_timer()
+        logger.info('Imported {} input files into Toil in {} seconds'.format(
+            self.count, end_time - self.start_time))
+
+    def resolve(self, result):
+        """ 
+        Transform our promises to values.
+        Supports lists, tuples, dicts and Namespaces and some nested combos thereof
+        """
+        if result is None:
+            return None
+        elif isinstance(result, (list, tuple)):
+            return [self.resolve(x) for x in result]
+        elif isinstance(result, dict):
+            return dict([(k,self.resolve(v)) for k,v in result.items()])
+        elif isinstance(result, argparse.Namespace):
+            result.__dict__ = self.resolve(result.__dict__)
+            return result
+        elif isinstance(result, Future): 
+            return result.result()
+        else:
+            return result

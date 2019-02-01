@@ -1105,45 +1105,45 @@ def index_main(context, options):
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
+            importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
             inputGraphFileIDs = []
             for graph in options.graphs:
-                inputGraphFileIDs.append(toil.importFile(graph))
+                inputGraphFileIDs.append(importer.load(graph))
             inputPhasingVCFFileIDs = []
             inputPhasingTBIFileIDs = []
             for vcf in options.vcf_phasing:
-                inputPhasingVCFFileIDs.append(toil.importFile(vcf))
-                inputPhasingTBIFileIDs.append(toil.importFile(vcf + '.tbi'))
+                inputPhasingVCFFileIDs.append(importer.load(vcf))
+                inputPhasingTBIFileIDs.append(importer.load(vcf + '.tbi', wait_on = inputPhasingVCFFileIDs[-1]))
             # like construct, if there's one vcf and many graphs, we apply the vcf everywhere
             if len(inputPhasingTBIFileIDs) == 1 and len(options.graphs) > 1:
                 inputPhasingVCFFileIDs = [inputPhasingVCFFileIDs[0]] * len(options.graphs)
                 inputPhasingTBIFileIDs = [inputPhasingTBIFileIDs[0]] * len(options.graphs)
             inputGBWTID = None
             if options.gbwt_input:
-                inputGBWTID = toil.importFile(options.gbwt_input)
+                inputGBWTID = importer.load(options.gbwt_input)
             inputNodeMappingID = None
             if options.node_mapping:
-                inputNodeMappingID = toil.importFile(options.node_mapping)
+                inputNodeMappingID = importer.load(options.node_mapping)
             inputBWAFastaID = None
             if options.bwa_index_fasta:
-                inputBWAFastaID = toil.importFile(options.bwa_index_fasta)
+                inputBWAFastaID = importer.load(options.bwa_index_fasta)
             
             # Handy to have meaningful filenames throughout, so we remember
             # the input graph names
             graph_names = [os.path.basename(i) for i in options.graphs]
 
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+            importer.wait()
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_indexing, context, inputGraphFileIDs,
+            root_job = Job.wrapJobFn(run_indexing, context, importer.resolve(inputGraphFileIDs),
                                      graph_names, options.index_name, options.chroms,
-                                     vcf_phasing_file_ids=inputPhasingVCFFileIDs,
-                                     tbi_phasing_file_ids=inputPhasingTBIFileIDs,
-                                     gbwt_id=inputGBWTID, node_mapping_id=inputNodeMappingID,
-                                     bwa_fasta_id=inputBWAFastaID,
+                                     vcf_phasing_file_ids=importer.resolve(inputPhasingVCFFileIDs),
+                                     tbi_phasing_file_ids=importer.resolve(inputPhasingTBIFileIDs),
+                                     gbwt_id=importer.resolve(inputGBWTID),
+                                     node_mapping_id=importer.resolve(inputNodeMappingID),
+                                     bwa_fasta_id=importer.resolve(inputBWAFastaID),
                                      skip_xg = not options.xg_index and not options.all_index,
                                      skip_gcsa = not options.gcsa_index and not options.all_index,
                                      skip_id_ranges = not options.id_ranges_index and not options.all_index,

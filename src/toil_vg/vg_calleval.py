@@ -767,7 +767,7 @@ def calleval_main(context, options):
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
+            importer = AsyncImporter(toil)
 
             # Upload local files to the job store            
             inputXGFileIDs = []
@@ -776,7 +776,7 @@ def calleval_main(context, options):
                 for xg_path in options.xg_paths:
                     # we allow same files to be passed many times, but just import them once                    
                     if xg_path not in xgToID:
-                        xgToID[xg_path] = toil.importFile(xg_path)
+                        xgToID[xg_path] = importer.load(xg_path)
                     inputXGFileIDs.append(xgToID[xg_path])
             inputGamFileIDs = []
             inputGamIdxIDs = []
@@ -785,7 +785,7 @@ def calleval_main(context, options):
             if options.gams:
                 for gam in options.gams:
                     if gam not in gamToID:
-                        gamToID[gam] = toil.importFile(gam)
+                        gamToID[gam] = importer.load(gam)
                     inputGamFileIDs.append(gamToID[gam])
                     gai = gam + '.gai'
                     if gai not in gaiToID:
@@ -799,31 +799,30 @@ def calleval_main(context, options):
             inputBamIdxIds = []
             if options.bams:
                 for bam in options.bams:
-                    inputBamFileIDs.append(toil.importFile(bam))
+                    inputBamFileIDs.append(importer.load(bam))
                     try:
                         bamIdxId = toil.importFile(bam + '.bai')
                     except:
                         bamIdxId = None
                     inputBamIdxIds.append(bamIdxId)
 
-            vcfeval_baseline_id = toil.importFile(options.vcfeval_baseline)
-            vcfeval_baseline_tbi_id = toil.importFile(options.vcfeval_baseline + '.tbi')
-            vcfeval_fasta_id = toil.importFile(options.vcfeval_fasta)
-            bed_id = toil.importFile(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
+            vcfeval_baseline_id = importer.load(options.vcfeval_baseline)
+            vcfeval_baseline_tbi_id = importer.load(options.vcfeval_baseline + '.tbi', wait_on = vcfeval_baseline_id)
+            vcfeval_fasta_id = importer.load(options.vcfeval_fasta)
+            bed_id = importer.load(options.vcfeval_bed_regions) if options.vcfeval_bed_regions is not None else None
             clip_only = options.clip_only
             
             # What do we plot together?
             plot_sets = parse_plot_sets(options.plot_sets) 
 
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
-
+            importer.wait()
+            
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
 
             if options.vcfeval_fasta.endswith('.gz'):
                 # unzip the fasta for evaluation
-                vcfeval_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, vcfeval_fasta_id,
+                vcfeval_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, importer.resolve(vcfeval_fasta_id),
                                                        os.path.basename(options.vcfeval_fasta)).rv()
 
             if options.caller_fasta is not None:
@@ -831,24 +830,33 @@ def calleval_main(context, options):
                 caller_fasta_id = toil.importFile(options.caller_fasta)
                 if options.caller_fasta.endswith('.gz'):
                     # unzip the fasta for freebayes
-                    caller_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context, caller_fasta_id,
-                                                                os.path.basename(options.vcfeval_fasta)).rv()
+                    caller_fasta_id = init_job.addChildJobFn(run_unzip_fasta, context,
+                                                             caller_fasta_id,
+                                                             os.path.basename(options.vcfeval_fasta)).rv()
             else:
                 # Use the same FASTA as evaluation
                 caller_fasta_id = vcfeval_fasta_id
 
             if options.chroms:
                 # Make sure the comparison respects --chroms if it's provided
-                vcf_subset_job = init_job.addChildJobFn(run_vcf_subset, context, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
+                vcf_subset_job = init_job.addChildJobFn(run_vcf_subset, context, importer.resolve(vcfeval_baseline_id),
+                                                        importer.resolve(vcfeval_baseline_tbi_id),
                                                         options.chroms, disk=context.config.vcfeval_disk)
                 vcfeval_baseline_id, vcfeval_baseline_tbi_id = vcf_subset_job.rv(0), vcf_subset_job.rv(1)
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_calleval, context, inputXGFileIDs, inputGamFileIDs, inputGamIdxIDs,
-                                     inputBamFileIDs, inputBamIdxIds,
+            root_job = Job.wrapJobFn(run_calleval, context,
+                                     importer.resolve(inputXGFileIDs),
+                                     importer.resolve(inputGamFileIDs),
+                                     importer.resolve(inputGamIdxIDs),
+                                     importer.resolve(inputBamFileIDs),
+                                     importer.resolve(inputBamIdxIds),
                                      options.gam_names, options.bam_names, 
-                                     vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
-                                     bed_id, clip_only,
+                                     importer.resolve(vcfeval_baseline_id),
+                                     importer.resolve(vcfeval_baseline_tbi_id),
+                                     importer.resolve(caller_fasta_id),
+                                     importer.resolve(vcfeval_fasta_id),
+                                     importer.resolve(bed_id), clip_only,
                                      options.call,
                                      options.genotype,
                                      options.sample_name,

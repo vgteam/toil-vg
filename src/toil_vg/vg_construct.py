@@ -1553,31 +1553,35 @@ def construct_main(context, options):
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
-
-            logger.info('Importing input files into Toil')
+            importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
-            inputFastaFileIDs = [toil.importFile(fasta) for fasta in options.fasta]
+            inputFastaFileIDs = [importer.load(fasta) for fasta in options.fasta]
             inputFastaNames = [os.path.basename(fasta) for fasta in options.fasta]
 
             inputVCFFileIDs = []
             inputVCFNames = []
             inputTBIFileIDs = []
             for vcf_batch in options.vcf:
-                inputVCFFileIDs.append([toil.importFile(make_url(vcf)) for vcf in vcf_batch.split(',')])
+                inputVCFFileIDs.append([importer.load(make_url(vcf)) for vcf in vcf_batch.split(',')])
                 inputVCFNames.append([os.path.basename(vcf) for vcf in vcf_batch.split(',')])
-                inputTBIFileIDs.append([toil.importFile(make_url(vcf + '.tbi')) for vcf in vcf_batch.split(',')])
+                inputTBIFileIDs.append([importer.load(make_url(vcf + '.tbi'), wait_on = inputVCFFileIDs[-1][i]) \
+                                        for i, vcf in enumerate(vcf_batch.split(','))])
             
             inputBWAFastaID=None
             if options.bwa_reference:
-                inputBWAFastaID = toil.importFile(options.bwa_reference)
+                inputBWAFastaID = importer.load(options.bwa_reference)
 
+            inputRegionsFileID = None
             if options.regions_file:
-                inputRegionsFileID = toil.importFile(options.regions_file)
-            
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+                inputRegionsFileID = importer.load(options.regions_file)
+
+            importer.wait()
+            inputFastaFileIDs = importer.resolve(inputFastaFileIDs)
+            inputVCFFileIDs = importer.resolve(inputVCFFileIDs)
+            inputTBIFileIDs = importer.resolve(inputTBIFileIDs)
+            inputBWAFastaID = importer.resolve(inputBWAFastaID)
+            inputRegionsFileID = importer.resolve(inputRegionsFileID)
 
             # We only support one haplotype extraction sample (enforced by validate) despire what CLI implies
             haplo_extraction_sample = options.haplo_sample if options.haplo_sample else options.sample_graph       

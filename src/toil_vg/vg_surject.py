@@ -240,19 +240,18 @@ def surject_main(context, options):
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
+            importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
-            inputXGFileID = toil.importFile(options.xg_index)
-            inputGAMFileID = toil.importFile(options.gam_input_reads)
+            inputXGFileID = importer.load(options.xg_index)
+            inputGAMFileID = importer.load(options.gam_input_reads)
 
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+            importer.wait()
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_surjecting, context, inputGAMFileID, 'surject',
+            root_job = Job.wrapJobFn(run_surjecting, context, importer.resolve(inputGAMFileID), 'surject',
                                      options.interleaved,
-                                     inputXGFileID, options.paths,
+                                     importer.resolve(inputXGFileID), options.paths,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

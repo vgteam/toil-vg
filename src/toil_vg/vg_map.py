@@ -736,11 +736,7 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
                 job.fileStore.readGlobalFile(chunk_gam_id, tmp_gam_file)
                 with open(tmp_gam_file) as tmp_f:
                     shutil.copyfileobj(tmp_f, merge_file)
-                
-        chr_gam_id = context.write_intermediate_file(job, output_file)
-    else:
-        chr_gam_id = chunk_file_ids[0]
-                
+                                
     # checkpoint to out store
     if len(chunk_file_ids) == 1:
         job.fileStore.readGlobalFile(chunk_file_ids[0], output_file)
@@ -762,43 +758,41 @@ def map_main(context, options):
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
-            start_time = timeit.default_timer()
-
-            logger.info('Importing input files into Toil')
+            importer = AsyncImporter(toil)
             
             # Make an index collection
             indexes = {}
            
             # Upload each index we have
-            indexes['xg'] = toil.importFile(options.xg_index)
-            indexes['gcsa'] = toil.importFile(options.gcsa_index)
-            indexes['lcp'] = toil.importFile(options.gcsa_index + ".lcp")
+            indexes['xg'] = importer.load(options.xg_index)
+            indexes['gcsa'] = importer.load(options.gcsa_index)
+            indexes['lcp'] = importer.load(options.gcsa_index + ".lcp")
             if options.gbwt_index is not None:
-                indexes['gbwt'] = toil.importFile(options.gbwt_index)
+                indexes['gbwt'] = importer.load(options.gbwt_index)
             if options.snarls_index is not None:
-                indexes['snarls'] = toil.importFile(options.snarls_index)
+                indexes['snarls'] = importer.load(options.snarls_index)
             if options.id_ranges is not None:
-                indexes['id_ranges'] = toil.importFile(options.id_ranges)
+                indexes['id_ranges'] = importer.load(options.id_ranges)
             
             # Upload other local files to the remote IO Store
             inputReadsFileIDs = []
             if options.fastq:
                 for sample_reads in options.fastq:
-                    inputReadsFileIDs.append(toil.importFile(sample_reads))
+                    inputReadsFileIDs.append(importer.load(sample_reads))
             elif options.gam_input_reads:
-                inputReadsFileIDs.append(toil.importFile(options.gam_input_reads))
+                inputReadsFileIDs.append(importer.load(options.gam_input_reads))
             else:
                 assert options.bam_input_reads
-                inputReadsFileIDs.append(toil.importFile(options.bam_input_reads))
-            end_time = timeit.default_timer()
-            logger.info('Imported input files into Toil in {} seconds'.format(end_time - start_time))
+                inputReadsFileIDs.append(importer.load(options.bam_input_reads))
+
+            importer.wait()
 
             # Make a root job
             root_job = Job.wrapJobFn(run_mapping, context, options.fastq,
                                      options.gam_input_reads, options.bam_input_reads,
                                      options.sample_name,
-                                     options.interleaved, options.multipath, indexes,
-                                     reads_file_ids=inputReadsFileIDs,
+                                     options.interleaved, options.multipath, importer.resolve(indexes),
+                                     reads_file_ids=importer.resolve(inputReadsFileIDs),
                                      bam_output=options.bam_output, surject=options.surject,
                                      validate=options.validate,
                                      cores=context.config.misc_cores,
