@@ -23,10 +23,12 @@ from concurrent.futures import ThreadPoolExecutor, Future
 
 from toil.common import Toil
 from toil.job import Job
+from toil.jobStores.fileJobStore import FileJobStore
 from toil.realtimeLogger import RealtimeLogger
 from toil.lib.docker import dockerCall, dockerCheckOutput, apiDockerCall
 from toil_vg.singularity import singularityCall, singularityCheckOutput
 from toil_vg.iostore import IOStore
+
 
 logger = logging.getLogger(__name__)
 
@@ -956,8 +958,16 @@ class AsyncImporter(object):
     Importing big files is a bottleneck.  We can improve things somewhat by using threads
     """
     def __init__(self, toil, max_threads = multiprocessing.cpu_count()):
-        self.executor = ThreadPoolExecutor(max_workers = max_threads)
         self.toil = toil
+        self.threads = max_threads
+        if not isinstance(self.toil._jobStore, FileJobStore):
+            # Importing fails sporadically on S3 jobstores.  Disable until we
+            # can figure out something more robust.  Using a ProcessPoolExecutor
+            # works as a fix locally, but not on Toil leaders (perhaps something
+            # fixed between Python 2.7.6 (Toil's) and 2.7.12 (mine)).
+            # Will only activate on Google and Azure after testing! 
+            self.threads = 1
+        self.executor = ThreadPoolExecutor(max_workers = self.threads)
         self.start_time = timeit.default_timer()
         self.count = 0
         logger.info('Importing input files into Toil')
