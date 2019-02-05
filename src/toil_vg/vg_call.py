@@ -185,8 +185,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         # How do we actually genotype
         command = ['vg', 'genotype', os.path.basename(vg_path), '-t',
                    str(context.config.calling_cores), '-s', sample_name,
-                   '-v', '-E', '-G', os.path.basename(gam_path)]
-        # TODO: Why do we need -E to get really any calls?
+                   '-v', '-G', os.path.basename(gam_path)]
                    
         if keep_augmented:
             # Remember to dump the augmented graph so we can keep it
