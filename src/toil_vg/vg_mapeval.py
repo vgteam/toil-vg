@@ -796,8 +796,8 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
     # TODO: Deduplicate this code with the truth file generation code in vg_sim.py!
     jq_cmd = ['jq', '-c', '-r', tag_generation + '[.name] + '
               'if (.annotation.features | length) > 0 then [.annotation.features | join(",")] else ["."] end + '
-              'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else [] end + '
-              '[.score] + '
+              'if .refpos != null then [.refpos[] | .name, if .offset != null then .offset else 0 end] else ["",""] end + '
+              'if .score == null then [0] else [.score] end + '
               'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
               os.path.basename(gam_annot_json)]
     # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
