@@ -267,7 +267,7 @@ class VGCGLTest(TestCase):
                    '--bams', os.path.join(self.local_outstore, 'bwa-mem.bam'),
                    os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),
                    '--bam_names', 'bwa-mem', 'bwa-mem-pe',
-                   '--happy', '--surject', '--sveval'])
+                   '--happy', '--surject'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb',
