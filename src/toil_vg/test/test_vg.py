@@ -527,32 +527,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
-    def test_09_sim_small_genotype_no_augment(self):
-        ''' 
-        This is the same as test #1, but exercises --force_outstore and
-        --genotype with --no_augment.
-         
-        TODO: --no_augment is ignored for genotype because we use genotype's
-        built-in augment.
-        '''
-        self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
-        self.test_vg_graph = self._ci_input_path('small.vg')
-        self.baseline = self._ci_input_path('small.vcf.gz')
-        self.chrom_fa = self._ci_input_path('small.fa.gz')
-
-        self._run(self.base_command +
-                  [self.jobStoreLocal, '1',
-                   self.local_outstore, '--clean', 'never',
-                   '--fastq', self.sample_reads,
-                   '--graphs', self.test_vg_graph,
-                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
-                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy',
-                   '--genotype', '--no_augment', '--genotype_opts', ' -Q -A'])
-        self._run(['toil', 'clean', self.jobStoreLocal])
-
-        self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
-
-    def test_10_gbwt(self):
+    def test_9_gbwt(self):
         '''
         Test that the gbwt gets constructed without crashing (but not much beyond that)
         '''
@@ -592,7 +567,7 @@ class VGCGLTest(TestCase):
         # check gbwt not empty
         self.assertGreater(os.path.getsize(gbwt_path), 250000)
         
-    def test_11_sim_small_mapeval_minimap2(self):
+    def test_10_sim_small_mapeval_minimap2(self):
         ''' 
         Test minimap2 support in mapeval 
         '''
@@ -639,7 +614,7 @@ class VGCGLTest(TestCase):
         # Note that mpmap2 only runs on paired end reads.
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'minimap2-pe'], 0.6)
         
-    def test_12_sim_small_mapeval_snarls(self):
+    def test_11_sim_small_mapeval_snarls(self):
         ''' 
         Test running mapeval with and without snarls
         '''
@@ -687,7 +662,7 @@ class VGCGLTest(TestCase):
         # Note that snarls only matter for mpmap
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'vg-mp-pe', 'vg-nosnarls-mp-pe'], 0.8)
 
-    def test_13_construct_naming_options(self):
+    def test_12_construct_naming_options(self):
         """
         Make sure we don't get crashes when mixing and matching chromosomes with and without chr
         prefix when using the appropriate options
