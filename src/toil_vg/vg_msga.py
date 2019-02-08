@@ -106,7 +106,7 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
             subset_count = 0
             with open(regions_path) as regions_file, open(fasta_subset_path, 'w') as subset_file:
                 for line in regions_file:
-                    toks = line.strip().split()
+                    toks = line.strip().split('\t')
                     if len(toks) >= 4 and not toks[0].startswith('#'):
                         bed_chrom, bed_name = toks[0], toks[3]
                         if bed_chrom == chrom:
