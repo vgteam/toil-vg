@@ -35,7 +35,7 @@ with open(os.path.basename(options.fai)) as fai_file:
 with open(alts_path) as alts_file:
     for line in alts_file:
         toks = line.strip().split('\t')
-        if len(toks) >= 3 and not toks[0].startswith('@') and toks[0].endswith('_alt'):
+        if len(toks) >= 3 and not toks[0].startswith('@') and int(toks[3]) != 0:
             sys.stdout.write('{}\t{}\t{}\t{}\n'.format(toks[2], int(toks[3]) - 1,
                                                        int(toks[3]) + len_map[toks[0]], toks[0]))
 
