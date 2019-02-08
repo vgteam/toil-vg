@@ -48,6 +48,8 @@ def msga_subparser(parser):
                         help="BED file mapping regions (cols 1-3) to sequence names (col 4) from the FASTA")
     parser.add_argument("--fasta", type=make_url, required = True,
                         help="FASTA file containing sequences to align")
+    parser.add_argument("--msga_context", type=int,
+                        help="number of context steps when expanding target region")
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -125,9 +127,10 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
         if graph_id:
             msga_cmd += ['--graph', os.path.basename(graph_path)]
         if target_regions_id:
-            # todo: context paramter!
-            msga_cmd += ['--position-bed', os.path.basename(regions_path), '--context' , '100']
-            # todo: pass in arbitrary msga opts
+            msga_cmd += ['--position-bed', os.path.basename(regions_path), '--context' ,
+                         str(context.config.msga_context)]
+        msga_cmd += context.config.msga_opts
+        
         out_path = graph_path[:-3] + '-msga.vg'
         try:
             with open(out_path, 'w') as out_file:

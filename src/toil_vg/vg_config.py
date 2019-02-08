@@ -227,6 +227,15 @@ map-opts: []
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
 mpmap-opts: ['--single-path-mode']
 
+########################
+### vg_msga Arguments ###
+
+# Core arguments for vg msgaing (do not include file names or -t/--threads)
+msga-opts: []
+
+# Number of steps to conext expand target regions before aligning with msga
+msga-context: 50
+
 #########################
 ### vg_call Arguments ###
 # Overlap option that is passed into make_chunks and call_chunk
@@ -485,6 +494,15 @@ map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
 mpmap-opts: ['--single-path-mode']
+
+########################
+### vg_msga Arguments ###
+
+# Core arguments for vg msgaing (do not include file names or -t/--threads)
+msga-opts: []
+
+# Number of steps to conext expand target regions before aligning with msga
+msga-context: 2000
 
 #########################
 ### vg_call Arguments ###
