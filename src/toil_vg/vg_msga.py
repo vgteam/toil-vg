@@ -37,8 +37,6 @@ def msga_subparser(parser):
     # General options
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
-    parser.add_argument("--alignment_cores", type=int,
-        help="number of threads during the alignment step")
     parser.add_argument("--graphs", nargs='+', default=[], type=make_url,
                         help="input graph(s). one per chromosome (separated by space)")
     parser.add_argument("--chroms", nargs='+',
@@ -48,14 +46,24 @@ def msga_subparser(parser):
                         help="BED file mapping regions (cols 1-3) to sequence names (col 4) from the FASTA")
     parser.add_argument("--fasta", type=make_url, required = True,
                         help="FASTA file containing sequences to align")
-    parser.add_argument("--msga_context", type=int,
-                        help="number of context steps when expanding target region")
+
+    # Add msga options
+    msga_parse_args(parser)
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
     # Add common docker options
     add_container_tool_parse_args(parser)
+
+def msga_parse_args(parser):
+    """
+    Indexing parameters which can be part of construction pipeline
+    """
+    parser.add_argument("--alignment_cores", type=int,
+                        help="number of threads during the alignment step")
+    parser.add_argument("--msga_context", type=int,
+                        help="number of context steps when expanding target region")
 
 def validate_msga_options(options):
     """
@@ -86,7 +94,24 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
         # run on one chromosome
         work_dir = job.fileStore.getLocalTempDir()
 
-        # download the input
+        # process our regions file
+        target_regions = []
+        if target_regions_id:
+            regions_path = os.path.join(work_dir, 'regions.bed')
+            job.fileStore.readGlobalFile(target_regions_id, regions_path)
+            with open(regions_path) as regions_file:
+                for line in regions_file:
+                    toks = line.strip().split('\t')
+                    if len(toks) >= 4 and not toks[0].startswith('#'):
+                        bed_chrom, bed_name = toks[0], toks[3]
+                        if not chrom or bed_chrom == chrom:
+                            target_regions.append(bed_name)
+            # Don't bother continuing if there's nothing to map                            
+            if not target_regions:
+                RealtimeLogger.info("No sequences found for chromosome {}".format(chrom))
+                return graph_id
+
+        # download input
         if graph_id:
             if isinstance(graph_id, list):
                 assert len(graph_id) == 1 and len(graph_name) == 1
@@ -98,29 +123,17 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
             graph_path = 'graph.vg'
         fasta_path = os.path.join(work_dir, 'contigs.fa')
         job.fileStore.readGlobalFile(fasta_id, fasta_path)
-        if target_regions_id:
-            regions_path = os.path.join(work_dir, 'regions.bed')
-            job.fileStore.readGlobalFile(target_regions_id, regions_path)
 
         # subset the fasta to only contain sequences that belong in chrom (as determined from the BED)
         if target_regions_id and chrom:
             fasta_subset_path = os.path.join(work_dir, '{}.fa'.format(chrom))
             subset_count = 0
-            with open(regions_path) as regions_file, open(fasta_subset_path, 'w') as subset_file:
-                for line in regions_file:
+            with open(fasta_subset_path, 'w') as subset_file:
+                for target_region in target_regions:
                     toks = line.strip().split('\t')
-                    if len(toks) >= 4 and not toks[0].startswith('#'):
-                        bed_chrom, bed_name = toks[0], toks[3]
-                        if bed_chrom == chrom:
-                            context.runner.call(job, ['samtools', 'faidx', os.path.basename(fasta_path),
-                                                      bed_name], work_dir = work_dir, outfile = subset_file)
-                            subset_count += 1
+                    context.runner.call(job, ['samtools', 'faidx', os.path.basename(fasta_path),
+                                              target_region], work_dir = work_dir, outfile = subset_file)
             fasta_path = fasta_subset_path
-
-            # Don't bother continuing if there's nothing to map
-            if subset_count == 0:
-                RealtimeLogger.info("No sequences found for chromosome {}".format(chrom))
-                return graph_id
 
         # run vg msga to align each fasta sequence to our graph (iteratively, doing the longest first)
         msga_cmd = ['vg', 'msga', '--from', os.path.basename(fasta_path), '--threads', str(job.cores)]
