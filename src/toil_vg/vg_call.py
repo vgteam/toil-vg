@@ -70,8 +70,12 @@ def chunked_call_parse_args(parser):
                         help="argument to pass to vg filter (wrapped in \"\")")
     parser.add_argument("--calling_cores", type=int,
                         help="number of threads during the variant calling step")
+    parser.add_argument("--calling_mem", type=str,
+                        help="memory alotment during the variant calling step")
     parser.add_argument("--call_chunk_cores", type=int,
                         help="number of threads used for extracting chunks for calling")
+    parser.add_argument("--call_chunk_mem", type=str,
+                        help="memory alotment for extracting chunks for calling")
     parser.add_argument("--vcf_offsets", nargs='+', default=[],
                          help="offset(s) to apply to output vcfs(s). (order of --chroms)")
 
