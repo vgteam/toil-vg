@@ -1072,7 +1072,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         cmd = [cmd]
 
     if normalize:
-        cmd.append(['vg', 'mod', '--normalize', '-'])
+        cmd.append(['vg', 'mod', '--until-normal', str(context.config.normalize_iterations), '-'])
         # can be done in single mod command, but weary of being sensitive to order of operations
         cmd.append(['vg', 'mod', '--chop', str(max_node_size), '-'])
 

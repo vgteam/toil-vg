@@ -194,6 +194,12 @@ bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 # Docker image to use for sveval R package
 sveval-docker: 'jmonlong/sveval:version-1.1.1'
 
+##############################
+### vg_construct Arguments ###
+
+# Number of times to iterate normalization when --normalized used in construction
+normalize-iterations: 10
+
 ##########################
 ### vg_index Arguments ###
 
@@ -461,6 +467,11 @@ bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 # Docker image to use for sveval R package
 sveval-docker: 'jmonlong/sveval:version-1.1.1'
 
+##############################
+### vg_construct Arguments ###
+
+# Number of times to iterate normalization when --normalized used in construction
+normalize-iterations: 10
 
 ##########################
 ### vg_index Arguments ###
