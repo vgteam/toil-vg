@@ -75,7 +75,7 @@ def validate_msga_options(options):
     require(len(options.chroms) <= 1 or options.target_regions,
              '--target_regions required for multiple chromosomes')
 
-def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, chrom):
+def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, chrom, normalize = False, max_node_size = 32):
     """
     Run vg msga to align some fasta sequences to a graph
     """
@@ -143,6 +143,12 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
             msga_cmd += ['--position-bed', os.path.basename(regions_path), '--context' ,
                          str(context.config.msga_context)]
         msga_cmd += context.config.msga_opts
+
+        if normalize:
+            msga_cmd = [msga_cmd,
+                        ['vg', 'mod', '--until-normal', str(context.config.normalize_iterations), '-']]
+            msga_cmd.append(['vg', 'mod', '--chop', str(max_node_size), '-'])
+            msga_cmd.append(['vg', 'ids', '--sort', '-'])
         
         out_path = graph_path[:-3] + '-msga.vg'
         try:
