@@ -420,14 +420,14 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
         alt_regions_path = os.path.join(work_dir, 'alt-regions.bed')
         alt_regions_out_path = os.path.join(work_dir, 'alt-regions-fix.bed')
         job.fileStore.readGlobalFile(alt_regions_id, alt_regions_path)
-        with open(alt_regions_path) as in_regions, open(alt_regions_out_path, 'w') as out_regions:
+        with open(alt_regions_path) as in_regions, open(alt_regions_out_path, 'w') as out_alt_regions:
             for line in in_regions:
                 toks = line.strip().split('\t')
                 if len(toks) >= 4 and toks[0] != '#':
                     if toks[0] in name_map:
-                            out_regions.write('{}\t{}\t{}\t{}\n'.format(name_map[toks[0]], toks[1], toks[2], toks[3]))
+                            out_alt_regions.write('{}\t{}\t{}\t{}\n'.format(name_map[toks[0]], toks[1], toks[2], toks[3]))
                     else:
-                        out_regions.write(line)
+                        out_alt_regions.write(line)
         out_alt_regions_id = context.write_intermediate_file(job, alt_regions_out_path)
     else:
         out_alt_regions_id = None
@@ -455,7 +455,7 @@ def run_fix_vcf_chrom_names(job, context, vcf_id, vcf_name, tbi_id, name_file_id
             out_vcf_name,
             context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name + '.tbi')))
 
-def run_subtract_alt_regions(job, context, regions, alt_regions_id):
+def run_subtract_alt_regions(job, context, alt_regions_id, regions):
     """
     make sure that alt contigs don't wind up in our regions names, as we want them
     to get aligned into chromosomes rather than form their own components
@@ -463,13 +463,14 @@ def run_subtract_alt_regions(job, context, regions, alt_regions_id):
     work_dir = job.fileStore.getLocalTempDir()
     alt_regions_path = os.path.join(work_dir, 'alt-regions.bed')
     job.fileStore.readGlobalFile(alt_regions_id, alt_regions_path)
-    alt_regions = []
+    alt_regions = set()
     with open(alt_regions_path) as in_regions:
         for line in in_regions:
             toks = line.strip().split('\t')
             if len(toks) >= 4 and toks[0] != '#':
-                alt_regions.append(toks[3])
-    return set(regions) - set(alt_regions)
+                alt_regions.add(toks[3])
+                
+    return [region for region in regions if region not in alt_regions]
         
 def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name,
@@ -1720,9 +1721,11 @@ def construct_main(context, options):
             # Make sure that we don't have any alt sequences in our regions.  alt sequences
             # are inferred from the --target_regions bed file
             if alt_regions_id:
-                cur_job = cur_job.addFollowOnJobFn(run_subtract_alt_regions, context,
-                                                   regions,
-                                                   alt_regions_id)
+                cur_job = cur_job.addFollowOnJobFn(run_subtract_alt_regions,
+                                                   context,
+                                                   alt_regions_id,
+                                                   regions)
+
                 regions = cur_job.rv()
 
             # Merge up comma-separated vcfs with bcftools merge
