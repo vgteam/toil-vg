@@ -923,6 +923,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
                                                                           region,
                                                                           normalize=normalize,
                                                                           max_node_size=max_node_size,
+                                                                          validate=validate,
                                                                           cores=context.config.alignment_cores,
                                                                           memory=context.config.alignment_mem,
                                                                           disk=context.config.alignment_disk).rv())

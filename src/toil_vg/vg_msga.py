@@ -75,7 +75,7 @@ def validate_msga_options(options):
     require(len(options.chroms) <= 1 or options.target_regions,
              '--target_regions required for multiple chromosomes')
 
-def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, chrom, normalize = False, max_node_size = 32):
+def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, chrom, normalize = False, max_node_size = 32, validate = False):
     """
     Run vg msga to align some fasta sequences to a graph
     """
@@ -161,7 +161,11 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
                 if dump_path and os.path.isfile(dump_path):
                     context.write_output_file(job, dump_path)
             raise
-        
+
+        # Check the graph for errors
+        if validate:
+            context.runner.call(job, ['vg', 'validate', os.path.basename(out_path)], work_dir = work_dir)
+
         return context.write_output_file(job, out_path)
     
     
