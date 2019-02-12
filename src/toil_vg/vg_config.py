@@ -366,11 +366,6 @@ fq-split-cores: 32
 fq-split-mem: '4G'
 fq-split-disk: '200G'
 
-# Number of threads to use for Rocksdb GAM indexing
-# Generally, this should be kept low as speedup drops off radically 
-# after a few threads.
-gam-index-cores: 6
-
 # Resources for *each* vg map job
 # the number of vg map jobs is controlled by reads-per-chunk (below)
 alignment-cores: 32

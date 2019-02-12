@@ -40,8 +40,6 @@ def call_subparser(parser):
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
                         help="GAMs to call.  One per chromosome in the same order as --chroms, or just one. "
                         " Indexes (.gai) will be used if found.")
-    parser.add_argument("--gam_index_cores", type=int,
-                        help="number of threads used for gam indexing")
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -477,7 +475,7 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
         gam_index_path = gam_sort_path + '.gai'
         with open(gam_sort_path, "w") as gam_sort_stream:
             gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path),
-                           '--threads', str(context.config.gam_index_cores)]
+                           '--threads', str(context.config.call_chunk_cores)]
             context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
             # We may spend a lot of time on these, so drop them in the output store.
             context.write_output_file(job, gam_sort_path)
