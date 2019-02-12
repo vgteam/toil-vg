@@ -14,6 +14,9 @@ import urllib2, gzip
 
 import os
 import posixpath
+
+import pytest
+
 from toil_vg.iostore import IOStore
 
 log = logging.getLogger(__name__)
@@ -154,6 +157,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
 
+    @pytest.mark.xfail
     def test_03_sim_small_mapeval(self):
         ''' 
         Same generate and align some simulated reads
