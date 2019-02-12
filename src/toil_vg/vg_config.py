@@ -365,7 +365,7 @@ alignment-disk: '100G'
 # Resources for chunking up a graph/gam for calling (and merging)
 # typically take xg for whoe grpah, and gam for a chromosome,
 # and split up into chunks of call-chunk-size (below)
-call-chunk-cores: 8
+call-chunk-cores: 16
 call-chunk-mem: '100G'
 call-chunk-disk: '100G'
 
