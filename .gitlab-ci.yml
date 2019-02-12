@@ -11,7 +11,7 @@ stages:
 test-job:
   stage: test
   script:
-    - ci.sh 
+    - ./ci.sh 
   artifacts:
     # Let Gitlab see the junit report
     reports:
