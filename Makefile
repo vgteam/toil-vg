@@ -82,19 +82,18 @@ clean_sdist:
 test: check_venv check_build_reqs
 	TOIL_VG_TEST_CONTAINER=$(container) $(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
 
-pypi: check_venv check_clean_working_copy check_running_on_jenkins
-	test "$$ghprbActualCommit" \
+pypi: check_venv check_clean_working_copy check_running_on_ci
+	test "$$CI_COMMIT_REF_NAME" != "master" \
 	&& echo "We're building a PR, skipping PyPI." || ( \
 	set -x \
 	&& tag_build=`$(python) -c 'pass;\
 		from version import version as v;\
 		from pkg_resources import parse_version as pv;\
 		import os;\
-		print "--tag-build=.dev" + os.getenv("BUILD_NUMBER") if pv(v).is_prerelease else ""'` \
+		print "--tag-build=.dev" + os.getenv("CI_PIPELINE_IID") if pv(v).is_prerelease else ""'` \
 	&& $(python) setup.py egg_info $$tag_build sdist bdist_egg upload )
 clean_pypi:
 	- rm -rf build/
-
 
 clean: clean_develop clean_sdist clean_pypi clean_prepare
 
@@ -132,10 +131,10 @@ check_clean_working_copy:
 			; false )
 
 
-check_running_on_jenkins:
-	@echo "$(green)Checking if running on Jenkins ...$(normal)"
-	@test -n "$$BUILD_NUMBER" \
-		|| ( echo "$(red)This target should only be invoked on Jenkins.$(normal)" ; false )
+check_running_on_ci:
+	@echo "$(green)Checking if running on CI ...$(normal)"
+	@test -n "$$CI" \
+		|| ( echo "$(red)This target should only be invoked on CI.$(normal)" ; false )
 
 clean_docker:
 	-cd docker && make clean
@@ -158,7 +157,7 @@ push_docker: docker
 		clean \
 		check_venv \
 		check_clean_working_copy \
-		check_running_on_jenkins \
+		check_running_on_ci \
 		docker \
 		push_docker \
 		clean_docker \

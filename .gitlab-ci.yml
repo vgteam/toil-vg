@@ -1,0 +1,20 @@
+before_script:
+  - whoami
+  - sudo apt-get -q -y update
+  # Make sure we have some curl stuff for pycurl which we need for some Python stuff
+  - sudo apt-get -q -y install docker.io python-pip python-virtualenv libcurl4-gnutls-dev python-dev 
+  - docker info
+  
+stages:
+  - test
+
+test-job:
+  stage: test
+  script:
+    - ci.sh 
+  artifacts:
+    # Let Gitlab see the junit report
+    reports:
+      junit: test-report.xml
+    when: always
+  
