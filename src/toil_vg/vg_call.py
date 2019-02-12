@@ -161,8 +161,8 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             with open(gam_filter_path, 'w') as gam_filter_file:
                 context.runner.call(job, filter_command, work_dir = work_dir, outfile = gam_filter_file)
             filter_command = None
-        else:
-            gam_filter_path = gam_path
+    else:
+        gam_filter_path = gam_path
 
     # augmentation
     augment_command = []
