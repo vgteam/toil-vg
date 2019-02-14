@@ -143,8 +143,12 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
             msga_cmd += ['--position-bed', os.path.basename(regions_path), '--context' ,
                          str(context.config.msga_context)]
         msga_cmd += context.config.msga_opts
-
+        
         if normalize:
+            # msga's built-in normalization is run incrementally which my improve alignment
+            msga_cmd += ['--normalize']
+            # but we still normalize at the end, in part just to make sure that the node size is
+            # respected (only controlable in msga via kmer size parameter).  can't be too normal
             msga_cmd = [msga_cmd,
                         ['vg', 'mod', '--until-normal', str(context.config.normalize_iterations), '-']]
             msga_cmd.append(['vg', 'mod', '--chop', str(max_node_size), '-'])
