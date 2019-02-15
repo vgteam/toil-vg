@@ -256,6 +256,9 @@ chunk_context: 50
 # Options to pass to vg filter when running vg call. (do not include file names or -t/--threads)
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
+# Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+recall-filter-opts: []
+
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
 augment-opts: ['-q', '10']
 
@@ -524,6 +527,9 @@ chunk_context: 50
 # Options to pass to vg filter when running vg call. (do not include file names or -t/--threads)
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
+# Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+recall-filter-opts: []
+
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
 augment-opts: ['-q', '10']
 
@@ -577,8 +583,9 @@ def apply_config_file_args(args):
     """
 
     # turn --*_opts from strings to lists to be consistent with config file
-    for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
+    for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'recall_filter_opts', 'genotype_opts',
+                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts',
+                   'augment_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
 
