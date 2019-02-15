@@ -470,7 +470,7 @@ def run_subtract_alt_regions(job, context, alt_regions_id, regions):
             if len(toks) >= 4 and toks[0] != '#':
                 alt_regions.add(toks[3])
                 
-    return [region for region in regions if region not in alt_regions]
+    return [region for region in regions if region not in alt_regions], list(alt_regions)
         
 def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name,
@@ -684,7 +684,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       gcsa_index = False, xg_index = False, gbwt_index = False,
                       id_ranges_index = False, snarls_index = False,
                       haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False,
-                      normalize = False, validate = False, alt_regions_id = None):
+                      normalize = False, validate = False, alt_regions_id = None,
+                      alt_regions = []):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -840,7 +841,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        skip_xg=not xg_index, skip_gcsa=skip_gcsa,
                                                        skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
                                                        make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
-                                                       gbwt_regions=gbwt_regions)
+                                                       gbwt_regions=gbwt_regions,
+                                                       dont_restore_paths=alt_regions)
         indexes = indexing_job.rv()    
 
         output.append((joined_vg_ids, joined_vg_names, indexes))
@@ -1729,7 +1731,9 @@ def construct_main(context, options):
                                                    alt_regions_id,
                                                    regions)
 
-                regions = cur_job.rv()
+                regions, alt_regions = cur_job.rv(0), cur_job.rv(1)
+            else:
+                alt_regions=[]
 
             # Merge up comma-separated vcfs with bcftools merge
             cur_job = cur_job.addFollowOnJobFn(run_merge_all_vcfs, context,
@@ -1769,7 +1773,8 @@ def construct_main(context, options):
                                      gbwt_prune = options.gbwt_prune,
                                      normalize = options.normalize,
                                      validate = options.validate,
-                                     alt_regions_id = alt_regions_id)
+                                     alt_regions_id = alt_regions_id,
+                                     alt_regions = alt_regions)
                                      
             
             if inputBWAFastaID:
