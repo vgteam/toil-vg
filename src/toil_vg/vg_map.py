@@ -645,7 +645,7 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
     output_sorted = gam_file + '.sorted.gam'
     output_index = output_sorted + '.gai'
     sort_cmd = ['vg', 'gamsort', '-i', os.path.basename(output_index),
-        '-t', str(context.config.gam_index_cores), os.path.basename(gam_file)]
+        '-t', str(context.config.alignment_cores), os.path.basename(gam_file)]
     with open(output_sorted, "w") as sorted_file:
         context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = sorted_file)
  
