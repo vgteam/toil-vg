@@ -957,9 +957,11 @@ class AsyncImporter(object):
     """ 
     Importing big files is a bottleneck.  We can improve things somewhat by using threads
     """
-    def __init__(self, toil, max_threads = multiprocessing.cpu_count()):
+    def __init__(self, toil, max_threads = multiprocessing.cpu_count(),
+                 retry_count = 3):
         self.toil = toil
         self.threads = max_threads
+        self.retry_count = retry_count
         if not isinstance(self.toil._jobStore, FileJobStore):
             # Importing fails sporadically on S3 jobstores.  Disable until we
             # can figure out something more robust.  Using a ProcessPoolExecutor
@@ -982,7 +984,17 @@ class AsyncImporter(object):
         def wait_import():
             if wait_on:
                 wait_on.result()
-            return self.toil.importFile(file_path)
+            for i in range(self.retry_count):
+                try:
+                    return self.toil.importFile(file_path)
+                except:
+                    # Toil sporadically fails to import large files.  We try to get around
+                    # this using the retry count.  Todo: detect which exceptions retrying
+                    # has a hope of fixing. 
+                    if i >= self.retry_count - 1:
+                        raise
+                    else:
+                        time.sleep(i)
         return self.executor.submit(wait_import)
 
     def wait(self):
