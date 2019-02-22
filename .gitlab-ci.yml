@@ -4,6 +4,10 @@ before_script:
   # Make sure we have some curl stuff for pycurl which we need for some Python stuff
   - sudo apt-get -q -y install docker.io python-pip python-virtualenv libcurl4-gnutls-dev libgnutls28-dev python-dev 
   - docker info
+  # Build .pypirc with PyPI credentials
+  - touch ~/.pypirc
+  - chmod 600 ~/.pypirc
+  - printf "[distutils]\nindex-servers =\n    pypi\n\n[pypi]\nusername: ${PYPI_USERNAME}\npassword: ${PYPI_PASSWORD}\n" > ~/.pypirc
   
 stages:
   - test
