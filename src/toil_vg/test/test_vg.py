@@ -12,7 +12,7 @@ from urlparse import urlparse
 from uuid import uuid4
 import urllib2, gzip
 
-import os
+import os, sys
 import posixpath
 
 import pytest
@@ -81,6 +81,8 @@ class VGCGLTest(TestCase):
         # store on NFS when the job finishes due to
         # https://github.com/DataBiosphere/toil/issues/2162, we need to pass
         # '--clean', 'never' to all our Toil workflows. We the test harness will clean up after them.
+
+        self.local_outstore = '/home/hickey/dev/toil-vg/cuson'
 
     def test_01_sim_small(self):
         ''' 
@@ -332,17 +334,16 @@ class VGCGLTest(TestCase):
                    '--vcfeval_bed_regions', self.bed_regions,
                    '--sample_name', '1',
                    '--calling_cores', '2',
-                   '--genotype', '--genotype_opts', '-P 0', 
-                   '--freebayes', '--platypus',
+                   '--call',
+                   '--freebayes', '--force_outstore',
                    '--bams', os.path.join(self.local_outstore, 'bwa-mem.bam'),
                    os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),
                    '--bam_names', 'bwa-mem', 'bwa-mem-pe',
                    '--happy', '--surject'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
-        self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb',
-                                                         'vg-pe-surject-fb', 'vg-surject-fb', 'bwa-mem-plat',
-                                                         'bwa-mem-pe-plat', 'vg-pe-surject-plat', 'vg-surject-plat'], 0.02, 0.02)
+        self._assertCallEvalOutput(self.local_outstore, ['vg-call', 'vg-pe-call', 'bwa-mem-fb', 'bwa-mem-pe-fb',
+                                                         'vg-pe-surject-fb', 'vg-surject-fb'], 0.02, 0.02)
         
     def test_06_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
