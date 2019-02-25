@@ -157,16 +157,71 @@ class VGCGLTest(TestCase):
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
 
-    @pytest.mark.xfail
-    def test_03_sim_small_mapeval(self):
+    def test_03_sim_small_mapeval_plots(self):
         ''' 
-        Same generate and align some simulated reads
+        Test running mapeval directly on the simulated reads and that plotting
+        produces output
+        '''
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self._download_input('NA12877.brca1.bam_1.fq.gz')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
+
+        # check running mapeval on the vg graph
+
+        self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--graphs', self.test_vg_graph, '--chroms', 'x',
+                   '--gcsa_index_cores', '8',
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--xg_index'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'sim', self.jobStoreLocal,
+                   os.path.join(self.local_outstore, 'small.xg'), '2000',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '1',
+                   '--fastq', os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz')])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--truth', os.path.join(self.local_outstore, 'true.pos'),
+                   '--vg-graphs', self.test_vg_graph,
+                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
+                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
+                   '--alignment_cores', '8', '--single-only', '--multipath-only',                 
+                   '--maxCores', '8', '--fasta', self.chrom_fa])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
+
+        # check running plot on the mapeval output
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-pr.svg'))
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-qq.svg'))
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.svg'))
+        self._run(['toil-vg', 'plot', self.jobStoreLocal,
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
+                   '--realTimeLogging', '--logInfo',
+                   '--maxCores', '8'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-pr.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-qq.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-roc.svg')), 0)
         
-        TODO: This should be multiple test cases
+    def test_04_sim_small_mapeval(self):
+        ''' 
+        Test running mapeval on some gams
         '''
         self.test_vg_graph = self._ci_input_path('small.vg')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
-        self.chrom_fa_nz = self._ci_input_path('small.fa')
         self._download_input('NA12877.brca1.bam_1.fq.gz')
         self.baseline = self._ci_input_path('small.vcf.gz')
         self.bed_regions = self._ci_input_path('small_regions.bed')
@@ -215,9 +270,36 @@ class VGCGLTest(TestCase):
 
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'bwa-mem-pe'], 0.9)
 
-        # check running mapeval on the indexes
 
-        os.remove(os.path.join(self.local_outstore, 'stats.tsv'))
+    def test_05_sim_small_calleval(self):
+        ''' 
+        Test running calleval on some mapeval ouput
+        '''
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
+        self.chrom_fa_nz = self._ci_input_path('small.fa')
+        self._download_input('NA12877.brca1.bam_1.fq.gz')
+        self.baseline = self._ci_input_path('small.vcf.gz')
+        self.bed_regions = self._ci_input_path('small_regions.bed')
+
+        self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--graphs', self.test_vg_graph, '--chroms', 'x',
+                   '--gcsa_index_cores', '8',
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'sim', self.jobStoreLocal,
+                   os.path.join(self.local_outstore, 'small.xg'), '2000',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        # check running mapeval on the indexes
 
         self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
                    self.local_outstore,
@@ -233,22 +315,6 @@ class VGCGLTest(TestCase):
         
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.8)
         
-        # check running plot on the mapeval output
-        os.unlink(os.path.join(self.local_outstore, 'plots/plot-pr.svg'))
-        os.unlink(os.path.join(self.local_outstore, 'plots/plot-qq.svg'))
-        os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.svg'))
-        self._run(['toil-vg', 'plot', self.jobStoreLocal,
-                   self.local_outstore,
-                   '--container', self.containerType,
-                   '--clean', 'never',
-                   '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
-                   '--realTimeLogging', '--logInfo',
-                   '--maxCores', '8'])
-        self._run(['toil', 'clean', self.jobStoreLocal])
-        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-pr.svg')), 0)
-        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-qq.svg')), 0)
-        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-roc.svg')), 0)
-
         # check running calleval on the mapeval output
         self._run(['toil-vg', 'calleval', self.jobStoreLocal,
                    self.local_outstore,
@@ -277,36 +343,8 @@ class VGCGLTest(TestCase):
         self._assertCallEvalOutput(self.local_outstore, ['vg-gt', 'vg-pe-gt', 'bwa-mem-fb', 'bwa-mem-pe-fb',
                                                          'vg-pe-surject-fb', 'vg-surject-fb', 'bwa-mem-plat',
                                                          'bwa-mem-pe-plat', 'vg-pe-surject-plat', 'vg-surject-plat'], 0.02, 0.02)
-
-        # check running mapeval on the vg graph
         
-        os.remove(os.path.join(self.local_outstore, 'stats.tsv'))
-
-        self._run(['toil-vg', 'sim', self.jobStoreLocal,
-                   os.path.join(self.local_outstore, 'small.xg'), '2000',
-                   self.local_outstore,
-                   '--container', self.containerType,
-                   '--clean', 'never',
-                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
-                   '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '1',
-                   '--fastq', os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz')])
-        self._run(['toil', 'clean', self.jobStoreLocal])
-
-        self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
-                   self.local_outstore,
-                   '--container', self.containerType,
-                   '--clean', 'never',
-                   '--truth', os.path.join(self.local_outstore, 'true.pos'),
-                   '--vg-graphs', self.test_vg_graph,
-                   '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
-                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                   '--alignment_cores', '8', '--single-only', '--multipath-only',                 
-                   '--maxCores', '8', '--fasta', self.chrom_fa])
-        self._run(['toil', 'clean', self.jobStoreLocal])
-
-        self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
-        
-    def test_04_BRCA1_NA12877(self):
+    def test_06_BRCA1_NA12877(self):
         ''' Test sample BRCA1 output, graph construction and use, and local file processing
         '''
         self._download_input('NA12877.brca1.bam_1.fq.gz')
@@ -352,7 +390,7 @@ class VGCGLTest(TestCase):
         
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)        
 
-    def test_05_BRCA1_BRCA2_NA12877(self):
+    def test_07_BRCA1_BRCA2_NA12877(self):
         '''  Test pipeline on chase with two chromosomes, in this case both BRCA regions
         '''
         self._download_input('NA12877.brca1.brca2.bam.fq.gz')
@@ -440,7 +478,7 @@ class VGCGLTest(TestCase):
         self.assertGreater(os.path.getsize(os.path.join(outstore, 'surject.bam')), 250000)
 
                 
-    def test_06_sim_small_outstore(self):
+    def test_08_sim_small_outstore(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore.
         '''
@@ -460,7 +498,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
-    def test_07_construct(self):
+    def test_09_construct(self):
         '''
         Test that the output of toil-vg construct is somewhat reasonable
         '''
@@ -510,7 +548,7 @@ class VGCGLTest(TestCase):
                 assert vg_size < prev_vg_size
             prev_vg_size = vg_size
 
-    def test_08_sim_small_genotype(self):
+    def test_10_sim_small_genotype(self):
         ''' 
         This is the same as test #1, but exercises --force_outstore and --genotype
         '''
@@ -531,7 +569,7 @@ class VGCGLTest(TestCase):
 
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
-    def test_9_gbwt(self):
+    def test_11_gbwt(self):
         '''
         Test that the gbwt gets constructed without crashing (but not much beyond that)
         '''
@@ -571,13 +609,12 @@ class VGCGLTest(TestCase):
         # check gbwt not empty
         self.assertGreater(os.path.getsize(gbwt_path), 250000)
         
-    def test_10_sim_small_mapeval_minimap2(self):
+    def test_12_sim_small_mapeval_minimap2(self):
         ''' 
         Test minimap2 support in mapeval 
         '''
         self.test_vg_graph = self._ci_input_path('small.vg')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
-        self.chrom_fa_nz = self._ci_input_path('small.fa')
         self._download_input('NA12877.brca1.bam_1.fq.gz')
         self.baseline = self._ci_input_path('small.vcf.gz')
         self.bed_regions = self._ci_input_path('small_regions.bed')
@@ -618,13 +655,12 @@ class VGCGLTest(TestCase):
         # Note that mpmap2 only runs on paired end reads.
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'minimap2-pe'], 0.6)
         
-    def test_11_sim_small_mapeval_snarls(self):
+    def test_13_sim_small_mapeval_snarls(self):
         ''' 
         Test running mapeval with and without snarls
         '''
         self.test_vg_graph = self._ci_input_path('small.vg')
         self.chrom_fa = self._ci_input_path('small.fa.gz')
-        self.chrom_fa_nz = self._ci_input_path('small.fa')
         self._download_input('NA12877.brca1.bam_1.fq.gz')
         self.baseline = self._ci_input_path('small.vcf.gz')
         self.bed_regions = self._ci_input_path('small_regions.bed')
@@ -666,7 +702,7 @@ class VGCGLTest(TestCase):
         # Note that snarls only matter for mpmap
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'vg-mp-pe', 'vg-nosnarls-mp-pe'], 0.8)
 
-    def test_12_construct_naming_options(self):
+    def test_14_construct_naming_options(self):
         """
         Make sure we don't get crashes when mixing and matching chromosomes with and without chr
         prefix when using the appropriate options
