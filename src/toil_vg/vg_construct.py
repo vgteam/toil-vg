@@ -23,6 +23,7 @@ from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_index import run_xg_indexing, run_indexing, run_bwa_index, index_parse_args, index_toggle_parse_args
+from toil_vg.vg_msga import run_msga, msga_parse_args
 logger = logging.getLogger(__name__)
 
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
@@ -56,6 +57,9 @@ def construct_subparser(parser):
     parser.add_argument("--regions_regex", default=[], nargs='+',
                         help="Ignore sequence names not fully matching (union of) given regexes when using --fasta_regions or --regions_file"
                         " (ex: --regions_regex \'chr[1-9,M,X,Y,EBV][0-9]{0,1}\' \'chr.*decoy\' to keep only chroms and decoys from hs38d1)")
+    parser.add_argument("--alt_regions_bed", type=make_url,
+                        help="BED file mapping alt regions (cols 1-3) to sequence names (col 4) from the FASTA. "
+                        "Alt regions will be aligned to the graph using vg msga")
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
@@ -118,6 +122,9 @@ def construct_subparser(parser):
     # Add common indexing options shared with vg_index
     index_toggle_parse_args(parser)
     index_parse_args(parser)
+
+    # Add common msga options shared with vg_msga
+    msga_parse_args(parser)
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -331,7 +338,7 @@ def run_scan_regions_file(job, context, regions_id, regions_regex = None):
     return out_regions
 
 def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
-                        vcf_ids_list, vcf_names_list, tbi_ids_list):
+                        vcf_ids_list, vcf_names_list, tbi_ids_list, alt_regions_id):
     """
     Apply name mappings to regions list, fasta files and vcf files.  if to_ucsc is true we convert
     1 -> chr1 etc.  otherwise, we go the other way.  
@@ -352,7 +359,7 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
         else:
             something_to_rename = something_to_rename or region_name in name_map.values()
             out_regions.append(region)
-
+        
     # map the vcf
     out_vcf_ids = []
     out_vcf_names = []
@@ -406,9 +413,26 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
             out_fasta_names.append(out_fasta_name)
     else:
         out_fasta_ids = fasta_ids
-        out_fasta_names = fasta_names        
+        out_fasta_names = fasta_names
 
-    return out_regions, out_fasta_ids, out_fasta_names, out_vcf_ids, out_vcf_names, out_tbi_ids    
+    # map the alt regions
+    if alt_regions_id:
+        alt_regions_path = os.path.join(work_dir, 'alt-regions.bed')
+        alt_regions_out_path = os.path.join(work_dir, 'alt-regions-fix.bed')
+        job.fileStore.readGlobalFile(alt_regions_id, alt_regions_path)
+        with open(alt_regions_path) as in_regions, open(alt_regions_out_path, 'w') as out_alt_regions:
+            for line in in_regions:
+                toks = line.strip().split('\t')
+                if len(toks) >= 4 and toks[0] != '#':
+                    if toks[0] in name_map:
+                            out_alt_regions.write('{}\t{}\t{}\t{}\n'.format(name_map[toks[0]], toks[1], toks[2], toks[3]))
+                    else:
+                        out_alt_regions.write(line)
+        out_alt_regions_id = context.write_intermediate_file(job, alt_regions_out_path)
+    else:
+        out_alt_regions_id = None
+
+    return out_regions, out_fasta_ids, out_fasta_names, out_vcf_ids, out_vcf_names, out_tbi_ids, out_alt_regions_id
 
 def run_fix_vcf_chrom_names(job, context, vcf_id, vcf_name, tbi_id, name_file_id):
     """
@@ -430,7 +454,23 @@ def run_fix_vcf_chrom_names(job, context, vcf_id, vcf_name, tbi_id, name_file_id
     return (context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name)),
             out_vcf_name,
             context.write_intermediate_file(job, os.path.join(work_dir, out_vcf_name + '.tbi')))
-    
+
+def run_subtract_alt_regions(job, context, alt_regions_id, regions):
+    """
+    make sure that alt contigs don't wind up in our regions names, as we want them
+    to get aligned into chromosomes rather than form their own components
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+    alt_regions_path = os.path.join(work_dir, 'alt-regions.bed')
+    job.fileStore.readGlobalFile(alt_regions_id, alt_regions_path)
+    alt_regions = set()
+    with open(alt_regions_path) as in_regions:
+        for line in in_regions:
+            toks = line.strip().split('\t')
+            if len(toks) >= 4 and toks[0] != '#':
+                alt_regions.add(toks[3])
+                
+    return [region for region in regions if region not in alt_regions], list(alt_regions)
         
 def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                             regions, output_name,
@@ -644,7 +684,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       gcsa_index = False, xg_index = False, gbwt_index = False,
                       id_ranges_index = False, snarls_index = False,
                       haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False,
-                      normalize = False, validate = False):
+                      normalize = False, validate = False, alt_regions_id = None,
+                      alt_regions = []):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -666,7 +707,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           max_node_size, gbwt_index or haplo_extraction or alt_paths,
                                           flat_alts, handle_svs, regions,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
-                                          normalize and name != 'haplo', validate)
+                                          normalize and name != 'haplo', validate, alt_regions_id)
 
         mapping_id = construct_job.rv('mapping')
         
@@ -800,7 +841,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        skip_xg=not xg_index, skip_gcsa=skip_gcsa,
                                                        skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
                                                        make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
-                                                       gbwt_regions=gbwt_regions)
+                                                       gbwt_regions=gbwt_regions,
+                                                       dont_restore_paths=alt_regions)
         indexes = indexing_job.rv()    
 
         output.append((joined_vg_ids, joined_vg_names, indexes))
@@ -809,7 +851,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
                                max_node_size, alt_paths, flat_alts, handle_svs, regions, region_names,
-                               sort_ids, join_ids, name, merge_output_name, normalize, validate):
+                               sort_ids, join_ids, name, merge_output_name, normalize, validate, alt_regions_id):
     """
     
     Construct graphs from one or more FASTA files and zero or more VCFs.
@@ -862,19 +904,33 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
             vcf_name = vcf_names[i]
         fasta_id = fasta_ids[0] if len(fasta_ids) == 1 else fasta_ids[i]
         fasta_name = fasta_names[0] if len(fasta_names) == 1 else fasta_names[i]
-        region_graph_ids.append(child_job.addChildJobFn(run_construct_region_graph, context,
-                                                        fasta_id, fasta_name,
-                                                        vcf_id, vcf_name, tbi_id, region, region_name,
-                                                        max_node_size, alt_paths, flat_alts, handle_svs,
-                                                        # todo: bump as command line option?
-                                                        #       also, needed if we update vg docker image?
-                                                        is_chrom=not region or ':' not in region,
-                                                        sort_ids=sort_ids,
-                                                        normalize=normalize,
-                                                        validate=validate,      
-                                                        cores=context.config.construct_cores,
-                                                        memory=context.config.construct_mem,
-                                                        disk=context.config.construct_disk).rv())
+        construct_region_job = child_job.addChildJobFn(run_construct_region_graph, context,
+                                                       fasta_id, fasta_name,
+                                                       vcf_id, vcf_name, tbi_id, region, region_name,
+                                                       max_node_size, alt_paths, flat_alts, handle_svs,
+                                                       # todo: bump as command line option?
+                                                       #       also, needed if we update vg docker image?
+                                                       is_chrom=not region or ':' not in region,
+                                                       sort_ids=sort_ids,
+                                                       normalize=normalize,
+                                                       validate=validate,
+                                                       cores=context.config.construct_cores,
+                                                       memory=context.config.construct_mem,
+                                                       disk=context.config.construct_disk)
+        if alt_regions_id:
+            region_graph_ids.append(construct_region_job.addFollowOnJobFn(run_msga, context, region_name + '.vg',
+                                                                          construct_region_job.rv(),
+                                                                          fasta_id,
+                                                                          alt_regions_id,
+                                                                          region,
+                                                                          normalize=normalize,
+                                                                          max_node_size=max_node_size,
+                                                                          validate=validate,
+                                                                          cores=context.config.alignment_cores,
+                                                                          memory=context.config.alignment_mem,
+                                                                          disk=context.config.alignment_disk).rv())
+        else:
+            region_graph_ids.append(construct_region_job.rv())
 
     return child_job.addFollowOnJobFn(run_join_graphs, context, region_graph_ids, join_ids,
                                       region_names, name, merge_output_name,
@@ -1022,7 +1078,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         cmd = [cmd]
 
     if normalize:
-        cmd.append(['vg', 'mod', '--normalize', '-'])
+        cmd.append(['vg', 'mod', '--until-normal', str(context.config.normalize_iterations), '-'])
         # can be done in single mod command, but weary of being sensitive to order of operations
         cmd.append(['vg', 'mod', '--chop', str(max_node_size), '-'])
 
@@ -1576,12 +1632,15 @@ def construct_main(context, options):
             if options.regions_file:
                 inputRegionsFileID = importer.load(options.regions_file)
 
+            alt_regions_id = importer.load(options.alt_regions_bed) if options.alt_regions_bed else None                
+
             importer.wait()
             inputFastaFileIDs = importer.resolve(inputFastaFileIDs)
             inputVCFFileIDs = importer.resolve(inputVCFFileIDs)
             inputTBIFileIDs = importer.resolve(inputTBIFileIDs)
             inputBWAFastaID = importer.resolve(inputBWAFastaID)
             inputRegionsFileID = importer.resolve(inputRegionsFileID)
+            alt_regions_id = importer.resolve(alt_regions_id)
 
             # We only support one haplotype extraction sample (enforced by validate) despire what CLI implies
             haplo_extraction_sample = options.haplo_sample if options.haplo_sample else options.sample_graph       
@@ -1643,7 +1702,7 @@ def construct_main(context, options):
                                                    regions_regex)
                 regions = cur_job.rv()
             else:
-                regions = options.regions                
+                regions = options.regions          
 
             # Preproces chromosome names everywhere to be consistent,
             # either mapping from 1-->chr1 etc, or going the other way
@@ -1656,12 +1715,25 @@ def construct_main(context, options):
                                                    inputVCFFileIDs,
                                                    inputVCFNames,
                                                    inputTBIFileIDs,
+                                                   alt_regions_id,
                                                    cores=context.config.construct_cores,
                                                    memory=context.config.construct_mem,
                                                    disk=context.config.construct_disk)
                 regions = cur_job.rv(0)
                 inputFastaFileIDs, inputFastaFileNames = cur_job.rv(1), cur_job.rv(2)
                 inputVCFFileIDs, inputTBIFileIDs = cur_job.rv(3), cur_job.rv(5)
+
+            # Make sure that we don't have any alt sequences in our regions.  alt sequences
+            # are inferred from the --target_regions bed file
+            if alt_regions_id:
+                cur_job = cur_job.addFollowOnJobFn(run_subtract_alt_regions,
+                                                   context,
+                                                   alt_regions_id,
+                                                   regions)
+
+                regions, alt_regions = cur_job.rv(0), cur_job.rv(1)
+            else:
+                alt_regions=[]
 
             # Merge up comma-separated vcfs with bcftools merge
             cur_job = cur_job.addFollowOnJobFn(run_merge_all_vcfs, context,
@@ -1700,7 +1772,9 @@ def construct_main(context, options):
                                      haplo_extraction_sample = haplo_extraction_sample,
                                      gbwt_prune = options.gbwt_prune,
                                      normalize = options.normalize,
-                                     validate = options.validate)
+                                     validate = options.validate,
+                                     alt_regions_id = alt_regions_id,
+                                     alt_regions = alt_regions)
                                      
             
             if inputBWAFastaID:

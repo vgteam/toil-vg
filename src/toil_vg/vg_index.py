@@ -140,7 +140,7 @@ def validate_index_options(options):
     if options.vcf_phasing_regions:
         require(options.gbwt_index, "cannot hint regions to GBWT indexer without building a GBWT index")
     
-def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id):
+def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id, remove_paths = []):
     """
     Make a pruned graph using vg prune.  If unfold_mapping_id is provided, use -u, else -r
     """
@@ -166,14 +166,23 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
     if mapping_id:
         job.fileStore.readGlobalFile(mapping_id, mapping_filename, mutable=True)
 
-    cmd = ['vg', 'prune', os.path.basename(graph_filename), '--threads', str(job.cores)]
-    if context.config.prune_opts:
-        cmd += context.config.prune_opts
-    if gbwt_id:
-        cmd += ['--append-mapping', '--mapping', os.path.basename(mapping_filename), '--unfold-paths']
-        cmd += ['--gbwt-name', os.path.basename(gbwt_filename)]
+    if remove_paths:
+        # Remove alt paths so they don't make the graph too complex when getting restored
+        remove_cmd = ['vg', 'mod', os.path.basename(graph_filename), '-I']
+        for remove_path in remove_paths:
+            remove_cmd += ['--retain-path', remove_path]
+        cmd = [remove_cmd, ['vg', 'prune', '-']]
     else:
-        cmd += ['--restore-paths']
+        cmd = [['vg', 'prune', os.path.basename(graph_filename)]]
+    
+    cmd[-1] += ['--threads', str(job.cores)]
+    if context.config.prune_opts:
+        cmd[-1] += context.config.prune_opts
+    if gbwt_id:
+        cmd[-1] += ['--append-mapping', '--mapping', os.path.basename(mapping_filename), '--unfold-paths']
+        cmd[-1] += ['--gbwt-name', os.path.basename(gbwt_filename)]
+    else:
+        cmd[-1] += ['--restore-paths']
         
     with open(pruned_filename, 'w') as pruned_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile=pruned_file)
@@ -192,7 +201,8 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
 
 def run_gcsa_prep(job, context, input_graph_ids,
                   graph_names, index_name, chroms,
-                  chrom_gbwt_ids, node_mapping_id, skip_pruning=False):
+                  chrom_gbwt_ids, node_mapping_id, skip_pruning=False,
+                  remove_paths=[]):
     """
     Do all the preprocessing for gcsa indexing (pruning)
     Then launch the indexing as follow-on
@@ -223,6 +233,7 @@ def run_gcsa_prep(job, context, input_graph_ids,
         if not skip_pruning:
             prune_job = add_fn(run_gcsa_prune, context, graph_names[graph_i],
                                input_graph_id, gbwt_id, mapping_id,
+                               remove_paths = remove_paths,
                                cores=context.config.prune_cores,
                                memory=context.config.prune_mem,
                                disk=context.config.prune_disk)
@@ -868,7 +879,8 @@ def run_indexing(job, context, inputGraphFileIDs,
                  bwa_fasta_id=None,
                  gbwt_id = None, node_mapping_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
-                 skip_snarls=False, make_gbwt=False, gbwt_prune=False, gbwt_regions=[]):
+                 skip_snarls=False, make_gbwt=False, gbwt_prune=False, gbwt_regions=[],
+                 dont_restore_paths=[]):
     """
     
     Run indexing logic by itself.
@@ -1056,6 +1068,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                graph_names, index_name, chroms,
                                                indexes['chrom_gbwt'] if gbwt_prune else [],
                                                node_mapping_id,
+                                               remove_paths=dont_restore_paths,
                                                cores=context.config.misc_cores,
                                                memory=context.config.misc_mem,
                                                disk=context.config.misc_disk)

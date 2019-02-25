@@ -44,6 +44,7 @@ from toil_vg.vg_plot import plot_subparser, plot_main
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import *
 from toil_vg.vg_surject import *
+from toil_vg.vg_msga import *
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,9 @@ def parse_args(args=None):
     # plot subparser
     parser_plot = subparsers.add_parser('plot', help='Plot the results of mapping and calling experiments')
     plot_subparser(parser_plot)
+
+    parser_msga = subparsers.add_parser('msga', help='Align fasta sequences to a graph')
+    msga_subparser(parser_msga)
 
     # version subparser
     parser_version = subparsers.add_parser('version', help='Print version')
@@ -398,6 +402,8 @@ def main():
         surject_main(context, args)
     elif args.command == 'plot':
         plot_main(context, args)
+    elif args.command == 'msga':
+        msga_main(context, args)
     else:
         raise RuntimeError('Unimplemented subcommand {}'.format(args.command))
         

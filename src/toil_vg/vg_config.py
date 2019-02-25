@@ -144,7 +144,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.13.0-77-gbac40a2b-t270-run'
+vg-docker: 'quay.io/vgteam/vg:v1.14.0-23-g2f02b148-t289-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -194,6 +194,12 @@ bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 # Docker image to use for sveval R package
 sveval-docker: 'jmonlong/sveval:version-1.1.1'
 
+##############################
+### vg_construct Arguments ###
+
+# Number of times to iterate normalization when --normalized used in construction
+normalize-iterations: 10
+
 ##########################
 ### vg_index Arguments ###
 
@@ -227,6 +233,15 @@ map-opts: []
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
 mpmap-opts: ['--single-path-mode']
 
+########################
+### vg_msga Arguments ###
+
+# Core arguments for vg msgaing (do not include file names or -t/--threads)
+msga-opts: []
+
+# Number of steps to conext expand target regions before aligning with msga
+msga-context: 50
+
 #########################
 ### vg_call Arguments ###
 # Overlap option that is passed into make_chunks and call_chunk
@@ -240,6 +255,9 @@ chunk_context: 50
 
 # Options to pass to vg filter when running vg call. (do not include file names or -t/--threads)
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
+
+# Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+recall-filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
 augment-opts: ['-q', '10']
@@ -351,11 +369,6 @@ fq-split-cores: 32
 fq-split-mem: '4G'
 fq-split-disk: '200G'
 
-# Number of threads to use for Rocksdb GAM indexing
-# Generally, this should be kept low as speedup drops off radically 
-# after a few threads.
-gam-index-cores: 6
-
 # Resources for *each* vg map job
 # the number of vg map jobs is controlled by reads-per-chunk (below)
 alignment-cores: 32
@@ -402,7 +415,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.13.0-77-gbac40a2b-t270-run'
+vg-docker: 'quay.io/vgteam/vg:v1.14.0-23-g2f02b148-t289-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -452,6 +465,11 @@ bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 # Docker image to use for sveval R package
 sveval-docker: 'jmonlong/sveval:version-1.1.1'
 
+##############################
+### vg_construct Arguments ###
+
+# Number of times to iterate normalization when --normalized used in construction
+normalize-iterations: 10
 
 ##########################
 ### vg_index Arguments ###
@@ -486,6 +504,15 @@ map-opts: []
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
 mpmap-opts: ['--single-path-mode']
 
+########################
+### vg_msga Arguments ###
+
+# Core arguments for vg msgaing (do not include file names or -t/--threads)
+msga-opts: []
+
+# Number of steps to conext expand target regions before aligning with msga
+msga-context: 2000
+
 #########################
 ### vg_call Arguments ###
 # Overlap option that is passed into make_chunks and call_chunk
@@ -499,6 +526,9 @@ chunk_context: 50
 
 # Options to pass to vg filter when running vg call. (do not include file names or -t/--threads)
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
+
+# Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+recall-filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
 augment-opts: ['-q', '10']
@@ -553,8 +583,9 @@ def apply_config_file_args(args):
     """
 
     # turn --*_opts from strings to lists to be consistent with config file
-    for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'genotype_opts', 'vcfeval_opts', 'sim_opts',
-                   'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts', 'augment_opts', 'prune_opts']:
+    for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'recall_filter_opts', 'genotype_opts',
+                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts',
+                   'augment_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
 

@@ -40,8 +40,6 @@ def call_subparser(parser):
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
                         help="GAMs to call.  One per chromosome in the same order as --chroms, or just one. "
                         " Indexes (.gai) will be used if found.")
-    parser.add_argument("--gam_index_cores", type=int,
-                        help="number of threads used for gam indexing")
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -100,7 +98,6 @@ def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
 
 def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
-                filter_opts = [], augment_opts = [], call_opts = [], recall_opts = [],
                 chunk_name = 'call', genotype = False, recall = False):
     """ Run vg call or vg genotype on a single graph.
 
@@ -121,6 +118,13 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     """
     
     work_dir = job.fileStore.getLocalTempDir()
+
+    filter_opts = context.config.filter_opts if not recall else context.config.recall_filter_opts
+    augment_opts = context.config.augment_opts
+    if genotype:
+        call_opts = context.config.genotype_opts
+    else:
+        call_opts = context.config.call_opts if not recall else context.config.recall_opts
 
     # Read our input files from the store
     vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
@@ -255,9 +259,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                    '-s', os.path.basename(support_path),
                    '-b', os.path.basename(vg_path)]
                 
-        if recall and recall_opts:
-            command += recall_opts
-        elif call_opts:
+        if call_opts:
             command += call_opts
         command += name_opts
 
@@ -303,10 +305,6 @@ def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, c
         seq_names = [path_name],
         seq_offsets = [chunk_offset + vcf_offset],
         seq_lengths = [path_size],
-        filter_opts = context.config.filter_opts,
-        augment_opts = context.config.augment_opts,
-        call_opts = context.config.call_opts if not genotype else context.config.genotype_opts,
-        recall_opts = context.config.recall_opts if not genotype else [],
         chunk_name = 'chunk_{}_{}'.format(path_name, chunk_offset),
         genotype = genotype,
         recall = recall,
@@ -477,7 +475,7 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
         gam_index_path = gam_sort_path + '.gai'
         with open(gam_sort_path, "w") as gam_sort_stream:
             gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path),
-                           '--threads', str(context.config.gam_index_cores)]
+                           '--threads', str(context.config.call_chunk_cores)]
             context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
             # We may spend a lot of time on these, so drop them in the output store.
             context.write_output_file(job, gam_sort_path)
