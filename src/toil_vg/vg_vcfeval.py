@@ -15,6 +15,7 @@ from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_call import sort_vcf
+from toil_vg.vg_construct import run_make_control_vcfs
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,9 @@ def vcfeval_parse_args(parser):
                         help="the minimum reciprocal overlap when computing coverage on deletions")
     parser.add_argument("--normalize", action="store_true",
                         help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
+    parser.add_argument("--vcfeval_sample",
+                        help="extract this sample from calls and truth vcf (if possible) before comparison")
+                        
 
 def validate_vcfeval_options(options):
     """ check some options """
@@ -187,39 +191,6 @@ def run_vcfeval_roc_plot(job, context, roc_table_ids, names=[], kind=None, numbe
 
     return context.write_output_file(job, out_roc_path, os.path.join('plots', plot_filename))
 
-def run_extract_sample_truth_vcf(job, context, sample, input_baseline_id, input_baseline_tbi_id):
-    """
-    
-    Extract a single-sample truth VCF from the given truth VCF .vcf.gz and .vcf.gz.tbi.
-    
-    Returns a pair of file IDs for the resulting .vcf.gz and .vcf.gz.tbi.
-    
-    Filtering the truth down is useful because it can save memory.
-    
-    TODO: use this in toil-vg vcfeval, instead of just providing it as a utility.
-    
-    """
-    
-    # Make a local work directory
-    work_dir = job.fileStore.getLocalTempDir()
-    
-    # Download the truth vcf
-    vcfeval_baseline_name = 'full-truth.vcf.gz'
-    job.fileStore.readGlobalFile(input_baseline_id, os.path.join(work_dir, vcfeval_baseline_name))
-    job.fileStore.readGlobalFile(input_baseline_tbi_id, os.path.join(work_dir, vcfeval_baseline_name + '.tbi'))    
-    
-    # Make the single-sample VCF
-    single_name = 'single-truth-{}.vcf.gz'.format(sample)
-    context.runner.call(job, ['bcftools', 'view', vcfeval_baseline_name, '-s', sample, '-o', single_name, '-O', 'z'], work_dir=work_dir)
-    
-    # Index it
-    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', single_name], work_dir=work_dir)
-    
-    # Upload file and index
-    single_vcf_id = context.write_output_file(job, os.path.join(work_dir, single_name))
-    single_vcf_tbi_id = context.write_output_file(job, os.path.join(work_dir, single_name + '.tbi'))
-    
-    return single_vcf_id, single_vcf_tbi_id
 
 def run_vcfeval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id, 
     fasta_path, fasta_id, bed_id, out_name = None, score_field=None):
@@ -632,6 +603,24 @@ def vcfeval_main(context, options):
 
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
+
+            # extract the sample
+            if options.vcfeval_sample:
+                call_sample_job = init_job.addChildJobFn(run_make_control_vcfs, context, call_vcf_id,
+                                                         os.path.basename(options.call_vcf),
+                                                         call_tbi_id, options.vcfeval_sample, pos_only = True,
+                                                         cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                                         disk=context.config.vcfeval_disk)
+                call_vcf_id = call_sample_job.rv(0)
+                call_tbi_id = call_sample_job.rv(1)
+                
+                truth_sample_job = init_job.addChildJobFn(run_make_control_vcfs, context, vcfeval_baseline_id,
+                                                         os.path.basename(options.vcfeval_baseline),
+                                                         vcfeval_baseline_tbi_id, options.vcfeval_sample, pos_only = True,
+                                                         cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                                         disk=context.config.vcfeval_disk)
+                vcfeval_baseline_id = truth_sample_job.rv(0)
+                vcfeval_baseline_tbi_id = truth_sample_job.rv(1)
             
             # Make a root job
             if options.vcfeval:

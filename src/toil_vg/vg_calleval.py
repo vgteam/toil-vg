@@ -33,7 +33,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_merge_vcf
-from toil_vg.vg_vcfeval import vcfeval_parse_args, run_extract_sample_truth_vcf, run_vcfeval, run_vcfeval_roc_plot, run_happy, run_sv_eval
+from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy, run_sv_eval
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta
 from toil_vg.vg_surject import run_surjecting
@@ -509,10 +509,12 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
     # We always extract a single-sample VCF from the truth, to save time
     # picking through all its samples multiple times over later. This should
     # also save memory. TODO: should we define a separate disk/memory requirement set?
-    sample_extract_job = head_job.addChildJobFn(run_extract_sample_truth_vcf, context, sample_name, vcfeval_baseline_id,
-                                                vcfeval_baseline_tbi_id, cores=context.config.vcfeval_cores,
+    sample_extract_job = head_job.addChildJobFn(run_make_control_vcfs, context, vcfeval_baseline_id, 'baseline.vcf.gz',
+                                                vcfeval_baseline_tbi_id, sample_name, pos_only = True,
+                                                cores=context.config.vcfeval_cores,
                                                 memory=context.config.vcfeval_mem,
                                                 disk=context.config.vcfeval_disk)
+
     truth_vcf_id = sample_extract_job.rv(0)
     truth_vcf_tbi_id = sample_extract_job.rv(1)
 
