@@ -609,16 +609,18 @@ def vcfeval_main(context, options):
                 call_sample_job = init_job.addChildJobFn(run_make_control_vcfs, context, call_vcf_id,
                                                          os.path.basename(options.call_vcf),
                                                          call_tbi_id, options.vcfeval_sample, pos_only = True,
+                                                         no_filter_if_sample_not_found = True,
                                                          cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                                          disk=context.config.vcfeval_disk)
                 call_vcf_id = call_sample_job.rv(0)
                 call_tbi_id = call_sample_job.rv(1)
                 
                 truth_sample_job = init_job.addChildJobFn(run_make_control_vcfs, context, vcfeval_baseline_id,
-                                                         os.path.basename(options.vcfeval_baseline),
-                                                         vcfeval_baseline_tbi_id, options.vcfeval_sample, pos_only = True,
-                                                         cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
-                                                         disk=context.config.vcfeval_disk)
+                                                          os.path.basename(options.vcfeval_baseline),
+                                                          vcfeval_baseline_tbi_id, options.vcfeval_sample, pos_only = True,
+                                                          no_filter_if_sample_not_found = True,
+                                                          cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
+                                                          disk=context.config.vcfeval_disk)
                 vcfeval_baseline_id = truth_sample_job.rv(0)
                 vcfeval_baseline_tbi_id = truth_sample_job.rv(1)
             

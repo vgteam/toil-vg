@@ -35,7 +35,7 @@ from toil_vg.vg_common import *
 from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_merge_vcf
 from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy, run_sv_eval
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_construct import run_unzip_fasta
+from toil_vg.vg_construct import run_unzip_fasta, run_make_control_vcfs
 from toil_vg.vg_surject import run_surjecting
 
 logger = logging.getLogger(__name__)
@@ -511,6 +511,7 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
     # also save memory. TODO: should we define a separate disk/memory requirement set?
     sample_extract_job = head_job.addChildJobFn(run_make_control_vcfs, context, vcfeval_baseline_id, 'baseline.vcf.gz',
                                                 vcfeval_baseline_tbi_id, sample_name, pos_only = True,
+                                                no_filter_if_sample_not_found = True,
                                                 cores=context.config.vcfeval_cores,
                                                 memory=context.config.vcfeval_mem,
                                                 disk=context.config.vcfeval_disk)
