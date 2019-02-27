@@ -153,7 +153,7 @@ class VGCGLTest(TestCase):
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_fasta', self.chrom_fa, self.local_outstore,
                    '--clean', 'never',
-                   '--vcfeval_opts', ' --squash-ploidy',
+                   '--vcfeval_opts', ' --squash-ploidy', '--vcfeval_sample', 'sample',
                    '--realTimeLogging', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 

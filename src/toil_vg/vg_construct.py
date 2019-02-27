@@ -1170,7 +1170,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples, vcf_
     return out_vcf_id, out_tbi_id
     
 def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_only = False,
-                          vcf_subdir = None):
+                          vcf_subdir = None, no_filter_if_sample_not_found = False):
     """ make a positive and negative control vcf 
     The positive control has only variants in the sample, the negative
     control has only variants not in the sample
@@ -1188,6 +1188,11 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     cmd = ['bcftools', 'query', '--list-samples', os.path.basename(vcf_file)]
     found_samples = context.runner.call(job, cmd, work_dir=work_dir, check_output=True)
     found_sample = sample in found_samples.strip().split('\n')
+
+    # Hacky interface to not do anything if we can't find the sample.
+    # By default, we'd return an empty VCF in this case
+    if not found_sample and no_filter_if_sample_not_found:
+        return vcf_id, tbi_id, vcf_id, tbi_id
 
     # filter down to sample in question
     cmd = [['bcftools', 'view', os.path.basename(vcf_file), '--samples', sample, '--trim-alt-alleles']]
