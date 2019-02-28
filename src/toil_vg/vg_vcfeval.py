@@ -564,7 +564,11 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     total_res = summary_lines[1].rstrip().split('\t')
     for idx in range(len(headers)):
         if headers[idx] in ['precision', 'recall', 'F1']:
-            results[headers[idx]] = float(total_res[idx])
+            try:
+                results[headers[idx]] = total_res[idx]
+                results[headers[idx]] = float(total_res[idx])
+            except:
+                results[headers[idx]] = 'error'
     return results
 
 
