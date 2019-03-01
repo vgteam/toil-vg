@@ -186,13 +186,8 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                                   '--translation', os.path.basename(trans_path),
                                   '--support', os.path.basename(support_path)]
         if recall:
-            augment_opts = copy.deepcopy(augment_opts)
-            for o in ['--min-aug-support', '-g']:
-                if o in augment_opts:
-                    i = augment_opts.find(o)
-                    del augment_opts[i]
-                    del augment_opts[i]
-            augment_generated_opts += ['--min-aug-support', '9999999']
+            augment_opts = []
+            augment_generated_opts += ['--recall']
                 
     augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
                     '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
