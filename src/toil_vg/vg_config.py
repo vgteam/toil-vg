@@ -263,10 +263,10 @@ recall-filter-opts: []
 augment-opts: ['-q', '10']
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
-call-opts: []
+call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
-recall-opts: ['-u', '-n', '0']
+recall-opts: ['-u', '-n', '0', '-e', '1000']
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
 genotype-opts: []
@@ -534,10 +534,10 @@ recall-filter-opts: []
 augment-opts: ['-q', '10']
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
-call-opts: []
+call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
-recall-opts: ['-u', '-n', '0']
+recall-opts: ['-u', '-n', '0', '-e', '1000']
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
 genotype-opts: []
