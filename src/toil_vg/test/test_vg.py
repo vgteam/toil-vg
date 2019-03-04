@@ -380,8 +380,8 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--clean', 'never',
                    '--bam_input_reads', self.bam_reads,  '--graphs',
-                   '--reads_per_chunk', '10000',
                    self.test_vg_graph, '--chroms', '17',
+                   '--reads_per_chunk', '10000',
                    '--gcsa_index', os.path.join(self.local_outstore, 'index.gcsa'),
                    # single_reads_chunk currently required for bam in jenkins test but can't figure out
                    # why, as can't reproduce problems on the command line
