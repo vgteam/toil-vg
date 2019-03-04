@@ -485,11 +485,16 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
             path_list_file.write(path_name + '\n')
             offset_map[path_name] = int(vcf_offsets[i]) if vcf_offsets else 0
 
+    # Apply chunk override for recall.
+    # Todo: fix vg chunk to only expand variants (not reference) so that we can leave this super high
+    # all the time
+    context_size = max(int(context.config.chunk_context), int(context.config.recall_context))
+    
     # Chunk the graph and gam, using the xg and rocksdb indexes.
     # GAM index isn't passed but it needs to be next to the GAM file.
     output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
     chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_path),
-                 '-a', os.path.basename(gam_sort_path), '-c', str(context.config.chunk_context),
+                 '-a', os.path.basename(gam_sort_path), '-c', str(context_size),
                  '-P', os.path.basename(path_list),
                  '-g',
                  '-s', str(context.config.call_chunk_size),
