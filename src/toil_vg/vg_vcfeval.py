@@ -84,6 +84,10 @@ def vcfeval_parse_args(parser):
                         help="try to identify inversions during SV evaluation.")
     parser.add_argument("--normalize", action="store_true",
                         help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
+    parser.add_argument("--normalize_baseline", action="store_true",
+                        help="normalize the truth VCF before SV comparison with bcftools norm (requires --vcfeva_fasta)")
+    parser.add_argument("--normalize_calls", action="store_true",
+                        help="normalize the calls VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
     parser.add_argument("--vcfeval_sample",
                         help="extract this sample from calls and truth vcf (if possible) before comparison")
                         
@@ -96,6 +100,8 @@ def validate_vcfeval_options(options):
 
     assert not (options.happy or options.vcfeval) or options.vcfeval_fasta
     assert not options.normalize or options.vcfeval_fasta
+    assert not options.normalize_calls or options.vcfeval_fasta
+    assert not options.normalize_baseline or options.vcfeval_fasta
 
 def parse_f1(summary_path):
     """ grab the best f1 out of vcfeval's summary.txt """
@@ -441,7 +447,8 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                 min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, bed_id = None,
                 ins_ref_len=10, del_min_rol=.1, ins_seq_comp=False, check_inv=False,
-                out_name = '', fasta_path = None, fasta_id = None, normalize = False):
+                out_name = '', fasta_path = None, fasta_id = None, normalize_baseline = False,
+                normalize_calls = False):
     """ Run a overlap-based evaluation using the sveval R package (https://github.com/jmonlong/sveval)"""
 
     # make a local work directory
@@ -465,6 +472,8 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     else:
         regions_bed_name = None
 
+    normalize = normalize_baseline or normalize_calls
+    
     # and the fasta
     if fasta_id:
         fasta_name = os.path.basename(fasta_path)
@@ -491,8 +500,12 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     if normalize:
         norm_call_vcf_name = '{}calls-norm.vcf.gz'.format(out_name)
         norm_vcfeval_baseline_name = '{}truth-norm.vcf.gz'.format(out_name)
-        for vcf_name, norm_name in [(call_vcf_name, norm_call_vcf_name),
-                                    (vcfeval_baseline_name, norm_vcfeval_baseline_name)]:
+        norm_inputs = []
+        if normalize_baseline:
+            norm_inputs.append((vcfeval_baseline_name, norm_vcfeval_baseline_name))
+        if normalize_calls:
+            norm_inputs.append((call_vcf_name, norm_call_vcf_name))
+        for vcf_name, norm_name in norm_inputs:
             with open(os.path.join(work_dir, norm_name), 'w') as norm_file:
                 # haploid variants throw off bcftools norm --multiallelic +both (TODO: stop making them in vg call)
                 norm_cmd = [['bcftools', 'view', vcf_name, '--exclude', 'GT="0" || GT="." || GT="1"']]
@@ -665,7 +678,8 @@ def vcfeval_main(context, options):
                                        check_inv=options.check_inv,
                                        fasta_path=options.vcfeval_fasta,
                                        fasta_id=fasta_id,
-                                       normalize=options.normalize, 
+                                       normalize_baseline=options.normalize or options.normalize_baseline,
+                                       normalize_calls=options.normalize or options.normalize_calls,
                                        cores=context.config.vcfeval_cores, memory=context.config.vcfeval_mem,
                                        disk=context.config.vcfeval_disk)
                 init_job.addFollowOn(sv_job)
