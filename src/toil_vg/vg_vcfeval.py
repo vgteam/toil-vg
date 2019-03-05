@@ -526,8 +526,10 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             shutil.move(os.path.join(work_dir, norm_name + '_sorted.vcf'), os.path.join(work_dir, norm_name[:-3]))
             context.runner.call(job, ['bgzip', '--force', norm_name[:-3]], work_dir = work_dir)
             context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', norm_name], work_dir = work_dir)
-        call_vcf_name = norm_call_vcf_name
-        vcfeval_baseline_name = norm_vcfeval_baseline_name
+        if normalize_calls:
+            call_vcf_name = norm_call_vcf_name
+        if normalize_baseline:
+            vcfeval_baseline_name = norm_vcfeval_baseline_name
 
     ## Run sveval R package
     summary_name = '{}sv_accuracy.tsv'.format(out_name)
