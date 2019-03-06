@@ -82,6 +82,8 @@ def vcfeval_parse_args(parser):
                         help="the minimum reciprocal overlap when computing coverage on deletions")
     parser.add_argument("--check_inv", action="store_true",
                         help="try to identify inversions during SV evaluation.")
+    parser.add_argument("--genotype_eval", action="store_true",
+                        help="genotype evaluation instead of calling evaluation during SV evaluation.")
     parser.add_argument("--normalize", action="store_true",
                         help="normalize both VCFs before SV comparison with bcftools norm (requires --vcfeva_fasta)")
     parser.add_argument("--normalize_baseline", action="store_true",
@@ -446,7 +448,7 @@ def run_happy(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeva
 
 def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfeval_baseline_tbi_id,
                 min_sv_len, max_sv_len, sv_overlap, sv_region_overlap, bed_id = None,
-                ins_ref_len=10, del_min_rol=.1, ins_seq_comp=False, check_inv=False,
+                ins_ref_len=10, del_min_rol=.1, ins_seq_comp=False, check_inv=False, genotype_eval=False,
                 out_name = '', fasta_path = None, fasta_id = None, normalize_baseline = False,
                 normalize_calls = False):
     """ Run a overlap-based evaluation using the sveval R package (https://github.com/jmonlong/sveval)"""
@@ -551,6 +553,8 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         sveval_cmd += ', ins.seq.comp=TRUE'
     if check_inv:
         sveval_cmd += ', check.inv=TRUE'
+    if genotype_eval:
+        sveval_cmd += ', geno.eval=TRUE, stitch.hets=TRUE, merge.hets=TRUE'
     sveval_cmd += ')'
     r_cmd_file = 'sveval.R'
     with open(os.path.join(work_dir, r_cmd_file), 'w') as r_file:
@@ -678,6 +682,7 @@ def vcfeval_main(context, options):
                                        del_min_rol=options.del_min_rol,
                                        ins_seq_comp=options.ins_seq_comp,
                                        check_inv=options.check_inv,
+                                       genotype_eval=options.genotype_eval,
                                        fasta_path=options.vcfeval_fasta,
                                        fasta_id=fasta_id,
                                        normalize_baseline=options.normalize or options.normalize_baseline,
