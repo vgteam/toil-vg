@@ -83,6 +83,6 @@ fi
 
 # Run our toil command
 ${EVAL_PREFIX} ${TOIL_VG_ARGS} ${TOIL_OPTS}
-TOIL_ERROR="$?"
+TOIL_ERROR=$?
 
 exit $TOIL_ERROR
