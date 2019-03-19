@@ -275,7 +275,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     sort_vcf(job, context.runner, vcf_path, sorted_vcf_path)
 
     # Optional clip
-    if clip_info:
+    if clip_info and context.config.call_chunk_size != 0:
         left_clip = 0 if clip_info['chunk_i'] == 0 else context.config.overlap / 2
         right_clip = 0 if clip_info['chunk_i'] == clip_info['chunk_n'] - 1 else context.config.overlap / 2
         clip_path = os.path.join(work_dir, '{}_call_clip.vcf'.format(chunk_name))
