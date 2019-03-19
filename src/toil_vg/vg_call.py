@@ -370,12 +370,17 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
             # single gam with one or more chromosomes
             chr_label = chroms
             chr_offset = vcf_offsets if vcf_offsets else [0] * len(chroms)
-        call_job = child_job.addChildJobFn(run_calling, context, xg_file_id,
-                                           alignment_file_id, alignment_index_id, chr_label, chr_offset,
-                                           sample_name, genotype=genotype, recall=recall,
-                                           cores=context.config.call_chunk_cores,
-                                           memory=context.config.call_chunk_mem,
-                                           disk=context.config.call_chunk_disk)
+        chunk_job = child_job.addChildJobFn(run_chunking, context, xg_file_id,
+                                            alignment_file_id, alignment_index_id, chr_label, chr_offset,
+                                            sample_name, genotype=genotype, recall=recall,
+                                            cores=context.config.call_chunk_cores,
+                                            memory=context.config.call_chunk_mem,
+                                            disk=context.config.call_chunk_disk)
+        call_job = chunk_job.addFollowOnJobFn(run_chunked_calling, context, chunk_job.rv(0),
+                                              genotype, recall, chunk_job.rv(1),
+                                              cores=context.config.misc_cores,
+                                              memory=context.config.misc_mem,
+                                              disk=context.config.misc_disk)
         vcf_tbi_file_id_pair_list.append((call_job.rv(0), call_job.rv(1)))
         call_timers_lists.append(call_job.rv(2))
         
@@ -438,19 +443,17 @@ def run_merge_vcf(job, context, out_name, vcf_tbi_file_id_pair_list, call_timers
     else:
         return vcf_file_id, vcf_idx_file_id
 
-    
-def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, sample_name,
-                genotype, recall):
+def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, sample_name,
+                 genotype, recall):
     """
-    Call a single GAM.  Takes care of splitting the input into chunks based on one or more path,
-    processing each chunk in parallel, then merging the result into a single vcf which is returned.
+    Split a gam and xg up into a bunch of vg/gam pairs, one for each calling chunk.  also keep track of the 
+    various offsets needed to call and clip them.
     """
-    RealtimeLogger.info("Running variant calling on path(s) {} from alignment file {}".format(','.join(path_names), str(alignment_file_id)))
         
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
-    # Tame for work files
+    # Name for work files
     tag = path_names[0] if len(path_names) == 1 else 'chroms'
 
     # Download the input from the store
@@ -530,9 +533,8 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
     # Keep track of offset in each path
     cur_path_offset = defaultdict(int)
 
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)
+    # This will be a list of dicts, each one corresponding to the info for a chunk
+    output_chunk_info = []
         
     # Go through the BED output of vg chunk, adding a child calling job for
     # each chunk                
@@ -552,16 +554,53 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
         clipped_chunk_offset = chunk_i * context.config.call_chunk_size - chunk_i * context.config.overlap
         cur_path_offset[chunk_bed_chrom] += 1
 
-        call_job =  child_job.addChildJobFn(run_call_chunk, context, chunk_bed_chrom, chunk_i,
-                                            len(bed_lines),
-                                            chunk_bed_start, clipped_chunk_offset,
-                                            None, vg_chunk_file_id, gam_chunk_file_id,
-                                            path_size[chunk_bed_chrom], offset_map[chunk_bed_chrom],
-                                            sample_name, genotype, recall,
+        chunk_info = {
+            'chrom' : chunk_bed_chrom,
+            'chunk_i' : chunk_i,
+            'chunk_n' : len(bed_lines),
+            'chunk_start' : chunk_bed_start,
+            'clipped_chunk_offset' : clipped_chunk_offset,
+            'vg_id' : vg_chunk_file_id,
+            'gam_id' : gam_chunk_file_id,
+            'path_size' : path_size[chunk_bed_chrom],
+            'offset' : offset_map[chunk_bed_chrom],
+            'sample' : sample_name }
+        output_chunk_info.append(chunk_info)
+
+    return output_chunk_info, call_timers
+
+def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers):
+    """
+    spawn a calling job for each chunk then merge them together
+    """
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+
+    path_names = set()
+
+    clip_file_ids = []
+    for chunk_info in chunk_infos:
+        path_names.add(chunk_info['chrom'])
+        call_job =  child_job.addChildJobFn(run_call_chunk, context,
+                                            chunk_info['chrom'],
+                                            chunk_info['chunk_i'],
+                                            chunk_info['chunk_n'],
+                                            chunk_info['chunk_start'],
+                                            chunk_info['clipped_chunk_offset'],
+                                            None,
+                                            chunk_info['vg_id'],
+                                            chunk_info['gam_id'],
+                                            chunk_info['path_size'],
+                                            chunk_info['offset'],
+                                            chunk_info['sample'],
+                                            genotype, recall,
                                             cores=context.config.misc_cores,
                                             memory=context.config.misc_mem, disk=context.config.misc_disk)
         clip_file_ids.append(call_job.rv(0))
         call_timers.append(call_job.rv(1))
+
+    tag = list(path_names)[0] if len(path_names) == 1 else 'chroms'
         
     merge_job = child_job.addFollowOnJobFn(run_merge_vcf_chunks, context, tag,
                                            clip_file_ids,
@@ -573,7 +612,6 @@ def run_calling(job, context, xg_file_id, alignment_file_id, alignment_index_id,
     tbi_out_file_id = merge_job.rv(1)
     
     return vcf_out_file_id, tbi_out_file_id, call_timers
-
 
 def run_merge_vcf_chunks(job, context, path_name, clip_file_ids):
     """ merge a bunch of clipped vcfs created above, taking care to 
