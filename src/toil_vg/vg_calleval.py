@@ -32,7 +32,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_merge_vcf
+from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_concat_vcfs
 from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy, run_sv_eval
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta, run_make_control_vcfs
@@ -186,7 +186,8 @@ def run_all_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,
         fb_tbi_ids.append(fb_job.rv(1))
         fb_timers.append([fb_job.rv(2)])
 
-    merge_vcf_job = child_job.addFollowOnJobFn(run_merge_vcf, context, out_name, zip(fb_vcf_ids, fb_tbi_ids), fb_timers)
+    merge_vcf_job = child_job.addFollowOnJobFn(run_concat_vcfs, context, out_name, fb_vcf_ids, fb_tbi_ids,
+                                               write_to_outstore = True, call_timers_lists = fb_timers)
     return merge_vcf_job.rv()
     
 def run_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,

@@ -98,7 +98,7 @@ def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
 
 def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
-                chunk_name = 'call', genotype = False, recall = False):
+                chunk_name = 'call', genotype = False, recall = False, clip_info = None):
     """ Run vg call or vg genotype on a single graph.
 
     Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id). pileup_id and xg_id
@@ -273,78 +273,23 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     # Sort the output
     sort_vcf(job, context.runner, vcf_path, sorted_vcf_path)
-    vcf_id =  context.write_intermediate_file(job, sorted_vcf_path)
+
+    # Optional clip
+    if clip_info:
+        left_clip = 0 if clip_info['chunk_i'] == 0 else context.config.overlap / 2
+        right_clip = 0 if clip_info['chunk_i'] == clip_info['chunk_n'] - 1 else context.config.overlap / 2
+        clip_path = os.path.join(work_dir, '{}_call_clip.vcf'.format(chunk_name))
+        offset = clip_info['offset'] + 1 # adjust to 1-based vcf
+        command=['bcftools', 'view', '-t', '{}:{}-{}'.format(
+            path_name, offset + clip_info['clipped_chunk_offset'] + left_clip,
+            offset + clip_info['clipped_chunk_offset'] + context.config.call_chunk_size - right_clip - 1),
+                 os.path.basename(sorted_vcf_path), '--output-file', os.path.basename(clip_path)]
+        context.runner.call(job, command, work_dir=work_dir)
+        vcf_id = context.write_intermediate_file(job, clip_path)
+    else:
+        vcf_id =  context.write_intermediate_file(job, sorted_vcf_path)
         
     return vcf_id, timer
-
-
-def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset,
-                   xg_file_id, vg_chunk_file_id, gam_chunk_file_id, path_size, vcf_offset, sample_name,
-                   genotype, recall):
-    """ create VCF from a given chunk """
-
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)
-
-    RealtimeLogger.info("Running call_chunk on path {} and chunk {}".format(path_name, chunk_i))
-    
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Run vg call
-    call_job = child_job.addChildJobFn(
-        run_vg_call,
-        context, sample_name, vg_chunk_file_id, gam_chunk_file_id,
-        xg_id = xg_file_id,
-        path_names = [path_name], 
-        seq_names = [path_name],
-        seq_offsets = [chunk_offset + vcf_offset],
-        seq_lengths = [path_size],
-        chunk_name = 'chunk_{}_{}'.format(path_name, chunk_offset),
-        genotype = genotype,
-        recall = recall,
-        cores=context.config.calling_cores,
-        memory=context.config.calling_mem, disk=context.config.calling_disk)
-    vcf_id, call_timer = call_job.rv(0), call_job.rv(1)
-
-    if context.config.call_chunk_size != 0:
-        clip_file_id = child_job.addFollowOnJobFn(run_clip_vcf, context, path_name, chunk_i, num_chunks, chunk_offset,
-                                                  clipped_chunk_offset, vcf_offset, vcf_id,
-                                                  cores=context.config.calling_cores,
-                                                memory=context.config.calling_mem, disk=context.config.calling_disk).rv()
-    else:
-        # don't need to clip if we didn't chunk
-        clip_file_id = vcf_id
-
-    return clip_file_id, call_timer
-
-def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset, vcf_offset, vcf_id):
-    """ clip the vcf to respect chunk """
-
-     # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # output vcf name
-    vcf_path = os.path.join(work_dir, 'chunk_{}_{}.vcf'.format(path_name, chunk_offset))
-    job.fileStore.readGlobalFile(vcf_id, vcf_path)
-    
-    # do the vcf clip
-    left_clip = 0 if chunk_i == 0 else context.config.overlap / 2
-    right_clip = 0 if chunk_i == num_chunks - 1 else context.config.overlap / 2
-    clip_path = os.path.join(work_dir, 'chunk_{}_{}_clip.vcf'.format(path_name, chunk_offset))
-    with open(clip_path, "w") as clip_path_stream:
-        offset = vcf_offset + 1
-        command=['bcftools', 'view', '-t', '{}:{}-{}'.format(
-            path_name, offset + clipped_chunk_offset + left_clip,
-            offset + clipped_chunk_offset + context.config.call_chunk_size - right_clip - 1),
-                 os.path.basename(vcf_path)]
-        context.runner.call(job, command, work_dir=work_dir, outfile=clip_path_stream)
-
-    # save clip.vcf files to job store
-    clip_file_id = context.write_intermediate_file(job, clip_path)
-    
-    return clip_file_id
 
 def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
                     genotype=False, out_name=None, recall=False):
@@ -354,7 +299,8 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
     # we make a child job so that all calling is encapsulated in a top-level job
     child_job = Job()
     job.addChild(child_job)
-    vcf_tbi_file_id_pair_list = []
+    vcf_ids = []
+    tbi_ids = []
     call_timers_lists = []
     assert len(chr_gam_ids) > 0
     if not chr_gam_idx_ids:
@@ -382,56 +328,56 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
                                               cores=context.config.misc_cores,
                                               memory=context.config.misc_mem,
                                               disk=context.config.misc_disk)
-        vcf_tbi_file_id_pair_list.append((call_job.rv(0), call_job.rv(1)))
+        vcf_ids.append(call_job.rv(0))
+        tbi_ids.append(call_job.rv(1))
         call_timers_lists.append(call_job.rv(2))
         
     if not out_name:
         out_name = sample_name
-    return child_job.addFollowOnJobFn(run_merge_vcf, context, out_name, vcf_tbi_file_id_pair_list,
-                                      call_timers_lists,
+    return child_job.addFollowOnJobFn(run_concat_vcfs, context, out_name, vcf_ids, tbi_ids,
+                                      write_to_outstore = True,
+                                      call_timers_lists = call_timers_lists,
                                       cores=context.config.call_chunk_cores,
                                       memory=context.config.call_chunk_mem,
                                       disk=context.config.call_chunk_disk).rv()
 
-def run_merge_vcf(job, context, out_name, vcf_tbi_file_id_pair_list, call_timers_lists = []):
-    """ Merge up a bunch of chromosome VCFs """
-
-    RealtimeLogger.info("Completed gam merging and gam path variant calling.")
-    RealtimeLogger.info("Starting vcf merging vcf files.")
+def run_concat_vcfs(job, context, out_name, vcf_ids, tbi_ids = [], write_to_outstore = False,
+                    call_timers_lists = []):
+    """ Concat up a bunch of VCFs. Input assumed to be bgzipped iff tbi_ids specified """
 
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
     timer = TimeTracker('merge-vcf')
-    
-    vcf_merging_file_key_list = [] 
-    for i, vcf_tbi_file_id_pair in enumerate(vcf_tbi_file_id_pair_list):
-        vcf_file = os.path.join(work_dir, 'vcf_chunk_{}.vcf.gz'.format(i))
-        vcf_file_idx = '{}.tbi'.format(vcf_file)
-        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[0], vcf_file)
-        job.fileStore.readGlobalFile(vcf_tbi_file_id_pair[1], vcf_file_idx)
-        vcf_merging_file_key_list.append(os.path.basename(vcf_file))
 
-    vcf_merged_file_key = "" 
-    if len(vcf_merging_file_key_list) > 1:
-        # merge vcf files
-        vcf_merged_file_key = "{}.vcf.gz".format(out_name)
-        command = ['bcftools', 'concat', '-O', 'z', '-o', os.path.basename(vcf_merged_file_key)]
-        command +=  vcf_merging_file_key_list
-        context.runner.call(job, command, work_dir=work_dir)
-        command=['bcftools', 'tabix', '-f', '-p', 'vcf', os.path.basename(vcf_merged_file_key)]
-        context.runner.call(job, command, work_dir=work_dir)
+    # Download the input
+    vcf_paths = []
+    tbi_paths = []
+    for i, vcf_id in enumerate(vcf_ids):
+        vcf_path = os.path.join(work_dir, 'vcf_chunk_{}.vcf'.format(i))
+        if len(tbi_ids) == len(vcf_ids):
+            vcf_path += '.gz'
+            tbi_path = vcf_path + '.tbi'
+            job.fileStore.readGlobalFile(tbi_ids[i], tbi_path)
+            tbi_paths.append(tbi_path)
+        job.fileStore.readGlobalFile(vcf_id, vcf_path)
+        vcf_paths.append(vcf_path)
+
+    out_file = os.path.join(work_dir, out_name + '.vcf.gz')
+
+    # Merge with bcftools
+    command = ['bcftools', 'concat'] + [os.path.basename(vcf_path) for vcf_path in vcf_paths]
+    command += ['--output', os.path.basename(out_file), '--output-type', 'z']
+    context.runner.call(job, command, work_dir=work_dir)
+    context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', os.path.basename(out_file)],
+                        work_dir = work_dir)
+
+    if write_to_outstore:
+        vcf_file_id = context.write_output_file(job, out_file)
+        vcf_idx_file_id = context.write_output_file(job, out_file +'.tbi')
     else:
-        vcf_merged_file_key = vcf_merging_file_key_list[0]
-
-    # save variant calling results to the output store
-    out_store_key = "{}.vcf.gz".format(out_name)
-    vcf_file = os.path.join(work_dir, vcf_merged_file_key)
-    vcf_file_idx = vcf_file + ".tbi"
-    
-    vcf_file_id = context.write_output_file(job, vcf_file, out_store_path = out_store_key)
-    vcf_idx_file_id = context.write_output_file(job, vcf_file_idx,
-                                                out_store_path = out_store_key + '.tbi')
+        vcf_file_id = context.write_intermediate_file(job, out_file)
+        vcf_idx_file_id = context.write_intermediate_file(job, out_file + '.tbi')
 
     # reduce all the timers here from the list of lists
     timer.stop()
@@ -607,27 +553,33 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers
     clip_file_ids = []
     for chunk_info in chunk_infos:
         path_names.add(chunk_info['chrom'])
-        call_job =  child_job.addChildJobFn(run_call_chunk, context,
-                                            chunk_info['chrom'],
-                                            chunk_info['chunk_i'],
-                                            chunk_info['chunk_n'],
-                                            chunk_info['chunk_start'],
-                                            chunk_info['clipped_chunk_offset'],
-                                            chunk_info['xg_id'],
-                                            chunk_info['vg_id'],
-                                            chunk_info['gam_id'],
-                                            chunk_info['path_size'],
-                                            chunk_info['offset'],
-                                            chunk_info['sample'],
-                                            genotype, recall,
-                                            cores=context.config.misc_cores,
-                                            memory=context.config.misc_mem, disk=context.config.misc_disk)
-        clip_file_ids.append(call_job.rv(0))
-        call_timers.append(call_job.rv(1))
+
+        # Run vg call
+        call_job = child_job.addChildJobFn(
+            run_vg_call,
+            context,
+            chunk_info['sample'],
+            chunk_info['vg_id'],
+            chunk_info['gam_id'],
+            xg_id = chunk_info['xg_id'],
+            path_names = [chunk_info['chrom']],
+            seq_names = [chunk_info['chrom']],
+            seq_offsets = [chunk_info['chunk_start'] + chunk_info['offset']],
+            seq_lengths = [chunk_info['path_size']],
+            chunk_name = 'chunk_{}_{}'.format(chunk_info['chrom'], chunk_info['offset']),
+            genotype = genotype,
+            recall = recall,
+            clip_info = chunk_info,
+            cores=context.config.calling_cores,
+            memory=context.config.calling_mem, disk=context.config.calling_disk)
+        vcf_id, call_timer = call_job.rv(0), call_job.rv(1)
+        
+        clip_file_ids.append(vcf_id)
+        call_timers.append(call_timer)
 
     tag = list(path_names)[0] if len(path_names) == 1 else 'chroms'
         
-    merge_job = child_job.addFollowOnJobFn(run_merge_vcf_chunks, context, tag,
+    merge_job = child_job.addFollowOnJobFn(run_concat_vcfs, context, tag,
                                            clip_file_ids,
                                            cores=context.config.call_chunk_cores,
                                            memory=context.config.call_chunk_mem,
@@ -637,48 +589,6 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers
     tbi_out_file_id = merge_job.rv(1)
     
     return vcf_out_file_id, tbi_out_file_id, call_timers
-
-def run_merge_vcf_chunks(job, context, path_name, clip_file_ids):
-    """ merge a bunch of clipped vcfs created above, taking care to 
-    fix up the headers.  everything expected to be sorted already """
-    
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-    
-    vcf_path = os.path.join(work_dir, path_name + ".vcf")
-    
-    for chunk_i, clip_file_id in enumerate(clip_file_ids):
-        
-        # Download clip.vcf file from the store
-        clip_path = os.path.join(work_dir, 'clip_{}.vcf'.format(chunk_i))
-        job.fileStore.readGlobalFile(clip_file_id, clip_path)
-
-        if chunk_i == 0:
-            # copy everything including the header
-            with open(vcf_path, "w") as outfile:
-                context.runner.call(job, ['cat', os.path.basename(clip_path)], outfile=outfile,
-                                     work_dir=work_dir)
-        else:
-            # add on everythin but header
-            with open(vcf_path, "a") as outfile:
-                context.runner.call(job, ['bcftools', 'view', '-H', os.path.basename(clip_path)],
-                                     outfile=outfile, work_dir=work_dir)
-
-    # add a compressed indexed version
-    vcf_gz_file = vcf_path + ".gz"
-    with open(vcf_gz_file, "w") as vcf_gz_file_stream:
-        command=['bgzip', '-c', '{}'.format(os.path.basename(vcf_path))]
-        context.runner.call(job, command, work_dir=work_dir, outfile=vcf_gz_file_stream)
-    command=['bcftools', 'tabix', '-f', '-p', 'vcf', '{}'.format(os.path.basename(vcf_path+".gz"))]
-    context.runner.call(job, command, work_dir=work_dir)
-
-    # Save merged vcf files to the job store
-    vcf_gz_file_id = context.write_intermediate_file(job, vcf_path+".gz")
-    vcf_tbi_file_id = context.write_intermediate_file(job, vcf_path+".gz.tbi")
-
-    RealtimeLogger.info("Completed variant calling on path {}".format(path_name))
-
-    return vcf_gz_file_id, vcf_tbi_file_id
     
 def call_main(context, options):
     """ entrypoint for calling """
