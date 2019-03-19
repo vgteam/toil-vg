@@ -95,10 +95,11 @@ def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
         drunner.call(job, [['bcftools', 'view', '-H', vcf_name],
                       ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
                      work_dir=vcf_dir)
-
+        
 def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
-                chunk_name = 'call', genotype = False, recall = False, clip_info = None):
+                chunk_name = 'call', genotype = False, recall = False, clip_info = None,
+                augment_results = None, augment_only = False):
     """ Run vg call or vg genotype on a single graph.
 
     Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id). pileup_id and xg_id
@@ -115,6 +116,11 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     
     When running vg genotype, we can't recall (since recall in vg genotype needs a VCF). 
 
+    augment_results is a dict with the ids of augment results from a previous run of augment
+    if it's given, then they are used and augment is not run
+
+    if augment_only is True, then calling is skipped and augment_results will be output
+
     """
     
     work_dir = job.fileStore.getLocalTempDir()
@@ -130,11 +136,12 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
     job.fileStore.readGlobalFile(vg_id, vg_path)
     gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
-    job.fileStore.readGlobalFile(gam_id, gam_path)
-    xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
-    defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
-    if xg_id and defray:
-        job.fileStore.readGlobalFile(xg_id, xg_path)
+    if not augment_results:
+        job.fileStore.readGlobalFile(gam_id, gam_path)
+        xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
+        defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
+        if xg_id and defray:
+            job.fileStore.readGlobalFile(xg_id, xg_path)
         
     # Define paths for all the files we might make
     pu_path = os.path.join(work_dir, '{}.pu'.format(chunk_name))
@@ -147,63 +154,78 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     timer = TimeTracker()
 
-    # we only need an xg if using vg filter -D
-    if not xg_id and defray:
-        timer.start('chunk-xg')
-        context.runner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
-                                   os.path.basename(xg_path), '-t', str(context.config.calling_cores)],
-                             work_dir = work_dir)
-        timer.stop()
-
-    # optional gam filtering
-    gam_filter_path = gam_path + '.filter'
-    filter_command = None
-    if filter_opts:
-        filter_command = ['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts
-        if defray:
-            filter_command += ['-x', os.path.basename(xg_path)]
-        if genotype:
-            with open(gam_filter_path, 'w') as gam_filter_file:
-                context.runner.call(job, filter_command, work_dir = work_dir, outfile = gam_filter_file)
-            filter_command = None
-    else:
-        gam_filter_path = gam_path
-
-    # augmentation
-    augment_command = []
-    augment_generated_opts = []
-    if filter_command is not None:
-        aug_gam_input = '-'
-        augment_command.append(filter_command)
-    else:
-        aug_gam_input = os.path.basename(gam_filter_path)
-
-    if genotype:
-        augment_generated_opts = ['--augmentation-mode', 'direct',
-                                  '--alignment-out', os.path.basename(aug_gam_path)]
-        augment_opts = []
-    else:
-        augment_generated_opts = ['--augmentation-mode', 'pileup',
-                                  '--translation', os.path.basename(trans_path),
-                                  '--support', os.path.basename(support_path)]
-        if recall:
-            augment_opts = []
-            augment_generated_opts += ['--recall']
-                
-    augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
-                    '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
-
-    try:
-        with open(aug_path, 'w') as aug_stream:
-            timer.start('call-filter-augment')
-            context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
+    if not augment_results:
+        # we only need an xg if using vg filter -D
+        if not xg_id and defray:
+            timer.start('chunk-xg')
+            context.runner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
+                                       os.path.basename(xg_path), '-t', str(context.config.calling_cores)],
+                                 work_dir = work_dir)
             timer.stop()
-    except Exception as e:
-        logging.error("Augmentation failed. Dumping files.")
-        for dump_path in [vg_path, gam_path, gam_filter_path]:
-            if dump_path and os.path.isfile(dump_path):
-                context.write_output_file(job, dump_path)        
-        raise e
+
+        # optional gam filtering
+        gam_filter_path = gam_path + '.filter'
+        filter_command = None
+        if filter_opts:
+            filter_command = ['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts
+            if defray:
+                filter_command += ['-x', os.path.basename(xg_path)]
+            if genotype:
+                with open(gam_filter_path, 'w') as gam_filter_file:
+                    context.runner.call(job, filter_command, work_dir = work_dir, outfile = gam_filter_file)
+                filter_command = None
+        else:
+            gam_filter_path = gam_path
+
+        # augmentation
+        augment_command = []
+        augment_generated_opts = []
+        if filter_command is not None:
+            aug_gam_input = '-'
+            augment_command.append(filter_command)
+        else:
+            aug_gam_input = os.path.basename(gam_filter_path)
+
+        if genotype:
+            augment_generated_opts = ['--augmentation-mode', 'direct',
+                                      '--alignment-out', os.path.basename(aug_gam_path)]
+            augment_opts = []
+        else:
+            augment_generated_opts = ['--augmentation-mode', 'pileup',
+                                      '--translation', os.path.basename(trans_path),
+                                      '--support', os.path.basename(support_path)]
+            if recall:
+                augment_opts = []
+                augment_generated_opts += ['--recall']
+
+        augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
+                        '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
+
+        try:
+            with open(aug_path, 'w') as aug_stream:
+                timer.start('call-filter-augment')
+                context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
+                timer.stop()
+        except Exception as e:
+            logging.error("Augmentation failed. Dumping files.")
+            for dump_path in [vg_path, gam_path, gam_filter_path]:
+                if dump_path and os.path.isfile(dump_path):
+                    context.write_output_file(job, dump_path)        
+            raise e
+    else:
+        # we download the augment output instead of running it
+        job.fileStore.readGlobalFile(augment_results['aug-graph'], aug_path)
+        if not genotype:
+            job.fileStore.readGlobalFile(augment_results['support'], support_path)
+            job.fileStore.readGlobalFile(augment_results['translation'], trans_path)
+
+    # We're going to stop here and return our augmentation results
+    if augment_only:
+        augment_output_results = { 'aug-graph' : context.write_intermediate_file(job, aug_path) }
+        if not genotype:
+            augment_output_results['support'] = context.write_intermediate_file(job, support_path)
+            augment_output_results['translation'] = context.write_intermediate_file(job, trans_path)
+        return augment_output_results
 
     # naming options shared between call and genotype
     name_opts = []
@@ -550,6 +572,36 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers
 
     path_names = set()
 
+    # If no chunking and many paths, we augment once first and not before calling
+    # so we don't waste resources augmenting the same graph again and again
+    # Note: should only do this when len(chunk_infos) > 1, but leaving as is so the tests hit it!
+    if context.config.call_chunk_size == 0:
+        chunk_info = chunk_infos[0]
+        augment_job = child_job.addChildJobFn(
+            run_vg_call,
+            context,
+            chunk_info['sample'],
+            chunk_info['vg_id'],
+            chunk_info['gam_id'],
+            xg_id = chunk_info['xg_id'],
+            path_names = [chunk_info['chrom']],
+            seq_names = [chunk_info['chrom']],
+            seq_offsets = [chunk_info['chunk_start'] + chunk_info['offset']],
+            seq_lengths = [chunk_info['path_size']],
+            chunk_name = 'chunk_{}_{}'.format(chunk_info['chrom'], chunk_info['offset']),
+            genotype = genotype,
+            recall = recall,
+            clip_info = chunk_info,
+            augment_only = True,
+            cores=context.config.calling_cores,
+            memory=context.config.calling_mem, disk=context.config.calling_disk)
+        augment_results = augment_job.rv()
+        next_job = Job()
+        augment_job.addFollowOn(next_job)
+        child_job = next_job
+    else:
+        augment_results = None
+    
     clip_file_ids = []
     for chunk_info in chunk_infos:
         path_names.add(chunk_info['chrom'])
@@ -570,6 +622,7 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers
             genotype = genotype,
             recall = recall,
             clip_info = chunk_info,
+            augment_results = augment_results,
             cores=context.config.calling_cores,
             memory=context.config.calling_mem, disk=context.config.calling_disk)
         vcf_id, call_timer = call_job.rv(0), call_job.rv(1)
