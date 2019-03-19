@@ -56,7 +56,7 @@ def chunked_call_parse_args(parser):
     parser.add_argument("--overlap", type=int,
                         help="overlap option that is passed into make_chunks and call_chunk")
     parser.add_argument("--call_chunk_size", type=int,
-                        help="chunk size")
+                        help="chunk size (set to 0 to disable chunking)")
     parser.add_argument("--call_opts", type=str,
                         help="arguments to pass to vg call (wrapped in \"\")")
     parser.add_argument("--genotype", action="store_true",
@@ -143,6 +143,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     aug_path = os.path.join(work_dir, '{}_aug.vg'.format(chunk_name))
     aug_gam_path = os.path.join(work_dir, '{}_aug.gam'.format(chunk_name))
     vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
+    sorted_vcf_path = os.path.join(work_dir, '{}_call_sorted.vcf'.format(chunk_name))
 
     timer = TimeTracker()
 
@@ -237,7 +238,6 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 context.runner.call(job, command, work_dir=work_dir,
                                      outfile=vggenotype_stdout)
                 timer.stop()
-            vcf_id = context.write_intermediate_file(job, vcf_path)
 
         except Exception as e:
             logging.error("Genotyping failed. Dumping files.")
@@ -263,9 +263,6 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 timer.start('call')
                 context.runner.call(job, command, work_dir=work_dir, outfile=vgcall_stdout)
                 timer.stop()            
-
-            vcf_id = context.write_intermediate_file(job, vcf_path)
-
         except Exception as e:
             logging.error("Calling failed. Dumping files.")
             for dump_path in [vg_path, pu_path, gam_filter_path,
@@ -273,6 +270,10 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 if dump_path and os.path.isfile(dump_path):
                     context.write_output_file(job, dump_path)        
             raise e
+
+    # Sort the output
+    sort_vcf(job, context.runner, vcf_path, sorted_vcf_path)
+    vcf_id =  context.write_intermediate_file(job, sorted_vcf_path)
         
     return vcf_id, timer
 
@@ -307,12 +308,15 @@ def run_call_chunk(job, context, path_name, chunk_i, num_chunks, chunk_offset, c
         memory=context.config.calling_mem, disk=context.config.calling_disk)
     vcf_id, call_timer = call_job.rv(0), call_job.rv(1)
 
-    clip_job = child_job.addFollowOnJobFn(run_clip_vcf, context, path_name, chunk_i, num_chunks, chunk_offset,
-                                          clipped_chunk_offset, vcf_offset, vcf_id,
-                                          cores=context.config.calling_cores,
-                                          memory=context.config.calling_mem, disk=context.config.calling_disk)
+    if context.config.call_chunk_size != 0:
+        clip_file_id = child_job.addFollowOnJobFn(run_clip_vcf, context, path_name, chunk_i, num_chunks, chunk_offset,
+                                                  clipped_chunk_offset, vcf_offset, vcf_id,
+                                                  cores=context.config.calling_cores,
+                                                memory=context.config.calling_mem, disk=context.config.calling_disk).rv()
+    else:
+        # don't need to clip if we didn't chunk
+        clip_file_id = vcf_id
 
-    clip_file_id = clip_job.rv()
     return clip_file_id, call_timer
 
 def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, clipped_chunk_offset, vcf_offset, vcf_id):
@@ -323,10 +327,7 @@ def run_clip_vcf(job, context, path_name, chunk_i, num_chunks, chunk_offset, cli
 
     # output vcf name
     vcf_path = os.path.join(work_dir, 'chunk_{}_{}.vcf'.format(path_name, chunk_offset))
-    job.fileStore.readGlobalFile(vcf_id, vcf_path + '.us')
-    
-    # Sort the output
-    sort_vcf(job, context.runner, vcf_path + '.us', vcf_path)
+    job.fileStore.readGlobalFile(vcf_id, vcf_path)
     
     # do the vcf clip
     left_clip = 0 if chunk_i == 0 else context.config.overlap / 2
@@ -457,10 +458,46 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
     tag = path_names[0] if len(path_names) == 1 else 'chroms'
 
     # Download the input from the store
-    xg_path = os.path.join(work_dir, 'graph.vg.xg')
+    xg_path = os.path.join(work_dir, 'graph.xg')
     job.fileStore.readGlobalFile(xg_file_id, xg_path)
     gam_path = os.path.join(work_dir, '{}_{}.gam'.format(sample_name, tag))
     job.fileStore.readGlobalFile(alignment_file_id, gam_path)
+
+    # Get the lengths of our paths in the graph
+    vg_paths_output = context.runner.call(job, ['vg', 'paths', '--xg', os.path.basename(xg_path), '--list', '--lengths'],
+                                          work_dir = work_dir, check_output = True)
+    path_size = dict([line.strip().split('\t') for line in vg_paths_output.split('\n') if len(line) > 2])
+    
+    # This will be a list of dicts, each one corresponding to the info for a chunk
+    output_chunk_info = []
+    
+    # Bypass chunking when chunk_size set to 0
+    if context.config.call_chunk_size == 0:
+        timer = TimeTracker('call-chunk-bypass')
+        # convert the xg to vg
+        context.runner.call(job, ['vg', 'xg', '-i', os.path.basename(xg_path), '-X', 'graph.vg'],
+                            work_dir = work_dir)
+        vg_id = context.write_intermediate_file(job, os.path.join(work_dir, 'graph.vg'))
+        timer.stop()
+
+        # return a job for each path so we can run them in parallel, but they will all
+        # use the same graph and gam. 
+        for chunk_i, path_name in enumerate(path_names):
+            chunk_info = {
+                'chrom' : path_name,
+                'chunk_i' : 0,
+                'chunk_n' : 1,
+                'chunk_start' : 0,
+                'clipped_chunk_offset' : 0,
+                'vg_id' : vg_id,
+                'gam_id' : alignment_file_id,
+                'xg_id' : xg_file_id,
+                'path_size' : path_size[path_name],
+                'offset' : 0 if not vcf_offsets or chunk_i >= len(path_names) else vcf_offsets[chunk_i],
+                'sample' : sample_name }
+            output_chunk_info.append(chunk_info)
+            
+        return output_chunk_info, [timer]
 
     # Sort and index the GAM file if index not provided
     timer = TimeTracker('call-gam-index')    
@@ -512,29 +549,16 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
 
     # Scrape the BED into memory
     bed_lines = []
-    path_bounds = dict()    
+    chunk_counts = defaultdict(int)
     with open(output_bed_chunks_path) as output_bed:
         for line in output_bed:
             toks = line.split('\t')
             if len(toks) > 3:
                 bed_lines.append(toks)
-                chrom, start, end = toks[0], int(toks[1]), int(toks[2])
-                if chrom not in path_bounds:
-                    path_bounds[chrom] = (start, end)
-                else:
-                    path_bounds[chrom] = (min(start, path_bounds[chrom][0]),
-                                              max(end, path_bounds[chrom][1]))
-
-    # Infer the size of the path from our BED (a bit hacky)
-    path_size = dict()
-    for name, bounds in path_bounds.items():
-        path_size[name] = path_bounds[name][1] - path_bounds[name][0]
+                chunk_counts[toks[0]] += 1
 
     # Keep track of offset in each path
     cur_path_offset = defaultdict(int)
-
-    # This will be a list of dicts, each one corresponding to the info for a chunk
-    output_chunk_info = []
         
     # Go through the BED output of vg chunk, adding a child calling job for
     # each chunk                
@@ -557,11 +581,12 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
         chunk_info = {
             'chrom' : chunk_bed_chrom,
             'chunk_i' : chunk_i,
-            'chunk_n' : len(bed_lines),
+            'chunk_n' : chunk_counts[chunk_bed_chrom],
             'chunk_start' : chunk_bed_start,
             'clipped_chunk_offset' : clipped_chunk_offset,
             'vg_id' : vg_chunk_file_id,
             'gam_id' : gam_chunk_file_id,
+            'xg_id' : None,
             'path_size' : path_size[chunk_bed_chrom],
             'offset' : offset_map[chunk_bed_chrom],
             'sample' : sample_name }
@@ -588,7 +613,7 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers
                                             chunk_info['chunk_n'],
                                             chunk_info['chunk_start'],
                                             chunk_info['clipped_chunk_offset'],
-                                            None,
+                                            chunk_info['xg_id'],
                                             chunk_info['vg_id'],
                                             chunk_info['gam_id'],
                                             chunk_info['path_size'],
