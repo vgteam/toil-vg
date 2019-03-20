@@ -247,7 +247,7 @@ msga-context: 50
 # Overlap option that is passed into make_chunks and call_chunk
 overlap: 2000
 
-# Chunk size
+# Chunk size (set to 0 to disable chunking)
 call-chunk-size: 2000000
 
 # Context expansion used for graph chunking
@@ -521,7 +521,7 @@ msga-context: 2000
 # Overlap option that is passed into make_chunks and call_chunk
 overlap: 100000
 
-# Chunk size
+# Chunk size (set to 0 to disable chunking)
 call-chunk-size: 2500000
 
 # Context expansion used for graph chunking

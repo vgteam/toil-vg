@@ -77,12 +77,11 @@ class VGCGLTest(TestCase):
         
         # default output store
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
+
         # TODO: Since this might be on NFS, and sicne Toil can't clean up a job
         # store on NFS when the job finishes due to
         # https://github.com/DataBiosphere/toil/issues/2162, we need to pass
         # '--clean', 'never' to all our Toil workflows. We the test harness will clean up after them.
-
-        self.local_outstore = '/home/hickey/dev/toil-vg/cuson'
 
     def test_01_sim_small(self):
         ''' 
@@ -733,6 +732,28 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
 
+    def test_15_sim_small_no_call_chunking(self):
+        ''' 
+        This is the same as test #1, but exercises --call_chunk_size 0
+        '''
+        self.sample_reads = self._ci_input_path('small_sim_reads.fq.gz')
+        self.test_vg_graph = self._ci_input_path('small.vg')
+        self.baseline = self._ci_input_path('small.vcf.gz')
+        self.chrom_fa = self._ci_input_path('small.fa.gz')
+
+        self.base_command[self.base_command.index('--call_chunk_size') + 1] = '0'
+
+        self._run(self.base_command +
+                  [self.jobStoreLocal, '1',
+                   self.local_outstore, '--clean', 'never',
+                   '--fastq', self.sample_reads,
+                   '--graphs', self.test_vg_graph,
+                   '--chroms', 'x', '--vcfeval_baseline', self.baseline,
+                   '--vcfeval_fasta', self.chrom_fa, '--vcfeval_opts', ' --squash-ploidy'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
+        
     def _run(self, args):
         log.info('Running %r', args)
         subprocess.check_call(args)
