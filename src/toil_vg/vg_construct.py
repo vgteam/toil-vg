@@ -63,7 +63,9 @@ def construct_subparser(parser):
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
-                        help="Save paths for alts with variant ID")
+                        help="Save paths for alts with variant ID (for GBWT indexing)")
+    parser.add_argument("--alt_named_paths", action="store_true",
+                        help="Use VCF ID for alt paths (not for GBWT indexing)")
     parser.add_argument("--flat_alts", action="store_true",
                         help="flat alts")
     parser.add_argument("--handle_svs", action="store_true",
@@ -188,6 +190,11 @@ def validate_construct_options(options):
     require(not options.haplo_sample or not options.sample_graph or
             (options.haplo_sample == options.sample_graph),
             '--haplo_sample and --sample_graph must be the same')
+    require(not options.alt_paths or not options.alt_named_paths,
+            '--alt_paths and --alt_named_paths cannot be used together')
+    require(not options.alt_named_paths or not (options.gbwt_index or options.haplo_sample
+                                                or options.gbwt_prune),
+            '--alt_named_path cannot be used with gbwt indexing or haplo extraction')
 
 def chr_name_map(to_ucsc):
     """
@@ -702,9 +709,11 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         output_name_base = remove_ext(output_name, '.vg')
         # special case that need thread indexes no matter what
         haplo_extraction = name in ['haplo', 'sample-graph']
+        if gbwt_index or haplo_extraction:
+            alt_paths = 'default'
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
-                                          max_node_size, gbwt_index or haplo_extraction or alt_paths,
+                                          max_node_size, alt_paths,
                                           flat_alts, handle_svs, regions,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
                                           normalize and name != 'haplo', validate, alt_regions_id)
@@ -1065,8 +1074,10 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
             cmd += ['--region-is-chrom']
     if max_node_size:
         cmd += ['--node-max', max_node_size]
-    if alt_paths:
+    if alt_paths == 'default':
         cmd += ['--alt-paths']
+    elif alt_paths == 'named':
+        cmd += ['--alt-named-paths']
     if flat_alts:
         cmd += ['--flat-alts']
     if handle_svs:
@@ -1761,11 +1772,19 @@ def construct_main(context, options):
                                                filter_samples = filter_samples,
                                                min_afs = options.min_af,
                                                vcf_subdir = '{}-vcfs'.format(options.out_name) if options.keep_vcfs else None)
+
+            # toggle alt paths handling / naming
+            if options.alt_paths:
+                alt_paths = 'default'
+            elif options.alt_named_paths:
+                alt_paths = 'named'
+            else:
+                alt_paths = None
                 
             # Construct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
-                                     options.max_node_size, options.alt_paths,
+                                     options.max_node_size, alt_paths,
                                      options.flat_alts, options.handle_svs, regions,
                                      merge_graphs = options.merge_graphs,
                                      sort_ids = True, join_ids = True,
