@@ -35,7 +35,7 @@ def call_subparser(parser):
                         "using same syntax as toil jobStore")
     parser.add_argument("--chroms", nargs='+', required=True,
                         help="Name(s) of reference path in graph(s) (separated by space)."
-                        " Must be same length/order as --gams")
+                        " Must be same length/order as --gams.  All paths used if not specified")
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', required=True, type=make_url,
                         help="GAMs to call.  One per chromosome in the same order as --chroms, or just one. "
@@ -79,7 +79,7 @@ def chunked_call_parse_args(parser):
                         help="only call variants present in the graph")
 
 def validate_call_options(options):    
-    require(len(options.chroms) == len(options.gams) or len(options.gams) == 1,
+    require(not options.chroms or len(options.chroms) == len(options.gams) or len(options.gams) == 1,
             'Number of --chroms must be 1 or same as number of --gams')
     require(not options.vcf_offsets or len(options.vcf_offsets) == len(options.chroms),
             'Number of --vcf_offsets if specified must be same as number of --chroms')
@@ -313,7 +313,28 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         
     return vcf_id, timer
 
+# Get the lengths of our paths in the graph
+def run_xg_paths(job, context, xg_id):
+    """ pull path names and sizes from the xg """
+    work_dir = job.fileStore.getLocalTempDir()
+    xg_path = os.path.join(work_dir, 'index.xg')
+    job.fileStore.readGlobalFile(xg_id, xg_path)    
+    vg_paths_output = context.runner.call(job, ['vg', 'paths', '--xg', os.path.basename(xg_path), '--list', '--lengths'],
+                                          work_dir = work_dir, check_output = True)
+    path_size = dict([line.strip().split('\t') for line in vg_paths_output.split('\n') if len(line) > 2])
+    return path_size
+
 def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
+                    genotype=False, out_name=None, recall=False):
+    path_sizes_job = job.addChildJobFn(run_xg_paths, context, xg_file_id,
+                                       memory=context.config.call_chunk_mem,
+                                       disk=context.config.call_chunk_disk)
+    path_sizes = path_sizes_job.rv()
+    calling_job = path_sizes_job.addFollowOnJobFn(run_all_calling2, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, path_sizes,  vcf_offsets, sample_name,
+                                                  genotype, out_name, recall)
+    return calling_job.rv()
+
+def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, path_sizes, vcf_offsets, sample_name,
                     genotype=False, out_name=None, recall=False):
     """
     Call all the chromosomes and return a merged up vcf/tbi pair
@@ -327,6 +348,8 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
     assert len(chr_gam_ids) > 0
     if not chr_gam_idx_ids:
         chr_gam_idx_ids = [None] * len(chr_gam_ids)
+    if not chroms:
+        chroms = [name for name in path_sizes.keys() if path_sizes[name] > 0]
     assert len(chr_gam_ids) == len(chr_gam_idx_ids)
     for i in range(len(chr_gam_ids)):
         alignment_file_id = chr_gam_ids[i]
@@ -340,7 +363,7 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
             chr_label = chroms
             chr_offset = vcf_offsets if vcf_offsets else [0] * len(chroms)
         chunk_job = child_job.addChildJobFn(run_chunking, context, xg_file_id,
-                                            alignment_file_id, alignment_index_id, chr_label, chr_offset,
+                                            alignment_file_id, alignment_index_id, chr_label, chr_offset, path_sizes,
                                             sample_name, genotype=genotype, recall=recall,
                                             cores=context.config.call_chunk_cores,
                                             memory=context.config.call_chunk_mem,
@@ -412,7 +435,7 @@ def run_concat_vcfs(job, context, out_name, vcf_ids, tbi_ids = [], write_to_outs
     else:
         return vcf_file_id, vcf_idx_file_id
 
-def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, sample_name,
+def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, path_sizes, sample_name,
                  genotype, recall):
     """
     Split a gam and xg up into a bunch of vg/gam pairs, one for each calling chunk.  also keep track of the 
@@ -430,11 +453,6 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
     job.fileStore.readGlobalFile(xg_file_id, xg_path)
     gam_path = os.path.join(work_dir, '{}_{}.gam'.format(sample_name, tag))
     job.fileStore.readGlobalFile(alignment_file_id, gam_path)
-
-    # Get the lengths of our paths in the graph
-    vg_paths_output = context.runner.call(job, ['vg', 'paths', '--xg', os.path.basename(xg_path), '--list', '--lengths'],
-                                          work_dir = work_dir, check_output = True)
-    path_size = dict([line.strip().split('\t') for line in vg_paths_output.split('\n') if len(line) > 2])
     
     # This will be a list of dicts, each one corresponding to the info for a chunk
     output_chunk_info = []
@@ -460,7 +478,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
                 'vg_id' : vg_id,
                 'gam_id' : alignment_file_id,
                 'xg_id' : xg_file_id,
-                'path_size' : path_size[path_name],
+                'path_size' : path_sizes[path_name],
                 'offset' : 0 if not vcf_offsets or chunk_i >= len(path_names) else vcf_offsets[chunk_i],
                 'sample' : sample_name }
             output_chunk_info.append(chunk_info)
@@ -555,7 +573,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
             'vg_id' : vg_chunk_file_id,
             'gam_id' : gam_chunk_file_id,
             'xg_id' : None,
-            'path_size' : path_size[chunk_bed_chrom],
+            'path_size' : path_sizes[chunk_bed_chrom],
             'offset' : offset_map[chunk_bed_chrom],
             'sample' : sample_name }
         output_chunk_info.append(chunk_info)
