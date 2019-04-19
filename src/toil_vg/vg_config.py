@@ -257,6 +257,7 @@ chunk_context: 50
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+# Also used with --genotype_vcf
 recall-filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
@@ -266,9 +267,10 @@ augment-opts: ['-q', '10']
 call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
+# Also used with --genotype_vcf
 recall-opts: ['-u', '-n', '0', '-e', '1000']
 
-# Override chunk context when using --recall
+# Override chunk context when using --recall or --genotype_vcf
 recall-context: 2500
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
@@ -531,6 +533,7 @@ chunk_context: 50
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+# Also used with --genotype_vcf
 recall-filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
@@ -540,9 +543,10 @@ augment-opts: ['-q', '10']
 call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
+# Also used with --genotype_vcf
 recall-opts: ['-u', '-n', '0', '-e', '1000']
 
-# Override chunk context when using --recall
+# Override chunk context when using --recall or --genotype_vcf
 recall-context: 2500
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
