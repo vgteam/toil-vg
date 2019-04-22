@@ -279,6 +279,9 @@ genotype-opts: []
 # Use vg genotype instead of vg call
 genotype: False
 
+# If input GAMs needed to be sorted, save a copy of the sorted version in the output store
+keep-sorted-gams: False
+
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
@@ -554,6 +557,9 @@ genotype-opts: []
 
 # Use vg genotype instead of vg call
 genotype: False
+
+# If input GAMs needed to be sorted, save a copy of the sorted version in the output store
+keep-sorted-gams: False
 
 #########################
 ### vcfeval Arguments ###

@@ -560,8 +560,9 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
                            '--threads', str(context.config.call_chunk_cores)]
             context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
         # We may spend a lot of time on these, so drop them in the output store.
-        context.write_output_file(job, gam_sort_path)
-        context.write_output_file(job, gam_index_path)
+        if context.config.keep_sorted_gams:
+            context.write_output_file(job, gam_sort_path)
+            context.write_output_file(job, gam_index_path)
     timer.stop()
     
     # Write a list of paths
