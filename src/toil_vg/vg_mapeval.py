@@ -849,99 +849,115 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     job.fileStore.readGlobalFile(stats_file_id, test_read_stats_file)
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
+    
+    try:
 
-    with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out_stream:
-        out = tsv.TsvWriter(out_stream)
-        
-        # Make readers for the files
-        truth_reader = iter(tsv.TsvReader(truth))
-        test_reader = iter(tsv.TsvReader(test))
-        
-        # Start an iteration over them
-        true_fields = next(truth_reader, None)
-        test_fields = next(test_reader, None)
-        
-        # Track line numbers for error reporting
-        true_line = 1
-        test_line = 1
-        
-        while true_fields is not None and test_fields is not None:
-            # We still have data on both sides
+        with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out_stream:
+            out = tsv.TsvWriter(out_stream)
             
-            # The minimum field count you can have for the truth is 6, because it must have at least one position.
-            # For the test data it can be 4, because the read may have no positions.
+            # Make readers for the files
+            truth_reader = iter(tsv.TsvReader(truth))
+            test_reader = iter(tsv.TsvReader(test))
             
-            if len(true_fields) < 6:
-                raise RuntimeError('Incorrect (<6) true field count on line {}: {}'.format(
-                    true_line, true_fields))
+            # Start an iteration over them
+            true_fields = next(truth_reader, None)
+            test_fields = next(test_reader, None)
             
-            if len(test_fields) < 4:
-                raise RuntimeError('Incorrect (<4) test field count on line {}: {}'.format(
-                    test_line, test_fields))
+            # Track line numbers for error reporting
+            true_line = 1
+            test_line = 1
             
-            true_read_name = true_fields[0]
-            aln_read_name = test_fields[0]
-            
-            if true_read_name < aln_read_name:
-                # We need to advance the true read
-                true_fields = next(truth_reader, None)
-                true_line += 1
-                # Make sure we went forward
-                assert(true_fields == None or true_fields[0] > true_read_name)
-                continue
-            elif aln_read_name < true_read_name:
-                # We need to advance the aligned read
-                test_fields = next(test_reader, None)
-                test_line += 1
-                # Make sure we went forward
-                assert(test_fields == None or test_fields[0] > aln_read_name)
-                continue
-            else:
-                # The reads correspond. Check if the positions are right.
+            while true_fields is not None and test_fields is not None:
+                # We still have data on both sides
                 
-                assert(aln_read_name == true_read_name)
-
-                # Grab the comma-separated tags from the truth file.
-                aln_tags = true_fields[1]
-                if aln_tags == '':
-                    aln_tags = '.'
+                # The minimum field count you can have for the truth is 6, because it must have at least one position.
+                # For the test data it can be 4, because the read may have no positions.
                 
-                # The test file also has a tag slot for additional tags
-                aln_extra_tags = test_fields[1]
-                if aln_extra_tags == '':
-                    aln_extra_tags = '.'
+                if len(true_fields) < 6:
+                    raise RuntimeError('Incorrect (<6) true field count on line {}: {}'.format(
+                        true_line, true_fields))
+                
+                if len(test_fields) < 4:
+                    raise RuntimeError('Incorrect (<4) test field count on line {}: {}'.format(
+                        test_line, test_fields))
+                
+                true_read_name = true_fields[0]
+                aln_read_name = test_fields[0]
+                
+                if true_read_name < aln_read_name:
+                    # We need to advance the true read
+                    true_fields = next(truth_reader, None)
+                    true_line += 1
+                    # Make sure we went forward
+                    if true_fields is not None and true_fields[0] <= true_read_name:
+                        # We did not go forward
+                        raise RuntimeError('True read {} is followed by {} which is not strictly increasing: truth line {}'.format(
+                            true_read_name, true_fields[0], true_line))
+                    continue
+                elif aln_read_name < true_read_name:
+                    # We need to advance the aligned read
+                    test_fields = next(test_reader, None)
+                    test_line += 1
+                    # Make sure we went forward
+                    if test_fields is not None and test_fields[0] <= aln_read_name:
+                        # We did not go forward
+                        raise RuntimeError('Teat read {} is followed by {} which is not strictly increasing: test line {}'.format(
+                            aln_read_name, test_fields[0], test_line))
+                    continue
+                else:
+                    # The reads correspond. Check if the positions are right.
                     
-                # Combine the tags into a set of all observed tags
-                combined_tags = set(aln_tags.split(',')) | set(aln_extra_tags.split(','))
-                # Except the no-tags '.' if present
-                combined_tags -= {'.'}
-                
-                # Make into a string again
-                combined_tags_string = ','.join(sorted(combined_tags)) if len(combined_tags) > 0 else '.'
-                
-                # map seq name->position
-                # Grab everything after the tags column and before the score and mapq columns, in pairs.
-                true_pos_dict = dict(zip(true_fields[2:-2:2], map(parse_int, true_fields[3:-2:2])))
-                aln_pos_dict = dict(zip(test_fields[2:-2:2], map(parse_int, test_fields[3:-2:2])))
-                
-                # Make sure the true reads came from somewhere
-                assert(len(true_pos_dict) > 0)
-                
-                # Skip over score field and get the MAPQ, which is last
-                aln_mapq = parse_int(test_fields[-1])
-                aln_correct = 0
-                for aln_chr, aln_pos in aln_pos_dict.items():
-                    if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
-                        aln_correct = 1
-                        break
+                    assert(aln_read_name == true_read_name)
 
-                out.line(aln_read_name, aln_correct, aln_mapq, combined_tags_string)
+                    # Grab the comma-separated tags from the truth file.
+                    aln_tags = true_fields[1]
+                    if aln_tags == '':
+                        aln_tags = '.'
+                    
+                    # The test file also has a tag slot for additional tags
+                    aln_extra_tags = test_fields[1]
+                    if aln_extra_tags == '':
+                        aln_extra_tags = '.'
+                        
+                    # Combine the tags into a set of all observed tags
+                    combined_tags = set(aln_tags.split(',')) | set(aln_extra_tags.split(','))
+                    # Except the no-tags '.' if present
+                    combined_tags -= {'.'}
+                    
+                    # Make into a string again
+                    combined_tags_string = ','.join(sorted(combined_tags)) if len(combined_tags) > 0 else '.'
+                    
+                    # map seq name->position
+                    # Grab everything after the tags column and before the score and mapq columns, in pairs.
+                    true_pos_dict = dict(zip(true_fields[2:-2:2], map(parse_int, true_fields[3:-2:2])))
+                    aln_pos_dict = dict(zip(test_fields[2:-2:2], map(parse_int, test_fields[3:-2:2])))
+                    
+                    # Make sure the true reads came from somewhere
+                    assert(len(true_pos_dict) > 0)
+                    
+                    # Skip over score field and get the MAPQ, which is last
+                    aln_mapq = parse_int(test_fields[-1])
+                    aln_correct = 0
+                    for aln_chr, aln_pos in aln_pos_dict.items():
+                        if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
+                            aln_correct = 1
+                            break
+
+                    out.line(aln_read_name, aln_correct, aln_mapq, combined_tags_string)
+            
+                    # Advance both reads
+                    true_fields = next(truth_reader, None)
+                    true_line += 1
+                    test_fields = next(test_reader, None)
+                    test_line += 1
+                    
+    except:
+        # Something went wrong. Report on it.
+        logging.error("Position comparison failed. Dumping files.")
+        context.write_output_file(job, true_read_stats_file)
+        context.write_output_file(job, test_read_stats_file)
         
-                # Advance both reads
-                true_fields = next(truth_reader, None)
-                true_line += 1
-                test_fields = next(test_reader, None)
-                test_line += 1
+        raise
         
     out_file_id = context.write_output_file(job, out_file)
     return out_file_id
