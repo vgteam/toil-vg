@@ -307,9 +307,22 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         command += name_opts
 
         if genotype_vcf_id:
-            genotype_vcf_path = os.path.join(work_dir, 'to_genotype.vcf.gz')
+            genotype_vcf_path = os.path.join(work_dir, '{}_to_genotype.vcf.gz'.format(chunk_name))
             job.fileStore.readGlobalFile(genotype_vcf_id, genotype_vcf_path)
             job.fileStore.readGlobalFile(genotype_tbi_id, genotype_vcf_path + '.tbi')
+            if clip_info and context.config.call_chunk_size != 0:
+                genotype_clip_vcf_path = os.path.join(work_dir, '{}_to_genotype_clipped.vcf.gz'.format(chunk_name))
+                # todo: share code with clipping below
+                left_clip = 0 if clip_info['chunk_i'] == 0 else context.config.overlap / 2
+                right_clip = 0 if clip_info['chunk_i'] == clip_info['chunk_n'] - 1 else context.config.overlap / 2
+                offset = clip_info['offset'] + 1 # adjust to 1-based vcf
+                clip_command=['bcftools', 'view', '-O', 'z', '-t', '{}:{}-{}'.format(
+                    path_name, offset + clip_info['clipped_chunk_offset'] + left_clip,
+                    offset + clip_info['clipped_chunk_offset'] + context.config.call_chunk_size - right_clip - 1),
+                         os.path.basename(genotype_vcf_path), '--output-file', os.path.basename(genotype_clip_vcf_path)]
+                context.runner.call(job, clip_command, work_dir=work_dir)
+                context.runner.call(job, ['tabix', '-f', '-p', 'vcf', os.path.basename(genotype_clip_vcf_path)], work_dir=work_dir)
+                genotype_vcf_path = genotype_clip_vcf_path
             command += ['-f', os.path.basename(genotype_vcf_path)]
 
         try:
@@ -322,14 +335,17 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             for dump_path in [vg_path, pu_path,
                               aug_path, support_path, trans_path, aug_gam_path]:
                 if dump_path and os.path.isfile(dump_path):
-                    context.write_output_file(job, dump_path)        
+                    context.write_output_file(job, dump_path)
+            if genotype_vcf_id and os.path.isfile(genotype_vcf_path):
+                context.write_output_file(job, genotype_vcf_path)
+                context.write_output_file(job, genotype_vcf_path + '.tbi')
             raise e
 
     # Sort the output
     sort_vcf(job, context.runner, vcf_path, sorted_vcf_path)
 
     # Optional clip
-    if clip_info and context.config.call_chunk_size != 0:
+    if clip_info and context.config.call_chunk_size != 0 and not genotype_vcf_id:
         left_clip = 0 if clip_info['chunk_i'] == 0 else context.config.overlap / 2
         right_clip = 0 if clip_info['chunk_i'] == clip_info['chunk_n'] - 1 else context.config.overlap / 2
         clip_path = os.path.join(work_dir, '{}_call_clip.vcf'.format(chunk_name))
