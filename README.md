@@ -25,7 +25,7 @@ Installation requires Python and [Toil](https://toil.readthedocs.io/en/latest/ge
 
     virtualenv toilvenv
     source toilvenv/bin/activate
-    pip install toil[aws,mesos]==3.18.0
+    pip install toil[aws,mesos]==3.19.0
     pip install toil-vg
     
 Developers may want to work with the latest master branch from github instead:
