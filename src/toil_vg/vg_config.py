@@ -144,7 +144,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.14.0-75-ga72723d3-t291-run'
+vg-docker: 'quay.io/vgteam/vg:v1.15.0-91-g5bda1fa5-t299-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -257,6 +257,7 @@ chunk_context: 50
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+# Also used with --genotype_vcf
 recall-filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
@@ -266,9 +267,10 @@ augment-opts: ['-q', '10']
 call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
+# Also used with --genotype_vcf
 recall-opts: ['-u', '-n', '0', '-e', '1000']
 
-# Override chunk context when using --recall
+# Override chunk context when using --recall or --genotype_vcf
 recall-context: 2500
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
@@ -276,6 +278,9 @@ genotype-opts: []
 
 # Use vg genotype instead of vg call
 genotype: False
+
+# If input GAMs needed to be sorted, save a copy of the sorted version in the output store
+keep-sorted-gams: False
 
 #########################
 ### vcfeval Arguments ###
@@ -418,7 +423,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.14.0-75-ga72723d3-t291-run'
+vg-docker: 'quay.io/vgteam/vg:v1.15.0-91-g5bda1fa5-t299-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -531,6 +536,7 @@ chunk_context: 50
 filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
 
 # Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
+# Also used with --genotype_vcf
 recall-filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
@@ -540,9 +546,10 @@ augment-opts: ['-q', '10']
 call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
+# Also used with --genotype_vcf
 recall-opts: ['-u', '-n', '0', '-e', '1000']
 
-# Override chunk context when using --recall
+# Override chunk context when using --recall or --genotype_vcf
 recall-context: 2500
 
 # Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
@@ -550,6 +557,9 @@ genotype-opts: []
 
 # Use vg genotype instead of vg call
 genotype: False
+
+# If input GAMs needed to be sorted, save a copy of the sorted version in the output store
+keep-sorted-gams: False
 
 #########################
 ### vcfeval Arguments ###

@@ -77,6 +77,8 @@ def index_toggle_parse_args(parser):
                         help="Make an snarls file for each output graph")
     parser.add_argument("--id_ranges_index", action="store_true",
                         help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
+    parser.add_argument("--alt_path_gam_index", action="store_true",
+                        help="Save alt paths from vg into an indexed GAM")
     parser.add_argument("--all_index", action="store_true",
                         help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --id_ranges_index")
     
@@ -119,10 +121,10 @@ def validate_index_options(options):
         require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
                 '--chroms and --graphs must have'
                 ' same number of arguments if more than one graph specified if doing anything but xg indexing')
-    require(any([options.xg_index, options.gcsa_index, options.snarls_index,
+    require(any([options.xg_index, options.gcsa_index, options.snarls_index, options.alt_path_gam_index,
                  options.id_ranges_index, options.gbwt_index, options.all_index, options.bwa_index_fasta]),
             'one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index, '
-            '--all_index, or --bwa_index_fasta is required')
+            '--all_index, --alt_path_gam_index or --bwa_index_fasta is required')
     require(not options.gbwt_prune or options.node_mapping,
                 '--node_mapping required with --gbwt_prune')
     if options.vcf_phasing:
@@ -872,7 +874,110 @@ def run_minimap2_index(job, context, fasta_file_id, minimap2_index_id=None, inte
 
     return minimap2_index_id
         
+def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_name):
+    """
+    Pull the alt paths out of the graph and into a GAM index.
 
+    The application is to be able to get them into vg call by way of vg chunk and vg augment.
+
+    Hopefully, this is a stopgap and we can eventually fix up xg to handle them efficiently.
+    
+    Return the file ID of the GAM
+    """
+    
+    assert(len(inputGraphFileIDs) == len(graph_names))
+    
+    if len(inputGraphFileIDs) > 1:
+        # We have been given multiple chromosome graphs. 
+        
+        RealtimeLogger.info("Breaking up alt path GAM computation for {}".format(str(graph_names)))
+        
+        sub_jobs = []
+        for file_id, file_name in itertools.izip(inputGraphFileIDs, graph_names):
+            # For each input graph, make a child job to index it.
+            sub_jobs.append(job.addChildJobFn(run_alt_path_extraction, context, [file_id], [file_name],
+                                              cores=context.config.snarl_index_cores,
+                                              memory=context.config.snarl_index_mem,
+                                              disk=context.config.snarl_index_disk))
+        
+        # Make a job to concatenate the indexes all together                                        
+        concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
+                                                    index_name + '_alts.gam' if index_name is not None else None,
+                                                    cores=context.config.snarl_index_cores,
+                                                    memory=context.config.snarl_index_mem,
+                                                    disk=context.config.snarl_index_disk)
+        
+        for i in xrange(1, len(snarl_jobs)):
+            # And make it wait for all of them
+            snarl_jobs[i].addFollowOn(concat_job)
+            
+        return concat_job.rv()
+        
+    else:
+        # Base case: single graph
+   
+        start_time = timeit.default_timer()
+        
+        # Define work directory for docker calls
+        work_dir = job.fileStore.getLocalTempDir()
+
+        # Download the one graph
+        graph_id = inputGraphFileIDs[0]
+        graph_filename = graph_names[0]
+        job.fileStore.readGlobalFile(graph_id, os.path.join(work_dir, graph_filename))
+
+        # Where do we put the gam?
+        gam_filename = os.path.join(work_dir, "{}_alts.gam".format(index_name if index_name is not None else "part"))
+
+        cmd = ['vg', 'paths', '-v', graph_filename, '-Q', '_alt_', '-X']
+        with open(gam_filename, "w") as gam_file:
+            try:
+                # Compute snarls to the correct file
+                context.runner.call(job, cmd, work_dir=work_dir, outfile=gam_file)
+            except:
+                # Dump everything we need to replicate the indexing
+                logging.error("Alt path gam extraction failed. Dumping files.")
+                context.write_output_file(job, os.path.join(work_dir, graph_filename))
+                raise
+        
+        if index_name is not None:
+            # Checkpoint index to output store
+            gam_file_id = context.write_output_file(job, gam_filename)
+        else:
+            # Just save the index as an intermediate
+            gam_file_id = context.write_intermediate_file(job, gam_filename)
+            
+        
+        end_time = timeit.default_timer()
+        run_time = end_time - start_time
+        RealtimeLogger.info("Finished GAM extraction. Process took {} seconds.".format(run_time))
+
+        return gam_file_id
+
+def run_gam_indexing(job, context, gam_id, index_name):
+    """ Index a gam.  Return the sorted gam and its .gai index.
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+    gam_filename = os.path.join(work_dir, "{}_alts.gam".format(index_name if index_name is not None else "index"))
+    job.fileStore.readGlobalFile(gam_id, gam_filename + '.unsorted')
+
+    cmd = ['vg', 'gamsort', os.path.basename(gam_filename) + '.unsorted',
+           '-i', os.path.basename(gam_filename) + '.gai', '-t', str(job.cores)]
+    with open(gam_filename, 'w') as gam_file:
+        context.runner.call(job, cmd, work_dir=work_dir, outfile=gam_file)
+
+    if index_name is not None:
+        # Checkpoint index to output store
+        sorted_gam_id = context.write_output_file(job, gam_filename)
+        gai_id = context.write_output_file(job, gam_filename + '.gai')
+    else:
+        # Just save the index as an intermediate
+        sorted_gam_id = context.write_intermediate_file(job, gam_filename)
+        gai_id = context.write_output_file(job, gam_filename + '.gai')
+    
+    return sorted_gam_id, gai_id
+    
+    
 def run_indexing(job, context, inputGraphFileIDs,
                  graph_names, index_name, chroms,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
@@ -880,7 +985,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                  gbwt_id = None, node_mapping_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
                  skip_snarls=False, make_gbwt=False, gbwt_prune=False, gbwt_regions=[],
-                 dont_restore_paths=[]):
+                 dont_restore_paths=[], alt_path_gam_index=False):
     """
     
     Run indexing logic by itself.
@@ -1097,8 +1202,18 @@ def run_indexing(job, context, inputGraphFileIDs,
         indexes['bwa'] = child_job.addChildJobFn(run_bwa_index, context, bwa_fasta_id,
                                                  cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
                                                  disk=context.config.bwa_index_disk).rv()
-        
-    
+
+    if alt_path_gam_index:
+        alt_extract_job = child_job.addChildJobFn(run_alt_path_extraction, context, inputGraphFileIDs,
+                                                  graph_names, None,
+                                                  cores=context.config.snarl_index_cores,
+                                                  memory=context.config.snarl_index_mem,
+                                                  disk=context.config.snarl_index_disk)
+        indexes['alt-gam'] = alt_extract_job.addFollowOnJobFn(run_gam_indexing, context, alt_extract_job.rv(),
+                                                              index_name,
+                                                              cores=context.config.snarl_index_cores,
+                                                              memory=context.config.snarl_index_mem,
+                                                              disk=context.config.snarl_index_disk).rv()
     return indexes
 
 def index_main(context, options):
@@ -1163,6 +1278,7 @@ def index_main(context, options):
                                      skip_snarls = not options.snarls_index and not options.all_index,
                                      make_gbwt=options.gbwt_index, gbwt_prune=options.gbwt_prune,
                                      gbwt_regions=options.vcf_phasing_regions,
+                                     alt_path_gam_index = options.alt_path_gam_index,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

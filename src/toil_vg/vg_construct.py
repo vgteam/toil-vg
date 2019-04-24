@@ -685,7 +685,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       id_ranges_index = False, snarls_index = False,
                       haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False,
                       normalize = False, validate = False, alt_regions_id = None,
-                      alt_regions = []):
+                      alt_regions = [], alt_path_gam_index = False):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -842,7 +842,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
                                                        make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
                                                        gbwt_regions=gbwt_regions,
-                                                       dont_restore_paths=alt_regions)
+                                                       dont_restore_paths=alt_regions,
+                                                       alt_path_gam_index=alt_path_gam_index)
         indexes = indexing_job.rv()    
 
         output.append((joined_vg_ids, joined_vg_names, indexes))
@@ -1765,7 +1766,7 @@ def construct_main(context, options):
             # Construct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
-                                     options.max_node_size, options.alt_paths,
+                                     options.max_node_size, options.alt_paths or options.alt_path_gam_index,
                                      options.flat_alts, options.handle_svs, regions,
                                      merge_graphs = options.merge_graphs,
                                      sort_ids = True, join_ids = True,
@@ -1779,7 +1780,8 @@ def construct_main(context, options):
                                      normalize = options.normalize,
                                      validate = options.validate,
                                      alt_regions_id = alt_regions_id,
-                                     alt_regions = alt_regions)
+                                     alt_regions = alt_regions,
+                                     alt_path_gam_index = options.alt_path_gam_index)
                                      
             
             if inputBWAFastaID:
