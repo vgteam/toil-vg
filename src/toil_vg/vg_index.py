@@ -855,15 +855,15 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
                                               disk=context.config.snarl_index_disk))
         
         # Make a job to concatenate the indexes all together                                        
-        concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
-                                                    index_name + '_alts.gam' if index_name is not None else None,
-                                                    cores=context.config.snarl_index_cores,
-                                                    memory=context.config.snarl_index_mem,
-                                                    disk=context.config.snarl_index_disk)
+        concat_job = sub_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
+                                                  index_name + '_alts.gam' if index_name is not None else None,
+                                                  cores=context.config.snarl_index_cores,
+                                                  memory=context.config.snarl_index_mem,
+                                                  disk=context.config.snarl_index_disk)
         
-        for i in xrange(1, len(snarl_jobs)):
+        for i in xrange(1, len(sub_jobs)):
             # And make it wait for all of them
-            snarl_jobs[i].addFollowOn(concat_job)
+            sub_jobs[i].addFollowOn(concat_job)
             
         return concat_job.rv()
         
