@@ -478,7 +478,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     
     # Get the vcf file for loading phasing info
     if vcf_phasing_file_id:
-        phasing_file = os.path.join(work_dir, 'phasing.vcf.gz')
+        phasing_file = os.path.join(work_dir, 'phasing.{}.vcf.gz'.format(index_name))
         job.fileStore.readGlobalFile(vcf_phasing_file_id, phasing_file)
         job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
         phasing_opts = ['-v', os.path.basename(phasing_file)]
