@@ -79,8 +79,6 @@ def map_parse_args(parser, stand_alone = False):
                         help="number of reads for each mapping job")
     parser.add_argument("--alignment_cores", type=int,
                         help="number of threads during the alignment step")
-    parser.add_argument("--gam_index_cores", type=int,
-                        help="number of threads used for gam indexing")
     parser.add_argument("--interleaved", action="store_true", default=False,
                         help="treat fastq as interleaved read pairs.  overrides map-args")
     parser.add_argument("--map_opts", type=str,
