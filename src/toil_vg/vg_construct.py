@@ -1405,9 +1405,15 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
     
         # Check if there are any threads in the index
         # TODO: Won't be useful if the index covers multiple contigs because we aren't indexing one contig graph at a time.
-        thread_count = int(context.runner.call(job,
-            [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
-            ['wc', '-l']], work_dir = work_dir, check_output = True))
+        try:
+            thread_count = int(context.runner.call(job,
+                [['vg', 'paths', '--list', '--gbwt', os.path.basename(gbwt_path)], 
+                ['wc', '-l']], work_dir = work_dir, check_output = True))
+        except:
+            # TODO: vg paths really needs to be fixed to be able to check for 0 threads without failing
+            RealtimeLogger.warning("No GBWT threads found in {}.  Using reference path for haplotype extraction".format(
+                os.path.basename(gbwt_path)))
+            thread_count = 0
             
     else:
         # No gbwt means no threads
