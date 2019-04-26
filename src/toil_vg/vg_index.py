@@ -847,23 +847,23 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
         RealtimeLogger.info("Breaking up alt path GAM computation for {}".format(str(graph_names)))
         
         sub_jobs = []
-        for file_id, file_name in itertools.izip(inputGraphFileIDs, graph_names):
+        for i, (file_id, file_name) in enumerate(itertools.izip(inputGraphFileIDs, graph_names)):
             # For each input graph, make a child job to index it.
             sub_jobs.append(job.addChildJobFn(run_alt_path_extraction, context, [file_id], [file_name],
-                                              cores=context.config.snarl_index_cores,
-                                              memory=context.config.snarl_index_mem,
-                                              disk=context.config.snarl_index_disk))
+                                              index_name + '.{}'.format(i) if index_name else None,
+                                              cores=context.config.call_chunk_cores,
+                                              memory=context.config.call_chunk_mem,
+                                              disk=context.config.call_chunk_disk))
         
         # Make a job to concatenate the indexes all together                                        
-        concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
-                                                    index_name + '_alts.gam' if index_name is not None else None,
-                                                    cores=context.config.snarl_index_cores,
-                                                    memory=context.config.snarl_index_mem,
-                                                    disk=context.config.snarl_index_disk)
+        concat_job = sub_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in sub_jobs],
+                                                  index_name + '_alts.gam' if index_name is not None else None,
+                                                  memory=context.config.call_chunk_mem,
+                                                  disk=context.config.call_chunk_disk)
         
-        for i in xrange(1, len(snarl_jobs)):
+        for i in xrange(1, len(sub_jobs)):
             # And make it wait for all of them
-            snarl_jobs[i].addFollowOn(concat_job)
+            sub_jobs[i].addFollowOn(concat_job)
             
         return concat_job.rv()
         
@@ -1150,9 +1150,10 @@ def run_indexing(job, context, inputGraphFileIDs,
     if alt_path_gam_index:
         alt_extract_job = child_job.addChildJobFn(run_alt_path_extraction, context, inputGraphFileIDs,
                                                   graph_names, None,
-                                                  cores=context.config.snarl_index_cores,
-                                                  memory=context.config.snarl_index_mem,
-                                                  disk=context.config.snarl_index_disk)
+                                                  cores=context.config.call_chunk_cores,
+                                                  memory=context.config.call_chunk_mem,
+                                                  disk=context.config.call_chunk_disk)
+        
         indexes['alt-gam'] = alt_extract_job.addFollowOnJobFn(run_gam_indexing, context, alt_extract_job.rv(),
                                                               index_name,
                                                               cores=context.config.snarl_index_cores,

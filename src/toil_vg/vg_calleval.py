@@ -61,8 +61,6 @@ def calleval_subparser(parser):
                         help="GAMs to call.  Each GAM treated as separate input (and must contain all chroms)")
     parser.add_argument("--sample_name", type=str, required=True,
                         help="sample name (ex NA12878)")
-    parser.add_argument("--gam_index_cores", type=int,
-                        help="number of threads used for gam indexing")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)

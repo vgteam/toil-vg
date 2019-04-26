@@ -93,11 +93,6 @@ fq-split-cores: 1
 fq-split-mem: '4G'
 fq-split-disk: '2G'
 
-# Number of threads to use for Rocksdb GAM indexing
-# Generally, this should be kept low as speedup drops off radically 
-# after a few threads.
-gam-index-cores: 1
-
 # Resources for *each* vg map job
 # the number of vg map jobs is controlled by reads-per-chunk (below)
 alignment-cores: 1
@@ -144,7 +139,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.15.0-96-g1593cd48c-t302-run'
+vg-docker: 'quay.io/vgteam/vg:v1.15.0-98-g49f7086f6-t304-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -423,7 +418,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.15.0-96-g1593cd48c-t302-run'
+vg-docker: 'quay.io/vgteam/vg:v1.15.0-98-g49f7086f6-t304-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
