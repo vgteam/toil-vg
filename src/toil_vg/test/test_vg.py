@@ -753,6 +753,68 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
+
+    def test_16_sv_genotyping(self):
+        '''
+        End to end SV genotyping on chr21 and chr22 of the HGSVC graph.  
+        We subset reads and variants to chr21:5000000-6000000 and chr22:10000000-11000000
+        and the fastas are subset to chr21:1-7000000 and chr22:1-12000000
+        '''
+
+        fa_path = self._ci_input_path('hg38_chr21_22.fa.gz')
+        vcf_path = self._ci_input_path('HGSVC_regions.vcf.gz')
+        gam_reads_path = self._ci_input_path('HGSVC_regions.gam')
+
+        self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--gcsa_index_cores', '8',
+                   '--clean', 'never',
+                   '--fasta', fa_path,
+                   '--regions', 'chr21', 'chr22',
+                   '--vcf', vcf_path,
+                   '--out_name', 'HGSVC', '--pangenome', '--flat_alts', '--alt_path_gam_index', '--xg_index', '--gcsa_index'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'map', self.jobStoreLocal, 'HG00514',
+                   os.path.join(self.local_outstore, 'HGSVC.xg'),
+                   os.path.join(self.local_outstore, 'HGSVC.gcsa'),
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--gam_input_reads', gam_reads_path,
+                   '--interleaved',
+                   '--alignment_cores', '8', 
+                   '--single_reads_chunk',
+                   '--realTimeLogging', '--logInfo'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'call', self.jobStoreLocal,
+                   os.path.join(self.local_outstore, 'HGSVC.xg'),
+                   'HG00514',
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--chroms', 'chr21', 'chr22',
+                   '--call_chunk_cores', '8',
+                   '--recall_context', '200',
+                   '--gams', os.path.join(self.local_outstore, 'HG00514_default.gam'),
+                   '--alt_path_gam', os.path.join(self.local_outstore, 'HGSVC_alts.gam'),
+                   '--genotype_vcf', vcf_path,
+                   '--call_chunk_cores', '8'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        
+        self._run(['toil-vg', 'vcfeval', self.jobStoreLocal,
+                   self.local_outstore,
+                   '--sveval',
+                   '--vcfeval_baseline', vcf_path,
+                   '--vcfeval_sample', 'HG00514',
+                   '--normalize',
+                   '--vcfeval_fasta', fa_path,
+                   '--call_vcf', os.path.join(self.local_outstore, 'HG00514.vcf.gz')])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+                   
+        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.42)           
         
     def _run(self, args):
         log.info('Running %r', args)
@@ -822,7 +884,13 @@ class VGCGLTest(TestCase):
                         if 'XREF' in line:
                             xref_count += 1
         self.assertEqual(var_count, xref_count)
-        
+
+    def _assertSVEvalOutput(self, outstore, f1_threshold):
+        with open(os.path.join(outstore, 'sv_accuracy.tsv')) as sv_stats:
+            table = [line.split() for line in sv_stats]
+        self.assertEqual(table[0][-1], 'F1')
+        self.assertGreater(float(table[1][-1]), f1_threshold)
+                
     def tearDown(self):
         if not self.saveWorkDir:
             shutil.rmtree(self.workdir)
