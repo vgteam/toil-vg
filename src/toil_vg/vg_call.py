@@ -57,6 +57,8 @@ def chunked_call_parse_args(parser):
                         help="overlap option that is passed into make_chunks and call_chunk")
     parser.add_argument("--call_chunk_size", type=int,
                         help="chunk size (set to 0 to disable chunking)")
+    parser.add_argument("--recall_context", type=int,
+                        help="Override chunk context when using --recall or --genotype_vcf")
     parser.add_argument("--call_opts", type=str,
                         help="arguments to pass to vg call (wrapped in \"\")")
     parser.add_argument("--genotype", action="store_true",
