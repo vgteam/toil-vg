@@ -263,7 +263,7 @@ call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
 # Also used with --genotype_vcf
-recall-opts: ['-u', '-n', '0', '-e', '1000']
+recall-opts: ['-u', '-n', '0', '-e', '1000', '-G', '3']
 
 # Override chunk context when using --recall or --genotype_vcf
 recall-context: 2500
@@ -542,7 +542,7 @@ call-opts: ['-e', '10']
 
 # Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
 # Also used with --genotype_vcf
-recall-opts: ['-u', '-n', '0', '-e', '1000']
+recall-opts: ['-u', '-n', '0', '-e', '1000', '-G', '3']
 
 # Override chunk context when using --recall or --genotype_vcf
 recall-context: 2500
