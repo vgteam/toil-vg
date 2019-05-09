@@ -814,7 +814,7 @@ class VGCGLTest(TestCase):
                    '--call_vcf', os.path.join(self.local_outstore, 'HG00514.vcf.gz')])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
-        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.42)           
+        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.395)           
         
     def _run(self, args):
         log.info('Running %r', args)
