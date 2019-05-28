@@ -9,7 +9,7 @@ if ! [ -x "$(command -v toil)" ]; then
 	 printf "ex:\n"
 	 printf "virtualenv venv\n"
 	 printf ". venv/bin/activate\n"
-	 printf "pip install -U toil[aws,mesos]==3.19.0\n"
+	 printf "pip install -U toil[aws,mesos]==3.20.0\n"
 	 exit 1
 fi
 
