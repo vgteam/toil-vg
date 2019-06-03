@@ -50,7 +50,7 @@ class Context(object):
     Represents a toil-vg context, necessary to use the library.
     """
     
-    def __init__(self, out_store=None, overrides=Namespace()):
+    def __init__(self, out_store=None, overrides=Namespace(), retry_count=5):
         """
         Make a new context, so we can run the library.
         
@@ -61,6 +61,7 @@ class Context(object):
         will be loaded.
         
         """
+        self.retry_count = retry_count
         
         # Load configuration and apply overrides. If the overrides are from
         # command-line options, we might also get a bunch of tool-specific
@@ -108,6 +109,20 @@ class Context(object):
             return IOStore.get(self.out_store_string)
         else:
             return None
+
+    def _retry_write(self, job, path):
+        """
+        wrap job.fileStore.writeGlobaFile up to retry a few times before giving up
+        """
+        for i in range(self.retry_count):
+            try:
+                return job.fileStore.writeGlobalFile(path)
+            except:
+                if i >= self.retry_count - 1:
+                    raise
+                else:
+                    time.sleep(i * i)
+
             
     def write_intermediate_file(self, job, path):
         """
@@ -127,7 +142,7 @@ class Context(object):
             out_store.write_output_file(path, os.path.basename(path))
         
         # Save to Toil
-        return job.fileStore.writeGlobalFile(path)
+        return self._retry_write(job, path)
             
     def write_output_file(self, job, path, out_store_path = None):
         """
@@ -148,7 +163,7 @@ class Context(object):
             out_store.write_output_file(path, name)
         
         # Save to Toil
-        return job.fileStore.writeGlobalFile(path)
+        return self._retry_write(job, path)
             
     def to_options(self, options):
         """
