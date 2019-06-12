@@ -197,7 +197,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         gam_filter_path = gam_path + '.filter'
         filter_command = None
         if filter_opts:
-            filter_command = ['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts
+            filter_command = ['vg', 'filter', os.path.basename(gam_path), '-t', str(context.config.calling_cores)] + filter_opts
             if defray:
                 filter_command += ['-x', os.path.basename(xg_path)]
             if genotype or pack_support:
