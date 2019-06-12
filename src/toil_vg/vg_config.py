@@ -139,7 +139,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.15.0-208-gce79450f1-t311-run'
+vg-docker: 'quay.io/vgteam/vg:v1.16.0-137-ge54428488-t313-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -253,7 +253,7 @@ filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '99
 
 # Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
 # Also used with --genotype_vcf
-recall-filter-opts: []
+recall-filter-opts: ['-q', '15']
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
 augment-opts: ['-q', '10']
@@ -418,7 +418,7 @@ container: """ + ("Docker" if test_docker() else "None") + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.15.0-208-gce79450f1-t311-run'
+vg-docker: 'quay.io/vgteam/vg:v1.16.0-137-ge54428488-t313-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -532,7 +532,7 @@ filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '99
 
 # Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
 # Also used with --genotype_vcf
-recall-filter-opts: []
+recall-filter-opts: ['-q', '15']
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
 augment-opts: ['-q', '10']

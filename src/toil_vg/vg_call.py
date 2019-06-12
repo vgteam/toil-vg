@@ -85,6 +85,10 @@ def chunked_call_parse_args(parser):
     parser.add_argument("--genotype_vcf", type=make_url,
                         help="Genotype variants in a given .vcf.gz file. This file must have been used to construct"
                         " the graph (with --alt_path_gam_index")
+    parser.add_argument("--id_ranges", type=make_url,
+                        help="id ranges (from toil-vg construct/indexes) required for vg pack interface")
+    parser.add_argument("--pack", action="store_true",
+                        help="use vg pack instead of vg augment -a pileup to compute support")
 
 def validate_call_options(options):    
     require(not options.chroms or len(options.chroms) == len(options.gams) or len(options.gams) == 1,
@@ -112,7 +116,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
                 chunk_name = 'call', genotype = False, recall = False, clip_info = None,
                 augment_results = None, augment_only = False, alt_gam_id = None,
-                genotype_vcf_id = None, genotype_tbi_id = None):
+                genotype_vcf_id = None, genotype_tbi_id = None, pack_support = False):
     """ Run vg call or vg genotype on a single graph.
 
     Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id). pileup_id and xg_id
@@ -135,7 +139,6 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     if augment_only is True, then calling is skipped and augment_results will be output
 
     """
-    
     work_dir = job.fileStore.getLocalTempDir()
 
     filter_opts = context.config.filter_opts if not recall else context.config.recall_filter_opts
@@ -149,11 +152,11 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
     job.fileStore.readGlobalFile(vg_id, vg_path)
     gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
+    xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))    
     if not augment_results:
         job.fileStore.readGlobalFile(gam_id, gam_path)
-        xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
         defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
-        if xg_id and defray:
+        if xg_id and (defray or pack_support):
             job.fileStore.readGlobalFile(xg_id, xg_path)
         if alt_gam_id:
             alt_gam_path = os.path.join(work_dir, '{}_alts.gam'.format(chunk_name))
@@ -173,7 +176,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
 
     if not augment_results:
         # we only need an xg if using vg filter -D
-        if not xg_id and defray:
+        if not xg_id and (defray or pack_support):
             timer.start('chunk-xg')
             context.runner.call(job, ['vg', 'index', os.path.basename(vg_path), '-x',
                                        os.path.basename(xg_path), '-t', str(context.config.calling_cores)],
@@ -184,7 +187,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         if alt_gam_id:
             # Note: There's no reason why this should modify the nodes and edges as the paths were already
             # embedded.  But if it does due to a bug somewhere, terrible downstream errors will result. 
-            alt_augment_cmd = ['vg', 'augment', '-i', os.path.basename(vg_path), os.path.basename(alt_gam_path)]
+            alt_augment_cmd = ['vg', 'augment', '--label-paths', os.path.basename(vg_path), os.path.basename(alt_gam_path)]
             vg_alt_aug_path = os.path.join(work_dir, '{}_alts.vg'.format(chunk_name))
             with open(vg_alt_aug_path, 'w') as aug_vg_file:
                 context.runner.call(job, alt_augment_cmd, work_dir=work_dir, outfile=aug_vg_file)
@@ -197,7 +200,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             filter_command = ['vg', 'filter', os.path.basename(gam_path), '-t', '1'] + filter_opts
             if defray:
                 filter_command += ['-x', os.path.basename(xg_path)]
-            if genotype:
+            if genotype or pack_support:
                 with open(gam_filter_path, 'w') as gam_filter_file:
                     context.runner.call(job, filter_command, work_dir = work_dir, outfile = gam_filter_file)
                 filter_command = None
@@ -213,7 +216,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         else:
             aug_gam_input = os.path.basename(gam_filter_path)
 
-        if genotype:
+        if genotype or pack_support:
             augment_generated_opts = ['--augmentation-mode', 'direct',
                                       '--alignment-out', os.path.basename(aug_gam_path)]
             augment_opts = []
@@ -225,33 +228,57 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 augment_opts = []
                 augment_generated_opts += ['--recall']
 
-        augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
-                        '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
+        if not recall or not (genotype or pack_support):
+            augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
+                                    '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
 
-        try:
-            with open(aug_path, 'w') as aug_stream:
-                timer.start('call-filter-augment')
-                context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
-                timer.stop()
-        except Exception as e:
-            logging.error("Augmentation failed. Dumping files.")
-            for dump_path in [vg_path, gam_path, gam_filter_path]:
-                if dump_path and os.path.isfile(dump_path):
-                    context.write_output_file(job, dump_path)        
-            raise e
+            try:
+                with open(aug_path, 'w') as aug_stream:
+                    timer.start('call-filter-augment')
+                    context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
+                    timer.stop()
+            except Exception as e:
+                logging.error("Augmentation failed. Dumping files.")
+                for dump_path in [vg_path, gam_path, gam_filter_path]:
+                    if dump_path and os.path.isfile(dump_path):
+                        context.write_output_file(job, dump_path)        
+                raise e
+        else:
+            aug_path = vg_path
+            aug_gam_path = gam_filter_path
+
+        # run vg pack to compute supports
+        if pack_support:
+            pack_cmd = ['vg', 'pack', '-x', os.path.basename(xg_path), '-t', str(job.cores),
+                        '-g', os.path.basename(aug_gam_path),
+                        '-o', os.path.basename(support_path)]
+            try:
+                context.runner.call(job, pack_cmd, work_dir = work_dir)
+            except Exception as e:
+                logging.error("Pack failed. Dumping Files.")
+                for dump_path in [xg_path, aug_gam_path]:
+                    if dump_path and os.path.isfile(dump_path):
+                        context.write_output_file(job, dump_path)
+                        
     else:
         # we download the augment output instead of running it
         job.fileStore.readGlobalFile(augment_results['aug-graph'], aug_path)
         if not genotype:
             job.fileStore.readGlobalFile(augment_results['support'], support_path)
-            job.fileStore.readGlobalFile(augment_results['translation'], trans_path)
+            if not pack_support:
+                job.fileStore.readGlobalFile(augment_results['translation'], trans_path)
+            elif not xg_id or not os.path.isfile(xg_path):
+                job.fileStore.readGlobalFile(augment_results['xg'], xg_path)
 
     # We're going to stop here and return our augmentation results
     if augment_only:
         augment_output_results = { 'aug-graph' : context.write_intermediate_file(job, aug_path) }
         if not genotype:
             augment_output_results['support'] = context.write_intermediate_file(job, support_path)
-            augment_output_results['translation'] = context.write_intermediate_file(job, trans_path)
+            if not pack_support:
+                augment_output_results['translation'] = context.write_intermediate_file(job, trans_path)
+            elif os.path.isfile(xg_path):
+                augment_output_results['xg'] = context.write_intermediate_file(job, xg_path)
         return augment_output_results
 
     # naming options shared between call and genotype
@@ -299,10 +326,14 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     else:
         # call
         command = ['vg', 'call', os.path.basename(aug_path), '-t',
-                   str(context.config.calling_cores), '-S', sample_name,
-                   '-z', os.path.basename(trans_path),
-                   '-s', os.path.basename(support_path),
-                   '-b', os.path.basename(vg_path)]
+                   str(context.config.calling_cores), '-S', sample_name]
+        if pack_support:
+            command += ['-P', os.path.basename(support_path),
+                        '-x', os.path.basename(xg_path)]
+        else:
+            command += ['-z', os.path.basename(trans_path),
+                        '-s', os.path.basename(support_path),
+                        '-b', os.path.basename(vg_path)]
                 
         if call_opts:
             command += call_opts
@@ -363,6 +394,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         
     return vcf_id, timer
 
+
 # Get the lengths of our paths in the graph
 def run_xg_paths(job, context, xg_id):
     """ pull path names and sizes from the xg """
@@ -376,19 +408,20 @@ def run_xg_paths(job, context, xg_id):
 
 def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
                     genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                    genotype_vcf_id=None, genotype_tbi_id=None):
+                    genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, pack_support=False):
     path_sizes_job = job.addChildJobFn(run_xg_paths, context, xg_file_id,
                                        memory=context.config.call_chunk_mem,
                                        disk=context.config.call_chunk_disk)
     path_sizes = path_sizes_job.rv()
     calling_job = path_sizes_job.addFollowOnJobFn(run_all_calling2, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids,
                                                   chroms, path_sizes,  vcf_offsets, sample_name, genotype, out_name,
-                                                  recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id)
+                                                  recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id,
+                                                  id_ranges_id, pack_support)
     return calling_job.rv()
 
 def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, path_sizes, vcf_offsets, sample_name,
                      genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                     genotype_vcf_id=None, genotype_tbi_id=None):
+                     genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, pack_support=False):
     """
     Call all the chromosomes and return a merged up vcf/tbi pair
     """
@@ -404,6 +437,10 @@ def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chr
     if not chroms:
         chroms = [name for name in path_sizes.keys() if path_sizes[name] > 0]
     assert len(chr_gam_ids) == len(chr_gam_idx_ids)
+    # id ranges deactivates path chunking
+    if id_ranges_id:
+        context.config.call_chunk_size = 0
+        context.config.overlap = 0
     for i in range(len(chr_gam_ids)):
         alignment_file_id = chr_gam_ids[i]
         alignment_index_id = chr_gam_idx_ids[i]
@@ -421,11 +458,12 @@ def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chr
                                             alt_gam_id=alt_gam_id, alt_gai_id=alt_gai_id,
                                             genotype_vcf_id=genotype_vcf_id,
                                             genotype_tbi_id=genotype_tbi_id,
+                                            id_ranges_id=id_ranges_id,
                                             cores=context.config.call_chunk_cores,
                                             memory=context.config.call_chunk_mem,
                                             disk=context.config.call_chunk_disk)
         call_job = chunk_job.addFollowOnJobFn(run_chunked_calling, context, chunk_job.rv(0),
-                                              genotype, recall, chunk_job.rv(1),
+                                              genotype, recall, pack_support, chunk_job.rv(1),
                                               cores=context.config.misc_cores,
                                               memory=context.config.misc_mem,
                                               disk=context.config.misc_disk)
@@ -492,7 +530,7 @@ def run_concat_vcfs(job, context, out_name, vcf_ids, tbi_ids = [], write_to_outs
         return vcf_file_id, vcf_idx_file_id
 
 def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, path_sizes, sample_name,
-                 genotype, recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id):
+                 genotype, recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id, id_ranges_id):
     """
     Split a gam and xg up into a bunch of vg/gam pairs, one for each calling chunk.  also keep track of the 
     various offsets needed to call and clip them.
@@ -518,7 +556,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
     output_chunk_info = []
     
     # Bypass chunking when chunk_size set to 0
-    if context.config.call_chunk_size == 0:
+    if not id_ranges_id and context.config.call_chunk_size == 0:
         timer = TimeTracker('call-chunk-bypass')
         # convert the xg to vg
         context.runner.call(job, ['vg', 'xg', '-i', os.path.basename(xg_path), '-X', 'graph.vg'],
@@ -549,8 +587,11 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
         return output_chunk_info, [timer]
 
     # Sort and index the GAM file if index not provided
-    timer = TimeTracker('call-gam-index')    
-    if alignment_index_id:
+    timer = TimeTracker('call-gam-index')
+    if id_ranges_id:
+        # we don't really care if the gam is sorted when doing chromosome-id range chunks
+        gam_sorT_path = gam_path
+    elif alignment_index_id:
         gam_sort_path = gam_path
         gam_index_path = gam_sort_path + '.gai'
         job.fileStore.readGlobalFile(alignment_index_id, gam_index_path)
@@ -575,6 +616,27 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
             path_list_file.write(path_name + '\n')
             offset_map[path_name] = int(vcf_offsets[i]) if vcf_offsets else 0
 
+    # Write out the id ranges
+    if id_ranges_id:
+        id_ranges_path = os.path.join(work_dir, 'id_ranges.tsv')
+        job.fileStore.readGlobalFile(id_ranges_id, id_ranges_path)
+        path_to_id_range = {}
+        id_range_to_path = {}
+        # read the id ranges into a dictionary
+        with open(id_ranges_path) as id_ranges_file:
+            for line in id_ranges_file:
+                toks = line.split('\t')
+                if len(toks) == 3:
+                    path_to_id_range[toks[0]] = toks[1:3]
+                    # the -1 below is because chunk adds 1 for BED conversion
+                    id_range_to_path[toks[1]] = toks[0]
+        # write the id ranges of just the paths under consideration to a file
+        path_id_ranges_path = os.path.join(work_dir, 'path_id_ranges.tsv')
+        with open(path_id_ranges_path, 'w') as path_id_ranges_file:
+            for path_name in path_names:
+                path_id_ranges_file.write('{}:{}\n'.format(
+                    path_to_id_range[path_name][0], path_to_id_range[path_name][1]))
+
     # Apply chunk override for recall.
     # Todo: fix vg chunk to only expand variants (not reference) so that we can leave this super high
     # all the time
@@ -585,16 +647,27 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
     # GAM index isn't passed but it needs to be next to the GAM file.
     output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
     chunk_prefix = 'call_chunk_{}'.format(tag)
-    chunk_cmd = ['vg', 'chunk', '-x', os.path.basename(xg_path),
-                 '-a', os.path.basename(gam_sort_path), '-c', str(context_size),
-                 '-P', os.path.basename(path_list),
-                 '-g',
-                 '-s', str(context.config.call_chunk_size),
-                 '-o', str(context.config.overlap),
+    chunk_cmd = ['vg', 'chunk',
+                 '-x', os.path.basename(xg_path),
                  '-b', chunk_prefix,
                  '-t', str(context.config.call_chunk_cores),
                  '-E', os.path.basename(output_bed_chunks_path),
                  '-f']
+    if not id_ranges_id:
+        # chunk up our paths with context expansion
+        chunk_cmd += ['-a', os.path.basename(gam_sort_path),
+                      '-P', os.path.basename(path_list),
+                      '-c', str(context_size),
+                      '-g',
+                      '-s', str(context.config.call_chunk_size),
+                      '-o', str(context.config.overlap)]
+    else:
+        # chunk using chromosomal id ranges
+        # note the gam isn't chunked -- we just use the input as is
+        chunk_cmd += ['-R', os.path.basename(path_id_ranges_path)]
+        if alt_gam_id:
+            chunk_cmd += ['-g']
+
     if alt_gam_id:
         chunk_cmd += ['-a', os.path.basename(alt_gam_path)]
     timer.start('call-chunk')
@@ -608,8 +681,14 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
         for line in output_bed:
             toks = line.split('\t')
             if len(toks) > 3:
-                bed_lines.append(toks)
-                chunk_counts[toks[0]] += 1
+                if not id_ranges_id:
+                    bed_lines.append(toks)
+                    chunk_counts[toks[0]] += 1
+                else:
+                    # convert our id range bed to a chromosome position bed
+                    chrom_name = id_range_to_path[toks[1]]
+                    bed_lines.append([chrom_name, '0', str(path_sizes[chrom_name]), toks[3]])
+                    chunk_counts[chrom_name] += 1
 
     # Keep track of offset in each path
     cur_path_offset = defaultdict(int)
@@ -623,16 +702,23 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
         chunk_bed_start = int(toks[1])
         chunk_bed_end = int(toks[2])
         chunk_bed_size = chunk_bed_end - chunk_bed_start
-        gam_chunk_path = os.path.join(work_dir, os.path.basename(toks[3].strip()))
-        assert os.path.splitext(gam_chunk_path)[1] == '.gam'
-        vg_chunk_path = os.path.splitext(gam_chunk_path)[0] + '.vg'
-        gam_chunk_file_id = context.write_intermediate_file(job, gam_chunk_path)
+        chunk_path_base = os.path.splitext(os.path.join(work_dir, os.path.basename(toks[3].strip())))[0]
+        gam_chunk_path = chunk_path_base + '.gam'
+        vg_chunk_path = chunk_path_base + '.vg'
+        if not id_ranges_id:
+            chunk_i = cur_path_offset[chunk_bed_chrom]        
+            gam_chunk_file_id = context.write_intermediate_file(job, gam_chunk_path)
+            clipped_chunk_offset = chunk_i * context.config.call_chunk_size - chunk_i * context.config.overlap
+            alt_gam_tag = "-1"
+        else:
+            gam_chunk_file_id = alignment_file_id
+            clipped_chunk_offset = 0
+            alt_gam_tag = ""
         vg_chunk_file_id = context.write_intermediate_file(job, vg_chunk_path)
-        chunk_i = cur_path_offset[chunk_bed_chrom]        
-        clipped_chunk_offset = chunk_i * context.config.call_chunk_size - chunk_i * context.config.overlap
+
         cur_path_offset[chunk_bed_chrom] += 1
         if alt_gam_id:
-            alt_gam_chunk_path = gam_chunk_path.replace(chunk_prefix, chunk_prefix + '-1')
+            alt_gam_chunk_path = chunk_path_base.replace(chunk_prefix, chunk_prefix + alt_gam_tag) + '.gam'
             alt_gam_chunk_file_id = context.write_intermediate_file(job, alt_gam_chunk_path)
 
         chunk_info = {
@@ -655,7 +741,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
 
     return output_chunk_info, call_timers
 
-def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers):
+def run_chunked_calling(job, context, chunk_infos, genotype, recall, pack_support, call_timers):
     """
     spawn a calling job for each chunk then merge them together
     """
@@ -686,6 +772,7 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers
             recall = recall,
             clip_info = chunk_info,
             augment_only = True,
+            pack_support = pack_support,
             alt_gam_id = chunk_info['alt_gam_id'],
             cores=context.config.calling_cores,
             memory=context.config.calling_mem, disk=context.config.calling_disk)
@@ -719,6 +806,7 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, call_timers
             alt_gam_id = chunk_info['alt_gam_id'],
             genotype_vcf_id = chunk_info['genotype_vcf_id'],
             genotype_tbi_id = chunk_info['genotype_tbi_id'],
+            pack_support = pack_support,
             augment_results = augment_results,
             cores=context.config.calling_cores,
             memory=context.config.calling_mem, disk=context.config.calling_disk)
@@ -778,6 +866,9 @@ def call_main(context, options):
                 inputTbiID = importer.load(options.genotype_vcf + '.tbi')
             else:
                 inputVcfID, inputTbiID = None, None
+            inputIDRangesID = None
+            if options.id_ranges:
+                inputIDRangesID = importer.load(options.id_ranges)
 
             importer.wait()
 
@@ -791,6 +882,8 @@ def call_main(context, options):
                                      alt_gai_id=inputAltPathGaiID,
                                      genotype_vcf_id=importer.resolve(inputVcfID),
                                      genotype_tbi_id=importer.resolve(inputTbiID),
+                                     id_ranges_id=importer.resolve(inputIDRangesID),
+                                     pack_support=options.pack,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
