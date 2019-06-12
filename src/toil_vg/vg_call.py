@@ -705,8 +705,8 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
         chunk_path_base = os.path.splitext(os.path.join(work_dir, os.path.basename(toks[3].strip())))[0]
         gam_chunk_path = chunk_path_base + '.gam'
         vg_chunk_path = chunk_path_base + '.vg'
+        chunk_i = cur_path_offset[chunk_bed_chrom]        
         if not id_ranges_id:
-            chunk_i = cur_path_offset[chunk_bed_chrom]        
             gam_chunk_file_id = context.write_intermediate_file(job, gam_chunk_path)
             clipped_chunk_offset = chunk_i * context.config.call_chunk_size - chunk_i * context.config.overlap
             alt_gam_tag = "-1"
