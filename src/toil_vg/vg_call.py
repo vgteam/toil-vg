@@ -439,7 +439,7 @@ def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chr
     assert len(chr_gam_ids) == len(chr_gam_idx_ids)
     # id ranges deactivates path chunking
     if id_ranges_id:
-        context.config.call_chunk_size = sys.maxint
+        context.config.call_chunk_size = (2 << 30) - 1
         context.config.overlap = 0
     for i in range(len(chr_gam_ids)):
         alignment_file_id = chr_gam_ids[i]
