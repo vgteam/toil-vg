@@ -67,6 +67,8 @@ def chunked_call_parse_args(parser):
                         help="arguments to pass to vg genotype (wrapped in \"\")")
     parser.add_argument("--filter_opts", type=str,
                         help="argument to pass to vg filter (wrapped in \"\")")
+    parser.add_argument("--pack_opts", type=str,
+                        help="argument to pass to vg pack (wrapped in \"\")")
     parser.add_argument("--calling_cores", type=int,
                         help="number of threads during the variant calling step")
     parser.add_argument("--calling_mem", type=str,
@@ -259,6 +261,8 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             pack_cmd = ['vg', 'pack', '-x', os.path.basename(xg_path), '-t', str(job.cores),
                         '-g', os.path.basename(aug_gam_path),
                         '-o', os.path.basename(support_path)]
+            if context.config.pack_opts:
+                pack_cmd += context.config.pack_opts
             try:
                 context.runner.call(job, pack_cmd, work_dir = work_dir)
             except Exception as e:
