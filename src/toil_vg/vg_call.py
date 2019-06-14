@@ -89,6 +89,8 @@ def chunked_call_parse_args(parser):
                         help="id ranges (from toil-vg construct/indexes) required for vg pack interface")
     parser.add_argument("--pack", action="store_true",
                         help="use vg pack instead of vg augment -a pileup to compute support")
+    parser.add_argument("--snarls", type=make_url,
+                        help="Path to snarls file")
 
 def validate_call_options(options):    
     require(not options.chroms or len(options.chroms) == len(options.gams) or len(options.gams) == 1,
@@ -101,6 +103,8 @@ def validate_call_options(options):
             '--alt_path_gam must be used in conjunction with --genotype_vcf')
     require(not options.genotype_vcf or options.genotype_vcf.endswith('.vcf.gz'),
             'file passed to --genotype_vcf must end with .vcf.gz')
+    require(not options.snarls or options.recall or options.genotype_vcf,
+            'snarl index can only be used with --recall or --genotype_vcf')
     
 def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
@@ -116,7 +120,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
                 path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
                 chunk_name = 'call', genotype = False, recall = False, clip_info = None,
                 augment_results = None, augment_only = False, alt_gam_id = None,
-                genotype_vcf_id = None, genotype_tbi_id = None, pack_support = False):
+                genotype_vcf_id = None, genotype_tbi_id = None, snarls_id = None, pack_support = False):
     """ Run vg call or vg genotype on a single graph.
 
     Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id). pileup_id and xg_id
@@ -152,7 +156,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
     job.fileStore.readGlobalFile(vg_id, vg_path)
     gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
-    xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))    
+    xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
     if not augment_results:
         job.fileStore.readGlobalFile(gam_id, gam_path)
         defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
@@ -161,7 +165,10 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
         if alt_gam_id:
             alt_gam_path = os.path.join(work_dir, '{}_alts.gam'.format(chunk_name))
             job.fileStore.readGlobalFile(alt_gam_id, alt_gam_path)
-                                        
+
+    snarls_path = os.path.join(work_dir, '{}.snarls'.format(chunk_name))
+    if snarls_id:
+        job.fileStore.readGlobalFile(snarls_id, snarls_path)
         
     # Define paths for all the files we might make
     pu_path = os.path.join(work_dir, '{}.pu'.format(chunk_name))
@@ -334,10 +341,13 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             command += ['-z', os.path.basename(trans_path),
                         '-s', os.path.basename(support_path),
                         '-b', os.path.basename(vg_path)]
-                
+
         if call_opts:
             command += call_opts
         command += name_opts
+
+        if snarls_id:
+            command += ['--snarls', os.path.basename(snarls_path)]
 
         if genotype_vcf_id:
             genotype_vcf_path = os.path.join(work_dir, '{}_to_genotype.vcf.gz'.format(chunk_name))
@@ -408,7 +418,7 @@ def run_xg_paths(job, context, xg_id):
 
 def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
                     genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                    genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, pack_support=False):
+                    genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False):
     path_sizes_job = job.addChildJobFn(run_xg_paths, context, xg_file_id,
                                        memory=context.config.call_chunk_mem,
                                        disk=context.config.call_chunk_disk)
@@ -416,12 +426,12 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
     calling_job = path_sizes_job.addFollowOnJobFn(run_all_calling2, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids,
                                                   chroms, path_sizes,  vcf_offsets, sample_name, genotype, out_name,
                                                   recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id,
-                                                  id_ranges_id, pack_support)
+                                                  id_ranges_id, snarls_id, pack_support)
     return calling_job.rv()
 
 def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, path_sizes, vcf_offsets, sample_name,
                      genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                     genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, pack_support=False):
+                     genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False):
     """
     Call all the chromosomes and return a merged up vcf/tbi pair
     """
@@ -463,7 +473,7 @@ def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chr
                                             memory=context.config.call_chunk_mem,
                                             disk=context.config.call_chunk_disk)
         call_job = chunk_job.addFollowOnJobFn(run_chunked_calling, context, chunk_job.rv(0),
-                                              genotype, recall, pack_support, chunk_job.rv(1),
+                                              genotype, recall, snarls_id, pack_support, chunk_job.rv(1),
                                               cores=context.config.misc_cores,
                                               memory=context.config.misc_mem,
                                               disk=context.config.misc_disk)
@@ -741,7 +751,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
 
     return output_chunk_info, call_timers
 
-def run_chunked_calling(job, context, chunk_infos, genotype, recall, pack_support, call_timers):
+def run_chunked_calling(job, context, chunk_infos, genotype, recall, snarls_id, pack_support, call_timers):
     """
     spawn a calling job for each chunk then merge them together
     """
@@ -806,6 +816,7 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, pack_suppor
             alt_gam_id = chunk_info['alt_gam_id'],
             genotype_vcf_id = chunk_info['genotype_vcf_id'],
             genotype_tbi_id = chunk_info['genotype_tbi_id'],
+            snarls_id = snarls_id,            
             pack_support = pack_support,
             augment_results = augment_results,
             cores=context.config.calling_cores,
@@ -869,6 +880,8 @@ def call_main(context, options):
             inputIDRangesID = None
             if options.id_ranges:
                 inputIDRangesID = importer.load(options.id_ranges)
+            if options.snarls:
+                inputSnarlsID = importer.load(options.snarls)
 
             importer.wait()
 
@@ -883,6 +896,7 @@ def call_main(context, options):
                                      genotype_vcf_id=importer.resolve(inputVcfID),
                                      genotype_tbi_id=importer.resolve(inputTbiID),
                                      id_ranges_id=importer.resolve(inputIDRangesID),
+                                     snarls_id=importer.resolve(inputSnarlsID),
                                      pack_support=options.pack,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,

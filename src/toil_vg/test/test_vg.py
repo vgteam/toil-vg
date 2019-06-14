@@ -858,7 +858,8 @@ class VGCGLTest(TestCase):
                    '--fasta', fa_path,
                    '--regions', 'chr21', 'chr22',
                    '--vcf', vcf_path,
-                   '--out_name', 'HGSVC', '--pangenome', '--flat_alts', '--alt_path_gam_index', '--xg_index', '--gcsa_index'])
+                   '--out_name', 'HGSVC', '--pangenome', '--flat_alts', '--alt_path_gam_index', '--xg_index',
+                   '--gcsa_index', '--snarls_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'HG00514',
@@ -887,6 +888,7 @@ class VGCGLTest(TestCase):
                    '--alt_path_gam', os.path.join(self.local_outstore, 'HGSVC_alts.gam'),
                    '--genotype_vcf', vcf_path,
                    '--call_chunk_cores', '8', '--pack',
+                   '--snarls', os.path.join(self.local_outstore, 'HGSVC.snarls'),
                    '--realTimeLogging', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
