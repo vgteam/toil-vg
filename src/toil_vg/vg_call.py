@@ -884,6 +884,7 @@ def call_main(context, options):
             inputIDRangesID = None
             if options.id_ranges:
                 inputIDRangesID = importer.load(options.id_ranges)
+            inputSnarlsID = None
             if options.snarls:
                 inputSnarlsID = importer.load(options.snarls)
 
