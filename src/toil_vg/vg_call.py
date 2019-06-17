@@ -665,13 +665,13 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
                  '-x', os.path.basename(xg_path),
                  '-b', chunk_prefix,
                  '-t', str(context.config.call_chunk_cores),
-                 '-E', os.path.basename(output_bed_chunks_path),
-                 '-f']
+                 '-E', os.path.basename(output_bed_chunks_path)]
     if not id_ranges_id:
         # chunk up our paths with context expansion
         chunk_cmd += ['-a', os.path.basename(gam_sort_path),
                       '-P', os.path.basename(path_list),
                       '-c', str(context_size),
+                      '-f',
                       '-g',
                       '-s', str(context.config.call_chunk_size),
                       '-o', str(context.config.overlap)]
@@ -680,7 +680,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
         # note the gam isn't chunked -- we just use the input as is
         chunk_cmd += ['-R', os.path.basename(path_id_ranges_path)]
         if alt_gam_id:
-            chunk_cmd += ['-g']
+            chunk_cmd += ['-f', '-g']
 
     if alt_gam_id:
         chunk_cmd += ['-a', os.path.basename(alt_gam_path)]
