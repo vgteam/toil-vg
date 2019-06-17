@@ -140,9 +140,6 @@ def pipeline_subparser(parser_run):
         help="Path to xg index (to use instead of generating new one)")    
     parser_run.add_argument("--gcsa_index", type=make_url,
         help="Path to GCSA index (to use instead of generating new one)")
-    parser_run.add_argument("--id_ranges", type=make_url,
-        help="Path to file with node id ranges for each chromosome in BED format.  If not"
-                            " supplied, will be generated from --graphs)")
 
     parser_run.add_argument("--graphs", nargs='+', type=make_url,
                         help="input graph(s). one per chromosome (separated by space)")
@@ -306,6 +303,7 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
     call_job = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, None, chroms,
                                  options.vcf_offsets, options.sample_name,
                                  options.genotype, recall=options.recall,
+                                 pack_support = options.pack,
                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
                                  disk=context.config.misc_disk)
     
