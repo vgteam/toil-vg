@@ -1246,7 +1246,6 @@ def index_main(context, options):
                                      bwa_fasta_id=importer.resolve(inputBWAFastaID),
                                      wanted=set(options.indexes), gbwt_prune=options.gbwt_prune,
                                      gbwt_regions=options.vcf_phasing_regions,
-                                     alt_path_gam_index = options.alt_path_gam_index,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

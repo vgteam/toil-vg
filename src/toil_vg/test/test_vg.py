@@ -122,7 +122,8 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'sample',
@@ -232,7 +233,8 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'sim', self.jobStoreLocal,
@@ -288,7 +290,8 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'sim', self.jobStoreLocal,
@@ -626,7 +629,8 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # Simulate the reads
@@ -672,7 +676,8 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--all_index'])
+                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # Simulate the reads
