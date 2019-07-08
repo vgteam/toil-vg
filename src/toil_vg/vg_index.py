@@ -67,21 +67,22 @@ def index_toggle_parse_args(parser):
     
     Safe to use in toil-vg construct without having to import any files.
     """
-    parser.add_argument("--gcsa_index", action="store_true",
+    parser.add_argument("--gcsa_index", dest="indexes", action="append_const", const="gcsa",
                         help="Make a gcsa index for each output graph")
-    parser.add_argument("--xg_index", action="store_true",
+    parser.add_argument("--xg_index",  dest="indexes", action="append_const", const="xg",
                         help="Make an xg index for each output graph")
-    parser.add_argument("--gbwt_index", action="store_true",
+    parser.add_argument("--gbwt_index", dest="indexes", action="append_const", const="gbwt",
                         help="Make a GBWT index alongside the xg index for each output graph")
-    parser.add_argument("--snarls_index", action="store_true",
+    parser.add_argument("--snarls_index",  dest="indexes", action="append_const", const="snarls",
                         help="Make an snarls file for each output graph")
-    parser.add_argument("--trivial_snarls_index", action="store_true",
+    parser.add_argument("--trivial_snarls_index",  dest="indexes", action="append_const", const="trivial_snarls",
                         help="Make a trivial-inclusive snarls file for each output graph")
-    parser.add_argument("--id_ranges_index", action="store_true",
+    parser.add_argument("--id_ranges_index",  dest="indexes", action="append_const", const="id_ranges",
                         help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
-    parser.add_argument("--alt_path_gam_index", action="store_true",
+    parser.add_argument("--alt_path_gam_index", dest="indexes", action="append_const", const="alt-gam",
                         help="Save alt paths from vg into an indexed GAM")
-    parser.add_argument("--all_index", action="store_true",
+    parser.add_argument("--all_index",  dest="indexes", action="store_const",
+                        const=["gcsa", "xg", "gbwt", "snarls", "trivial_snarls", "id_ranges"],
                         help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --trivial_snarls_index --id_ranges_index")
     
 def index_parse_args(parser):
@@ -117,14 +118,12 @@ def validate_index_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    if any([options.gcsa_index, options.snarls_index, options.trivial_snarls_index,
-            options.id_ranges_index, options.gbwt_index, options.all_index]):
+    if len(options.indexes) > 0:
         require(len(options.graphs) == 0 or options.chroms, '--chroms must be specified for --graphs')
         require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
                 '--chroms and --graphs must have'
                 ' same number of arguments if more than one graph specified if doing anything but xg indexing')
-    require(any([options.xg_index, options.gcsa_index, options.snarls_index, optiosn.trivial_snarls_index, 
-                 options.alt_path_gam_index, options.id_ranges_index, options.gbwt_index, options.all_index,
+    require(any([len(options.indexes) > 0, 
                  options.bwa_index_fasta]),
             'one of --xg_index, --gcsa_index, --snarls_index, --trivial_snarls_index, --id_ranges_index, '
             '--gbwt_index, --all_index, --alt_path_gam_index or --bwa_index_fasta is required')
@@ -948,10 +947,9 @@ def run_indexing(job, context, inputGraphFileIDs,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
                  bwa_fasta_id=None,
                  gbwt_id = None, node_mapping_id = None,
-                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
-                 skip_snarls=False, skip_trivial_snarls=False,
-                 make_gbwt=False, gbwt_prune=False, gbwt_regions=[],
-                 dont_restore_paths=[], alt_path_gam_index=False):
+                 wanted = set(),
+                 gbwt_prune=False, gbwt_regions=[],
+                 dont_restore_paths=[]):
     """
     
     Run indexing logic by itself.
@@ -963,9 +961,23 @@ def run_indexing(job, context, inputGraphFileIDs,
     gbwt_regions is a list of chrom:start-end regions pecifiers to restrict, on
     those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
+    wanted is a set of the index type strings ('xg', 'gcsa', 'gbwt',
+    'id_ranges', 'snarls', 'trivial_snarls', 'alt-gam') that should be created.
+    Each of them becomes a key in the output dict, except that:
+    
+    * The 'bwa' index is produced if bwa_fasta_id is set instead of if 'bwa' is
+    in wanted.
+    
+    * The 'lcp' index is produced whenever the 'gcsa' index is produced.
+    
+    * The 'id_ranges' index is only produced if multiple chromosomes are used.
+    
+    * The 'chrom_...' versions of indexes are created when the overall index is
+    created.
+    
     Return a dict from index type ('xg','chrom_xg', 'gcsa', 'lcp', 'gbwt',
     'chrom_gbwt', 'chrom_thread', 'id_ranges', 'snarls', 'trivial_snarls',
-    'bwa') to index file ID(s) if created.
+    'alt-gam', 'bwa') to index file ID(s) if created.
     
     For 'chrom_xg' and 'chrom_gbwt' the value is a list of one XG or GBWT or
     thread DB per chromosome in chroms, to support `vg prune`. For
@@ -998,12 +1010,7 @@ def run_indexing(job, context, inputGraphFileIDs,
          'tbi_phasing_file_ids': tbi_phasing_file_ids,
          'gbwt_id': gbwt_id,
          'node_mapping_id': node_mapping_id,
-         'skip_xg': skip_xg,
-         'skip_gcsa': skip_gcsa,
-         'skip_id_ranges': skip_id_ranges,
-         'skip_snarls': skip_snarls,
-         'skip_trivial_snarls': skip_trivial_snarls,
-         'make_gbwt': make_gbwt,
+         'wanted': wanted,
          'gbwt_prune': gbwt_prune,
          'bwa_fasta_id': bwa_fasta_id
     }))
@@ -1014,12 +1021,12 @@ def run_indexing(job, context, inputGraphFileIDs,
         indexes['gbwt'] = gbwt_id
 
     # We shouldn't accept any phasing files when not making a GBWT index with them.
-    assert(len(vcf_phasing_file_ids) == 0 or make_gbwt)
+    assert(len(vcf_phasing_file_ids) == 0 or ('gbwt' in wanted))
 
-    if not skip_xg or not skip_gcsa:
+    if 'xg' in wanted or 'gcsa' in wanted:
         indexes['chrom_xg'] = []
         indexes['chrom_gbwt'] = []                                                            
-        if make_gbwt:
+        if 'gbwt' in wanted:
             # In its current state, vg prune requires chromosomal xgs, so we must make
             # these xgs if we're doing any kind of gcsa indexing.  Also, if we're making
             # a gbwt, we do that at the same time (merging later if more than one graph)
@@ -1074,16 +1081,16 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
-                                                                     make_gbwt=make_gbwt,
+                                                                     make_gbwt=('gbwt' in wanted),
                                                                      gbwt_regions=gbwt_regions, intermediate=(len(chroms) > 1),
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
-                                                                     preemptable=not make_gbwt or context.config.gbwt_index_preemptable)
+                                                                     preemptable='gbwt' not in wanted or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
-            if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
+            if len(chroms) > 1 and vcf_phasing_file_ids and 'gbwt' in wanted:
                 # Once all the per-chromosome GBWTs are done and we are ready to make the whole-graph GBWT, merge them up
                 indexes['gbwt'] = xg_root_job.addChildJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
                                                             index_name,
@@ -1121,7 +1128,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     else:
         child_job.addChild(gcsa_root_job)
     
-    if not skip_gcsa:
+    if 'gcsa' in wanted:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
         # todo: we're only taking in a genome gbwt as input, because that's all we write
         if not indexes.has_key('chrom_gbwt') and indexes.has_key('gbwt'):
@@ -1137,7 +1144,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         indexes['gcsa'] = gcsa_job.rv(0)
         indexes['lcp'] = gcsa_job.rv(1)
     
-    if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
+    if len(inputGraphFileIDs) > 1 and 'id_ranges' in wanted:
         # Also we need an id ranges file in parallel with everything else
         indexes['id_ranges'] = child_job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
                                                        graph_names, index_name, chroms,
@@ -1145,7 +1152,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                        memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk).rv()
                                                  
-    if not skip_snarls:
+    if 'snarls' in wanted:
         # Also we need a snarl index in parallel with everything else
         indexes['snarls'] = child_job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
                                                     graph_names, index_name,
@@ -1153,7 +1160,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk).rv()
                                                     
-    if not skip_trivial_snarls:
+    if 'trivial_snarls' in wanted:
         # Also we need a snarl index with trivial snarls in parallel with everything else
         indexes['trivial_snarls'] = child_job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
                                                             graph_names, index_name, include_trivial=True,
@@ -1168,7 +1175,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                  cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
                                                  disk=context.config.bwa_index_disk).rv()
 
-    if alt_path_gam_index:
+    if 'alt-gam' in wanted:
         alt_extract_job = child_job.addChildJobFn(run_alt_path_extraction, context, inputGraphFileIDs,
                                                   graph_names, None,
                                                   cores=context.config.call_chunk_cores,
@@ -1238,12 +1245,7 @@ def index_main(context, options):
                                      gbwt_id=importer.resolve(inputGBWTID),
                                      node_mapping_id=importer.resolve(inputNodeMappingID),
                                      bwa_fasta_id=importer.resolve(inputBWAFastaID),
-                                     skip_xg = not options.xg_index and not options.all_index,
-                                     skip_gcsa = not options.gcsa_index and not options.all_index,
-                                     skip_id_ranges = not options.id_ranges_index and not options.all_index,
-                                     skip_snarls = not options.snarls_index and not options.all_index,
-                                     skip_trivial_snarls = not options.trivial_snarls_index and not options.all_index,
-                                     make_gbwt=options.gbwt_index, gbwt_prune=options.gbwt_prune,
+                                     wanted=set(options.indexes), gbwt_prune=options.gbwt_prune,
                                      gbwt_regions=options.vcf_phasing_regions,
                                      alt_path_gam_index = options.alt_path_gam_index,
                                      cores=context.config.misc_cores,

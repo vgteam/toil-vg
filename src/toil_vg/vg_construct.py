@@ -159,11 +159,11 @@ def validate_construct_options(options):
             '--fasta_regions currently only works when single fasta specified with --fasta')
     require(len(options.fasta) > 0 or options.bwa_reference,
             'either --fasta or --bwa_reference must be set to give something to construct')
-    require(not options.gbwt_index or options.xg_index,
+    require('gbwt' not in options.indexes or 'xg' in options.indexes,
             '--xg_index required with --gbwt_index')
     # TODO: It seems like some of this code is designed to run multiple regions
     # in parallel, but the indexing code always indexes them together.
-    require(not options.gbwt_index or (not options.pangenome and not options.pos_control and
+    require('gbwt' not in options.indexes or (not options.pangenome and not options.pos_control and
         not options.neg_control and not options.sample_graph and not options.haplo_sample and
         not options.min_af) or len(options.vcf) >= 1,
             '--gbwt_index with any graph other than --primary requires --vcf')
@@ -681,11 +681,10 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
                       max_node_size, alt_paths, flat_alts, handle_svs, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
-                      gcsa_index = False, xg_index = False, gbwt_index = False,
-                      id_ranges_index = False, snarls_index = False, trivial_snarls_index = False,
+                      wanted_indexes = set(), 
                       haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False,
                       normalize = False, validate = False, alt_regions_id = None,
-                      alt_regions = [], alt_path_gam_index = False):
+                      alt_regions = []):
     """ 
     construct many graphs in parallel, optionally doing indexing too. vcf_inputs
     is a list of tuples as created by run_generate_input_vcfs
@@ -704,7 +703,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         haplo_extraction = name in ['haplo', 'sample-graph']
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
-                                          max_node_size, gbwt_index or haplo_extraction or alt_paths,
+                                          max_node_size, ('gbwt' in wanted_indexes) or haplo_extraction or alt_paths,
                                           flat_alts, handle_svs, regions,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
                                           normalize and name != 'haplo', validate, alt_regions_id)
@@ -747,7 +746,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         # strip nones out of vcf list            
         input_vcf_ids = []
         input_tbi_ids = []
-        if haplo_extraction or gbwt_index:
+        if haplo_extraction or ('gbwt' in wanted_indexes):
             for vcf_id, tbi_id in zip(vcf_ids, tbi_ids):
                 if vcf_id and tbi_id:
                     input_vcf_ids.append(vcf_id)
@@ -786,11 +785,10 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
                 # Want to keep a whole-genome withref xg index around for mapeval purposes
                 if len(regions) > 1 and xg_index:
+                    wanted = set('xg')
                     construct_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
                                                    joined_vg_names, output_name_base, chroms, [], [], 
-                                                   skip_xg=not xg_index, skip_gcsa=True,
-                                                   skip_id_ranges=True, skip_snarls=True,
-                                                   skip_trivial_snarls=True)
+                                                   wanted=wanted)
                 
                 index_prev_job = join_job
                 # In the indexing step below, we want to index our haplo-extracted sample graph
@@ -829,24 +827,25 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                               memory=context.config.xg_index_mem,
                                                               disk=context.config.xg_index_disk)
                     
-        # some indexes should never get built for haplo/sample graphs
-        skip_gcsa = not gcsa_index or name == 'haplo'
-        skip_snarls = not snarls_index or haplo_extraction
-        skip_trivial_snarls = not trivial_snarls_index or haplo_extraction
-        make_gbwt = gbwt_index and not haplo_extraction
+        # some indexes should never get built for haplo/sample graphs.
+        # So work out what indexes to build.
+        wanted = set(wanted_indexes)
+        if name == 'haplo':
+            wanted.remove('gcsa')
+        if haplo_extraction:
+            wanted.remove('snarls')
+            wanted.remove('trivial_snarls')
+            wanted.remove('gbwt')
         
         indexing_job = index_prev_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
                                                        joined_vg_names, output_name_base, chroms,
-                                                       input_vcf_ids if make_gbwt else [],
-                                                       input_tbi_ids if make_gbwt else [],
+                                                       input_vcf_ids if ('gbwt' in wanted) else [],
+                                                       input_tbi_ids if ('gbwt' in wanted) else [],
                                                        node_mapping_id=mapping_id,
-                                                       skip_xg=not xg_index, skip_gcsa=skip_gcsa,
-                                                       skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
-                                                       skip_trivial_snarls=skip_trivial_snarls,
-                                                       make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
+                                                       wanted=wanted,
+                                                       gbwt_prune=gbwt_prune and 'gbwt' in wanted,
                                                        gbwt_regions=gbwt_regions,
-                                                       dont_restore_paths=alt_regions,
-                                                       alt_path_gam_index=alt_path_gam_index)
+                                                       dont_restore_paths=alt_regions)
         indexes = indexing_job.rv()    
 
         output.append((joined_vg_ids, joined_vg_names, indexes))
@@ -1775,23 +1774,17 @@ def construct_main(context, options):
             # Construct graphs
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
-                                     options.max_node_size, options.alt_paths or options.alt_path_gam_index,
+                                     options.max_node_size, options.alt_paths or 'alt-gam' in options.indexes,
                                      options.flat_alts, options.handle_svs, regions,
                                      merge_graphs = options.merge_graphs,
                                      sort_ids = True, join_ids = True,
-                                     gcsa_index = options.gcsa_index or options.all_index,
-                                     xg_index = options.xg_index or options.all_index,
-                                     gbwt_index = options.gbwt_index or options.all_index,
-                                     id_ranges_index = options.id_ranges_index or options.all_index,
-                                     snarls_index = options.snarls_index or options.all_index,
-                                     trivial_snarls_index = options.trivial_snarls_index or options.all_index,
+                                     wanted_indexes = options.indexes, 
                                      haplo_extraction_sample = haplo_extraction_sample,
                                      gbwt_prune = options.gbwt_prune,
                                      normalize = options.normalize,
                                      validate = options.validate,
                                      alt_regions_id = alt_regions_id,
-                                     alt_regions = alt_regions,
-                                     alt_path_gam_index = options.alt_path_gam_index)
+                                     alt_regions = alt_regions)
                                      
             
             if inputBWAFastaID:

@@ -209,9 +209,13 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     """
     
     # get the parameters we need for run_indexing
-    skip_xg = inputXGFileID is not None
-    skip_gcsa = inputGCSAFileID is not None
-    skip_ranges = inputIDRangesFileID is not None
+    wanted = set()
+    if inputXGFileID is None:
+        wanted.add('xg')
+    if inputGCSAFileID is None:
+        wanted.add('gcsa')
+    if inputIDRangesFileID is None:
+        wanted.add('id_ranges')
     graph_names = map(os.path.basename, options.graphs)
     # todo: interface for multiple vcf.  
     vcf_ids = [] if not inputVCFFileID else [inputVCFFileID]
@@ -222,8 +226,7 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                                   graph_names, options.index_name, options.chroms,
                                   vcf_phasing_file_ids = inputPhasingVCFFileIDs,
                                   tbi_phasing_file_ids = inputPhasingTBIFileIDs,
-                                  skip_xg=skip_xg, skip_gcsa=skip_gcsa, skip_id_ranges=skip_ranges, skip_snarls=True,
-                                  skip_trivial_snarls=True, make_gbwt=False,
+                                  wanted=wanted,
                                   cores=context.config.misc_cores, memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
                                   
@@ -232,14 +235,14 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     # promises but we don't have those so we need another job.
     
     input_indexes = {}
-    if skip_xg:
+    if inputXGFileID is not None:
         input_indexes['xg'] = inputXGFileID
-    if skip_gcsa:
+    if inputGCSAFileID is not None:
         input_indexes['gcsa'] = inputGCSAFileID
         input_indexes['lcp'] = inputLCPFileID
-    if inputGBWTFileID:
+    if inputGBWTFileID is not None:
         input_indexes['gbwt'] = inputGBWTFileID
-    if skip_ranges:
+    if inputIDRangesFileID is not None:
         input_indexes['id_ranges'] = inputIDRangesFileID
     
     index_merge_job = index_job.addFollowOnJobFn(merge_dicts, index_job.rv(), input_indexes,
