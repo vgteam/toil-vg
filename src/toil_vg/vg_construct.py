@@ -682,7 +682,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                       max_node_size, alt_paths, flat_alts, handle_svs, regions,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       gcsa_index = False, xg_index = False, gbwt_index = False,
-                      id_ranges_index = False, snarls_index = False,
+                      id_ranges_index = False, snarls_index = False, trivial_snarls_index = False,
                       haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False,
                       normalize = False, validate = False, alt_regions_id = None,
                       alt_regions = [], alt_path_gam_index = False):
@@ -832,6 +832,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         # some indexes should never get built for haplo/sample graphs
         skip_gcsa = not gcsa_index or name == 'haplo'
         skip_snarls = not snarls_index or haplo_extraction
+        skip_trivial_snarls = not trivial_snarls_index or haplo_extraction
         make_gbwt = gbwt_index and not haplo_extraction
         
         indexing_job = index_prev_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
@@ -841,7 +842,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        node_mapping_id=mapping_id,
                                                        skip_xg=not xg_index, skip_gcsa=skip_gcsa,
                                                        skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
-                                                       skip_trivial_snarls=True,
+                                                       skip_trivial_snarls=skip_trivial_snarls,
                                                        make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
                                                        gbwt_regions=gbwt_regions,
                                                        dont_restore_paths=alt_regions,
@@ -1783,6 +1784,7 @@ def construct_main(context, options):
                                      gbwt_index = options.gbwt_index or options.all_index,
                                      id_ranges_index = options.id_ranges_index or options.all_index,
                                      snarls_index = options.snarls_index or options.all_index,
+                                     trivial_snarls_index = options.trivial_snarls_index or options.all_index,
                                      haplo_extraction_sample = haplo_extraction_sample,
                                      gbwt_prune = options.gbwt_prune,
                                      normalize = options.normalize,

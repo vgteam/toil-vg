@@ -615,7 +615,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
     else:
         # Base case: single graph
    
-        RealtimeLogger.info("Starting snarl computation...")
+        RealtimeLogger.info("Starting snarl computation {} trivial snarls...".format('with' if include_trivial else 'without'))
         start_time = timeit.default_timer()
         
         # Define work directory for docker calls
