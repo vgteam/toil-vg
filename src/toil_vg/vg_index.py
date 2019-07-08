@@ -132,17 +132,16 @@ def validate_index_options(options):
     if options.vcf_phasing:
         require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
                 'input phasing files must end with .vcf.gz')
-    if options.gbwt_index:
+    if 'gbwt' in options.indexes:
         require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
     if options.gbwt_prune:
-        require(options.gbwt_index or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
-        require(options.gcsa_index or options.all_index, '--gbwt_prune requires gbwt indexing')
-    require(not options.gbwt_index or not options.gbwt_input,
+        require(('gbwt' in options.indexes) or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
+    require('gbwt' not in options.indexes or not options.gbwt_input,
             'only one of --gbwt_index and --gbwt_input can be used at a time')
     if options.gbwt_input:
         require(options.gbwt_prune == 'gbwt', '--gbwt_prune required with --gbwt_input')
     if options.vcf_phasing_regions:
-        require(options.gbwt_index, "cannot hint regions to GBWT indexer without building a GBWT index")
+        require('gbwt' in options.indexes, "cannot hint regions to GBWT indexer without building a GBWT index")
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id, remove_paths = []):
     """
@@ -1103,7 +1102,7 @@ def run_indexing(job, context, inputGraphFileIDs,
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
             indexes['xg'] = indexes['chrom_xg'][0]
-        elif not skip_xg:
+        elif 'xg' in wanted:
             # Build an xg index for the whole genome. We need to have
             # access to all the per-chromosome GBWT files, if used, so we
             # can set the haplotype names and per-chromosome haplotype
