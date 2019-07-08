@@ -789,7 +789,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                     construct_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
                                                    joined_vg_names, output_name_base, chroms, [], [], 
                                                    skip_xg=not xg_index, skip_gcsa=True,
-                                                   skip_id_ranges=True, skip_snarls=True)
+                                                   skip_id_ranges=True, skip_snarls=True,
+                                                   skip_trivial_snarls=True)
                 
                 index_prev_job = join_job
                 # In the indexing step below, we want to index our haplo-extracted sample graph
@@ -840,6 +841,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        node_mapping_id=mapping_id,
                                                        skip_xg=not xg_index, skip_gcsa=skip_gcsa,
                                                        skip_id_ranges=not id_ranges_index, skip_snarls=skip_snarls,
+                                                       skip_trivial_snarls=True,
                                                        make_gbwt=make_gbwt, gbwt_prune=gbwt_prune and make_gbwt,
                                                        gbwt_regions=gbwt_regions,
                                                        dont_restore_paths=alt_regions,

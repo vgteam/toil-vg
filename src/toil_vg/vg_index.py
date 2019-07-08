@@ -75,12 +75,14 @@ def index_toggle_parse_args(parser):
                         help="Make a GBWT index alongside the xg index for each output graph")
     parser.add_argument("--snarls_index", action="store_true",
                         help="Make an snarls file for each output graph")
+    parser.add_argument("--trivial_snarls_index", action="store_true",
+                        help="Make a trivial-inclusive snarls file for each output graph")
     parser.add_argument("--id_ranges_index", action="store_true",
                         help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
     parser.add_argument("--alt_path_gam_index", action="store_true",
                         help="Save alt paths from vg into an indexed GAM")
     parser.add_argument("--all_index", action="store_true",
-                        help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --id_ranges_index")
+                        help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --trivial_snarls_index --id_ranges_index")
     
 def index_parse_args(parser):
     """
@@ -115,16 +117,17 @@ def validate_index_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    if any([options.gcsa_index, options.snarls_index,
+    if any([options.gcsa_index, options.snarls_index, options.trivial_snarls_index,
             options.id_ranges_index, options.gbwt_index, options.all_index]):
         require(len(options.graphs) == 0 or options.chroms, '--chroms must be specified for --graphs')
         require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
                 '--chroms and --graphs must have'
                 ' same number of arguments if more than one graph specified if doing anything but xg indexing')
-    require(any([options.xg_index, options.gcsa_index, options.snarls_index, options.alt_path_gam_index,
-                 options.id_ranges_index, options.gbwt_index, options.all_index, options.bwa_index_fasta]),
-            'one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index, '
-            '--all_index, --alt_path_gam_index or --bwa_index_fasta is required')
+    require(any([options.xg_index, options.gcsa_index, options.snarls_index, optiosn.trivial_snarls_index, 
+                 options.alt_path_gam_index, options.id_ranges_index, options.gbwt_index, options.all_index,
+                 options.bwa_index_fasta]),
+            'one of --xg_index, --gcsa_index, --snarls_index, --trivial_snarls_index, --id_ranges_index, '
+            '--gbwt_index, --all_index, --alt_path_gam_index or --bwa_index_fasta is required')
     require(not options.gbwt_prune or options.node_mapping,
                 '--node_mapping required with --gbwt_prune')
     if options.vcf_phasing:
@@ -946,7 +949,8 @@ def run_indexing(job, context, inputGraphFileIDs,
                  bwa_fasta_id=None,
                  gbwt_id = None, node_mapping_id = None,
                  skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
-                 skip_snarls=False, make_gbwt=False, gbwt_prune=False, gbwt_regions=[],
+                 skip_snarls=False, skip_trivial_snarls=False,
+                 make_gbwt=False, gbwt_prune=False, gbwt_regions=[],
                  dont_restore_paths=[], alt_path_gam_index=False):
     """
     
@@ -960,8 +964,8 @@ def run_indexing(job, context, inputGraphFileIDs,
     those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
     Return a dict from index type ('xg','chrom_xg', 'gcsa', 'lcp', 'gbwt',
-    'chrom_gbwt', 'chrom_thread', 'id_ranges', 'snarls', 'bwa') to index file
-    ID(s) if created.
+    'chrom_gbwt', 'chrom_thread', 'id_ranges', 'snarls', 'trivial_snarls',
+    'bwa') to index file ID(s) if created.
     
     For 'chrom_xg' and 'chrom_gbwt' the value is a list of one XG or GBWT or
     thread DB per chromosome in chroms, to support `vg prune`. For
@@ -998,6 +1002,7 @@ def run_indexing(job, context, inputGraphFileIDs,
          'skip_gcsa': skip_gcsa,
          'skip_id_ranges': skip_id_ranges,
          'skip_snarls': skip_snarls,
+         'skip_trivial_snarls': skip_trivial_snarls,
          'make_gbwt': make_gbwt,
          'gbwt_prune': gbwt_prune,
          'bwa_fasta_id': bwa_fasta_id
@@ -1147,6 +1152,14 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                     cores=context.config.snarl_index_cores,
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk).rv()
+                                                    
+    if not skip_trivial_snarls:
+        # Also we need a snarl index with trivial snarls in parallel with everything else
+        indexes['trivial_snarls'] = child_job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
+                                                            graph_names, index_name, include_trivial=True,
+                                                            cores=context.config.snarl_index_cores,
+                                                            memory=context.config.snarl_index_mem,
+                                                            disk=context.config.snarl_index_disk).rv()
     
 
     if bwa_fasta_id:
@@ -1229,6 +1242,7 @@ def index_main(context, options):
                                      skip_gcsa = not options.gcsa_index and not options.all_index,
                                      skip_id_ranges = not options.id_ranges_index and not options.all_index,
                                      skip_snarls = not options.snarls_index and not options.all_index,
+                                     skip_trivial_snarls = not options.trivial_snarls_index and not options.all_index,
                                      make_gbwt=options.gbwt_index, gbwt_prune=options.gbwt_prune,
                                      gbwt_regions=options.vcf_phasing_regions,
                                      alt_path_gam_index = options.alt_path_gam_index,
