@@ -561,19 +561,24 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       disk=job.disk,
                                       preemptable=job.preemptable).rv()
                                       
-def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None):
+def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None, include_trivial=False):
     """
     Compute the snarls of the graph.
     
-    Saves the snarls file in the outstore as <index_name>.snarls, unless index_name is None.
+    Saves the snarls file in the outstore as <index_name>.snarls or
+    <index_name>.trivial.snarls, as appropriate, unless index_name is None.
     
-    Removes trivial snarls, which are not really useful and which snarl cutting
-    in mpmap can go overboard with.
+    If incluse_trivial is set to true, include trivial snarls, which mpmap
+    cannot yet filter out itself for snarl cutting, but which are needed for
+    distance indexing.
     
     Return the file ID of the snarls file.
     """
     
     assert(len(inputGraphFileIDs) == len(graph_names))
+    
+    # Decide on an index output extension.
+    extension = '.trivial.snarls' if include_trivial else '.snarls'
     
     if len(inputGraphFileIDs) > 1:
         # We have been given multiple chromosome graphs. Since snarl indexing
@@ -586,13 +591,14 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         for file_id, file_name in itertools.izip(inputGraphFileIDs, graph_names):
             # For each input graph, make a child job to index it.
             snarl_jobs.append(job.addChildJobFn(run_snarl_indexing, context, [file_id], [file_name],
+                                                include_trivial=include_trivial,
                                                 cores=context.config.snarl_index_cores,
                                                 memory=context.config.snarl_index_mem,
                                                 disk=context.config.snarl_index_disk))
-        
+                                                
         # Make a job to concatenate the indexes all together                                        
         concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
-                                                    index_name + '.snarls' if index_name is not None else None,
+                                                    index_name + extension if index_name is not None else None,
                                                     cores=context.config.snarl_index_cores,
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk)
@@ -618,12 +624,14 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         job.fileStore.readGlobalFile(graph_id, os.path.join(work_dir, graph_filename))
 
         # Where do we put the snarls?
-        snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name if index_name is not None else "part"))
+        snarl_filename = os.path.join(work_dir, (index_name if index_name is not None else "part") + extension)
 
         # Now run the indexer.
         RealtimeLogger.info("Computing snarls for {}".format(graph_filename))
 
         cmd = ['vg', 'snarls', graph_filename]
+        if include_trivial:
+            cmd += ['--include-trivial']
         with open(snarl_filename, "w") as snarl_file:
             try:
                 # Compute snarls to the correct file
