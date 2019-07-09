@@ -1053,8 +1053,11 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
     index_ids = []
     if vg_file_ids:
         for vg_file_id in vg_file_ids:
+            # Index each VG. We can't produce a GBWT index because we have no
+            # VCF, but we can make the indexes needed for map and mpmap.
             index_job = job.addChildJobFn(run_indexing, context, [vg_file_id], ['default.vg'],
-                                          'index', ['default'], 
+                                          'index', ['default'],
+                                          wanted=set(['xg', 'gcsa', 'id_ranges', 'snarls']),
                                           cores=context.config.misc_cores, memory=context.config.misc_mem,
                                           disk=context.config.misc_disk)
             index_ids.append(index_job.rv())

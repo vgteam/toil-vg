@@ -67,7 +67,7 @@ def index_toggle_parse_args(parser):
     
     Safe to use in toil-vg construct without having to import any files.
     """
-    parser.add_argument("--gcsa_index", dest="indexes", action="append_const", const="gcsa",
+    parser.add_argument("--gcsa_index", dest="indexes", action="append_const", const="gcsa", default=[],
                         help="Make a gcsa index for each output graph")
     parser.add_argument("--xg_index",  dest="indexes", action="append_const", const="xg",
                         help="Make an xg index for each output graph")

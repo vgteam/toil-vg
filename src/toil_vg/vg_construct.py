@@ -831,11 +831,11 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         # So work out what indexes to build.
         wanted = set(wanted_indexes)
         if name == 'haplo':
-            wanted.remove('gcsa')
+            wanted.discard('gcsa')
         if haplo_extraction:
-            wanted.remove('snarls')
-            wanted.remove('trivial_snarls')
-            wanted.remove('gbwt')
+            wanted.discard('snarls')
+            wanted.discard('trivial_snarls')
+            wanted.discard('gbwt')
         
         indexing_job = index_prev_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
                                                        joined_vg_names, output_name_base, chroms,
