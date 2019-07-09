@@ -77,6 +77,16 @@ snarl-index-cores: 1
 snarl-index-mem: '4G'
 snarl-index-disk: '2G'
 
+# Resources allotted for distance indexing.
+distance-index-cores: 1
+distance-index-mem: '4G'
+distance-index-disk: '2G'
+
+# Resources allotted for minimizer indexing.
+minimizer-index-cores: 8
+minimizer-index-mem: '4G'
+minimizer-index-disk: '2G'
+
 # Resources for BWA indexing.
 bwa-index-cores: 1
 bwa-index-mem: '4G'
@@ -358,6 +368,16 @@ gcsa-index-preemptable: True
 snarl-index-cores: 1
 snarl-index-mem: '200G'
 snarl-index-disk: '100G'
+
+# Resources allotted for distance indexing.
+distance-index-cores: 1
+distance-index-mem: '200G'
+distance-index-disk: '100G'
+
+# Resources allotted for minimizer indexing.
+minimizer-index-cores: 16
+minimizer-index-mem: '110G'
+minimizer-index-disk: '200G'
 
 # Resources for BWA indexing.
 bwa-index-cores: 1
