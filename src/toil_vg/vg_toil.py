@@ -136,10 +136,6 @@ def pipeline_subparser(parser_run):
         help="sample name (ex NA12878)")
     parser_run.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
-    parser_run.add_argument("--xg_index", type=make_url,
-        help="Path to xg index (to use instead of generating new one)")    
-    parser_run.add_argument("--gcsa_index", type=make_url,
-        help="Path to GCSA index (to use instead of generating new one)")
 
     parser_run.add_argument("--graphs", nargs='+', type=make_url,
                         help="input graph(s). one per chromosome (separated by space)")

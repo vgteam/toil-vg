@@ -38,21 +38,34 @@ def map_subparser(parser):
     
     parser.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
-    parser.add_argument("xg_index", type=make_url,
-        help="Path to xg index")    
-    parser.add_argument("gcsa_index", type=make_url,
-        help="Path to GCSA index")
+    
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--id_ranges", type=str, default=None,
         help="Path to file with node id ranges for each chromosome in BED format.")
     parser.add_argument("--kmer_size", type=int,
         help="size of kmers to use in gcsa-kmer mapping mode")
+        
+    parser.add_argument("--mapper", default="map", choices=["map", "mpmap", "gaffe"],
+                    help="vg mapper to use")
+                    
+    parser.add_argument("--xg_index", type=make_url,
+                        help="Path to xg index")    
+    parser.add_argument("--gcsa_index", type=make_url,
+                        help="Path to GCSA index (for map and mpmap)")
+    parser.add_argument("--minimizer_index", type=make_url,
+                        help="Path to minimizer index (for gaffe)")
+    parser.add_argument("--distance_index", type=make_url,
+                        help="Path to distance index (for gaffe)")
+    parser.add_argument("--gbwt_index", type=make_url,
+                        help="Path to GBWT haplotype index")
+    parser.add_argument("--snarls_index", type=make_url,
+                        help="Path to snarls file")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
-    # Add mapping options
+    # Add mapping options shared with mapeval
     map_parse_args(parser)
 
     # Add common docker options
@@ -60,11 +73,10 @@ def map_subparser(parser):
 
 
 def map_parse_args(parser, stand_alone = False):
-    """ centralize indexing parameters here """
-    parser.add_argument("--gbwt_index", type=make_url,
-                        help="Path to GBWT haplotype index")
-    parser.add_argument("--snarls_index", type=make_url,
-                        help="Path to snarls file")
+    """
+    Define map arguments shared with mapeval
+    """
+    
     parser.add_argument("--fastq", nargs='+', type=make_url,
                         help="Input fastq (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--fq_split_cores", type=int,
@@ -80,13 +92,13 @@ def map_parse_args(parser, stand_alone = False):
     parser.add_argument("--alignment_cores", type=int,
                         help="number of threads during the alignment step")
     parser.add_argument("--interleaved", action="store_true", default=False,
-                        help="treat fastq as interleaved read pairs.  overrides map-args")
+                        help="treat fastq as interleaved read pairs. overrides *_opts")
     parser.add_argument("--map_opts", type=str,
                         help="arguments for vg map (wrapped in \"\")")
-    parser.add_argument("--multipath", action="store_true",
-                        help="use vg mpmap instead of vg map")
     parser.add_argument("--mpmap_opts", type=str,
                         help="arguments for vg mpmap (wrapped in \"\")")
+    parser.add_argument("--gaffe_opts", type=str,
+                        help="arguments for vg gaffe (wrapped in \"\")")
     parser.add_argument("--bam_output", action="store_true",
                         help="write BAM output directly")
     parser.add_argument("--surject", action="store_true",
@@ -97,20 +109,33 @@ def map_parse_args(parser, stand_alone = False):
 def validate_map_options(context, options):
     """
     Throw an error if an invalid combination of options has been selected.
-    """                               
+    """
+    require(options.xg_index is not None, 'All mappers require --xg_index')
+    
+    if options.mapper == 'map' or options.mapper == 'mpmap':
+        require(options.gbwt_index, '--gbwt_index is required for map and mpmap')
+    
+    if options.mapper == 'gaffe':
+        require(options.minimizer_index, '--minimizer_index is required for gaffe')
+        require(options.distance_index, '--distance_index is required for gaffe')
+        require(options.gbwt_index, '--gbwt_index is required for gaffe')
+        require(not options.bam_input_reads, '--bam_input_reads is not supported with gaffe')
+        require(not options.interleaved, '--interleaved is not supported with gaffe')
+        require(options.fastq is None or len(options.fastq) < 2, 'Multiple --fastq files are not supported with gaffe')
+    
     require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
     require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
             '--interleaved cannot be used when > 1 fastq given')
     require(sum(map(lambda x : 1 if x else 0, [options.fastq, options.gam_input_reads, options.bam_input_reads])) == 1,
             'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
-    require(options.multipath or options.snarls_index is None,
-            'snarls cannot be used with the single-path mapper') 
-    if options.multipath:
+    require(options.mapper == 'mpmap' or options.snarls_index is None,
+            '--snarls_index can only be used with --mapper mpmap') 
+    if options.mapper == 'mpmap':
         require('-S' in context.config.mpmap_opts or '--single-path-mode' in context.config.mpmap_opts,
-                '-S must be used with multipath aligner to produce GAM output')
+                '-S must be used with mpmap mapper to produce GAM output')
         require(not options.bam_output,
-                '--bam_output not currently supported with multipath aligner (--multipath)')
+                '--bam_output not currently supported with mpmap mapper')
     require (not options.bam_output or not options.surject,
              '--bam_output cannot be used in combination with --surject')
     require (not options.id_ranges or not options.surject,
@@ -139,7 +164,7 @@ def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_re
     return reads_chunk_ids
     
 
-def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
+def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                 indexes, reads_file_ids=None, reads_chunk_ids=None,
                 bam_output=False, surject=False, 
                 gbwt_penalty=None, validate=False):
@@ -156,8 +181,13 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
     IDs for each read file, as produced by run_split_reads_if_needed.
     
     indexes is a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges',
-    'gbwt', 'snarls') to index file ID. Some indexes are extra and specifying
-    them will change mapping behavior.
+    'gbwt', 'minimizer', 'distance', 'snarls') to index file ID. Some indexes
+    are extra and specifying them will change mapping behavior. Some indexes
+    are required for certain values of mapper.
+    
+    mapper can be 'map', 'mpmap', or 'gaffe'. For 'map' and 'mpmap', the 'gcsa'
+    and 'lcp' indexes are required. For 'gaffe', the 'gbwt', 'minimizer' and
+    'distance' indexes are required. All the mappers require the 'xg' index.
     
     If bam_output is set, produce BAMs. If surject is set, surject reads down
     to paths. 
@@ -188,7 +218,7 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
         
     # We need a job to do the alignment
     align_job = Job.wrapJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                              interleaved, multipath, indexes, reads_chunk_ids,
+                              interleaved, mapper, indexes, reads_chunk_ids,
                               bam_output=bam_output, surject=surject,
                               gbwt_penalty=gbwt_penalty,
                               validate=validate,
@@ -361,15 +391,14 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
     return bam_chunk_ids
 
     
-def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
+def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                         indexes, reads_chunk_ids,
                         bam_output=False, surject=False, gbwt_penalty=None, validate=False):
     """
     align all fastq chunks in parallel
     
-    Takes a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges', 'gbwt',
-    'snarls') to index file ID. Some indexes are extra and specifying them will
-    change mapping behavior.
+    Takes a dict from index type to index file ID. Some indexes are extra and
+    specifying them will change mapping behavior.
     
     Returns a list of per-contig GAMs, the total allignment runtime, and a list
     of per-contig BAM file IDs (which is only nonempty when surject is true).
@@ -392,7 +421,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
         #Run graph alignment on each fastq chunk
         chunk_alignment_job = child_job.addChildJobFn(run_chunk_alignment, context, gam_input_reads, bam_input_reads,
                                                       sample_name,
-                                                      interleaved, multipath, chunk_filename_ids, chunk_id,
+                                                      interleaved, mapper, chunk_filename_ids, chunk_id,
                                                       indexes,
                                                       bam_output=bam_output,
                                                       gbwt_penalty=gbwt_penalty,
@@ -437,21 +466,19 @@ def run_zip_surject_input(job, context, gam_chunk_file_ids):
     return zip(*gam_chunk_file_ids)
 
 
-def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, multipath,
+def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                         chunk_filename_ids, chunk_id, indexes,
                         bam_output=False, gbwt_penalty=None, always_check_population=True, validate=False):
                         
     """
     Align a chunk of reads.
     
-    Takes a dict from index type ('xg', 'gcsa', 'lcp', 'id_ranges', 'gbwt',
-    'snarls') to index file ID. Some indexes are extra and specifying them will
-    change mapping behavior.
+    Takes a dict from index type to index file ID. Some indexes are extra and
+    specifying them will change mapping behavior.
     """
                         
 
-    RealtimeLogger.info("Starting {}alignment on {} chunk {}".format(
-        "multipath " if multipath else "", sample_name, chunk_id))
+    RealtimeLogger.info("Starting {} alignment on {} chunk {}".format(mapper, sample_name, chunk_id))
 
     # How long did the alignment take to run, in seconds?
     run_time = None
@@ -462,19 +489,35 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     # Download local input files from the remote storage container
     graph_file = os.path.join(work_dir, "graph.vg")
 
-    xg_file = graph_file + ".xg"
-    job.fileStore.readGlobalFile(indexes['xg'], xg_file)
-    gcsa_file = graph_file + ".gcsa"
-    job.fileStore.readGlobalFile(indexes['gcsa'], gcsa_file)
-    lcp_file = gcsa_file + ".lcp"
-    job.fileStore.readGlobalFile(indexes['lcp'], lcp_file)
-    
-    if indexes.has_key('gbwt'):
-        # We have a GBWT haplotype index available.
-        gbwt_file =  graph_file + ".gbwt"
-        job.fileStore.readGlobalFile(indexes['gbwt'], gbwt_file)
-    else:
-        gbwt_file = None
+    # Work out what index files we need
+    index_files = {}
+    index_files['xg'] = graph_file + ".xg"
+    if mapper == 'map' or mapper == 'mpmap':
+        index_files['gcsa'] = graph_file + ".gcsa"
+        index_files['lcp'] = index_files['gcsa'] + ".lcp"
+        
+        if indexes.has_key('gbwt'):
+            # We have a GBWT haplotype index available.
+            index_files['gbwt'] = graph_file + ".gbwt"
+            
+    if mapper == 'mpmap':
+        if indexes.has_key('snarls'):
+            # mpmap knows how to use the snarls, and we have them, so we should use them
+            
+            # Note that passing them will affect mapping, if using multiple
+            # tracebacks. Since we only run single path mode, if multiple
+            # tracebacks aren't used, mpmap will ignore the snarls.
+            index_files['snarls'] = graph_file + ".snarls"
+        
+    if mapper == 'gaffe':
+        index_files['minimizer'] = graph_file + ".min"
+        index_files['distance'] = graph_file + ".dist"
+        index_files['gbwt'] = graph_file + ".gbwt"
+     
+        
+    for index_type in index_files.keys():
+        # Download each index file
+        job.fileStore.readGlobalFile(indexes[index_type], index_files[index_type])
     
     # We need the sample reads (fastq(s) or gam) for alignment
     reads_files = []
@@ -495,32 +538,20 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         # Plan out what to run
         vg_parts = []
         
-        # toggle multipath here
-        if multipath:
+        if mapper == 'mpmap':
             vg_parts += ['vg', 'mpmap']
             vg_parts += context.config.mpmap_opts
             if '-S' not in vg_parts and '--single-path-mode' not in vg_parts:
                 RealtimeLogger.warning('Adding --single-path-mode to mpmap options as only GAM output supported')
                 vg_parts += ['--single-path-mode']
-                
-            if indexes.has_key('snarls'):
-                # mpmap knows how to use the snarls, and we have them, so we should use them
-                
-                # Note that passing them will affect mapping, if using multiple
-                # tracebacks. Since we only run single path mode, if multiple
-                # tracebacks aren't used, mpmap will ignore the snarls.
-                
-                snarls_file = graph_file + ".snarls"
-                job.fileStore.readGlobalFile(indexes['snarls'], snarls_file)
-                
-                vg_parts += ['--snarls', os.path.basename(snarls_file)]
-            else:
-                snarls_file = None
-                
-        else:
+        elif mapper == 'map':
             vg_parts += ['vg', 'map'] 
             vg_parts += context.config.map_opts
-            snarls_file = None
+        elif mapper == 'gaffe':
+            vg_parts += ['vg', 'gaffe'] 
+            vg_parts += context.config.gaffe_opts
+        else:
+            raise RuntimeError('Unimplemented mapper "{}"'.format(mapper))
             
         for reads_file in reads_files:
             input_flag = '-G' if gam_input_reads else '-b' if bam_input_reads else '-f'
@@ -543,12 +574,22 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             del vg_parts[sidx]
             del vg_parts[sidx]
 
-        vg_parts += ['-x', os.path.basename(xg_file), '-g', os.path.basename(gcsa_file)]
-        if gbwt_file is not None:
-            # We have a GBWT haplotype index to use. Both map and mpmap take this long option.
-            vg_parts += ['--gbwt-name', os.path.basename(gbwt_file)]
-            
-            # Also we may have a GBWT recombination rate/penalty override
+        # Turn indexes into options
+        type_to_option = {
+            'gbwt': '--gbwt-name',
+            'xg': '-x',
+            'gcsa': '-g',
+            'lcp': None,
+            'distance': '-d',
+            'minimizer': '-m',
+            'snarls': '--snarls'
+        }
+        for index_type, index_file in index_files.items():
+            if type_to_option[index_type] is not None:
+                vg_parts += [type_to_option[index_type], os.path.basename(index_file)]
+
+        if index_files.has_key('gbwt'):
+            # We may have a GBWT recombination rate/penalty override
             if gbwt_penalty is not None:
                 # We have a recombination penalty value to apply
                 if '--recombination-penalty' in vg_parts:
@@ -560,7 +601,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
                 # Both map and mpmap take this option
                 vg_parts += ['--recombination-penalty', str(gbwt_penalty)]
                 
-            if multipath and always_check_population:
+            if mapper == 'mpmap' and always_check_population:
                 # Always try to population-score even unambiguous reads
                 # mpmap can do this
                 vg_parts += ['--always-check-population']
@@ -577,22 +618,16 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             end_time = timeit.default_timer()
             if validate:
                 alignment_file.flush()
-                context.runner.call(job, ['vg', 'validate', '--xg', os.path.basename(xg_file),
+                context.runner.call(job, ['vg', 'validate', '--xg', os.path.basename(index_files['xg']),
                                           '--gam', os.path.basename(output_file)], work_dir = work_dir)
         except:
             # Dump everything we need to replicate the alignment
             end_time = timeit.default_timer()
             logging.error("Mapping failed. Dumping files.")
-            context.write_output_file(job, xg_file)
-            context.write_output_file(job, gcsa_file)
-            context.write_output_file(job, gcsa_file + '.lcp')
-            if gbwt_file is not None:
-                context.write_output_file(job, gbwt_file)
-            if snarls_file is not None:
-                context.write_output_file(job, snarls_file)
+            for index_file in index_files.values():
+                context.write_output_file(job, index_file)
             for reads_file in reads_files:
                 context.write_output_file(job, reads_file)
-            
             raise
         
         # Mark when it's done
@@ -600,8 +635,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
 
     paired_end = '-i' in vg_parts or '--interleaved' in vg_parts or len(chunk_filename_ids) > 1
     RealtimeLogger.info("Aligned {}. Process took {} seconds with {} vg-{}".format(
-        output_file, run_time, 'paired-end' if paired_end else 'single-end',
-        'mpmap' if multipath else 'map'))
+        output_file, run_time, 'paired-end' if paired_end else 'single-end', mapper))
 
     if indexes.has_key('id_ranges'):
         # Break GAM into multiple chunks at the end. So we need the file
@@ -700,6 +734,7 @@ def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_
 
     for i, chr in enumerate(chroms):
         shard_ids = [gam_chunk_file_ids[j][i] for j in range(len(gam_chunk_file_ids))]
+        assert(len(shard_ids) >= 1)
         chr_gam_id = job.addChildJobFn(run_merge_chrom_gam, context, sample_name, chr, shard_ids,
                                        cores=context.config.fq_split_cores,
                                        memory=context.config.fq_split_mem,
@@ -725,6 +760,8 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
     work_dir = job.fileStore.getLocalTempDir()
     
     output_file = os.path.join(work_dir, '{}_{}.gam'.format(sample_name, chr_name))
+
+    assert(len(chunk_file_ids) >= 1)
 
     if len(chunk_file_ids) > 1:
         # Would be nice to be able to do this merge with fewer copies.. 
@@ -762,11 +799,17 @@ def map_main(context, options):
             indexes = {}
            
             # Upload each index we have
-            indexes['xg'] = importer.load(options.xg_index)
-            indexes['gcsa'] = importer.load(options.gcsa_index)
-            indexes['lcp'] = importer.load(options.gcsa_index + ".lcp")
+            if options.xg_index is not None:
+                indexes['xg'] = importer.load(options.xg_index)
+            if options.gcsa_index is not None:
+                indexes['gcsa'] = importer.load(options.gcsa_index)
+                indexes['lcp'] = importer.load(options.gcsa_index + ".lcp")
             if options.gbwt_index is not None:
                 indexes['gbwt'] = importer.load(options.gbwt_index)
+            if options.distance_index is not None:
+                indexes['distance'] = importer.load(options.distance_index)
+            if options.minimizer_index is not None:
+                indexes['minimizer'] = importer.load(options.minimizer_index)
             if options.snarls_index is not None:
                 indexes['snarls'] = importer.load(options.snarls_index)
             if options.id_ranges is not None:
@@ -789,7 +832,7 @@ def map_main(context, options):
             root_job = Job.wrapJobFn(run_mapping, context, options.fastq,
                                      options.gam_input_reads, options.bam_input_reads,
                                      options.sample_name,
-                                     options.interleaved, options.multipath, importer.resolve(indexes),
+                                     options.interleaved, options.mapper, importer.resolve(indexes),
                                      reads_file_ids=importer.resolve(inputReadsFileIDs),
                                      bam_output=options.bam_output, surject=options.surject,
                                      validate=options.validate,

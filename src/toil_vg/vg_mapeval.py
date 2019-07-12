@@ -80,7 +80,7 @@ def add_mapeval_options(parser):
                         'Provide a comma-separated pair to use the first index for alignment and'
                         ' the second (.xg only) for annotation in the comparison')
     parser.add_argument('--use-gbwt', action='store_true',
-                        help='also import <index-base>.gbwt and use it during alignment')
+                        help='Use the GBWT during alignment with map or mpmap, if available')
     parser.add_argument('--gbwt-penalties', nargs='+', type=float, default=[],
                         help='when using the GBWT, try all of the given recombination penalties instead of the default')
     parser.add_argument('--strip-gbwt', action='store_true',
@@ -134,10 +134,16 @@ def add_mapeval_options(parser):
 
     parser.add_argument('--ignore-quals', action='store_true',
                         help='never use quality adjusted alignment. ' 
-                        'necessary if using --multipath on reads not from trained simulator')
-
-    parser.add_argument('--multipath-only', action='store_true',
-                        help='run only mpmap and not map (--multipath will run both and using neither will just run map)')
+                        'necessary if using mpmap on reads not from trained simulator')
+    
+    parser.add_argument('--mappers', nargs='+', default=['map'], choices=['map', 'mpmap', 'gaffe'],
+                        help='run the specified mappers, from "map", "mpmap", and "gaffe"')
+                        
+    parser.add_argument('--multipath', action='store_const', dest='mappers', const=['map', 'mpmap'],
+                        help='run mpmap and map')
+                        
+    parser.add_argument('--multipath-only', action='store_const', dest='mappers', const=['mpmap'],
+                        help='run only mpmap')
 
     parser.add_argument('--more-mpmap-opts', nargs='+', default=[],
                         help='additional batches of mpmap options to try')
@@ -227,19 +233,12 @@ def validate_options(options):
     require(options.gams or options.index_bases or options.vg_graphs,
             'one of --vg-graphs, --index-bases or --gams must be used to specifiy vg input')
 
-    if options.use_gbwt:
-        require(not options.gams,
-                '--use-gbwt cannot be used with pre-aligned GAMs in --gams')
-                
-    require(not options.gbwt_penalties or options.use_gbwt,
-            '--gbwt-penalties requires --use-gbwt')
-            
     require(not options.gbwt_penalties or len(set(options.gbwt_penalties)) == len(options.gbwt_penalties),
             '--gbwt-penalties valuses must be unique')
                 
     if options.use_snarls:
-        require(options.multipath or options.multipath_only,
-                '--use-snarls only affects the multipath mapper (--multipath or --multipath-only)')
+        require('mpmap' in options.mappers,
+                '--use-snarls only affects the mpmap mapper')
                 
     if options.strip_snarls:
         require(options.use_snarls,
@@ -255,13 +254,13 @@ def validate_options(options):
     # must have a name for each graph/index/gam
     if options.gams:
         require(options.gam_names and len(options.gams) == len(options.gam_names),
-                 '--gams and --gam_names must have same number of inputs')
+                 '--gams and --gam-names must have same number of inputs')
     if options.vg_graphs:
         require(options.gam_names and len(options.vg_graphs) == len(options.gam_names),
-                 '--vg-graphs and --gam_names must have same number of inputs')
+                 '--vg-graphs and --gam-names must have same number of inputs')
     if options.index_bases:
         require(options.gam_names and len(options.index_bases) == len(options.gam_names),
-                 '--index-bases and --gam_names must have same number of inputs')
+                 '--index-bases and --gam-names must have same number of inputs')
                  
     # Make sure names are unique so we can use them as dict keys and file names
     names = []
@@ -1034,7 +1033,8 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
         
     return out_file_id
 
-def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, id_range_file_ids, snarl_file_ids, vg_file_ids):
+def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, minimizer_file_ids,
+    distance_file_ids, id_range_file_ids, snarl_file_ids, vg_file_ids):
     """ 
     Index the given vg files.
     
@@ -1070,6 +1070,10 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
                 indexes['gcsa'], indexes['lcp'] = gcsa_file_ids[i]
             if gbwt_file_ids and gbwt_file_ids[i] is not None:
                 indexes['gbwt'] = gbwt_file_ids[i]
+            if minimizer_file_ids and minimizer_file_ids[i] is not None:
+                indexes['minimizer'] = minimizer_file_ids[i]
+            if distance_file_ids and distance_file_ids[i] is not None:
+                indexes['distance'] = distance_file_ids[i]
             if id_range_file_ids and id_range_file_ids[i] is not None:
                 indexes['id_ranges'] = id_range_file_ids[i]
             if snarl_file_ids and snarl_file_ids[i] is not None:
@@ -1110,7 +1114,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     
     "aligner": ["vg", "bwa", "minimap2"]
     
-    "multipath": [True, False]
+    "mapper": ["map", "mpmap", "gaffe"]
     
     "paired": [True, False]
     
@@ -1186,14 +1190,14 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 extended.update({"aligner": aligner})
                 yield extended
     
-    # This one expands vg conditions by whether to use mpmap or not
-    def multipath_conditions(conditions_in):
+    # This one expands vg conditions by chich vg mapper to use
+    def mapper_conditions(conditions_in):
         for condition in conditions_in:
             if condition["aligner"] == "vg":
-                # Only vg conditions get expanded by multipath or not
-                for multipath in matrix["multipath"]:
+                # Only vg conditions get expanded by mapper or not
+                for mapper in matrix["mapper"]:
                     extended = dict(condition)
-                    extended.update({"multipath": multipath})
+                    extended.update({"mapper": mapper})
                     yield extended
             else:
                 yield condition
@@ -1203,7 +1207,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # TODO: Make this come through the matrix and not a separate list
     def multipath_opts_conditions(conditions_in):
         for condition in conditions_in:
-            if condition["aligner"] == "vg" and condition["multipath"] == True:
+            if condition["aligner"] == "vg" and condition["mapper"] == "mpmap":
                 # Only vg mpmap conditions get expanded by option set
                 for opt_num in range(len(mpmap_opts_list)):
                     extended = dict(condition)
@@ -1220,6 +1224,9 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 if condition["aligner"] == "minimap2" and not paired:
                     # Don't run minimap2 in unpaired mode; it will pair up all pairable inputs
                     continue
+                if condition["aligner"] == "vg" and condition["mapper"] == "gaffe" and paired:
+                    # Don't run gaffe in paired mode; it doesn't support it yet
+                    continue
                 extended = dict(condition)
                 extended.update({"paired": paired})
                 yield extended
@@ -1228,7 +1235,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # haplotype-aware mapping or not
     def gbwt_conditions(conditions_in):
         for condition in conditions_in:
-            if condition["aligner"] == "vg":
+            if condition["aligner"] == "vg" and condition["mapper"] in ["map", "mpmap"]:
                 # Both vg map and vg mpmap conditions get expanded by gbwt or not
                 for gbwt in matrix["gbwt"]:
                     extended = dict(condition)
@@ -1240,7 +1247,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # This one expands vg conditions by whether to use the snarls file for mpmap
     def snarls_conditions(conditions_in):
         for condition in conditions_in:
-            if condition["aligner"] == "vg" and condition["multipath"] == True:
+            if condition["aligner"] == "vg" and condition["mapper"] == "mpmap":
                 # Only mpmap conditions can be no-snarls
                 for use_snarls in matrix["snarls"]:
                     extended = dict(condition)
@@ -1260,7 +1267,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     # generator function above and put it at the end of this list.
     condition_steps = [
         aligner_conditions,
-        multipath_conditions,
+        mapper_conditions,
         multipath_opts_conditions,
         paired_conditions,
         gbwt_conditions,
@@ -1325,8 +1332,12 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             # It comes out something like "-mp-pe".
             tag_string = ""
            
-            if condition["gbwt"]:
+            if condition.get("gbwt", False):
                 # Mark as gbwt first if applicable
+                
+                # For conditions where GBWT is unset, it is required to be
+                # available, so don't tag the condition since there's nothing
+                # to distinguish it from.
                 
                 if condition["gbwt"] == True:
                     # We just use the default value (no number)
@@ -1336,7 +1347,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                     tag_string += "-gbwt{}".format(condition["gbwt"])
                     
            
-            if condition["multipath"]:
+            if condition["mapper"] == "mpmap":
                 # Doing multipath mapping
                 
                 if not condition["snarls"] and True in matrix["snarls"]:
@@ -1351,6 +1362,11 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 mapping_context = copy.deepcopy(context)
                 mapping_context.config.mpmap_opts = mpmap_opts_list[condition["opt_num"]]
             else:
+            
+                if condition["mapper"] == "gaffe":
+                    # Mark gaffe conditions
+                    tag_string += "-gaffe"
+            
                 # Just use the normal context we have
                 mapping_context = context
             
@@ -1385,7 +1401,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 
             # If we have a GBWT penalty override, what is it?
             gbwt_penalty = None
-            if condition["gbwt"] and condition["gbwt"] != True:
+            if condition.get("gbwt") and condition["gbwt"] != True:
                 gbwt_penalty = condition["gbwt"]
                 
             # We collect all the map jobs in a list for each index, so we can update all our output lists for them
@@ -1394,12 +1410,13 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             for i, indexes in enumerate(index_ids):
                 # Map or mpmap, paired or not as appropriate, against each index set.
                 
-                if condition["gbwt"] and indexes.get("gbwt") is None:
+                if condition.get("gbwt") and indexes.get("gbwt") is None:
                     # Don't run the GBWT condition when no GBWT file exists for an index set
                     continue
                 
-                if not condition["gbwt"]:
-                    # Drop the GBWT index if present for the non-GBWT conditions
+                if not condition.get("gbwt", True) and condition.get("mapper") in ["map", "mpmap"]:
+                    # Drop the GBWT index if present for the non-GBWT conditions for mappers that don't need it.
+                    # If gbwt isn't in the condition dict, the GBWT is treated as required and preserved.
                     indexes = dict(indexes)
                     if indexes.has_key("gbwt"):
                         del indexes["gbwt"]
@@ -1426,7 +1443,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 # After the reads we need are split into chunks, map them.
                 map_jobs.append(read_chunk_job.addFollowOnJobFn(run_mapping, mapping_context, fq_names(fastq_ids),
                                                                 None, None, 'aligned-{}{}'.format(gam_names[i], tag_string),
-                                                                interleaved, condition["multipath"], indexes,
+                                                                interleaved, condition["mapper"], indexes,
                                                                 reads_chunk_ids=read_chunk_job.rv(),
                                                                 bam_output=False, surject=surject,
                                                                 gbwt_penalty=gbwt_penalty,
@@ -2336,7 +2353,7 @@ def run_portion_worse(job, context, name, compare_id):
     return total, portion
 
 def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file_ids, gbwt_file_ids,
-                id_range_file_ids, snarl_file_ids,
+                minimizer_file_ids, distance_file_ids, id_range_file_ids, snarl_file_ids,
                 vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
                 reads_fastq_file_ids,
                 fasta_file_id, bwa_index_ids, minimap2_index_id, bam_file_ids,
@@ -2369,6 +2386,8 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                                   xg_file_ids,
                                   gcsa_file_ids,
                                   gbwt_file_ids,
+                                  minimizer_file_ids,
+                                  distance_file_ids,
                                   id_range_file_ids,
                                   snarl_file_ids,
                                   vg_file_ids,
@@ -2429,18 +2448,11 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
     matrix = {
         "aligner": ["vg"],
         "paired": [],
-        "multipath": [],
+        "mapper": options.mappers,
         "gbwt": [],
         "snarls": [],
     }
     
-    if not options.multipath_only:
-        # Allow the single-path vg map aligner
-        matrix["multipath"].append(False)
-    if options.multipath or options.multipath_only:
-        # Run the multipath vg mpmap aligner
-        matrix["multipath"].append(True)
-        
     if not options.paired_only:
         # Allow unpaired read mapping
         matrix["paired"].append(False)
@@ -2448,7 +2460,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
         # Allow paired read mapping
         matrix["paired"].append(True)
         
-    if gbwt_file_ids:
+    if gbwt_file_ids and options.use_gbwt:
         # We have GBWTs to use
         for gbwt_penalty in options.gbwt_penalties:
             # We have explicit penalties
@@ -2457,8 +2469,8 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
             # We have no explicit penalties; use the default
             matrix["gbwt"].append(True)
         
-    if (not gbwt_file_ids) or options.strip_gbwt:
-        # We have no GBWTs or we want to run without them too
+    if (not gbwt_file_ids) or options.strip_gbwt or not options.use_gbwt:
+        # We have no GBWTs or we want to run without them (maybe in addition to with them)
         matrix["gbwt"].append(False)
     
     if snarl_file_ids:  
@@ -2954,6 +2966,8 @@ def make_mapeval_plan(toil, options):
     plan.xg_comparison_ids = [] # optional override xg_file_ids for comparison
     plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
     plan.gbwt_file_ids = []
+    plan.minimizer_file_ids = []
+    plan.distance_file_ids = []
     plan.id_range_file_ids = []
     plan.snarl_file_ids = []
     imported_xgs = {}
@@ -2969,20 +2983,29 @@ def make_mapeval_plan(toil, options):
                 imported_xgs[cib + '.xg'] = importer.load(cib + '.xg')
             plan.xg_comparison_ids.append(imported_xgs[cib + '.xg'])
             if not options.gams:
-                plan.gcsa_file_ids.append(
-                    (importer.load(ib + '.gcsa'),
-                    importer.load(ib + '.gcsa.lcp')))
+            
+                if 'map' in options.mappers or 'mpmap' in options.mappers:
+                    # We need the GCSA and LCP
+                    plan.gcsa_file_ids.append(
+                        (importer.load(ib + '.gcsa'),
+                        importer.load(ib + '.gcsa.lcp')))
                     
-                if options.use_gbwt:
-                    try:
-                        # If the file exists/imports successfully, we use it
-                        plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
-                    except:
-                        # If it doesn't exist, it won't import. And we want to
-                        # tolerate absent GBWT indexes for some graphs (like
-                        # primary) where haplotype data is unavailable
+                try:
+                    # If the file exists/imports successfully, we import it
+                    plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
+                except:
+                    if 'gaffe' not in options.mappers:
+                        # We don't absolutely need it
                         plan.gbwt_file_ids.append(None)
+                    else:
+                        # We do need the GBWT to run
+                        raise
                         
+                if 'gaffe' in options.mappers:
+                    # We need the minimizer index
+                    plan.minimizer_file_ids.append(importer.load(ib + '.min'))
+                    # We need the distance index
+                    plan.distance_file_ids.append(importer.load(ib + '.dist'))
                     
                 if options.use_snarls:
                     try:
@@ -2994,8 +3017,8 @@ def make_mapeval_plan(toil, options):
                         # the sample graph positive control) where they aren't
                         # available.
                         plan.snarl_file_ids.append(None)
-                    
-                    
+                        
+                
                 # multiple gam outputs not currently supported by evaluation pipeline
                 #if os.path.isfile(os.path.join(ib, '_id_ranges.tsv')):
                 #    id_range_file_ids.append(
@@ -3098,6 +3121,8 @@ def mapeval_main(context, options):
                                      plan.xg_comparison_ids,
                                      plan.gcsa_file_ids,
                                      plan.gbwt_file_ids,
+                                     plan.minimizer_file_ids,
+                                     plan.distance_file_ids,
                                      plan.id_range_file_ids,
                                      plan.snarl_file_ids,
                                      plan.vg_file_ids, 
