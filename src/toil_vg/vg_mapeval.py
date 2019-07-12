@@ -250,6 +250,8 @@ def validate_options(options):
     if options.vg_graphs:
         require(not options.gams and not options.index_bases,
                 'if --vg-graphs specified, --gams and --index-bases must not be used')
+        require('gaffe' not in options.mappers,
+                '--vg-graphs cannot be used with gaffe because gaffe needs a GBWT')
 
     # must have a name for each graph/index/gam
     if options.gams:
