@@ -37,18 +37,32 @@ def map_subparser(parser):
     # General options
     
     parser.add_argument("sample_name", type=str,
-        help="sample name (ex NA12878)")
+                        help="sample name (ex NA12878)")
     
     parser.add_argument("out_store",
-        help="output store.  All output written here. Path specified using same syntax as toil jobStore")
-    parser.add_argument("--id_ranges", type=str, default=None,
-        help="Path to file with node id ranges for each chromosome in BED format.")
+                        help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--kmer_size", type=int,
-        help="size of kmers to use in gcsa-kmer mapping mode")
+                        help="size of kmers to use in gcsa-kmer mapping mode")
+    parser.add_argument("--id_ranges", type=make_url, default=None,
+                        help="Path to file with node id ranges for each chromosome in BED format.")
         
-    parser.add_argument("--mapper", default="map", choices=["map", "mpmap", "gaffe"],
-                    help="vg mapper to use")
-                    
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
+
+    # Add mapping options shared with mapeval and run
+    map_parse_args(parser)
+
+    # Add mapping options shared onyl with run
+    map_parse_index_args(parser)
+
+    # Add common docker options
+    add_container_tool_parse_args(parser)
+    
+def map_parse_index_args(parser):
+    """
+    Define map arguments shared with run but not mapeval
+    """
+    
     parser.add_argument("--xg_index", type=make_url,
                         help="Path to xg index")    
     parser.add_argument("--gcsa_index", type=make_url,
@@ -61,20 +75,13 @@ def map_subparser(parser):
                         help="Path to GBWT haplotype index")
     parser.add_argument("--snarls_index", type=make_url,
                         help="Path to snarls file")
-
-    # Add common options shared with everybody
-    add_common_vg_parse_args(parser)
-
-    # Add mapping options shared with mapeval
-    map_parse_args(parser)
-
-    # Add common docker options
-    add_container_tool_parse_args(parser)
-
+                        
+    parser.add_argument("--mapper", default="map", choices=["map", "mpmap", "gaffe"],
+                        help="vg mapper to use")
 
 def map_parse_args(parser, stand_alone = False):
     """
-    Define map arguments shared with mapeval
+    Define map arguments shared with mapeval and run
     """
     
     parser.add_argument("--fastq", nargs='+', type=make_url,
@@ -113,7 +120,7 @@ def validate_map_options(context, options):
     require(options.xg_index is not None, 'All mappers require --xg_index')
     
     if options.mapper == 'map' or options.mapper == 'mpmap':
-        require(options.gbwt_index, '--gbwt_index is required for map and mpmap')
+        require(options.gcsa_index, '--gcsa_index is required for map and mpmap')
     
     if options.mapper == 'gaffe':
         require(options.minimizer_index, '--minimizer_index is required for gaffe')

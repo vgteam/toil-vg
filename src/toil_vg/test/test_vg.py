@@ -127,9 +127,9 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'sample',
-                   os.path.join(self.local_outstore, 'small.xg'),
-                   os.path.join(self.local_outstore, 'small.gcsa'),
                    self.local_outstore,
+                   '--xg_index', os.path.join(self.local_outstore, 'small.xg'),
+                   '--gcsa_index', os.path.join(self.local_outstore, 'small.gcsa'),
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--fastq', self.sample_reads,
@@ -247,9 +247,9 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'sample',
-                   os.path.join(self.local_outstore, 'small.xg'),
-                   os.path.join(self.local_outstore, 'small.gcsa'),
                    self.local_outstore,
+                   '--xg_index', os.path.join(self.local_outstore, 'small.xg'),
+                   '--gcsa_index', os.path.join(self.local_outstore, 'small.gcsa'),
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
@@ -781,9 +781,9 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'HG00514',
-                   os.path.join(self.local_outstore, 'HGSVC.xg'),
-                   os.path.join(self.local_outstore, 'HGSVC.gcsa'),
                    self.local_outstore,
+                   '--xg_index', os.path.join(self.local_outstore, 'HGSVC.xg'),
+                   '--gcsa_index', os.path.join(self.local_outstore, 'HGSVC.gcsa'),
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--gam_input_reads', gam_reads_path,
@@ -868,9 +868,9 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'map', self.jobStoreLocal, 'HG00514',
-                   os.path.join(self.local_outstore, 'HGSVC.xg'),
-                   os.path.join(self.local_outstore, 'HGSVC.gcsa'),
                    self.local_outstore,
+                   '--xg_index', os.path.join(self.local_outstore, 'HGSVC.xg'),
+                   '--gcsa_index', os.path.join(self.local_outstore, 'HGSVC.gcsa'),
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--gam_input_reads', gam_reads_path,
