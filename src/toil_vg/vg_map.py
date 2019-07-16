@@ -651,7 +651,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         job.fileStore.readGlobalFile(indexes['id_ranges'], id_ranges_file)
 
         # Chunk the gam up by chromosome
-        gam_chunks = split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, output_file)
+        gam_chunks = split_gam_into_chroms(job, work_dir, context, index_files['xg'], id_ranges_file, output_file)
 
         # Write gam_chunks to store
         gam_chunk_ids = []
