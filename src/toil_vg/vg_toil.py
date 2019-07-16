@@ -136,10 +136,6 @@ def pipeline_subparser(parser_run):
         help="sample name (ex NA12878)")
     parser_run.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
-    parser_run.add_argument("--xg_index", type=make_url,
-        help="Path to xg index (to use instead of generating new one)")    
-    parser_run.add_argument("--gcsa_index", type=make_url,
-        help="Path to GCSA index (to use instead of generating new one)")
 
     parser_run.add_argument("--graphs", nargs='+', type=make_url,
                         help="input graph(s). one per chromosome (separated by space)")
@@ -157,6 +153,7 @@ def pipeline_subparser(parser_run):
 
     # add common mapping options shared with vg_map
     map_parse_args(parser_run)
+    map_parse_index_args(parser_run)
     
     # Add common calling options shared with vg_call
     chunked_call_parse_args(parser_run)
@@ -185,6 +182,10 @@ def validate_pipeline_options(options):
             '--interleaved cannot be used when > 1 fastq given')
     require(sum(map(lambda x : 1 if x else 0, [options.fastq, options.gam_input_reads, options.bam_input_reads])) == 1,
             'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
+            
+    # TODO: to support gaffe here we need to add code to load its indexes from
+    # the options and thread them through our indexing stage.
+    require(options.mapper != 'gaffe', 'gaffe mapper is not yet supported by toil-vg run')
 
     
 # Below are the top level jobs of the toil_vg pipeline.  They
@@ -209,9 +210,13 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     """
     
     # get the parameters we need for run_indexing
-    skip_xg = inputXGFileID is not None
-    skip_gcsa = inputGCSAFileID is not None
-    skip_ranges = inputIDRangesFileID is not None
+    wanted = set()
+    if inputXGFileID is None:
+        wanted.add('xg')
+    if inputGCSAFileID is None:
+        wanted.add('gcsa')
+    if inputIDRangesFileID is None:
+        wanted.add('id_ranges')
     graph_names = map(os.path.basename, options.graphs)
     # todo: interface for multiple vcf.  
     vcf_ids = [] if not inputVCFFileID else [inputVCFFileID]
@@ -222,8 +227,7 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
                                   graph_names, options.index_name, options.chroms,
                                   vcf_phasing_file_ids = inputPhasingVCFFileIDs,
                                   tbi_phasing_file_ids = inputPhasingTBIFileIDs,
-                                  skip_xg=skip_xg, skip_gcsa=skip_gcsa, skip_id_ranges=skip_ranges, skip_snarls=True,
-                                  make_gbwt=False,
+                                  wanted=wanted,
                                   cores=context.config.misc_cores, memory=context.config.misc_mem,
                                   disk=context.config.misc_disk)
                                   
@@ -232,14 +236,14 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
     # promises but we don't have those so we need another job.
     
     input_indexes = {}
-    if skip_xg:
+    if inputXGFileID is not None:
         input_indexes['xg'] = inputXGFileID
-    if skip_gcsa:
+    if inputGCSAFileID is not None:
         input_indexes['gcsa'] = inputGCSAFileID
         input_indexes['lcp'] = inputLCPFileID
-    if inputGBWTFileID:
+    if inputGBWTFileID is not None:
         input_indexes['gbwt'] = inputGBWTFileID
-    if skip_ranges:
+    if inputIDRangesFileID is not None:
         input_indexes['id_ranges'] = inputIDRangesFileID
     
     index_merge_job = index_job.addFollowOnJobFn(merge_dicts, index_job.rv(), input_indexes,
@@ -279,7 +283,7 @@ def run_pipeline_map(job, context, options, indexes, fastq_chunk_ids,
 
     chr_gam_ids = job.addChildJobFn(run_whole_alignment, context,
                                     options.fastq, options.gam_input_reads, options.bam_input_reads,
-                                    options.sample_name, options.interleaved, options.multipath,
+                                    options.sample_name, options.interleaved, options.mapper,
                                     indexes, fastq_chunk_ids,
                                     bam_output=options.bam_output, surject=options.surject,
                                     cores=context.config.misc_cores, memory=context.config.misc_mem,

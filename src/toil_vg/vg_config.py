@@ -77,6 +77,16 @@ snarl-index-cores: 1
 snarl-index-mem: '4G'
 snarl-index-disk: '2G'
 
+# Resources allotted for distance indexing.
+distance-index-cores: 1
+distance-index-mem: '4G'
+distance-index-disk: '2G'
+
+# Resources allotted for minimizer indexing.
+minimizer-index-cores: 8
+minimizer-index-mem: '4G'
+minimizer-index-disk: '2G'
+
 # Resources for BWA indexing.
 bwa-index-cores: 1
 bwa-index-mem: '4G'
@@ -228,6 +238,9 @@ map-opts: []
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
 mpmap-opts: ['--single-path-mode']
 
+# Core arguments for vg gaffe mapping (do not include file names or -t/--threads)
+gaffe-opts: []
+
 ########################
 ### vg_msga Arguments ###
 
@@ -358,6 +371,16 @@ gcsa-index-preemptable: True
 snarl-index-cores: 1
 snarl-index-mem: '200G'
 snarl-index-disk: '100G'
+
+# Resources allotted for distance indexing.
+distance-index-cores: 1
+distance-index-mem: '200G'
+distance-index-disk: '100G'
+
+# Resources allotted for minimizer indexing.
+minimizer-index-cores: 16
+minimizer-index-mem: '110G'
+minimizer-index-disk: '200G'
 
 # Resources for BWA indexing.
 bwa-index-cores: 1
@@ -510,6 +533,9 @@ map-opts: []
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
 mpmap-opts: ['--single-path-mode']
 
+# Core arguments for vg gaffe mapping (do not include file names or -t/--threads)
+gaffe-opts: []
+
 ########################
 ### vg_msga Arguments ###
 
@@ -601,7 +627,7 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'recall_filter_opts', 'genotype_opts',
-                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts',
+                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts', 'gaffe_opts',
                    'augment_opts', 'pack_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
@@ -625,7 +651,7 @@ def apply_config_file_args(args):
             config = conf.read()
                 
     # Parse config
-    parsed_config = {x.replace('-', '_'): y for x, y in yaml.load(config).iteritems()}
+    parsed_config = {x.replace('-', '_'): y for x, y in yaml.safe_load(config).iteritems()}
     if 'prune_opts_2' in parsed_config:
         raise RuntimeError('prune-opts-2 from config no longer supported')
     options = argparse.Namespace(**parsed_config)

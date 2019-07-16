@@ -67,20 +67,28 @@ def index_toggle_parse_args(parser):
     
     Safe to use in toil-vg construct without having to import any files.
     """
-    parser.add_argument("--gcsa_index", action="store_true",
+    parser.add_argument("--gcsa_index", dest="indexes",  default=[], action="append_const", const="gcsa",
                         help="Make a gcsa index for each output graph")
-    parser.add_argument("--xg_index", action="store_true",
+    parser.add_argument("--xg_index",  dest="indexes", action="append_const", const="xg",
                         help="Make an xg index for each output graph")
-    parser.add_argument("--gbwt_index", action="store_true",
+    parser.add_argument("--gbwt_index", dest="indexes", action="append_const", const="gbwt",
                         help="Make a GBWT index alongside the xg index for each output graph")
-    parser.add_argument("--snarls_index", action="store_true",
+    parser.add_argument("--snarls_index",  dest="indexes", action="append_const", const="snarls",
                         help="Make an snarls file for each output graph")
-    parser.add_argument("--id_ranges_index", action="store_true",
+    parser.add_argument("--trivial_snarls_index",  dest="indexes", action="append_const", const="trivial_snarls",
+                        help="Make a trivial-inclusive snarls file for each output graph")
+    parser.add_argument("--distance_index", dest="indexes", action="append_const", const="distance",
+                        help="Make a (minimum) distance index for each output graph")
+    parser.add_argument("--minimizer_index", dest="indexes", action="append_const", const="minimizer",
+                        help="Make a minimizer index for each output graph")
+    parser.add_argument("--id_ranges_index",  dest="indexes", action="append_const", const="id_ranges",
                         help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
-    parser.add_argument("--alt_path_gam_index", action="store_true",
+    parser.add_argument("--alt_path_gam_index", dest="indexes", action="append_const", const="alt-gam",
                         help="Save alt paths from vg into an indexed GAM")
-    parser.add_argument("--all_index", action="store_true",
-                        help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --id_ranges_index")
+    parser.add_argument("--all_index",  dest="indexes", action="store_const",
+                        const=["gcsa", "xg", "gbwt", "snarls", "trivial_snarls", "distance", "minimizer", "id_ranges"],
+                        help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --trivial_snarls_index "
+                        "--distance_index --minimizer_index --id_ranges_index")
     
 def index_parse_args(parser):
     """
@@ -115,32 +123,31 @@ def validate_index_options(options):
     """
     Throw an error if an invalid combination of options has been selected.
     """
-    if any([options.gcsa_index, options.snarls_index,
-            options.id_ranges_index, options.gbwt_index, options.all_index]):
+    if len(options.indexes) > 0:
         require(len(options.graphs) == 0 or options.chroms, '--chroms must be specified for --graphs')
         require(len(options.graphs) == 1 or len(options.chroms) == len(options.graphs),
                 '--chroms and --graphs must have'
                 ' same number of arguments if more than one graph specified if doing anything but xg indexing')
-    require(any([options.xg_index, options.gcsa_index, options.snarls_index, options.alt_path_gam_index,
-                 options.id_ranges_index, options.gbwt_index, options.all_index, options.bwa_index_fasta]),
-            'one of --xg_index, --gcsa_index, --snarls_index, --id_ranged_index, --gbwt_index, '
-            '--all_index, --alt_path_gam_index or --bwa_index_fasta is required')
+    require(any([len(options.indexes) > 0, 
+                 options.bwa_index_fasta]),
+            'one of --xg_index, --gcsa_index, --snarls_index, --trivial_snarls_index, --id_ranges_index, '
+            '--gbwt_index, --minimizer_index, --distance_index, --all_index, --alt_path_gam_index or '
+            '--bwa_index_fasta is required')
     require(not options.gbwt_prune or options.node_mapping,
                 '--node_mapping required with --gbwt_prune')
     if options.vcf_phasing:
         require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
                 'input phasing files must end with .vcf.gz')
-    if options.gbwt_index:
+    if 'gbwt' in options.indexes:
         require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
     if options.gbwt_prune:
-        require(options.gbwt_index or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
-        require(options.gcsa_index or options.all_index, '--gbwt_prune requires gbwt indexing')
-    require(not options.gbwt_index or not options.gbwt_input,
+        require(('gbwt' in options.indexes) or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
+    require('gbwt' not in options.indexes or not options.gbwt_input,
             'only one of --gbwt_index and --gbwt_input can be used at a time')
     if options.gbwt_input:
         require(options.gbwt_prune == 'gbwt', '--gbwt_prune required with --gbwt_input')
     if options.vcf_phasing_regions:
-        require(options.gbwt_index, "cannot hint regions to GBWT indexer without building a GBWT index")
+        require('gbwt' in options.indexes, "cannot hint regions to GBWT indexer without building a GBWT index")
     
 def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id, remove_paths = []):
     """
@@ -561,19 +568,24 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       disk=job.disk,
                                       preemptable=job.preemptable).rv()
                                       
-def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None):
+def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None, include_trivial=False):
     """
     Compute the snarls of the graph.
     
-    Saves the snarls file in the outstore as <index_name>.snarls, unless index_name is None.
+    Saves the snarls file in the outstore as <index_name>.snarls or
+    <index_name>.trivial.snarls, as appropriate, unless index_name is None.
     
-    Removes trivial snarls, which are not really useful and which snarl cutting
-    in mpmap can go overboard with.
+    If incluse_trivial is set to true, include trivial snarls, which mpmap
+    cannot yet filter out itself for snarl cutting, but which are needed for
+    distance indexing.
     
     Return the file ID of the snarls file.
     """
     
     assert(len(inputGraphFileIDs) == len(graph_names))
+    
+    # Decide on an index output extension.
+    extension = '.trivial.snarls' if include_trivial else '.snarls'
     
     if len(inputGraphFileIDs) > 1:
         # We have been given multiple chromosome graphs. Since snarl indexing
@@ -586,13 +598,14 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         for file_id, file_name in itertools.izip(inputGraphFileIDs, graph_names):
             # For each input graph, make a child job to index it.
             snarl_jobs.append(job.addChildJobFn(run_snarl_indexing, context, [file_id], [file_name],
+                                                include_trivial=include_trivial,
                                                 cores=context.config.snarl_index_cores,
                                                 memory=context.config.snarl_index_mem,
                                                 disk=context.config.snarl_index_disk))
-        
+                                                
         # Make a job to concatenate the indexes all together                                        
         concat_job = snarl_jobs[0].addFollowOnJobFn(run_concat_files, context, [job.rv() for job in snarl_jobs],
-                                                    index_name + '.snarls' if index_name is not None else None,
+                                                    index_name + extension if index_name is not None else None,
                                                     cores=context.config.snarl_index_cores,
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk)
@@ -606,7 +619,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
     else:
         # Base case: single graph
    
-        RealtimeLogger.info("Starting snarl computation...")
+        RealtimeLogger.info("Starting snarl computation {} trivial snarls...".format('with' if include_trivial else 'without'))
         start_time = timeit.default_timer()
         
         # Define work directory for docker calls
@@ -618,12 +631,14 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         job.fileStore.readGlobalFile(graph_id, os.path.join(work_dir, graph_filename))
 
         # Where do we put the snarls?
-        snarl_filename = os.path.join(work_dir, "{}.snarls".format(index_name if index_name is not None else "part"))
+        snarl_filename = os.path.join(work_dir, (index_name if index_name is not None else "part") + extension)
 
         # Now run the indexer.
         RealtimeLogger.info("Computing snarls for {}".format(graph_filename))
 
         cmd = ['vg', 'snarls', graph_filename]
+        if include_trivial:
+            cmd += ['--include-trivial']
         with open(snarl_filename, "w") as snarl_file:
             try:
                 # Compute snarls to the correct file
@@ -647,6 +662,124 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         RealtimeLogger.info("Finished computing snarls. Process took {} seconds.".format(run_time))
 
         return snarl_file_id
+        
+def run_distance_indexing(job, context, input_xg_id, input_trivial_snarls_id, index_name=None, max_distance_threshold=0):
+    """
+    Make a distance index from the given XG index and the given snarls file,
+    including the trivial snarls.
+    
+    TODO: also support a single VG file and snarls.
+    
+    If index_name is not None, saves it as <index_name>.dist to the output
+    store.
+    
+    If max_distance_threshold is strictly positive, also includes a max
+    distance index with the given limit. By default includes only a min
+    distance index.
+    
+    Returns the file ID of the resulting distance index.
+    """
+    
+    RealtimeLogger.info("Starting distance indexing...")
+    start_time = timeit.default_timer()
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Download the input files.
+    xg_filename = os.path.join(work_dir, 'graph.xg')
+    job.fileStore.readGlobalFile(input_xg_id, xg_filename)
+    trivial_snarls_filename = os.path.join(work_dir, 'graph.trivial.snarls')
+    job.fileStore.readGlobalFile(input_trivial_snarls_id, trivial_snarls_filename)
+
+    # Where do we put the distance index?
+    distance_filename = os.path.join(work_dir, (index_name if index_name is not None else 'graph') + '.dist')
+
+    cmd = ['vg', 'index', '-t', max(1, int(job.cores)), '-j', os.path.basename(distance_filename),
+        '-x', os.path.basename(xg_filename), '-s', os.path.basename(trivial_snarls_filename)]
+    
+    if max_distance_threshold > 0:
+        # Add a max distance index with this limit.
+        cmd.append('-w')
+        cmd.append(str(max_distance_threshold))
+    
+    try:
+        # Compute the index to the correct file
+        context.runner.call(job, cmd, work_dir=work_dir)
+    except:
+        # Dump everything we need to replicate the indexing
+        logging.error("Distance indexing failed. Dumping files.")
+        context.write_output_file(job, xg_filename)
+        context.write_output_file(job, trivial_snarls_filename)
+        context.write_output_file(job, distance_filename)
+        raise
+    
+    if index_name is not None:
+        # Checkpoint index to output store
+        distance_file_id = context.write_output_file(job, distance_filename)
+    else:
+        # Just save the index as an intermediate
+        distance_file_id = context.write_intermediate_file(job, distance_filename)
+        
+    
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Finished computing distance index. Process took {} seconds.".format(run_time))
+
+    return distance_file_id
+        
+def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=None):
+    """
+    Make a minimizer index file for the graph and haplotypes described by the
+    given input XG and GBWT indexes.
+    
+    If index_name is not None, saves it as <index_name>.min to the output
+    store.
+    
+    Returns the file ID of the resulting minimizer index.
+    """
+    
+    RealtimeLogger.info("Starting minimizer indexing...")
+    start_time = timeit.default_timer()
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Download the input files.
+    xg_filename = os.path.join(work_dir, 'graph.xg')
+    job.fileStore.readGlobalFile(input_xg_id, xg_filename)
+    gbwt_filename = os.path.join(work_dir, 'graph.gbwt')
+    job.fileStore.readGlobalFile(input_gbwt_id, gbwt_filename)
+
+    # Where do we put the minimizer index?
+    minimizer_filename = os.path.join(work_dir, (index_name if index_name is not None else 'graph') + '.min')
+
+    cmd = ['vg', 'minimizer', '-t', max(1, int(job.cores)), '-i', os.path.basename(minimizer_filename),
+        '-g', os.path.basename(gbwt_filename), os.path.basename(xg_filename)]
+    try:
+        # Compute the index to the correct file
+        context.runner.call(job, cmd, work_dir=work_dir)
+    except:
+        # Dump everything we need to replicate the indexing
+        logging.error("Minimizer indexing failed. Dumping files.")
+        context.write_output_file(job, xg_filename)
+        context.write_output_file(job, gbwt_filename)
+        context.write_output_file(job, minimizer_filename)
+        raise
+    
+    if index_name is not None:
+        # Checkpoint index to output store
+        minimizer_file_id = context.write_output_file(job, minimizer_filename)
+    else:
+        # Just save the index as an intermediate
+        minimizer_file_id = context.write_intermediate_file(job, minimizer_filename)
+        
+    
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Finished computing minimizer index. Process took {} seconds.".format(run_time))
+
+    return minimizer_file_id
 
 
 def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chroms):
@@ -937,9 +1070,9 @@ def run_indexing(job, context, inputGraphFileIDs,
                  vcf_phasing_file_ids = [], tbi_phasing_file_ids = [],
                  bwa_fasta_id=None,
                  gbwt_id = None, node_mapping_id = None,
-                 skip_xg=False, skip_gcsa=False, skip_id_ranges=False,
-                 skip_snarls=False, make_gbwt=False, gbwt_prune=False, gbwt_regions=[],
-                 dont_restore_paths=[], alt_path_gam_index=False):
+                 wanted = set(),
+                 gbwt_prune=False, gbwt_regions=[],
+                 dont_restore_paths=[]):
     """
     
     Run indexing logic by itself.
@@ -951,9 +1084,24 @@ def run_indexing(job, context, inputGraphFileIDs,
     gbwt_regions is a list of chrom:start-end regions pecifiers to restrict, on
     those chromosomes, the regions examined in the VCF by the GBWT indexing.
     
+    wanted is a set of the index type strings ('xg', 'gcsa', 'gbwt',
+    'id_ranges', 'snarls', 'trivial_snarls', 'minimizer', 'distance',
+    'alt-gam') that should be created. Each of them becomes a key in the output
+    dict, except that:
+    
+    * The 'bwa' index is produced if bwa_fasta_id is set instead of if 'bwa' is
+    in wanted.
+    
+    * The 'lcp' index is produced whenever the 'gcsa' index is produced.
+    
+    * The 'id_ranges' index is only produced if multiple chromosomes are used.
+    
+    * The 'chrom_...' versions of indexes are created when the overall index is
+    created.
+    
     Return a dict from index type ('xg','chrom_xg', 'gcsa', 'lcp', 'gbwt',
-    'chrom_gbwt', 'chrom_thread', 'id_ranges', 'snarls', 'bwa') to index file
-    ID(s) if created.
+    'chrom_gbwt', 'chrom_thread', 'id_ranges', 'snarls', 'trivial_snarls',
+    'alt-gam', 'bwa') to index file ID(s) if created.
     
     For 'chrom_xg' and 'chrom_gbwt' the value is a list of one XG or GBWT or
     thread DB per chromosome in chroms, to support `vg prune`. For
@@ -964,6 +1112,16 @@ def run_indexing(job, context, inputGraphFileIDs,
     
     If gbwt_id is specified, and the gbwt index is not built, the passed ID is
     re-used.
+    
+    If the 'gbwt' index is requested and gbwt_id is not specified, the 'xg'
+    index will also be computed.
+    
+    If the 'minimizer' index is requested, the 'xg' index will also be
+    computed, and the 'gbwt' index will either be computed or sourced from
+    gbwt_id.
+    
+    If the 'distance' index is requested, the 'trivial_snarls' and 'xg' indexes
+    will also be computed. 
     
     """
     # Make a master child job
@@ -986,11 +1144,7 @@ def run_indexing(job, context, inputGraphFileIDs,
          'tbi_phasing_file_ids': tbi_phasing_file_ids,
          'gbwt_id': gbwt_id,
          'node_mapping_id': node_mapping_id,
-         'skip_xg': skip_xg,
-         'skip_gcsa': skip_gcsa,
-         'skip_id_ranges': skip_id_ranges,
-         'skip_snarls': skip_snarls,
-         'make_gbwt': make_gbwt,
+         'wanted': wanted,
          'gbwt_prune': gbwt_prune,
          'bwa_fasta_id': bwa_fasta_id
     }))
@@ -999,17 +1153,35 @@ def run_indexing(job, context, inputGraphFileIDs,
     indexes = {}
     if gbwt_id:
         indexes['gbwt'] = gbwt_id
+    elif 'gbwt' in wanted:
+        # We need to do the xg so we can make the GBWT.
+        # TODO: write a codepath that makes the GBWT without making the XG
+        wanted.add('xg')
 
     # We shouldn't accept any phasing files when not making a GBWT index with them.
-    assert(len(vcf_phasing_file_ids) == 0 or make_gbwt)
+    assert(len(vcf_phasing_file_ids) == 0 or ('gbwt' in wanted))
+    
+    if 'minimizer' in wanted:
+        # The minimizer index has some dependencies
+        wanted.add('xg')
+        if not gbwt_id:
+            wanted.add('gbwt')
+            
+    if 'distance' in wanted:
+        # The distance index also has some dependencies
+        wanted.add('xg')
+        wanted.add('trivial_snarls')
 
-    if not skip_xg or not skip_gcsa:
+    if 'xg' in wanted or 'gcsa' in wanted:
         indexes['chrom_xg'] = []
         indexes['chrom_gbwt'] = []                                                            
-        if make_gbwt:
+        if 'gbwt' in wanted:
             # In its current state, vg prune requires chromosomal xgs, so we must make
             # these xgs if we're doing any kind of gcsa indexing.  Also, if we're making
-            # a gbwt, we do that at the same time (merging later if more than one graph)
+            # a gbwt, we do that at the same time (merging later if more than one graph).
+            #
+            # TODO: This is the *only* way to make the GBWT, actually. Write
+            # code to make it separately.
             if not chroms or len(chroms) == 1:
                 chroms = [index_name]
             indexes['chrom_xg'] = []
@@ -1061,29 +1233,33 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      context, [inputGraphFileIDs[i]],
                                                                      [graph_names[i]], chrom,
                                                                      vcf_id, tbi_id,
-                                                                     make_gbwt=make_gbwt,
+                                                                     make_gbwt=('gbwt' in wanted),
                                                                      gbwt_regions=gbwt_regions, intermediate=(len(chroms) > 1),
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
-                                                                     preemptable=not make_gbwt or context.config.gbwt_index_preemptable)
+                                                                     preemptable='gbwt' not in wanted or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
-            if len(chroms) > 1 and vcf_phasing_file_ids and make_gbwt:
+            if len(chroms) > 1 and vcf_phasing_file_ids:
                 # Once all the per-chromosome GBWTs are done and we are ready to make the whole-graph GBWT, merge them up
                 indexes['gbwt'] = xg_root_job.addChildJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
                                                             index_name,
                                                             cores=context.config.xg_index_cores,
                                                             memory=context.config.xg_index_mem,
                                                             disk=context.config.xg_index_disk).rv()
-
+            else:
+                # There's only one chromosome, so the one per-chromosome GBWT becomes the only GBWT
+                assert(len(chroms) == 1)
+                indexes['gbwt'] = indexes['chrom_gbwt'][0]
+                
         # now do the whole genome xg (without any gbwt)
         if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1:
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
             indexes['xg'] = indexes['chrom_xg'][0]
-        elif not skip_xg:
+        elif 'xg' in wanted:
             # Build an xg index for the whole genome. We need to have
             # access to all the per-chromosome GBWT files, if used, so we
             # can set the haplotype names and per-chromosome haplotype
@@ -1108,7 +1284,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     else:
         child_job.addChild(gcsa_root_job)
     
-    if not skip_gcsa:
+    if 'gcsa' in wanted:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
         # todo: we're only taking in a genome gbwt as input, because that's all we write
         if not indexes.has_key('chrom_gbwt') and indexes.has_key('gbwt'):
@@ -1124,7 +1300,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         indexes['gcsa'] = gcsa_job.rv(0)
         indexes['lcp'] = gcsa_job.rv(1)
     
-    if len(inputGraphFileIDs) > 1 and not skip_id_ranges:
+    if len(inputGraphFileIDs) > 1 and 'id_ranges' in wanted:
         # Also we need an id ranges file in parallel with everything else
         indexes['id_ranges'] = child_job.addChildJobFn(run_id_ranges, context, inputGraphFileIDs,
                                                        graph_names, index_name, chroms,
@@ -1132,13 +1308,52 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                        memory=context.config.misc_mem,
                                                        disk=context.config.misc_disk).rv()
                                                  
-    if not skip_snarls:
+    if 'snarls' in wanted:
         # Also we need a snarl index in parallel with everything else
         indexes['snarls'] = child_job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
                                                     graph_names, index_name,
                                                     cores=context.config.snarl_index_cores,
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk).rv()
+                                                    
+    if 'trivial_snarls' in wanted:
+        # Also we need a snarl index with trivial snarls in parallel with everything else.
+        # Make sure to save the job so things can wait on it.
+        trivial_snarls_job = child_job.addChildJobFn(run_snarl_indexing, context, inputGraphFileIDs,
+                                                     graph_names, index_name, include_trivial=True,
+                                                     cores=context.config.snarl_index_cores,
+                                                     memory=context.config.snarl_index_mem,
+                                                     disk=context.config.snarl_index_disk)
+                                                     
+        indexes['trivial_snarls'] = trivial_snarls_job.rv()
+                                                            
+    if 'distance' in wanted:
+        # We need a distance index, based on the XG and the trivial snarls, which we know are being computed.
+        # Run it after our XG
+        distance_job = xg_root_job.addFollowOnJobFn(run_distance_indexing, context, indexes['xg'],
+                                                    indexes['trivial_snarls'], index_name,
+                                                    cores=context.config.distance_index_cores,
+                                                    memory=context.config.distance_index_mem,
+                                                    disk=context.config.distance_index_disk)
+        # Make sure it waits for trivial snarls
+        trivial_snarls_job.addFollowOn(distance_job)
+        
+        indexes['distance'] = distance_job.rv()
+        
+    if 'minimizer' in wanted:
+        # We need a minimizer index, based on the GBWT (either provided or
+        # computed) and the XG (which we know is being computed).
+        
+        # Run it after our XG.
+        # We know that, if the GBWT is being computed, it also happens under the XG job.
+        # TODO: change that
+        minimizer_job = xg_root_job.addFollowOnJobFn(run_minimizer_indexing, context, indexes['xg'],
+                                                     indexes['gbwt'], index_name,
+                                                     cores=context.config.minimizer_index_cores,
+                                                     memory=context.config.minimizer_index_mem,
+                                                     disk=context.config.minimizer_index_disk)
+                                                     
+        indexes['minimizer'] = minimizer_job.rv()
     
 
     if bwa_fasta_id:
@@ -1147,7 +1362,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                  cores=context.config.bwa_index_cores, memory=context.config.bwa_index_mem,
                                                  disk=context.config.bwa_index_disk).rv()
 
-    if alt_path_gam_index:
+    if 'alt-gam' in wanted:
         alt_extract_job = child_job.addChildJobFn(run_alt_path_extraction, context, inputGraphFileIDs,
                                                   graph_names, None,
                                                   cores=context.config.call_chunk_cores,
@@ -1159,6 +1374,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                               cores=context.config.snarl_index_cores,
                                                               memory=context.config.snarl_index_mem,
                                                               disk=context.config.snarl_index_disk).rv()
+    
     return indexes
 
 def index_main(context, options):
@@ -1217,13 +1433,8 @@ def index_main(context, options):
                                      gbwt_id=importer.resolve(inputGBWTID),
                                      node_mapping_id=importer.resolve(inputNodeMappingID),
                                      bwa_fasta_id=importer.resolve(inputBWAFastaID),
-                                     skip_xg = not options.xg_index and not options.all_index,
-                                     skip_gcsa = not options.gcsa_index and not options.all_index,
-                                     skip_id_ranges = not options.id_ranges_index and not options.all_index,
-                                     skip_snarls = not options.snarls_index and not options.all_index,
-                                     make_gbwt=options.gbwt_index, gbwt_prune=options.gbwt_prune,
+                                     wanted=set(options.indexes), gbwt_prune=options.gbwt_prune,
                                      gbwt_regions=options.vcf_phasing_regions,
-                                     alt_path_gam_index = options.alt_path_gam_index,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)

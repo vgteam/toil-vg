@@ -14,9 +14,10 @@
 
 version = '1.5.0a2'
 
-required_versions = {'pyyaml': '>=3.11',
+required_versions = {'pyyaml': '>=5.1',
                      'tsv': '==1.2',
                      'scikit-learn': '==0.18.2',
-                     'pyvcf': '==0.6.8'}
+                     'pyvcf': '==0.6.8',
+                     'futures': '==3.1.1'}
 
 dependency_links = []

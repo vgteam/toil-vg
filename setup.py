@@ -16,6 +16,7 @@ kwargs = dict(
     author='UCSC Computational Genomics Lab',
     author_email='cgl-toil@googlegroups.com',
     url="https://github.com/BD2KGenomics/toil-vg",
+    python_requires='>=2.7,<3.0',
     install_requires=[x + y for x, y in required_versions.iteritems()],
     dependency_links=[],
     tests_require=['pytest==2.8.3', 'numpy', 'scipy'],
