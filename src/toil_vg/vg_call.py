@@ -306,7 +306,7 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
             augment_output_results['support'] = context.write_intermediate_file(job, support_path)
         if os.path.isfile(trans_path):
             augment_output_results['translation'] = context.write_intermediate_file(job, trans_path)
-        if os.path.isfile(xg_path) and xg_id:
+        if os.path.isfile(xg_path):
             augment_output_results['xg'] = context.write_intermediate_file(job, xg_path)
         return augment_output_results
 
@@ -453,7 +453,8 @@ def run_xg_paths(job, context, xg_id):
 
 def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
                     genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                    genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False):
+                    genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False,
+                    old_call=False):
     path_sizes_job = job.addChildJobFn(run_xg_paths, context, xg_file_id,
                                        memory=context.config.call_chunk_mem,
                                        disk=context.config.call_chunk_disk)
@@ -461,12 +462,13 @@ def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chro
     calling_job = path_sizes_job.addFollowOnJobFn(run_all_calling2, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids,
                                                   chroms, path_sizes,  vcf_offsets, sample_name, genotype, out_name,
                                                   recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id,
-                                                  id_ranges_id, snarls_id, pack_support)
+                                                  id_ranges_id, snarls_id, pack_support, old_call)
     return calling_job.rv()
 
 def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, path_sizes, vcf_offsets, sample_name,
                      genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                     genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False):
+                     genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False,
+                     old_call=False):
     """
     Call all the chromosomes and return a merged up vcf/tbi pair
     """
@@ -508,7 +510,7 @@ def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chr
                                             memory=context.config.call_chunk_mem,
                                             disk=context.config.call_chunk_disk)
         call_job = chunk_job.addFollowOnJobFn(run_chunked_calling, context, chunk_job.rv(0),
-                                              genotype, recall, snarls_id, pack_support, chunk_job.rv(1),
+                                              genotype, recall, snarls_id, pack_support, old_call, chunk_job.rv(1),
                                               cores=context.config.misc_cores,
                                               memory=context.config.misc_mem,
                                               disk=context.config.misc_disk)
@@ -604,8 +606,9 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
     if not id_ranges_id and context.config.call_chunk_size == 0:
         timer = TimeTracker('call-chunk-bypass')
         # convert the xg to vg
-        context.runner.call(job, ['vg', 'xg', '-i', os.path.basename(xg_path), '-X', 'graph.vg'],
-                            work_dir = work_dir)
+        with open(os.path.join(work_dir, 'graph.vg'), 'w') as out_graph:
+            context.runner.call(job, ['vg', 'convert', '-x', os.path.basename(xg_path), '-V'],
+                                work_dir = work_dir, outfile=out_graph)
         vg_id = context.write_intermediate_file(job, os.path.join(work_dir, 'graph.vg'))
         timer.stop()
 
@@ -786,7 +789,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
 
     return output_chunk_info, call_timers
 
-def run_chunked_calling(job, context, chunk_infos, genotype, recall, snarls_id, pack_support, call_timers):
+def run_chunked_calling(job, context, chunk_infos, genotype, recall, snarls_id, pack_support, old_call, call_timers):
     """
     spawn a calling job for each chunk then merge them together
     """
@@ -819,6 +822,7 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, snarls_id, 
             augment_only = True,
             pack_support = pack_support,
             alt_gam_id = chunk_info['alt_gam_id'],
+            old_call = old_call,
             cores=context.config.calling_cores,
             memory=context.config.calling_mem, disk=context.config.calling_disk)
         augment_results = augment_job.rv()
@@ -853,6 +857,7 @@ def run_chunked_calling(job, context, chunk_infos, genotype, recall, snarls_id, 
             genotype_tbi_id = chunk_info['genotype_tbi_id'],
             snarls_id = snarls_id,            
             pack_support = pack_support,
+            old_call = old_call,            
             augment_results = augment_results,
             cores=context.config.calling_cores,
             memory=context.config.calling_mem, disk=context.config.calling_disk)
@@ -934,6 +939,7 @@ def call_main(context, options):
                                      id_ranges_id=importer.resolve(inputIDRangesID),
                                      snarls_id=importer.resolve(inputSnarlsID),
                                      pack_support=options.pack,
+                                     old_call=options.old_call,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
