@@ -819,7 +819,7 @@ class VGCGLTest(TestCase):
                    '--call_vcf', os.path.join(self.local_outstore, 'HG00514.vcf.gz')])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
-        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.38)
+        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.35)
 
     def test_17_sim_small_pack_calling(self):
         ''' 
@@ -908,7 +908,7 @@ class VGCGLTest(TestCase):
                    '--call_vcf', os.path.join(self.local_outstore, 'HG00514.vcf.gz')])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
-        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.38)
+        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.35)
         
         
     def _run(self, args):
