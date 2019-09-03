@@ -320,8 +320,8 @@ def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
     if genotype or old_call:
         for seq_name in seq_names:
             name_opts += ['-c', seq_name]
-            for seq_length in seq_lengths:
-                name_opts += ['-l', seq_length]
+    for seq_length in seq_lengths:
+        name_opts += ['-l', seq_length]
     if not genotype_vcf_id:
         for seq_offset in seq_offsets:
             name_opts += ['-o', seq_offset]
