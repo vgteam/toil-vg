@@ -300,7 +300,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--gam', '--sim_chunks', '5', '--maxCores', '8',
-                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
+                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.005 -i 0.001', '--seed', '1'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # check running mapeval on the indexes
