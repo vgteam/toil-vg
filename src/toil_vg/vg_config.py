@@ -176,7 +176,7 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
 # Docker image to use to run R scripts
-r-docker: 'rocker/tidyverse:3.6.1'
+r-docker: 'rocker/tidyverse:3.5.1'
 
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
@@ -471,7 +471,7 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
 # Docker image to use to run R scripts
-r-docker: 'rocker/tidyverse:3.6.1'
+r-docker: 'rocker/tidyverse:3.5.1'
 
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
