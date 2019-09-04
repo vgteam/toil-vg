@@ -34,7 +34,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext,\
     add_common_vg_parse_args, add_container_tool_parse_args, get_vg_script, run_concat_lists, \
-    parse_plot_sets, title_to_filename, ensure_disk, run_concat_files, AsyncImporter
+    parse_plot_sets, title_to_filename, ensure_disk, run_concat_files, AsyncImporter, set_r_cran_url
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing, run_bwa_index, run_minimap2_index
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -2631,6 +2631,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
             plot_filename = title_to_filename('plot-{}'.format(rscript), i, plot_title, 'svg')
            
             script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
+            set_r_cran_url(script_path)
             cmd = ['Rscript', os.path.basename(script_path), os.path.basename(position_stats_path),
                    plot_filename]
             if plot_conditions is not None:
