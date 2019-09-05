@@ -300,7 +300,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--gam', '--sim_chunks', '5', '--maxCores', '8',
-                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
+                   '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.005 -i 0.001', '--seed', '1'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # check running mapeval on the indexes
@@ -465,11 +465,11 @@ class VGCGLTest(TestCase):
                    '--xg_index', self.xg_index, '--alignment_cores', '2'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
-        ''' Test recall
+        ''' Test recall (using old caller)
         '''
         self._run(['toil-vg', 'call', self.jobStoreLocal,
                    '--container', self.containerType,
-                   '--clean', 'never',
+                   '--clean', 'never', '--old_call',
                    self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
                    '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
                    '--call_chunk_size', '23000', '--calling_cores', '4',
@@ -819,7 +819,7 @@ class VGCGLTest(TestCase):
                    '--call_vcf', os.path.join(self.local_outstore, 'HG00514.vcf.gz')])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
-        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.38)
+        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.35)
 
     def test_17_sim_small_pack_calling(self):
         ''' 
@@ -908,7 +908,7 @@ class VGCGLTest(TestCase):
                    '--call_vcf', os.path.join(self.local_outstore, 'HG00514.vcf.gz')])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
-        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.38)
+        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.35)
         
         
     def _run(self, args):

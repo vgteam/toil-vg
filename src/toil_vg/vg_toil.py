@@ -308,6 +308,7 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
                                  options.vcf_offsets, options.sample_name,
                                  options.genotype, recall=options.recall,
                                  pack_support = options.pack,
+                                 old_call = options.old_call,
                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
                                  disk=context.config.misc_disk)
     

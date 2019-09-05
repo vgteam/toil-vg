@@ -666,6 +666,27 @@ def get_vg_script(job, runner, script_name, work_dir):
         scripts_path = os.path.join(os.path.dirname(find_executable('vg')), '..', 'scripts')
         shutil.copy2(os.path.join(scripts_path, script_name), os.path.join(work_dir, script_name))
     return os.path.join(work_dir, script_name)
+
+def set_r_cran_url(script_path):
+    """
+    our R docker image gets its packages from https://mran.microsoft.com/snapshot/... which
+    seems to be less than reliable.  this is a hack to specify cran.r-project.org instead
+    (https://stackoverflow.com/questions/11488174/how-to-select-a-cran-mirror-in-r)
+    """
+    with open(script_path) as script_file:
+        lines = [line for line in script_file]
+
+    fixed = False
+    with open(script_path, 'w') as script_file:        
+        for line in lines:
+            script_file.write(line)
+            if line.strip().startswith('#!') and not fixed:
+                script_file.write('\n# Default repo\n'
+                                  'local({r <- getOption(\"repos\")\n'
+                                  'r[\"CRAN\"] <- \"http://cran.r-project.org\"\n' 
+                                  'options(repos=r)\n'
+                                  '})\n')
+                fixed = True    
                             
 def get_files_by_file_size(dirname, reverse=False):
     """ Return list of file paths in directory sorted by file size """
