@@ -607,7 +607,7 @@ def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id
         timer = TimeTracker('call-chunk-bypass')
         # convert the xg to vg
         with open(os.path.join(work_dir, 'graph.vg'), 'w') as out_graph:
-            context.runner.call(job, ['vg', 'convert', '-x', os.path.basename(xg_path), '-V'],
+            context.runner.call(job, ['vg', 'convert', os.path.basename(xg_path), '-v'],
                                 work_dir = work_dir, outfile=out_graph)
         vg_id = context.write_intermediate_file(job, os.path.join(work_dir, 'graph.vg'))
         timer.stop()
