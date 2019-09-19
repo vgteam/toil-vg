@@ -602,7 +602,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--xg_index', '--graphs', vg_path, '--chroms', '17',
                    '--vcf_phasing', in_vcf, '--index_name', 'my_index',
-                   '--gbwt_index', '--xg_index_cores', '4',
+                   '--gbwt_index', '--xg_index_cores', '4', '--xg_alts',
                    '--realTimeLogging', '--logInfo', '--realTimeStderr'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
