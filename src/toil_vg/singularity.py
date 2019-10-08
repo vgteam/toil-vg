@@ -105,10 +105,10 @@ def _singularity(job,
         # We try to support spaces in paths by wrapping them all in quotes first.
         chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
         # Use bash's set -eo pipefail to detect and abort on a failure in any command in the chain
-        call = baseSingularityCall + ['docker://{}'.format(tool), '/bin/bash', '-c',
+        call = baseSingularityCall + [_convertImageSpec(tool), '/bin/bash', '-c',
                                  'set -eo pipefail && {}'.format(' | '.join(chain_params))]
     else:
-        call = baseSingularityCall + ['docker://{}'.format(tool)] + parameters
+        call = baseSingularityCall + [_convertImageSpec(tool)] + parameters
     _logger.info("Calling singularity with " + repr(call))
 
     params = {}
@@ -122,3 +122,26 @@ def _singularity(job,
     out = callMethod(call, **params)
 
     return out
+    
+def _convertImageSpec(spec):
+    """
+    Given an image specifier that may be either a Docker container specifier,
+    or a Singularity URL or filename, produce the Singularity URL or filename
+    that points to it.
+    
+    This consists of identifying the Docker container specifiers and prefixing
+    them with "docker://".
+    """
+    
+    if '://' in spec:
+        # Already a URL
+        return spec
+    
+    if os.path.exists(spec):
+        # It's a file path we can use
+        return spec
+        
+    # Try it as a Docker specifier
+    return 'docker://' + spec
+    
+    
