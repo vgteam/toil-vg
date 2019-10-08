@@ -132,15 +132,17 @@ def _convertImageSpec(spec):
     This consists of identifying the Docker container specifiers and prefixing
     them with "docker://".
     """
-    
+   
+    if spec.startswith('/'):
+        # It's a file path we can use.
+        # Relative paths won't work because Toil uses unique working
+        # directories.
+        return spec
+   
     if '://' in spec:
         # Already a URL
         return spec
     
-    if os.path.exists(spec):
-        # It's a file path we can use
-        return spec
-        
     # Try it as a Docker specifier
     return 'docker://' + spec
     
