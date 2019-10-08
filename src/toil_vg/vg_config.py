@@ -14,7 +14,11 @@ import getpass
 import pdb
 import textwrap
 import yaml
-from toil_vg.vg_common import require, test_docker
+from toil_vg.vg_common import require, test_docker, test_singularity
+
+# Determine what containerization to default to in the config. We use Docker
+# with higher priority than Singularity because Singularity is our work-around.
+default_container = "Docker" if test_docker() else ("Singularity" if test_singularity() else "None")
 
 default_config = textwrap.dedent("""
 # Toil VG Pipeline configuration file (created by toil-vg generate-config)
@@ -138,7 +142,7 @@ force-outstore: False
 
 # Toggle container support.  Valid values are Docker / Singularity / None
 # (commenting out or Null values equivalent to None)
-container: """ + ("Docker" if test_docker() else "None") + """
+container: """ + (default_container) + """
 
 #############################
 ### Docker Tool Arguments ###
@@ -433,7 +437,7 @@ force-outstore: False
 
 # Toggle container support.  Valid values are Docker / Singularity / None
 # (commenting out or Null values equivalent to None)
-container: """ + ("Docker" if test_docker() else "None") + """
+container: """ + (default_container) + """
 
 #############################
 ### Docker Tool Arguments ###
