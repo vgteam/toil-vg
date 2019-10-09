@@ -125,12 +125,12 @@ def _singularity(job,
     # After Singularity exits, it is possible that cleanup of the container's
     # temporary files is still in progress (sicne it also waits for the
     # container to exit). If we return immediately and the Toil job then
-    # immediately finishes, we can have a race between Toil's temp cleanup code
-    # and Singularity's temp cleanup code to delete the same directory tree.
-    # Toil doesn't handle this well, and crashes when files it expected to be
-    # able to delete are already missing (at least on some versions). So we
-    # introduce a delay here to try and make sure that Singularity wins the
-    # race with high probability.
+    # immediately finishes, we can have a race between Toil's temp
+    # cleanup/space tracking code and Singularity's temp cleanup code to delete
+    # the same directory tree. Toil doesn't handle this well, and crashes when
+    # files it expected to be able to see are missing (at least on some
+    # versions). So we introduce a delay here to try and make sure that
+    # Singularity wins the race with high probability.
     #
     # See https://github.com/sylabs/singularity/issues/1255
     time.sleep(0.5)
