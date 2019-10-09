@@ -15,6 +15,7 @@ import logging
 import subprocess
 import pipes
 import os
+import time
 
 _logger = logging.getLogger(__name__)
 
@@ -120,6 +121,19 @@ def _singularity(job,
         callMethod = subprocess.check_call
 
     out = callMethod(call, **params)
+
+    # After Singularity exits, it is possible that cleanup of the container's
+    # temporary files is still in progress (sicne it also waits for the
+    # container to exit). If we return immediately and the Toil job then
+    # immediately finishes, we can have a race between Toil's temp cleanup code
+    # and Singularity's temp cleanup code to delete the same directory tree.
+    # Toil doesn't handle this well, and crashes when files it expected to be
+    # able to delete are already missing (at least on some versions). So we
+    # introduce a delay here to try and make sure that Singularity wins the
+    # race with high probability.
+    #
+    # See https://github.com/sylabs/singularity/issues/1255
+    time.sleep(0.5)
 
     return out
     
