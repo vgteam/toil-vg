@@ -35,8 +35,13 @@ def run_write_info_to_outstore(job, context, argv):
     now = datetime.datetime.now()
     if argv:
         f.write('{}\n\n'.format(' '.join(argv)))
+    try:
+        version = pkg_resources.get_distribution('toil-vg').version
+    except pkg_resources.DistributionNotFound:
+        # TODO: pkg_resources gets upset by Kubernetes Toil hot deployment (but not Mesos hot deployment?)
+        version = 'unknown'
     f.write('{}\ntoil-vg version {}\nConfiguration:\n'.format(now,
-        pkg_resources.get_distribution('toil-vg').version))
+        version))
 
     for key, val in context.config.__dict__.items():
         f.write('{}: {}\n'.format(key, val))
