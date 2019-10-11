@@ -97,6 +97,16 @@ def _singularity(job,
         baseSingularityCall += singularityParameters
     else:
         baseSingularityCall += ['-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME')), '--pwd', os.environ.get('HOME')]
+        
+        
+    # Problem: Multiple Singularity calls sharing the same cache directory will
+    # not work correctly. See https://github.com/sylabs/singularity/issues/3634
+    # and https://github.com/sylabs/singularity/issues/4555.
+    
+    # As a hacky workaround, we use a fresh cache for every Singularity run.
+    # TODO: use one per job or per worker.
+    singularity_env = os.environ.copy()
+    singularity_env['SINGULARITY_CACHEDIR'] = job.fileStore.getLocalTempDir()
 
     # Make subprocess call
 
@@ -112,7 +122,7 @@ def _singularity(job,
         call = baseSingularityCall + [_convertImageSpec(tool)] + parameters
     _logger.info("Calling singularity with " + repr(call))
 
-    params = {}
+    params = {'env': singularity_env}
     if outfile:
         params['stdout'] = outfile
     if checkOutput:
