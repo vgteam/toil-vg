@@ -106,7 +106,7 @@ def _singularity(job,
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
-        baseSingularityCall += ['-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME')), '--pwd', os.environ.get('HOME')]
+        baseSingularityCall += ['--writable-tmpfs', '-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME')), '--pwd', os.environ.get('HOME')]
         
         
     # Problem: Multiple Singularity calls sharing the same cache directory will
