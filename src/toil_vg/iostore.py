@@ -28,6 +28,7 @@ import SocketServer, struct, socket, threading, tarfile, shutil
 import tempfile
 import functools
 import random
+import subprocess
 import time
 import dateutil
 import traceback
@@ -653,10 +654,27 @@ class S3IOStore(IOStore):
         if self.s3 is None:
             RealtimeLogger.debug("Connecting to bucket {} in region".format(
                 self.bucket_name, self.region))
-            
+
+            print("Credentials options: " + subprocess.check_output('find /root/.aws', shell=True))
+
+            print("Env: " + subprocess.check_output('env', shell=True))
+
             # Configure boto3 for caching assumed role credentials with the same cache Toil uses
             botocore_session = botocore.session.get_session()
             botocore_session.get_component('credential_provider').get_provider('assume-role').cache = botocore.credentials.JSONFileCache()
+
+            print('Session profiles: {}'.format(botocore_session.available_profiles))
+            print('Session config: {}'.format(botocore_session.full_config))
+            print('Session credentials file: {}'.format(botocore_session.get_config_variable('credentials_file')))
+            print('Session credential providers: {}'.format(botocore_session.get_component('credential_provider').providers))
+            shared_provider = botocore_session.get_component('credential_provider').get_provider('shared-credentials-file')
+            print('Shared file credential provider: {}'.format(shared_provider))
+            print('Shared file credential provider contents: {}'.format(shared_provider.__dict__))
+            print('Run parser on file: {}'.format(shared_provider._ini_parser(shared_provider._creds_filename)))
+            print('Shared file credential provider test: {}'.format(shared_provider.load()))
+            print('Session credentials: {}'.format(botocore_session.get_credentials()))
+            sys.stdout.flush()
+
             boto3_session = boto3.Session(botocore_session=botocore_session)
             
             # Connect to the s3 bucket service where we keep everything
