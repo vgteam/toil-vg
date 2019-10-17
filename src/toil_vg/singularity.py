@@ -11,13 +11,23 @@
             singularityCall(job, tool='quay.io/ucgc_cgl/samtools:latest', work_dir=work_dir, parameters=parameters)
 """
 import base64
+import hashlib
 import logging
 import subprocess
 import pipes
 import os
+import shutil
+import sys
+import tempfile
 import time
 
+from toil.lib.misc import mkdir_p
+
 _logger = logging.getLogger(__name__)
+
+if sys.version_info[0] < 3:
+    # Define the error we see when trying to clobber a directory with a rename
+    FileExistsError = OSError
 
 
 def singularityCall(job,
@@ -103,12 +113,48 @@ def _singularity(job,
     # not work correctly. See https://github.com/sylabs/singularity/issues/3634
     # and https://github.com/sylabs/singularity/issues/4555.
     
-    # As a hacky workaround, we use a fresh cache for every Singularity run.
-    # TODO: use one per job or per worker.
-    singularity_env = os.environ.copy()
-    singularity_env['SINGULARITY_CACHEDIR'] = job.fileStore.getLocalTempDir()
+    # As a workaround, we have out own cache which we manage ourselves.
+    cache_dir = os.path.join(os.environ.get('SINGULARITY_CACHEDIR',  os.path.join(os.environ.get('HOME'), '.singularity')), 'toil')
+    mkdir_p(cache_dir)
+    
+    # What Singularity url/spec do we want?
+    source_image = _convertImageSpec(tool) 
+    
+    # What name in the cache dir do we want?
+    # We cache everything as sandbox directories and not .sif files because, as
+    # laid out in https://github.com/sylabs/singularity/issues/4617, there
+    # isn't a way to run from a .sif file and have write permissions on system
+    # directories in the container, because the .sif build process makes
+    # everything owned by root inside the image. Since some toil-vg containers
+    # (like the R one) want to touch system files (to install R packages at
+    # runtime), we do it this way to act more like Docker.
+    sandbox_dirname = os.path.join(cache_dir, '{}.sandbox'.format(hashlib.sha256(source_image).hexdigest()))
+    
+    if not os.path.exists(sandbox_dirname):
+        # We atomically drop the sandbox at that name when we get it
+        
+        # Make a temp directory to be the sandbox
+        temp_sandbox_dirname = tempfile.mkdtemp(dir=cache_dir)
 
-    # Make subprocess call
+        # Download with a fresh cache to a sandbox
+        download_env = os.environ.copy()
+        download_env['SINGULARITY_CACHEDIR'] = job.fileStore.getLocalTempDir()
+        subprocess.check_call(['singularity', 'build', '-s', '-F', temp_sandbox_dirname, source_image], env=download_env)
+
+        # Clean up the Singularity cache since it is single use
+        shutil.rmtree(download_env['SINGULARITY_CACHEDIR'])
+        
+        try:
+            # This may happen repeatedly but it is atomic
+            os.rename(temp_sandbox_dirname, sandbox_dirname)
+        except FileExistsError:
+            # Can't rename a directory over another
+            # Make sure someone else has made the directory
+            assert os.path.exists(sandbox_dirname)
+            # Remove our redundant copy
+            shutil.rmtree(temp_sandbox_name)
+
+    # Make subprocess call for singularity run
 
     # If parameters is list of lists, treat each list as separate command and chain with pipes
     if len(parameters) > 0 and type(parameters[0]) is list:
@@ -116,13 +162,13 @@ def _singularity(job,
         # We try to support spaces in paths by wrapping them all in quotes first.
         chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
         # Use bash's set -eo pipefail to detect and abort on a failure in any command in the chain
-        call = baseSingularityCall + [_convertImageSpec(tool), '/bin/bash', '-c',
+        call = baseSingularityCall + [sandbox_dirname, '/bin/bash', '-c',
                                  'set -eo pipefail && {}'.format(' | '.join(chain_params))]
     else:
-        call = baseSingularityCall + [_convertImageSpec(tool)] + parameters
+        call = baseSingularityCall + [sandbox_dirname] + parameters
     _logger.info("Calling singularity with " + repr(call))
 
-    params = {'env': singularity_env}
+    params = {}
     if outfile:
         params['stdout'] = outfile
     if checkOutput:
