@@ -467,16 +467,16 @@ class VGCGLTest(TestCase):
 
         ''' Test recall (using old caller)
         '''
-        self._run(['toil-vg', 'call', self.jobStoreLocal,
-                   '--container', self.containerType,
-                   '--clean', 'never', '--old_call',
-                   self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
-                   '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
-                   '--call_chunk_size', '23000', '--calling_cores', '4',
-                   '--realTimeLogging', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0', '--recall'])
-        self._run(['toil', 'clean', self.jobStoreLocal])
-
-        self._assertXREF('NA12877', outstore)        
+        #self._run(['toil-vg', 'call', self.jobStoreLocal,
+        #           '--container', self.containerType,
+        #           '--clean', 'never', '--old_call',
+        #           self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
+        #           '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
+        #           '--call_chunk_size', '23000', '--calling_cores', '4',
+        #           '--realTimeLogging', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0', '--recall'])
+        #self._run(['toil', 'clean', self.jobStoreLocal])
+        #
+        #self._assertXREF('NA12877', outstore)        
 
         # check bam not empty
         self.assertGreater(os.path.getsize(os.path.join(outstore, 'surject.bam')), 250000)
