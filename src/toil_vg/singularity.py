@@ -106,10 +106,16 @@ def _singularity(job,
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
-        baseSingularityCall += ['-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME')), '--pwd', os.environ.get('HOME')]
+        # Mount workdir as /mnt and work in there.
+        # Hope the image actually has a /mnt available.
+        # Otherwise this silently doesn't mount.
+        # But with -u (user namespaces) we have no luck pointing in-container
+        # home at anything other than our real home (like something under /var
+        # where Toil puts things).
+        # Note that we target Singularity 3+.
+        baseSingularityCall += ['-u', '-B', '{}:{}'.format(os.path.abspath(workDir), '/mnt'), '--pwd', '/mnt']
         
-        
-    # Problem: Multiple Singularity calls sharing the same cache directory will
+    # Problem: Multiple Singularity downloads sharing the same cache directory will
     # not work correctly. See https://github.com/sylabs/singularity/issues/3634
     # and https://github.com/sylabs/singularity/issues/4555.
     
@@ -128,6 +134,10 @@ def _singularity(job,
     # everything owned by root inside the image. Since some toil-vg containers
     # (like the R one) want to touch system files (to install R packages at
     # runtime), we do it this way to act more like Docker.
+    #
+    # Also, only sandbox directories work with user namespaces, and only user
+    # namespaces work inside unprivileged Docker containers like the Toil
+    # appliance.
     sandbox_dirname = os.path.join(cache_dir, '{}.sandbox'.format(hashlib.sha256(source_image).hexdigest()))
     
     if not os.path.exists(sandbox_dirname):
@@ -153,6 +163,10 @@ def _singularity(job,
             assert os.path.exists(sandbox_dirname)
             # Remove our redundant copy
             shutil.rmtree(temp_sandbox_name)
+            
+        # TODO: we could save some downloading by having one process download
+        # and the others wait, but then we would need a real fnctl locking
+        # system here.
 
     # Make subprocess call for singularity run
 
