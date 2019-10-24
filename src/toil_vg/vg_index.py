@@ -85,6 +85,8 @@ def index_toggle_parse_args(parser):
                         help="Make chromosome id ranges tables (so toil-vg map can optionally split output by chromosome)")
     parser.add_argument("--alt_path_gam_index", dest="indexes", action="append_const", const="alt-gam",
                         help="Save alt paths from vg into an indexed GAM")
+    parser.add_argument("--xg_alts", dest="indexes", action="append_const", const="xg_alts",
+                        help="Include alt paths in xg index")
     parser.add_argument("--all_index",  dest="indexes", action="store_const",
                         const=["gcsa", "xg", "gbwt", "snarls", "trivial_snarls", "distance", "minimizer", "id_ranges"],
                         help="Equivalent to --gcsa_index --xg_index --gbwt_index --snarls_index --trivial_snarls_index "
@@ -424,7 +426,7 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name, 
 def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                     vcf_phasing_file_id = None, tbi_phasing_file_id = None,
                     make_gbwt=False, gbwt_regions=[],
-                    intermediate=False):
+                    intermediate=False, include_alt_paths=False):
     """
 
     Make the xg index and optional GBWT haplotype index.
@@ -500,6 +502,9 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     command = ['vg', 'index', '--threads', str(job.cores), '--xg-name', os.path.basename(xg_filename)]
     command += phasing_opts + graph_filenames
     command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
+
+    if include_alt_paths:
+        command += ['--xg-alts']
     
     try:
         context.runner.call(job, command, work_dir=work_dir)
@@ -535,7 +540,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
 def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                         vcf_phasing_file_id = None, tbi_phasing_file_id = None,
                         make_gbwt=False, gbwt_regions=[], 
-                        intermediate=False, intermediate_cat=True):
+                        intermediate=False, intermediate_cat=True, include_alt_paths=False):
     """
     Encapsulates run_concat_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
@@ -563,6 +568,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       vcf_phasing_file_id, tbi_phasing_file_id,
                                       make_gbwt=make_gbwt, gbwt_regions=gbwt_regions,
                                       intermediate=intermediate,
+                                      include_alt_paths=include_alt_paths,
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
@@ -1235,6 +1241,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      vcf_id, tbi_id,
                                                                      make_gbwt=('gbwt' in wanted),
                                                                      gbwt_regions=gbwt_regions, intermediate=(len(chroms) > 1),
+                                                                     include_alt_paths=('xg_alts' in wanted),
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
@@ -1269,7 +1276,8 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                      context, inputGraphFileIDs,
                                                      graph_names, index_name,
                                                      None, None,
-                                                     make_gbwt=False, 
+                                                     make_gbwt=False,
+                                                     include_alt_paths=('xg_alts' in wanted),
                                                      cores=context.config.xg_index_cores,
                                                      memory=context.config.xg_index_mem,
                                                      disk=context.config.xg_index_disk)

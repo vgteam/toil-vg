@@ -823,6 +823,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                     haplo_xg_job = haplo_job.addFollowOnJobFn(run_xg_indexing, context, haplo_job.rv(haplotype),
                                                               joined_vg_names,
                                                               output_name_base + '_thread_{}'.format(haplotype),
+                                                              include_alt_paths = 'xg_alts' in wanted_indexes,
                                                               cores=context.config.xg_index_cores,
                                                               memory=context.config.xg_index_mem,
                                                               disk=context.config.xg_index_disk)
