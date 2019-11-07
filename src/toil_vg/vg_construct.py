@@ -105,8 +105,7 @@ def construct_subparser(parser):
                         help="Make a graph where all variants private to the CEPH pedigree, which includes "
                         "NA12878 are excluded")
     parser.add_argument("--filter_samples", nargs='+',
-                        help="Make a graph where all variants private to the CEPH pedigree, which includes "
-                        "NA12878 are excluded")
+                        help="Make a graph where all variants private to the the listed smaples are excluded")
     parser.add_argument("--min_af", type=float, default=[], nargs='+',
                         help="Create a graph including only variants with given minium allele frequency."
                         " If multiple frequencies given, a graph will be made for each one")
