@@ -11,12 +11,23 @@
             singularityCall(job, tool='quay.io/ucgc_cgl/samtools:latest', work_dir=work_dir, parameters=parameters)
 """
 import base64
+import hashlib
 import logging
 import subprocess
 import pipes
 import os
+import shutil
+import sys
+import tempfile
+import time
+
+from toil.lib.misc import mkdir_p
 
 _logger = logging.getLogger(__name__)
+
+if sys.version_info[0] < 3:
+    # Define the error we see when trying to clobber a directory with a rename
+    FileExistsError = OSError
 
 
 def singularityCall(job,
@@ -95,9 +106,69 @@ def _singularity(job,
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
-        baseSingularityCall += ['-H', '{}:{}'.format(os.path.abspath(workDir), os.environ.get('HOME')), '--pwd', os.environ.get('HOME')]
+        # Mount workdir as /mnt and work in there.
+        # Hope the image actually has a /mnt available.
+        # Otherwise this silently doesn't mount.
+        # But with -u (user namespaces) we have no luck pointing in-container
+        # home at anything other than our real home (like something under /var
+        # where Toil puts things).
+        # Note that we target Singularity 3+.
+        baseSingularityCall += ['-u', '-B', '{}:{}'.format(os.path.abspath(workDir), '/mnt'), '--pwd', '/mnt']
+        
+    # Problem: Multiple Singularity downloads sharing the same cache directory will
+    # not work correctly. See https://github.com/sylabs/singularity/issues/3634
+    # and https://github.com/sylabs/singularity/issues/4555.
+    
+    # As a workaround, we have out own cache which we manage ourselves.
+    cache_dir = os.path.join(os.environ.get('SINGULARITY_CACHEDIR',  os.path.join(os.environ.get('HOME'), '.singularity')), 'toil')
+    mkdir_p(cache_dir)
+    
+    # What Singularity url/spec do we want?
+    source_image = _convertImageSpec(tool) 
+    
+    # What name in the cache dir do we want?
+    # We cache everything as sandbox directories and not .sif files because, as
+    # laid out in https://github.com/sylabs/singularity/issues/4617, there
+    # isn't a way to run from a .sif file and have write permissions on system
+    # directories in the container, because the .sif build process makes
+    # everything owned by root inside the image. Since some toil-vg containers
+    # (like the R one) want to touch system files (to install R packages at
+    # runtime), we do it this way to act more like Docker.
+    #
+    # Also, only sandbox directories work with user namespaces, and only user
+    # namespaces work inside unprivileged Docker containers like the Toil
+    # appliance.
+    sandbox_dirname = os.path.join(cache_dir, '{}.sandbox'.format(hashlib.sha256(source_image).hexdigest()))
+    
+    if not os.path.exists(sandbox_dirname):
+        # We atomically drop the sandbox at that name when we get it
+        
+        # Make a temp directory to be the sandbox
+        temp_sandbox_dirname = tempfile.mkdtemp(dir=cache_dir)
 
-    # Make subprocess call
+        # Download with a fresh cache to a sandbox
+        download_env = os.environ.copy()
+        download_env['SINGULARITY_CACHEDIR'] = job.fileStore.getLocalTempDir()
+        subprocess.check_call(['singularity', 'build', '-s', '-F', temp_sandbox_dirname, source_image], env=download_env)
+
+        # Clean up the Singularity cache since it is single use
+        shutil.rmtree(download_env['SINGULARITY_CACHEDIR'])
+        
+        try:
+            # This may happen repeatedly but it is atomic
+            os.rename(temp_sandbox_dirname, sandbox_dirname)
+        except FileExistsError:
+            # Can't rename a directory over another
+            # Make sure someone else has made the directory
+            assert os.path.exists(sandbox_dirname)
+            # Remove our redundant copy
+            shutil.rmtree(temp_sandbox_name)
+            
+        # TODO: we could save some downloading by having one process download
+        # and the others wait, but then we would need a real fnctl locking
+        # system here.
+
+    # Make subprocess call for singularity run
 
     # If parameters is list of lists, treat each list as separate command and chain with pipes
     if len(parameters) > 0 and type(parameters[0]) is list:
@@ -105,10 +176,10 @@ def _singularity(job,
         # We try to support spaces in paths by wrapping them all in quotes first.
         chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
         # Use bash's set -eo pipefail to detect and abort on a failure in any command in the chain
-        call = baseSingularityCall + ['docker://{}'.format(tool), '/bin/bash', '-c',
+        call = baseSingularityCall + [sandbox_dirname, '/bin/bash', '-c',
                                  'set -eo pipefail && {}'.format(' | '.join(chain_params))]
     else:
-        call = baseSingularityCall + ['docker://{}'.format(tool)] + parameters
+        call = baseSingularityCall + [sandbox_dirname] + parameters
     _logger.info("Calling singularity with " + repr(call))
 
     params = {}
@@ -121,4 +192,42 @@ def _singularity(job,
 
     out = callMethod(call, **params)
 
+    # After Singularity exits, it is possible that cleanup of the container's
+    # temporary files is still in progress (sicne it also waits for the
+    # container to exit). If we return immediately and the Toil job then
+    # immediately finishes, we can have a race between Toil's temp
+    # cleanup/space tracking code and Singularity's temp cleanup code to delete
+    # the same directory tree. Toil doesn't handle this well, and crashes when
+    # files it expected to be able to see are missing (at least on some
+    # versions). So we introduce a delay here to try and make sure that
+    # Singularity wins the race with high probability.
+    #
+    # See https://github.com/sylabs/singularity/issues/1255
+    time.sleep(0.5)
+
     return out
+    
+def _convertImageSpec(spec):
+    """
+    Given an image specifier that may be either a Docker container specifier,
+    or a Singularity URL or filename, produce the Singularity URL or filename
+    that points to it.
+    
+    This consists of identifying the Docker container specifiers and prefixing
+    them with "docker://".
+    """
+   
+    if spec.startswith('/'):
+        # It's a file path we can use.
+        # Relative paths won't work because Toil uses unique working
+        # directories.
+        return spec
+   
+    if '://' in spec:
+        # Already a URL
+        return spec
+    
+    # Try it as a Docker specifier
+    return 'docker://' + spec
+    
+    

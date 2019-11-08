@@ -39,6 +39,7 @@ import datetime
 # Need stuff for Amazon s3
 try:
     import boto3
+    import botocore
     have_s3 = True
 except ImportError:
     have_s3 = False
@@ -653,8 +654,13 @@ class S3IOStore(IOStore):
             RealtimeLogger.debug("Connecting to bucket {} in region".format(
                 self.bucket_name, self.region))
             
+            # Configure boto3 for caching assumed role credentials with the same cache Toil uses
+            botocore_session = botocore.session.get_session()
+            botocore_session.get_component('credential_provider').get_provider('assume-role').cache = botocore.credentials.JSONFileCache()
+            boto3_session = boto3.Session(botocore_session=botocore_session)
+            
             # Connect to the s3 bucket service where we keep everything
-            self.s3 = boto3.client('s3')
+            self.s3 = boto3_session.client('s3')
             try:
                 self.s3.head_bucket(Bucket=self.bucket_name)            
             except:

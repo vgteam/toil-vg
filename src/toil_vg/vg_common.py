@@ -52,6 +52,24 @@ def test_docker():
     except:
         # It didn't work, so we can't use Docker
         return False
+        
+def test_singularity():
+    """
+    Return true if Singularity is available on this machine, and False otherwise.
+    """
+    
+    # We don't actually want any output.
+    nowhere = open(os.devnull, 'wb')
+    
+    try:
+        # Run Singularity
+        # TODO: implement around singularityCall somehow?
+        subprocess.check_call(['singularity', 'version'], stdout=nowhere, stderr=nowhere)
+        # And report that it worked
+        return True
+    except:
+        # It didn't work, so we can't use Singularity
+        return False
 
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
