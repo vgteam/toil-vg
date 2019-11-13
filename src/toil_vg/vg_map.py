@@ -849,7 +849,7 @@ def map_main(context, options):
 
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
-                                     memory=context.config.misc_memory,
+                                     memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
             init_job.addFollowOn(root_job)            
             

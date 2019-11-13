@@ -1663,7 +1663,7 @@ def construct_main(context, options):
                    
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
-                                     memory=context.config.misc_memory,
+                                     memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
             # Current job in follow-on chain
             cur_job = init_job
@@ -1710,7 +1710,7 @@ def construct_main(context, options):
             # Parse the regions from file
             if options.regions_file:
                 cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionsFileID, regions_regex,
-                                                   memory=context.config.misc_memory,
+                                                   memory=context.config.misc_mem,
                                                    disk=context.config.misc_disk)
                 regions = cur_job.rv()
             elif options.fasta_regions:
@@ -1721,7 +1721,7 @@ def construct_main(context, options):
                                                    inputFastaNames[0],
                                                    options.regions,
                                                    regions_regex,
-                                                   memory=context.config.misc_memory,
+                                                   memory=context.config.misc_mem,
                                                    disk=context.config.construct_disk)
                 regions = cur_job.rv()
             else:
