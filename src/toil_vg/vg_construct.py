@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_index import run_xg_indexing, run_indexing, run_bwa_index, index_parse_args, index_toggle_parse_args
+from toil_vg.vg_index import run_xg_indexing, run_indexing, run_bwa_index, index_parse_args, index_toggle_parse_args, validate_shared_index_options
 from toil_vg.vg_msga import run_msga, msga_parse_args
 logger = logging.getLogger(__name__)
 
@@ -187,6 +187,8 @@ def validate_construct_options(options):
     require(not options.haplo_sample or not options.sample_graph or
             (options.haplo_sample == options.sample_graph),
             '--haplo_sample and --sample_graph must be the same')
+
+    validate_shared_index_options(options)
 
 def chr_name_map(to_ucsc):
     """
@@ -783,7 +785,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        disk=context.config.construct_disk)
 
                 # Want to keep a whole-genome withref xg index around for mapeval purposes
-                if len(regions) > 1 and xg_index:
+                if len(regions) > 1 and ('xg' in wanted_indexes):
                     wanted = set('xg')
                     construct_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
                                                    joined_vg_names, output_name_base, chroms, [], [], 
@@ -1705,7 +1707,7 @@ def construct_main(context, options):
 
             # Parse the regions from file
             if options.regions_file:
-                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionFileID, regions_regex)
+                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionsFileID, regions_regex)
                 regions = cur_job.rv()
             elif options.fasta_regions:
                 # Extract fasta sequence names and append them to regions

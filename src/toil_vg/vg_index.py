@@ -123,6 +123,7 @@ def index_parse_args(parser):
                         
 def validate_index_options(options):
     """
+    Validate the index options semantics enforced by index only.
     Throw an error if an invalid combination of options has been selected.
     """
     if len(options.indexes) > 0:
@@ -136,18 +137,26 @@ def validate_index_options(options):
             '--gbwt_index, --minimizer_index, --distance_index, --all_index, --alt_path_gam_index or '
             '--bwa_index_fasta is required')
     require(not options.gbwt_prune or options.node_mapping,
-                '--node_mapping required with --gbwt_prune')
-    if options.vcf_phasing:
-        require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
-                'input phasing files must end with .vcf.gz')
-    if 'gbwt' in options.indexes:
-        require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
-    if options.gbwt_prune:
-        require(('gbwt' in options.indexes) or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
+            '--node_mapping required with --gbwt_prune')
     require('gbwt' not in options.indexes or not options.gbwt_input,
             'only one of --gbwt_index and --gbwt_input can be used at a time')
     if options.gbwt_input:
         require(options.gbwt_prune == 'gbwt', '--gbwt_prune required with --gbwt_input')
+    validate_shared_index_options(options)
+
+def validate_shared_index_options(options):
+    """
+    Validate the index options semantics enforced by index and construct.
+    Throw an error if an invalid combination of options has been selected.
+    """
+    
+    if options.vcf_phasing:
+        require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
+                'input phasing files must end with .vcf.gz')
+    if 'gbwt' in options.indexes:
+        require(len(options.vcf_phasing) > 0, 'generating a GBWT requires a VCF with phasing information')
+    if options.gbwt_prune:
+        require(('gbwt' in options.indexes) or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
     if options.vcf_phasing_regions:
         require('gbwt' in options.indexes, "cannot hint regions to GBWT indexer without building a GBWT index")
     
