@@ -1709,7 +1709,7 @@ def construct_main(context, options):
 
             # Parse the regions from file
             if options.regions_file:
-                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionsFileID, regions_regex
+                cur_job = cur_job.addFollowOnJobFn(run_scan_regions_file, context, inputRegionsFileID, regions_regex,
                                                    memory=context.config.misc_memory,
                                                    disk=context.config.misc_disk)
                 regions = cur_job.rv()
