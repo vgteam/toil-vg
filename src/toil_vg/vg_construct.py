@@ -1662,7 +1662,9 @@ def construct_main(context, options):
             haplo_extraction_sample = options.haplo_sample if options.haplo_sample else options.sample_graph       
                    
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
+                                     memory=context.config.misc_memory,
+                                     disk=context.config.misc_disk)
             # Current job in follow-on chain
             cur_job = init_job
 

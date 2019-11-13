@@ -820,7 +820,9 @@ def calleval_main(context, options):
             importer.wait()
             
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
+                                     memory=context.config.misc_memory,
+                                     disk=context.config.misc_disk)
 
             if options.vcfeval_fasta.endswith('.gz'):
                 # unzip the fasta for evaluation
