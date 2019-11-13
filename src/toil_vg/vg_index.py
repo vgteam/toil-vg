@@ -1142,7 +1142,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     xg_root_job = Job()
     chrom_xg_root_job.addFollowOn(xg_root_job)
     
-    RealtimeLogger.debug("Running indexing: {}.".format({
+    RealtimeLogger.info("Running indexing: {}.".format({
          'graph_names': graph_names,
          'index_name': index_name,
          'chroms': chroms,
@@ -1249,7 +1249,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
-            if len(chroms) > 1 and vcf_phasing_file_ids:
+            if len(chroms) > 1:
                 # Once all the per-chromosome GBWTs are done and we are ready to make the whole-graph GBWT, merge them up
                 indexes['gbwt'] = xg_root_job.addChildJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
                                                             index_name,
@@ -1258,7 +1258,6 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                             disk=context.config.xg_index_disk).rv()
             else:
                 # There's only one chromosome, so the one per-chromosome GBWT becomes the only GBWT
-                assert(len(chroms) == 1)
                 indexes['gbwt'] = indexes['chrom_gbwt'][0]
                 
         # now do the whole genome xg (without any gbwt)
