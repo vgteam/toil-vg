@@ -345,8 +345,8 @@ misc-disk: '1G'
 
 # Resources allotted for vg construction.
 construct-cores: 1
-construct-mem: '32G'
-construct-disk: '32G'
+construct-mem: '64G'
+construct-disk: '64G'
 
 # Resources allotted for xg indexing.
 xg-index-cores: 16

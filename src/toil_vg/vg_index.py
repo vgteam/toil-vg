@@ -123,6 +123,7 @@ def index_parse_args(parser):
                         
 def validate_index_options(options):
     """
+    Validate the index options semantics enforced by index only.
     Throw an error if an invalid combination of options has been selected.
     """
     if len(options.indexes) > 0:
@@ -136,18 +137,26 @@ def validate_index_options(options):
             '--gbwt_index, --minimizer_index, --distance_index, --all_index, --alt_path_gam_index or '
             '--bwa_index_fasta is required')
     require(not options.gbwt_prune or options.node_mapping,
-                '--node_mapping required with --gbwt_prune')
-    if options.vcf_phasing:
-        require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
-                'input phasing files must end with .vcf.gz')
-    if 'gbwt' in options.indexes:
-        require(options.vcf_phasing, 'generating a GBWT requires a VCF with phasing information')
-    if options.gbwt_prune:
-        require(('gbwt' in options.indexes) or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
+            '--node_mapping required with --gbwt_prune')
     require('gbwt' not in options.indexes or not options.gbwt_input,
             'only one of --gbwt_index and --gbwt_input can be used at a time')
     if options.gbwt_input:
         require(options.gbwt_prune == 'gbwt', '--gbwt_prune required with --gbwt_input')
+    validate_shared_index_options(options)
+
+def validate_shared_index_options(options):
+    """
+    Validate the index options semantics enforced by index and construct.
+    Throw an error if an invalid combination of options has been selected.
+    """
+    
+    if options.vcf_phasing:
+        require(all([vcf.endswith('.vcf.gz') for vcf in options.vcf_phasing]),
+                'input phasing files must end with .vcf.gz')
+    if 'gbwt' in options.indexes:
+        require(len(options.vcf_phasing) > 0, 'generating a GBWT requires a VCF with phasing information')
+    if options.gbwt_prune:
+        require(('gbwt' in options.indexes) or options.gbwt_input, '--gbwt_index or --gbwt_input required for --gbwt_prune')
     if options.vcf_phasing_regions:
         require('gbwt' in options.indexes, "cannot hint regions to GBWT indexer without building a GBWT index")
     
@@ -1142,7 +1151,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     xg_root_job = Job()
     chrom_xg_root_job.addFollowOn(xg_root_job)
     
-    RealtimeLogger.debug("Running indexing: {}.".format({
+    RealtimeLogger.info("Running indexing: {}.".format({
          'graph_names': graph_names,
          'index_name': index_name,
          'chroms': chroms,
@@ -1249,7 +1258,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
-            if len(chroms) > 1 and vcf_phasing_file_ids:
+            if len(chroms) > 1:
                 # Once all the per-chromosome GBWTs are done and we are ready to make the whole-graph GBWT, merge them up
                 indexes['gbwt'] = xg_root_job.addChildJobFn(run_merge_gbwts, context, indexes['chrom_gbwt'],
                                                             index_name,
@@ -1258,7 +1267,6 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                             disk=context.config.xg_index_disk).rv()
             else:
                 # There's only one chromosome, so the one per-chromosome GBWT becomes the only GBWT
-                assert(len(chroms) == 1)
                 indexes['gbwt'] = indexes['chrom_gbwt'][0]
                 
         # now do the whole genome xg (without any gbwt)
@@ -1448,7 +1456,9 @@ def index_main(context, options):
                                      disk=context.config.misc_disk)
 
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
             init_job.addFollowOn(root_job)            
             
             # Run the job and store the returned list of output files to download

@@ -200,7 +200,9 @@ def msga_main(context, options):
             importer.wait()            
             
             # Init the outstore
-            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv)
+            init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
             cur_job = init_job
 
             # Unzip the fasta
