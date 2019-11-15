@@ -190,14 +190,17 @@ def validate_construct_options(options):
 
     validate_shared_index_options(options)
 
-def chr_name_map(to_ucsc):
+def chr_name_map(to_ucsc, max_chrom=22):
     """
-    return a name map for chromosome name conversion in dict and string format
+    Return a name map for chromosome name conversion in dict and string format,
+    and a TSV string version of the same.
+    
+    Will contain mappings for chromosomes 1 to max_chrom, inclusive.
     """
     name_map = {}
     name_str = ''
     # TODO:  Should we do something with MT <==> chrM ?
-    for i in [c for c in range(22)] + ['X', 'Y']:
+    for i in list(range(1, max_chrom + 1)) + ['X', 'Y']:
         if to_ucsc:
             name_str += '{}\tchr{}\n'.format(i, i)
             name_map[str(i)] = 'chr{}'.format(i)
@@ -346,8 +349,13 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
     """
 
     work_dir = job.fileStore.getLocalTempDir()
+    
+    # How many chromosomes should we generate name mappings for?
+    # No more than there are regions certainly.
+    # But also never less than the 22 we expect in humans.
+    max_chrom = max(22, len(regions))
 
-    name_map, name_str = chr_name_map(to_ucsc)
+    name_map, name_str = chr_name_map(to_ucsc, max_chrom)
     out_regions = []
     something_to_rename = False
 
