@@ -82,7 +82,7 @@ snarl-index-mem: '4G'
 snarl-index-disk: '2G'
 
 # Resources allotted for distance indexing.
-distance-index-cores: 1
+distance-index-cores: 8
 distance-index-mem: '4G'
 distance-index-disk: '2G'
 
@@ -377,7 +377,7 @@ snarl-index-mem: '200G'
 snarl-index-disk: '100G'
 
 # Resources allotted for distance indexing.
-distance-index-cores: 1
+distance-index-cores: 16
 distance-index-mem: '200G'
 distance-index-disk: '100G'
 
