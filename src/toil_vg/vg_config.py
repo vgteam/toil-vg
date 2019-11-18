@@ -378,7 +378,7 @@ snarl-index-disk: '100G'
 
 # Resources allotted for distance indexing.
 distance-index-cores: 16
-distance-index-mem: '200G'
+distance-index-mem: '220G'
 distance-index-disk: '100G'
 
 # Resources allotted for minimizer indexing.
