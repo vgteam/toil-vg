@@ -761,6 +761,12 @@ def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
+    # Check our setup.
+    # TODO: Be able to build a minimizer index for all paths somehow if the
+    # GBWT isn't available, for e.g. a linear graph.
+    assert input_xg_id is not None
+    assert input_gbwt_id is not None
+
     # Download the input files.
     xg_filename = os.path.join(work_dir, 'graph.xg')
     job.fileStore.readGlobalFile(input_xg_id, xg_filename)
@@ -1130,11 +1136,13 @@ def run_indexing(job, context, inputGraphFileIDs,
     re-used.
     
     If the 'gbwt' index is requested and gbwt_id is not specified, the 'xg'
-    index will also be computed.
+    index will also be computed. If no phasing VCFs are provided, computing
+    this index will be skipped.
     
     If the 'minimizer' index is requested, the 'xg' index will also be
     computed, and the 'gbwt' index will either be computed or sourced from
-    gbwt_id.
+    gbwt_id. If the 'gbwt' index is not available, computing this index will be
+    skipped.
     
     If the 'distance' index is requested, the 'trivial_snarls' and 'xg' indexes
     will also be computed. 
@@ -1187,11 +1195,18 @@ def run_indexing(job, context, inputGraphFileIDs,
         # The distance index also has some dependencies
         wanted.add('xg')
         wanted.add('trivial_snarls')
+        
+    # We guarantee that if 'gbwt' is in indexes, then there is (a promise for)
+    # an actual GBWT.
 
     if 'xg' in wanted or 'gcsa' in wanted:
         indexes['chrom_xg'] = []
-        indexes['chrom_gbwt'] = []                                                            
-        if 'gbwt' in wanted:
+        indexes['chrom_gbwt'] = []
+        
+        if 'gbwt' in wanted and len(vcf_phasing_file_ids) > 0:
+            # We want to make a GBWT, and we can in fact make a GBWT.
+            # That's the only case we want per-chromosome XGs for anymore.
+        
             # In its current state, vg prune requires chromosomal xgs, so we must make
             # these xgs if we're doing any kind of gcsa indexing.  Also, if we're making
             # a gbwt, we do that at the same time (merging later if more than one graph).
@@ -1272,14 +1287,12 @@ def run_indexing(job, context, inputGraphFileIDs,
                 
         # now do the whole genome xg (without any gbwt)
         if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1:
+            # We made per-chromosome XGs and we have exactly one.
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
             indexes['xg'] = indexes['chrom_xg'][0]
         elif 'xg' in wanted:
-            # Build an xg index for the whole genome. We need to have
-            # access to all the per-chromosome GBWT files, if used, so we
-            # can set the haplotype names and per-chromosome haplotype
-            # count field in the xg.
+            # Build an xg index for the whole genome.
             
             xg_index_job = xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                      context, inputGraphFileIDs,
@@ -1304,11 +1317,12 @@ def run_indexing(job, context, inputGraphFileIDs,
     if 'gcsa' in wanted:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
         # todo: we're only taking in a genome gbwt as input, because that's all we write
-        if not indexes.has_key('chrom_gbwt') and indexes.has_key('gbwt'):
+        if (not indexes.has_key('chrom_gbwt') or indexes['chrom_gbwt'] == []) and indexes.has_key('gbwt'):
+            # We lack per-chromosome GBWTs but we have a whole genome one we can use
             indexes['chrom_gbwt'] = indexes['gbwt'] * len(inputGraphFileIDs)
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
                                                graph_names, index_name, chroms,
-                                               indexes['chrom_gbwt'] if gbwt_prune else [],
+                                               indexes.get('chrom_gbwt', []) if gbwt_prune else [],
                                                node_mapping_id,
                                                remove_paths=dont_restore_paths,
                                                cores=context.config.misc_cores,
@@ -1357,13 +1371,15 @@ def run_indexing(job, context, inputGraphFileIDs,
         
         indexes['distance'] = distance_job.rv()
         
-    if 'minimizer' in wanted:
+    if 'minimizer' in wanted and indexes.has_key('gbwt'):
         # We need a minimizer index, based on the GBWT (either provided or
         # computed) and the XG (which we know is being computed).
         
+        # If there's no GBWT available, we can't compute a minimizer index.
+        
         # Run it after our XG.
         # We know that, if the GBWT is being computed, it also happens under the XG job.
-        # TODO: change that
+        # TODO: change that.
         minimizer_job = xg_root_job.addFollowOnJobFn(run_minimizer_indexing, context, indexes['xg'],
                                                      indexes['gbwt'], index_name,
                                                      cores=context.config.minimizer_index_cores,
