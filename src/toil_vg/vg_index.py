@@ -727,7 +727,8 @@ def run_distance_indexing(job, context, input_xg_id, input_trivial_snarls_id, in
         logging.error("Distance indexing failed. Dumping files.")
         context.write_output_file(job, xg_filename)
         context.write_output_file(job, trivial_snarls_filename)
-        context.write_output_file(job, distance_filename)
+        if os.path.exists(distance_filename):
+            context.write_output_file(job, distance_filename)
         raise
     
     if index_name is not None:

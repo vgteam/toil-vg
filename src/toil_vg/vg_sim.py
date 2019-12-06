@@ -22,7 +22,6 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_construct import run_unzip_fasta
 from toil_vg.vg_mapeval import run_gam_to_fastq
 
 logger = logging.getLogger(__name__)
@@ -397,10 +396,7 @@ def sim_main(context, options):
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
 
-            # Unzip the fastq
-            if options.fastq and options.fastq.endswith('.gz'):
-                inputFastqFileID = init_job.addChildJobFn(run_unzip_fasta, context, importer.resolve(inputFastqFileID), 
-                                                          os.path.basename(options.fastq)).rv()
+            # FASTQs no longer need unzipping because vg can read .gz transparently.
 
             # Make a root job
             root_job = Job.wrapJobFn(run_sim, context, options.num_reads, options.gam,

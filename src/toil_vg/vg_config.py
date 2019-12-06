@@ -82,7 +82,7 @@ snarl-index-mem: '4G'
 snarl-index-disk: '2G'
 
 # Resources allotted for distance indexing.
-distance-index-cores: 1
+distance-index-cores: 8
 distance-index-mem: '4G'
 distance-index-disk: '2G'
 
@@ -153,7 +153,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.19.0-197-g088c438d2-t346-run'
+vg-docker: 'quay.io/vgteam/vg:v1.20.0'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -377,8 +377,8 @@ snarl-index-mem: '200G'
 snarl-index-disk: '100G'
 
 # Resources allotted for distance indexing.
-distance-index-cores: 1
-distance-index-mem: '200G'
+distance-index-cores: 16
+distance-index-mem: '220G'
 distance-index-disk: '100G'
 
 # Resources allotted for minimizer indexing.
@@ -448,7 +448,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.19.0-197-g088c438d2-t346-run'
+vg-docker: 'quay.io/vgteam/vg:v1.20.0'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
