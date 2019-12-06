@@ -119,7 +119,7 @@ def index_parse_args(parser):
     parser.add_argument("--gbwt_prune", action='store_true',
                         help="Use gbwt for gcsa pruning")
     parser.add_argument("--force_phasing", type=lambda x:bool(distutils.util.strtobool(x)), default=None,
-                        help="Randomly phase unphased variants when making GBWT if set to True")
+                        help="If 'True', randomly phase unphased variants and discard unresolveable overlaps for GBWT")
                         
 def validate_index_options(options):
     """
@@ -498,7 +498,8 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
                 phasing_opts += ['--region', region]
 
             if context.config.force_phasing:
-                phasing_opts += ['--force-phasing']
+                # We need to discard overlaps also to really get rid of haplotype breaks.
+                phasing_opts += ['--force-phasing', '--discard-overlaps']
     else:
         phasing_opts = []
         
