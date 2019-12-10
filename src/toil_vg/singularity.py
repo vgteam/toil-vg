@@ -162,7 +162,7 @@ def _singularity(job,
             # Make sure someone else has made the directory
             assert os.path.exists(sandbox_dirname)
             # Remove our redundant copy
-            shutil.rmtree(temp_sandbox_name)
+            shutil.rmtree(temp_sandbox_dirname)
             
         # TODO: we could save some downloading by having one process download
         # and the others wait, but then we would need a real fnctl locking
