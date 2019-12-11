@@ -753,15 +753,21 @@ def parse_id_ranges_file(id_ranges_filename):
                 id_ranges.append((toks[0], int(toks[1]), int(toks[2])))
     return id_ranges
 
-def remove_ext(string, ext):
+def remove_ext(string, ext=None):
     """
     Strip a suffix from a string. Case insensitive.
+    If no suffix given, strips the last . and everything after (like file extension)
     """
-    # See <https://stackoverflow.com/a/18723694>
+    if ext is None:
+        if string.rfind('.') >= 0:
+            ext = string[string.rfind('.'):]
+        else:
+            ext =""
     if string.lower().endswith(ext.lower()):
         return string[:-len(ext)]
     else:
         return string
+        
 
 def truncate_msg(msg, max_len=2000):
     """

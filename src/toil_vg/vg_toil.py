@@ -45,6 +45,8 @@ from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import *
 from toil_vg.vg_surject import *
 from toil_vg.vg_msga import *
+from toil_vg.vg_chunk import *
+from toil_vg.vg_augment import *
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +122,14 @@ def parse_args(args=None):
     parser_msga = subparsers.add_parser('msga', help='Align fasta sequences to a graph')
     msga_subparser(parser_msga)
 
+    # chunk subparser
+    parser_chunk = subparsers.add_parser('chunk', help='Split a graph into components')
+    chunk_subparser(parser_chunk)
+
+    # augment subparser
+    parser_augment = subparsers.add_parser('augment', help='Augment a graph with variation from a GAM')
+    augment_subparser(parser_augment)
+    
     # version subparser
     parser_version = subparsers.add_parser('version', help='Print version')
 
@@ -407,6 +417,10 @@ def main():
         plot_main(context, args)
     elif args.command == 'msga':
         msga_main(context, args)
+    elif args.command == 'chunk':
+        chunk_main(context, args)
+    elif args.command == 'augment':
+        augment_main(context, args)
     else:
         raise RuntimeError('Unimplemented subcommand {}'.format(args.command))
         
