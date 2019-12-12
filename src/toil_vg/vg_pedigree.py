@@ -50,7 +50,7 @@ def pedigree_subparser(parser):
                         help="sample name of father to the proband (ex HG003)")
     parser.add_argument("out_store",
                         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
-    parser.add_argument("--sibling_names", nargs-'+', type=str,
+    parser.add_argument("--sibling_names", nargs='+', type=str, default=None,
                         help="sample names of siblings to the proband. Optional.")
     parser.add_argument("--kmer_size", type=int,
                         help="size of kmers to use in gcsa-kmer mapping mode")
@@ -161,8 +161,14 @@ def validate_pedigree_options(context, options):
              '--surject not currently supported with --id_ranges')
         
 
-def run_pedigree(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
-                indexes, reads_file_ids=None, reads_chunk_ids=None,
+def run_pedigree(job, context, fastq_proband, gam_input_reads_proband, bam_input_reads_proband,
+                fastq_maternal, gam_input_reads_maternal, bam_input_reads_maternal,
+                fastq_paternal, gam_input_reads_paternal, bam_input_reads_paternal,
+                fastq_siblings, gam_input_reads_siblings, bam_input_reads_siblings,
+                proband_name, maternal_name, paternal_name, siblings_names,
+                interleaved, mapper, indexes,
+                reads_file_ids_proband=None, reads_file_ids_maternal=None, reads_file_ids_paternal=None, reads_file_ids_siblings=None,
+                reads_chunk_ids_proband=None, reads_chunk_ids_maternal=None, reads_chunk_ids_paternal=None, reads_chunk_ids_siblings=None,
                 bam_output=False, surject=False, 
                 gbwt_penalty=None, validate=False):
     """
@@ -198,37 +204,117 @@ def run_pedigree(job, context, fastq, gam_input_reads, bam_input_reads, sample_n
     """
     
     # Make sure we have exactly one type of input
-    assert (bool(fastq) + bool(gam_input_reads) + bool(bam_input_reads) == 1)
+    assert (bool(fastq_proband) + bool(gam_input_reads_proband) + bool(bam_input_reads_proband) == 1)
+    assert (bool(fastq_maternal) + bool(gam_input_reads_maternal) + bool(bam_input_reads_maternal) == 1)
+    assert (bool(fastq_paternal) + bool(gam_input_reads_paternal) + bool(bam_input_reads_paternal) == 1)
+    assert (bool(fastq_siblings) + bool(gam_input_reads_siblings) + bool(bam_input_reads_siblings) <= 1)
     
     # Make sure we have exactly one kind of file IDs
-    assert(bool(reads_file_ids) + bool(reads_chunk_ids) == 1)
-
-    # We may have to have a job to chunk the reads
-    chunk_job = None
-
-    if reads_chunk_ids is None:
-        # If the reads are not pre-chunked for us, we have to chunk them.
-        chunk_job = job.addChildJobFn(run_split_reads_if_needed, context, fastq, gam_input_reads, bam_input_reads,
-                                      reads_file_ids, cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                      disk=context.config.misc_disk)
-        reads_chunk_ids = chunk_job.rv()
-        
-    # We need a job to do the alignment
-    align_job = Job.wrapJobFn(run_whole_alignment, context, fastq, gam_input_reads, bam_input_reads, sample_name,
-                              interleaved, mapper, indexes, reads_chunk_ids,
-                              bam_output=bam_output, surject=surject,
-                              gbwt_penalty=gbwt_penalty,
-                              validate=validate,
-                              cores=context.config.misc_cores,
-                              memory=context.config.misc_mem, disk=context.config.misc_disk)
-                 
-    if chunk_job is not None:
-        # Alignment must happen after chunking
-        chunk_job.addFollowOn(align_job)
-    else:
-        # Alignment can happen now
-        job.addChild(align_job)
-                 
+    assert(bool(reads_file_ids_proband) + bool(reads_chunk_ids_proband) == 1)
+    assert(bool(reads_file_ids_maternal) + bool(reads_chunk_ids_maternal) == 1)
+    assert(bool(reads_file_ids_paternal) + bool(reads_chunk_ids_paternal) == 1)
+    assert(bool(reads_file_ids_siblings) + bool(reads_chunk_ids_siblings) <= 1)
+    
+    # to encapsulate everything under this job
+    proband_mapping_calling_child_jobs = Job()
+    maternal_mapping_calling_child_jobs = Job()
+    paternal_mapping_calling_child_jobs = Job()
+    parental_graph_construction_job = Job()
+    proband_sibling_mapping_calling_child_jobs = Job()
+    pedigree_joint_calling_job = Job()
+    proband_sibling_mapping_calling_child_jobs.addFollowOn(pedigree_joint_calling_job)
+    parental_graph_construction_job.addFollowOn(proband_sibling_mapping_calling_child_jobs)
+    
+    job.addChild(proband_mapping_calling_child_jobs)
+    job.addChild(maternal_mapping_calling_child_jobs)
+    job.addChild(paternal_mapping_calling_child_jobs)
+    job.addFollowOn(parental_graph_construction_job)
+    
+    proband_first_mapping_job = proband_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_proband,
+                                     gam_input_reads_proband, bam_input_reads_proband,
+                                     proband_name,
+                                     options.interleaved, options.mapper, importer.resolve(indexes),
+                                     reads_file_ids_proband,
+                                     bam_output=True, surject=True,
+                                     validate,
+                                     cores=context.config.misc_cores,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
+    # Start the proband alignment and variant calling
+    proband_calling_output = proband_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
+                                chr_bam_ids=proband_first_mapping_job.rv(2), baseline_vcf_id, baseline_tbi_id,
+                                fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
+    
+    maternal_mapping_job = maternal_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_maternal,
+                                     gam_input_reads_maternal, bam_input_reads_maternal,
+                                     maternal_name,
+                                     options.interleaved, options.mapper, importer.resolve(indexes),
+                                     reads_file_ids_maternal,
+                                     bam_output=True, surject=True,
+                                     validate,
+                                     cores=context.config.misc_cores,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
+    # Start the maternal alignment and variant calling
+    maternal_calling_output = maternal_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
+                                chr_bam_ids=maternal_mapping_job.rv(2), baseline_vcf_id, baseline_tbi_id,
+                                fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
+    
+    paternal_mapping_job = paternal_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_paternal,
+                                     gam_input_reads_paternal, bam_input_reads_paternal,
+                                     paternal_name,
+                                     options.interleaved, options.mapper, importer.resolve(indexes),
+                                     reads_file_ids_paternal,
+                                     bam_output=True, surject=True,
+                                     validate,
+                                     cores=context.config.misc_cores,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
+    # Start the paternal alignment and variant calling
+    paternal_calling_output = paternal_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
+                                chr_bam_ids=paternal_mapping_job.rv(2), baseline_vcf_id, baseline_tbi_id,
+                                fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
+    
+    
+    proband_mapping_output = proband_mapping_root_job.rv()
+    maternal_mapping_output = maternal_mapping_root_job.rv()
+    paternal_mapping_output = maternal_mapping_root_job.rv()
+   
+    #TODO: ADD TRIO VARIANT CALLING HERE
+    #       -- incorporate gvcf calling job functions here
+    #       -- adapt chunk calling infrastructure here
+    #TODO: ADD PARENTAL GRAPH CONSTRUCTION HERE
+    #TODO: HOOK PARENTAL GRAPH INTO PROBAND AND SIBLING ALIGNMENT HERE
+    sibling_root_job_dict =  {}
+    if siblings_names is not None: 
+        for sibling_number in xrange(len(siblings_names)):
+            
+            reads_file_ids_siblings_list = []
+            if fastq_siblings:
+                reads_file_ids_siblings_list = reads_file_ids_siblings[sibling_number*2:(sibling_number*2)+2]
+            elif gam_input_reads_siblings or bam_input_reads_siblings:
+                reads_file_ids_siblings_list = reads_file_ids_siblings[sibling_number]
+            sibling_root_job_dict[sibling_number] = Job.wrapJobFn(run_mapping, context, fastq_siblings[sibling_number],
+                                             gam_input_reads_siblings[sibling_number], bam_input_reads_siblings[sibling_number],
+                                             siblings_names[sibling_number],
+                                             options.interleaved, options.mapper, importer.resolve(indexes),
+                                             reads_file_ids_siblings_list,
+                                             bam_output=True, surject=True,
+                                             validate,
+                                             cores=context.config.misc_cores,
+                                             memory=context.config.misc_mem,
+                                             disk=context.config.misc_disk)
+            # Start the sibling alignment
+            job.addChild(sibling_root_job_dict[sibling_number])
+    
+    sibling_mapping_output_dict = {}
+    if siblings_names is not None:
+        for sibling_number in xrange(len(siblings_names)):
+            sibling_mapping_output_dict[sibling_number] = sibling_root_job_dict[sibling_number].rv()
+    
     return align_job.rv()
 
 
@@ -271,44 +357,46 @@ def pedigree_main(context, options):
                 indexes['id_ranges'] = importer.load(options.id_ranges)
             
             # Upload other local files to the remote IO Store
-            inputReadsFileIDs = []
+            inputReadsFileIDsProband = []
             if options.fastq_proband:
                 for sample_reads in options.fastq_proband:
-                    inputReadsFileIDs.append(importer.load(sample_reads))
+                    inputReadsFileIDsProband.append(importer.load(sample_reads))
             elif options.gam_input_reads_proband:
-                inputReadsFileIDs.append(importer.load(options.gam_input_reads_proband))
+                inputReadsFileIDsProband.append(importer.load(options.gam_input_reads_proband))
             else:
                 assert options.bam_input_reads_proband
-                inputReadsFileIDs.append(importer.load(options.bam_input_reads_proband))
+                inputReadsFileIDsProband.append(importer.load(options.bam_input_reads_proband))
 
+            inputReadsFileIDsMaternal = []
             if options.fastq_maternal:
                 for sample_reads in options.fastq_maternal:
-                    inputReadsFileIDs.append(importer.load(sample_reads))
+                    inputReadsFileIDsMaternal.append(importer.load(sample_reads))
             elif options.gam_input_reads_maternal:
-                inputReadsFileIDs.append(importer.load(options.gam_input_reads_maternal))
+                inputReadsFileIDsMaternal.append(importer.load(options.gam_input_reads_maternal))
             else:
                 assert options.bam_input_reads_maternal
-                inputReadsFileIDs.append(importer.load(options.bam_input_reads_maternal))
+                inputReadsFileIDsMaternal.append(importer.load(options.bam_input_reads_maternal))
             
+            inputReadsFileIDsPaternal = []
             if options.fastq_paternal:
                 for sample_reads in options.fastq_paternal:
-                    inputReadsFileIDs.append(importer.load(sample_reads))
+                    inputReadsFileIDsPaternal.append(importer.load(sample_reads))
             elif options.gam_input_reads_paternal:
-                inputReadsFileIDs.append(importer.load(options.gam_input_reads_paternal))
+                inputReadsFileIDsPaternal.append(importer.load(options.gam_input_reads_paternal))
             else:
                 assert options.bam_input_reads_paternal
-                inputReadsFileIDs.append(importer.load(options.bam_input_reads_paternal))
+                inputReadsFileIDsPaternal.append(importer.load(options.bam_input_reads_paternal))
             
+            inputReadsFileIDsSiblings = []
             if options.fastq_siblings:
                 for sample_reads in options.fastq_siblings:
-                    inputReadsFileIDs.append(importer.load(sample_reads))
+                    inputReadsFileIDsSiblings.append(importer.load(sample_reads))
             elif options.gam_input_reads_siblings:
                 for sample_gam_reads in options.gam_input_reads_siblings:
-                    inputReadsFileIDs.append(importer.load(sample_gam_reads))
-            else:
-                assert options.bam_input_reads_siblings
+                    inputReadsFileIDsSiblings.append(importer.load(sample_gam_reads))
+            elif options.bam_input_reads_siblings:
                 for sample_bam_reads in options.bam_input_reads_siblings:
-                    inputReadsFileIDs.append(importer.load(sample_bam_reads))
+                    inputReadsFileIDsSiblings.append(importer.load(sample_bam_reads))
             
             importer.wait()
 
@@ -326,7 +414,10 @@ def pedigree_main(context, options):
                                      options.paternal_name,
                                      options.sibling_names,
                                      options.interleaved, options.mapper, importer.resolve(indexes),
-                                     reads_file_ids=importer.resolve(inputReadsFileIDs),
+                                     reads_file_ids_proband=importer.resolve(inputReadsFileIDsProband),
+                                     reads_file_ids_maternal=importer.resolve(inputReadsFileIDsMaternal),
+                                     reads_file_ids_paternal=importer.resolve(inputReadsFileIDsPaternal),
+                                     reads_file_ids_siblings=importer.resolve(inputReadsFileIDsSiblings),
                                      bam_output=options.bam_output, surject=options.surject,
                                      validate=options.validate,
                                      cores=context.config.misc_cores,
