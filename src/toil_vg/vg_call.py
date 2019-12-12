@@ -14,6 +14,8 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_chunk import *
+from toil_vg.vg_augment import *
 
 logger = logging.getLogger(__name__)
 
@@ -24,509 +26,294 @@ def call_subparser(parser):
 
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
-
+    
     # General options
-    parser.add_argument("xg_path", type=make_url,
-                        help="input xg file")
-    parser.add_argument("sample_name", type=str,
-                        help="sample name (ex NA12878)")
     parser.add_argument("out_store",
                         help="output store.  All output written here. Path specified "
                         "using same syntax as toil jobStore")
-    parser.add_argument("--chroms", nargs='+', required=True,
-                        help="Name(s) of reference path in graph(s) (separated by space)."
-                        " Must be same length/order as --gams.  All paths used if not specified")
-    # todo: move to chunked_call_parse_args and share with toil-vg run
-    parser.add_argument("--gams", nargs='+', required=True, type=make_url,
-                        help="GAMs to call.  One per chromosome in the same order as --chroms, or just one. "
-                        " Indexes (.gai) will be used if found.")
+    parser.add_argument("--gam", type=make_url, required=True,
+                        help="GAM to call")
+    parser.add_argument("--graph", type=make_url, required=True,
+                        help="graph to augment")
+    parser.add_argument("--snarls", type=make_url,
+                        help="Path to snarls file")
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
 
     # Add common calling options shared with toil_vg pipeline
-    chunked_call_parse_args(parser)
+    call_parse_args(parser)
+
+    # Add common chunking options
+    chunk_parse_args(parser)
+
+    # Add common augmenting options
+    augment_parse_args(parser)
 
     # Add common docker options shared with toil_vg pipeline
     add_container_tool_parse_args(parser)
                         
 
-def chunked_call_parse_args(parser):
+def call_parse_args(parser):
     """ centralize calling parameters here """
-    parser.add_argument("--overlap", type=int,
-                        help="overlap option that is passed into make_chunks and call_chunk")
-    parser.add_argument("--call_chunk_size", type=int,
-                        help="chunk size (set to 0 to disable chunking)")
-    parser.add_argument("--recall_context", type=int,
-                        help="Override chunk context when using --recall or --genotype_vcf")
-    parser.add_argument("--call_opts", type=str,
-                        help="arguments to pass to vg call (wrapped in \"\")")
-    parser.add_argument("--genotype", action="store_true",
-                        help="use vg genotype instead of vg call")
-    parser.add_argument("--genotype_opts", type=str,
-                        help="arguments to pass to vg genotype (wrapped in \"\")")
+    parser.add_argument("--sample", type=str,
+                        help="sample name for output VCF")
+    parser.add_argument("--ref_paths", nargs='+', default=[],
+                        help="reference paths to call (and chunk) on")
+    parser.add_argument("--ref_path_chunking", action="store_true",
+                        help="chunk on --reF_paths")
+    parser.add_argument("--genotype_vcf", type=make_url,
+                        help="genotype the given VCF.  Input graph must contain alt paths from VCF")
     parser.add_argument("--filter_opts", type=str,
                         help="argument to pass to vg filter (wrapped in \"\")")
-    parser.add_argument("--pack_opts", type=str,
-                        help="argument to pass to vg pack (wrapped in \"\")")
+    parser.add_argument("--vcf_offsets", nargs='+', default=[],
+                        help="offset(s) to apply to output vcfs(s). (order of --chroms)")
+    parser.add_argument("--min_call_support", type=float,
+                        help="minimum support to make a call")
     parser.add_argument("--calling_cores", type=int,
                         help="number of threads during the variant calling step")
     parser.add_argument("--calling_mem", type=str,
                         help="memory alotment during the variant calling step")
-    parser.add_argument("--call_chunk_cores", type=int,
-                        help="number of threads used for extracting chunks for calling")
-    parser.add_argument("--call_chunk_mem", type=str,
-                        help="memory alotment for extracting chunks for calling")
-    parser.add_argument("--vcf_offsets", nargs='+', default=[],
-                        help="offset(s) to apply to output vcfs(s). (order of --chroms)")
-    parser.add_argument("--recall", action="store_true",
-                        help="only call variants present in the graph")
-    parser.add_argument("--alt_path_gam", type=make_url,
-                        help="GAM storing alt paths for use with --genotype_vcf, as created by toil-vg construct/index"
-                        " --alt_path_gam_index. Must have associated .gai")
-    parser.add_argument("--genotype_vcf", type=make_url,
-                        help="Genotype variants in a given .vcf.gz file. This file must have been used to construct"
-                        " the graph (with --alt_path_gam_index")
-    parser.add_argument("--id_ranges", type=make_url,
-                        help="id ranges (from toil-vg construct/indexes) required for vg pack interface")
-    parser.add_argument("--pack", action="store_true",
-                        help="use vg pack instead of vg augment -a pileup to compute support")
-    parser.add_argument("--snarls", type=make_url,
-                        help="Path to snarls file")
-    parser.add_argument("--old_call", action="store_true",
-                         help="use deprecated calling logic (for testing)")
 
-def validate_call_options(options):    
-    require(not options.chroms or len(options.chroms) == len(options.gams) or len(options.gams) == 1,
-            'Number of --chroms must be 1 or same as number of --gams')
-    require(not options.vcf_offsets or len(options.vcf_offsets) == len(options.chroms),
-            'Number of --vcf_offsets if specified must be same as number of --chroms')
-    require(not options.genotype or not options.recall,
-            '--recall not yet supported with --genotype')
-    require((options.alt_path_gam is not None) == (options.genotype_vcf is not None),
-            '--alt_path_gam must be used in conjunction with --genotype_vcf')
-    require(not options.genotype_vcf or options.genotype_vcf.endswith('.vcf.gz'),
-            'file passed to --genotype_vcf must end with .vcf.gz')
-    require(not options.snarls or options.recall or options.genotype_vcf,
-            'snarl index can only be used with --recall or --genotype_vcf')
-    
-def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
-    """ from vcflib """
-    vcf_dir, vcf_name = os.path.split(vcf_path)
-    with open(sorted_vcf_path, "w") as outfile:
-        drunner.call(job, [['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
-                     work_dir=vcf_dir)
-        drunner.call(job, [['bcftools', 'view', '-H', vcf_name],
-                      ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
-                     work_dir=vcf_dir)
+def validate_call_options(options):
+    require(not options.vcf_offsets or len(options.vcf_offsets) == len(options.ref_paths),
+            'Number of --vcf_offsets if specified must be same as number of --ref_paths')
+    require(not options.augment_gam or options.genotype_vcf is None,
+            '--augment_gam cannot be used with --genotype_vcf.'
+            ' vg call does not (yet) support genotyping on augmented graphs')
+    require(not options.augment_gam or options.snarls is None,
+            '--augment_gam cannot be used with --snarls.')
+    require(not options.connected_components or not options.genotype_vcf,
+            '--only path chunking (not --connected_components) supported with --genotype_vcf')
+    require(not options.connected_components or not options.ref_path_chunking,
+            '--connected_components cannot be used with --ref_path_chunking')
+
+def run_chunked_calling(job, context,
+                        graph_id,
+                        graph_basename,
+                        gam_id,
+                        gam_basename,
+                        batch_input=None,
+                        snarls_id=None,
+                        genotype_vcf_id=None,
+                        input_tbi_id=None,
+                        sample=None,
+                        augment_gam=False,
+                        connected_component_chunking=False,
+                        output_format=None,
+                        min_augment_coverage=None,
+                        expected_coverage=None,
+                        min_mapq=None,
+                        min_baseq=None,
+                        ref_paths=[],
+                        ref_path_chunking=True,
+                        min_call_support=None,
+                        vcf_offsets=[]):
+
+    # base case: only one input
+    if batch_input is None:
+        # chunk if necessary
+        if connected_component_chunking or ref_path_chunking:
+            child_job = Job()
+            job.addChild(child_job)
+
+            chunk_job = child_job.addChildJobFn(run_chunking, context,
+                                                graph_id=graph_id,
+                                                graph_basename=graph_basename,
+                                                chunk_paths=ref_paths,
+                                                connected_component_chunking=connected_component_chunking,
+                                                output_format=output_format,
+                                                gam_id=gam_id,
+                                                to_outstore=False,
+                                                cores=context.config.call_chunk_cores,
+                                                memory=context.config.call_chunk_mem,
+                                                disk=context.config.call_chunk_disk)
+
+            batch_input = chunk_job.rv()
+
+            # recurse on chunks
+            recurse_job = child_job.addFollowOnJobFn(run_chunked_calling, context,
+                                                     graph_id=None,
+                                                     graph_basename=None,
+                                                     gam_id=None,
+                                                     gam_basename=None,
+                                                     batch_input=batch_input,
+                                                     snarls_id=snarls_id,
+                                                     genotype_vcf_id=genotype_vcf_id,
+                                                     input_tbi_id=input_tbi_id,
+                                                     sample=sample,
+                                                     augment_gam=augment_gam,
+                                                     connected_component_chunking=connected_component_chunking,
+                                                     output_format=output_format,
+                                                     min_augment_coverage=min_augment_coverage,
+                                                     expected_coverage=expected_coverage,
+                                                     min_mapq=min_mapq,
+                                                     min_baseq=min_baseq,
+                                                     ref_paths=ref_paths,
+                                                     ref_path_chunking=ref_path_chunking,
+                                                     min_call_support=min_call_support,
+                                                     vcf_offsets=vcf_offsets)
+            return recurse_job.rv()
+        else:
+            #phony up chunk output for single input
+            batch_input = { 'all' : [graph_id, graph_basename] }
+            if gam_id:
+                batch_input['all'] += [gam_id, gam_basename]
+
+    # run the calling on each chunk
+    assert batch_input
+
+    call_results = []
+    for chunk_name, chunk_results in batch_input.items():
+        calling_root_job = Job()
+        job.addChild(calling_root_job)
+
+        graph_id, graph_basename, gam_id, gam_basename = chunk_results
         
-def run_vg_call(job, context, sample_name, vg_id, gam_id, xg_id = None,
-                path_names = [], seq_names = [], seq_offsets = [], seq_lengths = [],
-                chunk_name = 'call', genotype = False, recall = False, clip_info = None,
-                augment_results = None, augment_only = False, alt_gam_id = None,
-                genotype_vcf_id = None, genotype_tbi_id = None, snarls_id = None, pack_support = False,
-                old_call = False):
-    """ Run vg call or vg genotype on a single graph.
+        if augment_gam:
+            augment_job = calling_root_job.addFollowOnJobFn(run_augmenting, context,
+                                                            graph_id=graph_id,
+                                                            graph_basename=graph_basename,
+                                                            gam_id=gam_id,
+                                                            gam_basename=gam_basename,
+                                                            augment_gam=augment_gam,
+                                                            min_augment_coverage=min_augment_coverage,
+                                                            expected_coverage=expected_coverage,
+                                                            min_mapq=min_mapq,
+                                                            min_baseq=min_baseq,
+                                                            to_outstore=True,
+                                                            cores=context.config.call_chunk_cores,
+                                                            memory=context.config.call_chunk_mem,
+                                                            disk=context.config.call_chunk_disk)
+            graph_id = augment_job.rv(0)
+            graph_basename = os.path.splitext(graph_basename)[0] + '-aug' + os.path.splitext(graph_basename)[1]
+            gam_id = augment_job.rv(1)
+            gam_basename = os.path.splitext(gam_basename)[0] + '-aug' + os.path.splitext(gam_basename)[1]
+            calling_root_job = augment_job
 
-    Returns (vcf_id, pileup_id, xg_id, gam_id, augmented_graph_id). pileup_id and xg_id
-    can be same as input if they are not computed.  If pileup/xg/augmented are 
-    computed, the returned ids will be None unless appropriate keep_flag set
-    (to prevent sending them to the file store if they aren't wanted)
+        # When path chunking, we subset our reference paths down to the current path
+        if ref_path_chunking:
+            ref_path = [chunk_name]
+        else:
+            ref_path = ref_paths
 
-    User is responsible to make sure that options passed in context.config.*_opts don't conflict
-    with seq_names, seq_offsets, seq_lengths etc. If not provided, the pileup is computed.
+        calling_job = calling_root_job.addFollowOnJobFn(run_calling, context,
+                                                        graph_id=graph_id,
+                                                        graph_basename=graph_basename,
+                                                        gam_id=gam_id,
+                                                        gam_basename=gam_basename,
+                                                        snarls_id=snarls_id,
+                                                        genotype_vcf_id=genotype_vcf_id,
+                                                        input_tbi_id=input_tbi_id,
+                                                        sample=sample,
+                                                        expected_coverage=expected_coverage,
+                                                        min_mapq=min_mapq,
+                                                        ref_paths=ref_path,
+                                                        min_call_support=min_call_support,
+                                                        vcf_offsets=vcf_offsets,
+                                                        cores=context.config.call_chunk_cores,
+                                                        memory=context.config.call_chunk_mem,
+                                                        disk=context.config.call_chunk_disk)
 
-    gam filtering is only done if filter_opts are passed in. 
+        call_results.append((chunk_name, calling_job.rv()))
 
-    chunk_name option is only for working filenames (to make more readable)
-    
-    When running vg genotype, we can't recall (since recall in vg genotype needs a VCF). 
+    return call_results
 
-    augment_results is a dict with the ids of augment results from a previous run of augment
-    if it's given, then they are used and augment is not run
-
-    if augment_only is True, then calling is skipped and augment_results will be output
-
+def run_calling(job, context,
+                graph_id,
+                graph_basename,
+                gam_id,
+                gam_basename,
+                snarls_id=None,
+                genotype_vcf_id=None,
+                input_tbi_id=None,
+                sample=None,
+                expected_coverage=None,
+                min_mapq=None,
+                ref_paths=None,
+                min_call_support=None,
+                vcf_offsets=None,
+                to_outstore=True):
+    """
+    run vg pack and vg call to make a vcf
     """
     work_dir = job.fileStore.getLocalTempDir()
-    new_call = not genotype and not old_call
-    if new_call:
-        pack_support = True
-        if not recall:
-            xg_id = None
-
-    filter_opts = context.config.filter_opts if not recall else context.config.recall_filter_opts
-    augment_opts = context.config.augment_opts
-    if genotype:
-        call_opts = context.config.genotype_opts
-    elif old_call:
-        call_opts = context.config.call_opts if not recall else context.config.recall_opts
-    else:
-        call_opts = []
 
     # Read our input files from the store
-    vg_path = os.path.join(work_dir, '{}.vg'.format(chunk_name))
-    job.fileStore.readGlobalFile(vg_id, vg_path)
-    gam_path = os.path.join(work_dir, '{}.gam'.format(chunk_name))
-    xg_path = os.path.join(work_dir, '{}.xg'.format(chunk_name))
-    if not augment_results:
-        job.fileStore.readGlobalFile(gam_id, gam_path)
-        defray = filter_opts and ('-D' in filter_opts or '--defray-ends' in filter_opts)
-        if xg_id and (defray or pack_support):
-            job.fileStore.readGlobalFile(xg_id, xg_path)
-        if alt_gam_id:
-            alt_gam_path = os.path.join(work_dir, '{}_alts.gam'.format(chunk_name))
-            job.fileStore.readGlobalFile(alt_gam_id, alt_gam_path)
-
-    snarls_path = os.path.join(work_dir, '{}.snarls'.format(chunk_name))
+    graph_path = os.path.join(work_dir, graph_basename)
+    job.fileStore.readGlobalFile(graph_id, graph_path)    
+    gam_path = os.path.join(work_dir, gam_basename)
+    job.fileStore.readGlobalFile(gam_id, gam_path)
+    snarls_path = remove_ext(graph_path) + '.snarls'
     if snarls_id:
         job.fileStore.readGlobalFile(snarls_id, snarls_path)
+    genotype_vcf_path = remove_ext(graph_path) + '.vcf.gz'
+    genotype_tbi_path = genotype_vcf_path + '.tbi'
+    if genotype_vcf_id:
+        job.fileStore.readGlobalFile(genotype_vcf_id, genotype_vcf_path)
+        job.fileStore.readGlobalFile(genotype_tbi_id, genotype_tbi_path)
+        # (I think this is the only case where we want to do this)
+        if ref_paths and len(ref_paths) == 1:
+            # cut the VCF to match our chunk
+            sub_vcf_path = remove_ext(genotype_vcf_path, '.vcf.gz') + '_' + ref_paths[0] + '.vcf.gz'
+            sub_tbi_path = sub_vcf_path + '.tbi'
+            with open(sub_vcf_path, 'w') as sub_vcf_file:
+                context.runner.call(job, ['bcftools', 'view', os.path.basename(genotype_vcf_path), '-r',
+                                          ref_paths[0], '-O', 'z'], work_dir = work_dir, outfile = sub_vcf_file)
+            context.runner.call(job, ['tabix', '-f', '-p', 'vcf', os.path.basename(sub_vcf_path)], work_dir = work_dir)
+            genotype_vcf_path, genotype_tbi_path = sub_vcf_path, sub_tbi_path
+            
+    # Run vg pack
+    pack_path = remove_ext(gam_path) + '.pack'
+
+    pack_cmd = ['vg', 'pack', '-x', os.path.basename(graph_path), '-g', os.path.basename(gam_path),
+                '-o', os.path.basename(pack_path), '-t', str(job.cores)]
+
+    if min_mapq is not None:
+        pack_cmd += ['-Q', str(min_mapq)]
+    if expected_coverage is not None:
+        pack_cmd += ['-c', str(expected_coverage)]
+
+    try:
+        context.runner.call(job, pack_cmd, work_dir = work_dir)
+    except Exception as e:
+        logging.error("Pack failed. Dumping input files to outstore.")
+        for dump_path in [graph_path, gam_path]:
+            if dump_path and os.path.isfile(dump_path):
+                context.write_output_file(job, dump_path)
+        raise
+    
+    # Run vg call
+    out_vcf_path = remove_ext(graph_path)
+    if sample:
+        out_vcf_path += '_' + sample
+    out_vcf_path += '.vcf.gz'
+
+    call_cmd = ['vg', 'call', os.path.basename(graph_path), '-k', os.path.basename(pack_path), '-t', str(job.cores)]
+    if genotype_vcf_id:
+        call_cmd += ['-v', os.path.basename(genotype_vcf_path)]
+    if snarls_id:
+        call_cmd += ['-r', os.path.basename(snarls_path)]
+    if ref_paths:
+        for ref_path in ref_paths:
+            call_cmd += ['-p', ref_path]
+    if sample:
+        call_cmd += ['-s', sample]
+
+    try:
+        with open(out_vcf_path, 'w') as out_vcf_file:
+            context.runner.call(job, [call_cmd, ['bgzip']], work_dir = work_dir, outfile = out_vcf_file)
+    except Exception as e:
+        logging.error("Pack failed. Dumping input files to outstore.")
+        for dump_path in [graph_path, pack_path, snarls_path, genotype_vcf_path, genotype_tbi_path]:
+            if dump_path and os.path.isfile(dump_path):
+                context.write_output_file(job, dump_path)
+        raise
         
-    # Define paths for all the files we might make
-    pu_path = os.path.join(work_dir, '{}.pu'.format(chunk_name))
-    trans_path = os.path.join(work_dir, '{}.trans'.format(chunk_name))
-    support_path = os.path.join(work_dir, '{}.support'.format(chunk_name))
-    aug_path = os.path.join(work_dir, '{}_aug.vg'.format(chunk_name))
-    aug_gam_path = os.path.join(work_dir, '{}_aug.gam'.format(chunk_name))
-    vcf_path = os.path.join(work_dir, '{}_call.vcf'.format(chunk_name))
-    sorted_vcf_path = os.path.join(work_dir, '{}_call_sorted.vcf'.format(chunk_name))
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', os.path.basename(out_vcf_path)], work_dir=work_dir)
 
-    timer = TimeTracker()
-
-    if not augment_results:
-
-        # optional alt path augmentation
-        if alt_gam_id:
-            # Note: There's no reason why this should modify the nodes and edges as the paths were already
-            # embedded.  But if it does due to a bug somewhere, terrible downstream errors will result. 
-            alt_augment_cmd = ['vg', 'augment', '--label-paths', os.path.basename(vg_path), os.path.basename(alt_gam_path)]
-            vg_alt_aug_path = os.path.join(work_dir, '{}_alts.vg'.format(chunk_name))
-            with open(vg_alt_aug_path, 'w') as aug_vg_file:
-                context.runner.call(job, alt_augment_cmd, work_dir=work_dir, outfile=aug_vg_file)
-            vg_path = vg_alt_aug_path
-
-        # we only need an xg if using vg filter -D
-        if not xg_id and (defray or pack_support or new_call):
-            timer.start('chunk-xg')
-            xg_cmd = ['vg', 'index', os.path.basename(vg_path), '-x',
-                      os.path.basename(xg_path), '-t', str(context.config.calling_cores)]
-            if new_call and genotype_vcf_id:
-                xg_cmd += ['-L']
-            context.runner.call(job, xg_cmd,  work_dir = work_dir)
-            timer.stop()
-
-        # optional gam filtering
-        gam_filter_path = gam_path + '.filter'
-        filter_command = None
-        if filter_opts:
-            filter_command = ['vg', 'filter', os.path.basename(gam_path), '-t', str(context.config.calling_cores)] + filter_opts
-            if defray:
-                filter_command += ['-x', os.path.basename(xg_path)]
-            if genotype or pack_support:
-                with open(gam_filter_path, 'w') as gam_filter_file:
-                    context.runner.call(job, filter_command, work_dir = work_dir, outfile = gam_filter_file)
-                filter_command = None
-        else:
-            gam_filter_path = gam_path
-
-        # augmentation
-        augment_command = []
-        augment_generated_opts = []
-        if filter_command is not None:
-            aug_gam_input = '-'
-            augment_command.append(filter_command)
-        else:
-            aug_gam_input = os.path.basename(gam_filter_path)
-
-        if genotype or pack_support or new_call:
-            augment_generated_opts = ['--augmentation-mode', 'direct', '--cut-softclips',
-                                      '--alignment-out', os.path.basename(aug_gam_path)]
-            augment_opts = []
-        else:
-            augment_generated_opts = ['--augmentation-mode', 'pileup',
-                                      '--translation', os.path.basename(trans_path),
-                                      '--support', os.path.basename(support_path)]
-            if recall:
-                augment_opts = []
-                augment_generated_opts += ['--recall']
-
-        if not recall or not (genotype or pack_support or new_call):
-            augment_command.append(['vg', 'augment', os.path.basename(vg_path), aug_gam_input,
-                                    '-t', str(context.config.calling_cores)] + augment_opts + augment_generated_opts)
-
-            try:
-                with open(aug_path, 'w') as aug_stream:
-                    timer.start('call-filter-augment')
-                    context.runner.call(job, augment_command, work_dir=work_dir, outfile=aug_stream)
-                    timer.stop()
-            except Exception as e:
-                logging.error("Augmentation failed. Dumping files.")
-                for dump_path in [vg_path, gam_path, gam_filter_path]:
-                    if dump_path and os.path.isfile(dump_path):
-                        context.write_output_file(job, dump_path)        
-                raise e
-
-            # xg-index the augmented graph
-            if pack_support:
-                xg_cmd = ['vg', 'index',  os.path.basename(aug_path), '-x', os.path.basename(xg_path)]
-                context.runner.call(job, xg_cmd, work_dir=work_dir)
-        else:
-            aug_path = vg_path
-            aug_gam_path = gam_filter_path
-
-        # run vg pack to compute supports
-        if pack_support:
-            pack_cmd = ['vg', 'pack', '-x', os.path.basename(xg_path), '-t', str(job.cores),
-                        '-g', os.path.basename(aug_gam_path),
-                        '-o', os.path.basename(support_path)]
-            if context.config.pack_opts:
-                pack_cmd += context.config.pack_opts
-            try:
-                context.runner.call(job, pack_cmd, work_dir = work_dir)
-            except Exception as e:
-                logging.error("Pack failed. Dumping Files.")
-                for dump_path in [xg_path, aug_gam_path]:
-                    if dump_path and os.path.isfile(dump_path):
-                        context.write_output_file(job, dump_path)
-                        
-    else:
-        # we download the augment output instead of running it
-        job.fileStore.readGlobalFile(augment_results['aug-graph'], aug_path)
-        if not genotype:
-            job.fileStore.readGlobalFile(augment_results['support'], support_path)
-            if not pack_support:
-                job.fileStore.readGlobalFile(augment_results['translation'], trans_path)
-            elif not xg_id or not os.path.isfile(xg_path):
-                job.fileStore.readGlobalFile(augment_results['xg'], xg_path)
-
-    # We're going to stop here and return our augmentation results
-    if augment_only:
-        augment_output_results = { 'aug-graph' : context.write_intermediate_file(job, aug_path) }
-        if os.path.isfile(support_path):
-            augment_output_results['support'] = context.write_intermediate_file(job, support_path)
-        if os.path.isfile(trans_path):
-            augment_output_results['translation'] = context.write_intermediate_file(job, trans_path)
-        if os.path.isfile(xg_path):
-            augment_output_results['xg'] = context.write_intermediate_file(job, xg_path)
-        return augment_output_results
-
-    # naming options shared between call and genotype
-    name_opts = []
-    for path_name in path_names:
-        if genotype or old_call:
-            name_opts += ['-r', path_name]
-        else:
-            name_opts += ['-p', path_name]
-    if genotype or old_call:
-        for seq_name in seq_names:
-            name_opts += ['-c', seq_name]
-    if genotype or old_call or not genotype_vcf_id:
-        for seq_length in seq_lengths:
-            name_opts += ['-l', seq_length]
-    if not genotype_vcf_id:
-        for seq_offset in seq_offsets:
-            name_opts += ['-o', seq_offset]
-                    
-    if genotype:
-        # We can't do recall (no passed VCF) 
-        assert(not recall)
-        
-        # How do we actually genotype
-        # (Genotype runs fine with its built-in augmentation, but I suspect it causes trouble
-        # with some CI tests, perhaps by taking more memory, so we leave augmentation in its
-        # own command)
-        command = ['vg', 'genotype', os.path.basename(aug_path), '-t',
-                   str(context.config.calling_cores), '-s', sample_name,
-                   '-v', '-E', '-G', os.path.basename(aug_gam_path)]
-                           
-        if call_opts:
-            command += call_opts
-        command += name_opts
-        
-        try:
-            with open(vcf_path, 'w') as vggenotype_stdout:
-                timer.start('genotype')
-                context.runner.call(job, command, work_dir=work_dir,
-                                     outfile=vggenotype_stdout)
-                timer.stop()
-
-        except Exception as e:
-            logging.error("Genotyping failed. Dumping files.")
-            for dump_path in [vg_path, aug_gam_path, aug_path]:
-                if dump_path and os.path.isfile(dump_path):
-                    context.write_output_file(job, dump_path)        
-            raise e
-                
-    else:
-        # call
-        if old_call:
-            command = ['vg', 'call-old', os.path.basename(aug_path), '-t',
-                       str(context.config.calling_cores), '-S', sample_name]
-            if pack_support:
-                command += ['-P', os.path.basename(support_path),
-                            '-x', os.path.basename(xg_path)]
-            else:
-                command += ['-z', os.path.basename(trans_path),
-                            '-s', os.path.basename(support_path),
-                            '-b', os.path.basename(vg_path)]
-        else:
-            assert pack_support
-            command = ['vg', 'call', os.path.basename(xg_path), '-t',
-                       str(context.config.calling_cores), '-s', sample_name,
-                       '-k', os.path.basename(support_path)]
-
-        if call_opts:
-            command += call_opts
-        command += name_opts
-
-        if snarls_id:
-            command += ['--snarls', os.path.basename(snarls_path)]
-
-        if genotype_vcf_id:
-            genotype_vcf_path = os.path.join(work_dir, '{}_to_genotype.vcf.gz'.format(chunk_name))
-            job.fileStore.readGlobalFile(genotype_vcf_id, genotype_vcf_path)
-            job.fileStore.readGlobalFile(genotype_tbi_id, genotype_vcf_path + '.tbi')
-            if clip_info and context.config.call_chunk_size != 0:
-                genotype_clip_vcf_path = os.path.join(work_dir, '{}_to_genotype_clipped.vcf.gz'.format(chunk_name))
-                # todo: share code with clipping below
-                left_clip = 0 if clip_info['chunk_i'] == 0 else context.config.overlap / 2
-                right_clip = 0 if clip_info['chunk_i'] == clip_info['chunk_n'] - 1 else context.config.overlap / 2
-                offset = clip_info['offset'] + 1 # adjust to 1-based vcf
-                clip_command=['bcftools', 'view', '-O', 'z', '-t', '{}:{}-{}'.format(
-                    path_name, offset + clip_info['clipped_chunk_offset'] + left_clip,
-                    offset + clip_info['clipped_chunk_offset'] + context.config.call_chunk_size - right_clip - 1),
-                         os.path.basename(genotype_vcf_path), '--output-file', os.path.basename(genotype_clip_vcf_path)]
-                context.runner.call(job, clip_command, work_dir=work_dir)
-                context.runner.call(job, ['tabix', '-f', '-p', 'vcf', os.path.basename(genotype_clip_vcf_path)], work_dir=work_dir)
-                genotype_vcf_path = genotype_clip_vcf_path
-            if old_call:
-                command += ['-f', os.path.basename(genotype_vcf_path)]
-            else:
-                command += ['-v', os.path.basename(genotype_vcf_path)]
-
-        try:
-            with open(vcf_path, 'w') as vgcall_stdout:
-                timer.start('call')
-                context.runner.call(job, command, work_dir=work_dir, outfile=vgcall_stdout)
-                timer.stop()            
-        except Exception as e:
-            logging.error("Calling failed. Dumping files.")
-            for dump_path in [vg_path, pu_path,
-                              aug_path, support_path, trans_path, aug_gam_path]:
-                if dump_path and os.path.isfile(dump_path):
-                    context.write_output_file(job, dump_path)
-            if genotype_vcf_id and os.path.isfile(genotype_vcf_path):
-                context.write_output_file(job, genotype_vcf_path)
-                context.write_output_file(job, genotype_vcf_path + '.tbi')
-            raise e
-
-    # Sort the output
-    sort_vcf(job, context.runner, vcf_path, sorted_vcf_path)
-
-    # Optional clip
-    if clip_info and context.config.call_chunk_size != 0 and not genotype_vcf_id:
-        left_clip = 0 if clip_info['chunk_i'] == 0 else context.config.overlap / 2
-        right_clip = 0 if clip_info['chunk_i'] == clip_info['chunk_n'] - 1 else context.config.overlap / 2
-        clip_path = os.path.join(work_dir, '{}_call_clip.vcf'.format(chunk_name))
-        offset = clip_info['offset'] + 1 # adjust to 1-based vcf
-        command=['bcftools', 'view', '-t', '{}:{}-{}'.format(
-            path_name, offset + clip_info['clipped_chunk_offset'] + left_clip,
-            offset + clip_info['clipped_chunk_offset'] + context.config.call_chunk_size - right_clip - 1),
-                 os.path.basename(sorted_vcf_path), '--output-file', os.path.basename(clip_path)]
-        context.runner.call(job, command, work_dir=work_dir)
-        vcf_id = context.write_intermediate_file(job, clip_path)
-    else:
-        vcf_id =  context.write_intermediate_file(job, sorted_vcf_path)
-        
-    return vcf_id, timer
-
-
-# Get the lengths of our paths in the graph
-def run_xg_paths(job, context, xg_id):
-    """ pull path names and sizes from the xg """
-    work_dir = job.fileStore.getLocalTempDir()
-    xg_path = os.path.join(work_dir, 'index.xg')
-    job.fileStore.readGlobalFile(xg_id, xg_path)    
-    vg_paths_output = context.runner.call(job, ['vg', 'paths', '--xg', os.path.basename(xg_path), '--lengths'],
-                                          work_dir = work_dir, check_output = True)
-    path_size = dict([line.strip().split('\t') for line in vg_paths_output.split('\n') if len(line) > 2])
-    return path_size
-
-def run_all_calling(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, vcf_offsets, sample_name,
-                    genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                    genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False,
-                    old_call=False):
-    path_sizes_job = job.addChildJobFn(run_xg_paths, context, xg_file_id,
-                                       memory=context.config.call_chunk_mem,
-                                       disk=context.config.call_chunk_disk)
-    path_sizes = path_sizes_job.rv()
-    calling_job = path_sizes_job.addFollowOnJobFn(run_all_calling2, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids,
-                                                  chroms, path_sizes,  vcf_offsets, sample_name, genotype, out_name,
-                                                  recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id,
-                                                  id_ranges_id, snarls_id, pack_support, old_call)
-    return calling_job.rv()
-
-def run_all_calling2(job, context, xg_file_id, chr_gam_ids, chr_gam_idx_ids, chroms, path_sizes, vcf_offsets, sample_name,
-                     genotype=False, out_name=None, recall=False, alt_gam_id=None, alt_gai_id=None,
-                     genotype_vcf_id=None, genotype_tbi_id=None, id_ranges_id=None, snarls_id=None, pack_support=False,
-                     old_call=False):
-    """
-    Call all the chromosomes and return a merged up vcf/tbi pair
-    """
-    # we make a child job so that all calling is encapsulated in a top-level job
-    child_job = Job()
-    job.addChild(child_job)
-    vcf_ids = []
-    tbi_ids = []
-    call_timers_lists = []
-    assert len(chr_gam_ids) > 0
-    if not chr_gam_idx_ids:
-        chr_gam_idx_ids = [None] * len(chr_gam_ids)
-    if not chroms:
-        chroms = [name for name in path_sizes.keys() if path_sizes[name] > 0]
-    assert len(chr_gam_ids) == len(chr_gam_idx_ids)
-    # id ranges deactivates path chunking
-    if id_ranges_id:
-        context.config.call_chunk_size = (2 << 30) - 1
-        context.config.overlap = 0
-    for i in range(len(chr_gam_ids)):
-        alignment_file_id = chr_gam_ids[i]
-        alignment_index_id = chr_gam_idx_ids[i]
-        if len(chr_gam_ids) > 1:
-            # 1 gam per chromosome
-            chr_label = [chroms[i]]
-            chr_offset = [vcf_offsets[i]] if vcf_offsets else [0]
-        else:
-            # single gam with one or more chromosomes
-            chr_label = chroms
-            chr_offset = vcf_offsets if vcf_offsets else [0] * len(chroms)
-        chunk_job = child_job.addChildJobFn(run_chunking, context, xg_file_id,
-                                            alignment_file_id, alignment_index_id, chr_label, chr_offset, path_sizes,
-                                            sample_name, genotype=genotype, recall=recall,
-                                            alt_gam_id=alt_gam_id, alt_gai_id=alt_gai_id,
-                                            genotype_vcf_id=genotype_vcf_id,
-                                            genotype_tbi_id=genotype_tbi_id,
-                                            id_ranges_id=id_ranges_id,
-                                            cores=context.config.call_chunk_cores,
-                                            memory=context.config.call_chunk_mem,
-                                            disk=context.config.call_chunk_disk)
-        call_job = chunk_job.addFollowOnJobFn(run_chunked_calling, context, chunk_job.rv(0),
-                                              genotype, recall, snarls_id, pack_support, old_call, chunk_job.rv(1),
-                                              cores=context.config.misc_cores,
-                                              memory=context.config.misc_mem,
-                                              disk=context.config.misc_disk)
-        vcf_ids.append(call_job.rv(0))
-        tbi_ids.append(call_job.rv(1))
-        call_timers_lists.append(call_job.rv(2))
-        
-    if not out_name:
-        out_name = sample_name
-    return child_job.addFollowOnJobFn(run_concat_vcfs, context, out_name, vcf_ids, tbi_ids,
-                                      write_to_outstore = True,
-                                      call_timers_lists = call_timers_lists,
-                                      cores=context.config.call_chunk_cores,
-                                      memory=context.config.call_chunk_mem,
-                                      disk=context.config.call_chunk_disk).rv()
+    write_fn = context.write_output_file if to_outstore else context.write_intermediate_file
+    return write_fn(job, out_vcf_path), write_fn(job, out_vcf_path + '.tbi')
 
 def run_concat_vcfs(job, context, out_name, vcf_ids, tbi_ids = [], write_to_outstore = False,
                     call_timers_lists = []):
@@ -577,373 +364,95 @@ def run_concat_vcfs(job, context, out_name, vcf_ids, tbi_ids = [], write_to_outs
     else:
         return vcf_file_id, vcf_idx_file_id
 
-def run_chunking(job, context, xg_file_id, alignment_file_id, alignment_index_id, path_names, vcf_offsets, path_sizes, sample_name,
-                 genotype, recall, alt_gam_id, alt_gai_id, genotype_vcf_id, genotype_tbi_id, id_ranges_id):
-    """
-    Split a gam and xg up into a bunch of vg/gam pairs, one for each calling chunk.  also keep track of the 
-    various offsets needed to call and clip them.
-    """
-
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Name for work files
-    tag = path_names[0] if len(path_names) == 1 else 'chroms'
-
-    # Download the input from the store
-    xg_path = os.path.join(work_dir, 'graph.xg')
-    job.fileStore.readGlobalFile(xg_file_id, xg_path)
-    gam_path = os.path.join(work_dir, '{}_{}.gam'.format(sample_name, tag))
-    job.fileStore.readGlobalFile(alignment_file_id, gam_path)
-    alt_gam_path = os.path.join(work_dir, '{}_{}_alts.gam'.format(sample_name, tag))
-    if alt_gam_id:
-        job.fileStore.readGlobalFile(alt_gam_id, alt_gam_path)
-        job.fileStore.readGlobalFile(alt_gai_id, alt_gam_path + '.gai')
-    
-    # This will be a list of dicts, each one corresponding to the info for a chunk
-    output_chunk_info = []
-    
-    # Bypass chunking when chunk_size set to 0
-    if not id_ranges_id and context.config.call_chunk_size == 0:
-        timer = TimeTracker('call-chunk-bypass')
-        # convert the xg to vg
-        with open(os.path.join(work_dir, 'graph.vg'), 'w') as out_graph:
-            context.runner.call(job, ['vg', 'convert', os.path.basename(xg_path), '-v'],
-                                work_dir = work_dir, outfile=out_graph)
-        vg_id = context.write_intermediate_file(job, os.path.join(work_dir, 'graph.vg'))
-        timer.stop()
-
-        # return a job for each path so we can run them in parallel, but they will all
-        # use the same graph and gam. 
-        for chunk_i, path_name in enumerate(path_names):
-            chunk_info = {
-                'chrom' : path_name,
-                'chunk_i' : 0,
-                'chunk_n' : 1,
-                'chunk_start' : 0,
-                'clipped_chunk_offset' : 0,
-                'vg_id' : vg_id,
-                'gam_id' : alignment_file_id,
-                'xg_id' : xg_file_id,
-                'path_size' : path_sizes[path_name],
-                'offset' : 0 if not vcf_offsets or chunk_i >= len(path_names) else vcf_offsets[chunk_i],
-                'sample' : sample_name,
-                'alt_gam_id' : alt_gam_id,
-                'genotype_vcf_id' : genotype_vcf_id,
-                'genotype_tbi_id' : genotype_tbi_id}
-            output_chunk_info.append(chunk_info)
-            
-        return output_chunk_info, [timer]
-
-    # Sort and index the GAM file if index not provided
-    timer = TimeTracker('call-gam-index')
-    if id_ranges_id:
-        # we don't really care if the gam is sorted when doing chromosome-id range chunks
-        gam_sorT_path = gam_path
-    elif alignment_index_id:
-        gam_sort_path = gam_path
-        gam_index_path = gam_sort_path + '.gai'
-        job.fileStore.readGlobalFile(alignment_index_id, gam_index_path)
-    else:
-        gam_sort_path = gam_path + '.sorted.gam'
-        gam_index_path = gam_sort_path + '.gai'
-        with open(gam_sort_path, "w") as gam_sort_stream:
-            gamsort_cmd = ['vg', 'gamsort', '-i', os.path.basename(gam_index_path), os.path.basename(gam_path),
-                           '--threads', str(context.config.call_chunk_cores)]
-            context.runner.call(job, gamsort_cmd, work_dir=work_dir, outfile=gam_sort_stream)
-        # We may spend a lot of time on these, so drop them in the output store.
-        if context.config.keep_sorted_gams:
-            context.write_output_file(job, gam_sort_path)
-            context.write_output_file(job, gam_index_path)
-    timer.stop()
-    
-    # Write a list of paths
-    path_list = os.path.join(work_dir, 'path_list.txt')
-    offset_map = dict()
-    with open(path_list, 'w') as path_list_file:
-        for i, path_name in enumerate(path_names):
-            path_list_file.write(path_name + '\n')
-            offset_map[path_name] = int(vcf_offsets[i]) if vcf_offsets else 0
-
-    # Write out the id ranges
-    if id_ranges_id:
-        id_ranges_path = os.path.join(work_dir, 'id_ranges.tsv')
-        job.fileStore.readGlobalFile(id_ranges_id, id_ranges_path)
-        path_to_id_range = {}
-        id_range_to_path = {}
-        # read the id ranges into a dictionary
-        with open(id_ranges_path) as id_ranges_file:
-            for line in id_ranges_file:
-                toks = line.split('\t')
-                if len(toks) == 3:
-                    path_to_id_range[toks[0]] = toks[1:3]
-                    # the -1 below is because chunk adds 1 for BED conversion
-                    id_range_to_path[toks[1]] = toks[0]
-        # write the id ranges of just the paths under consideration to a file
-        path_id_ranges_path = os.path.join(work_dir, 'path_id_ranges.tsv')
-        with open(path_id_ranges_path, 'w') as path_id_ranges_file:
-            for path_name in path_names:
-                path_id_ranges_file.write('{}:{}\n'.format(
-                    path_to_id_range[path_name][0], path_to_id_range[path_name][1]))
-
-    # Apply chunk override for recall.
-    # Todo: fix vg chunk to only expand variants (not reference) so that we can leave this super high
-    # all the time
-    
-    context_size = int(context.config.chunk_context) if not recall else int(context.config.recall_context)
-    
-    # Chunk the graph and gam, using the xg and rocksdb indexes.
-    # GAM index isn't passed but it needs to be next to the GAM file.
-    output_bed_chunks_path = os.path.join(work_dir, 'output_bed_chunks_{}.bed'.format(tag))
-    chunk_prefix = 'call_chunk_{}'.format(tag)
-    chunk_cmd = ['vg', 'chunk',
-                 '-x', os.path.basename(xg_path),
-                 '-b', chunk_prefix,
-                 '-t', str(context.config.call_chunk_cores),
-                 '-E', os.path.basename(output_bed_chunks_path)]
-    if not id_ranges_id:
-        # chunk up our paths with context expansion
-        chunk_cmd += ['-a', os.path.basename(gam_sort_path),
-                      '-P', os.path.basename(path_list),
-                      '-c', str(context_size),
-                      '-f',
-                      '-g',
-                      '-s', str(context.config.call_chunk_size),
-                      '-o', str(context.config.overlap)]
-    else:
-        # chunk using chromosomal id ranges
-        # note the gam isn't chunked -- we just use the input as is
-        chunk_cmd += ['-R', os.path.basename(path_id_ranges_path)]
-        if alt_gam_id:
-            chunk_cmd += ['-f', '-g']
-
-    if alt_gam_id:
-        chunk_cmd += ['-a', os.path.basename(alt_gam_path)]
-    timer.start('call-chunk')
-    context.runner.call(job, chunk_cmd, work_dir=work_dir)
-    timer.stop()
-
-    # Scrape the BED into memory
-    bed_lines = []
-    chunk_counts = defaultdict(int)
-    with open(output_bed_chunks_path) as output_bed:
-        for line in output_bed:
-            toks = line.split('\t')
-            if len(toks) > 3:
-                if not id_ranges_id:
-                    bed_lines.append(toks)
-                    chunk_counts[toks[0]] += 1
-                else:
-                    # convert our id range bed to a chromosome position bed
-                    chrom_name = id_range_to_path[toks[1]]
-                    bed_lines.append([chrom_name, '0', str(path_sizes[chrom_name]), toks[3]])
-                    chunk_counts[chrom_name] += 1
-
-    # Keep track of offset in each path
-    cur_path_offset = defaultdict(int)
-        
-    # Go through the BED output of vg chunk, adding a child calling job for
-    # each chunk                
-    clip_file_ids = []
-    call_timers = [timer]
-    for toks in bed_lines:
-        chunk_bed_chrom = toks[0]
-        chunk_bed_start = int(toks[1])
-        chunk_bed_end = int(toks[2])
-        chunk_bed_size = chunk_bed_end - chunk_bed_start
-        chunk_path_base = os.path.splitext(os.path.join(work_dir, os.path.basename(toks[3].strip())))[0]
-        gam_chunk_path = chunk_path_base + '.gam'
-        vg_chunk_path = chunk_path_base + '.vg'
-        chunk_i = cur_path_offset[chunk_bed_chrom]        
-        if not id_ranges_id:
-            gam_chunk_file_id = context.write_intermediate_file(job, gam_chunk_path)
-            clipped_chunk_offset = chunk_i * context.config.call_chunk_size - chunk_i * context.config.overlap
-            alt_gam_tag = "-1"
-        else:
-            gam_chunk_file_id = alignment_file_id
-            clipped_chunk_offset = 0
-            alt_gam_tag = ""
-        vg_chunk_file_id = context.write_intermediate_file(job, vg_chunk_path)
-
-        cur_path_offset[chunk_bed_chrom] += 1
-        if alt_gam_id:
-            alt_gam_chunk_path = chunk_path_base.replace(chunk_prefix, chunk_prefix + alt_gam_tag) + '.gam'
-            alt_gam_chunk_file_id = context.write_intermediate_file(job, alt_gam_chunk_path)
-
-        chunk_info = {
-            'chrom' : chunk_bed_chrom,
-            'chunk_i' : chunk_i,
-            'chunk_n' : chunk_counts[chunk_bed_chrom],
-            'chunk_start' : chunk_bed_start,
-            'clipped_chunk_offset' : clipped_chunk_offset,
-            'vg_id' : vg_chunk_file_id,
-            'gam_id' : gam_chunk_file_id,
-            'xg_id' : None,
-            'path_size' : path_sizes[chunk_bed_chrom],
-            'offset' : offset_map[chunk_bed_chrom],
-            'sample' : sample_name,
-            'alt_gam_id' : alt_gam_chunk_file_id if alt_gam_id else None,
-            'genotype_vcf_id' : genotype_vcf_id,
-            'genotype_tbi_id' : genotype_tbi_id
-        }
-        output_chunk_info.append(chunk_info)
-
-    return output_chunk_info, call_timers
-
-def run_chunked_calling(job, context, chunk_infos, genotype, recall, snarls_id, pack_support, old_call, call_timers):
-    """
-    spawn a calling job for each chunk then merge them together
-    """
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)
-
-    path_names = set()
-
-    # If no chunking and many paths, we augment once first and not before calling
-    # so we don't waste resources augmenting the same graph again and again
-    # Note: should only do this when len(chunk_infos) > 1, but leaving as is so the tests hit it!
-    if context.config.call_chunk_size == 0:
-        chunk_info = chunk_infos[0]
-        augment_job = child_job.addChildJobFn(
-            run_vg_call,
-            context,
-            chunk_info['sample'],
-            chunk_info['vg_id'],
-            chunk_info['gam_id'],
-            xg_id = chunk_info['xg_id'],
-            path_names = [chunk_info['chrom']],
-            seq_names = [chunk_info['chrom']],
-            seq_offsets = [chunk_info['chunk_start'] + chunk_info['offset']],
-            seq_lengths = [chunk_info['path_size']],
-            chunk_name = 'chunk_{}_{}'.format(chunk_info['chrom'], chunk_info['chunk_start']),
-            genotype = genotype,
-            recall = recall,
-            clip_info = chunk_info,
-            augment_only = True,
-            pack_support = pack_support,
-            alt_gam_id = chunk_info['alt_gam_id'],
-            old_call = old_call,
-            cores=context.config.calling_cores,
-            memory=context.config.calling_mem, disk=context.config.calling_disk)
-        augment_results = augment_job.rv()
-        next_job = Job()
-        augment_job.addFollowOn(next_job)
-        child_job = next_job
-    else:
-        augment_results = None
-    
-    clip_file_ids = []
-    for chunk_info in chunk_infos:
-        path_names.add(chunk_info['chrom'])
-
-        # Run vg call
-        call_job = child_job.addChildJobFn(
-            run_vg_call,
-            context,
-            chunk_info['sample'],
-            chunk_info['vg_id'],
-            chunk_info['gam_id'],
-            xg_id = chunk_info['xg_id'],
-            path_names = [chunk_info['chrom']],
-            seq_names = [chunk_info['chrom']],
-            seq_offsets = [chunk_info['chunk_start'] + chunk_info['offset']],
-            seq_lengths = [chunk_info['path_size']],
-            chunk_name = 'chunk_{}_{}'.format(chunk_info['chrom'], chunk_info['chunk_start']),
-            genotype = genotype,
-            recall = recall,
-            clip_info = chunk_info,
-            alt_gam_id = chunk_info['alt_gam_id'],
-            genotype_vcf_id = chunk_info['genotype_vcf_id'],
-            genotype_tbi_id = chunk_info['genotype_tbi_id'],
-            snarls_id = snarls_id,            
-            pack_support = pack_support,
-            old_call = old_call,            
-            augment_results = augment_results,
-            cores=context.config.calling_cores,
-            memory=context.config.calling_mem, disk=context.config.calling_disk)
-        vcf_id, call_timer = call_job.rv(0), call_job.rv(1)
-        
-        clip_file_ids.append(vcf_id)
-        call_timers.append(call_timer)
-
-    tag = list(path_names)[0] if len(path_names) == 1 else 'chroms'
-        
-    merge_job = child_job.addFollowOnJobFn(run_concat_vcfs, context, tag,
-                                           clip_file_ids,
-                                           cores=context.config.call_chunk_cores,
-                                           memory=context.config.call_chunk_mem,
-                                           disk=context.config.call_chunk_disk)
-        
-    vcf_out_file_id = merge_job.rv(0)
-    tbi_out_file_id = merge_job.rv(1)
-    
-    return vcf_out_file_id, tbi_out_file_id, call_timers
-    
 def call_main(context, options):
-    """ entrypoint for calling """
+    """
+    Wrapper for vg filter / pack / call
+    """
 
+    validate_chunk_options(options, chunk_optional=True)
     validate_call_options(options)
-            
+        
     # How long did it take to run the entire pipeline, in seconds?
     run_time_pipeline = None
         
     # Mark when we start the pipeline
     start_time_pipeline = timeit.default_timer()
-    
+
     with context.get_toil(options.jobStore) as toil:
         if not toil.options.restart:
 
             importer = AsyncImporter(toil)
 
             # Upload local files to the job store
-            inputXGFileID = importer.load(options.xg_path)
-            inputGamFileIDs = []
-            inputGamIndexFileIDs = []
-            for inputGam in options.gams:
-                inputGamFileIDs.append(importer.load(inputGam))
-                try:
-                    inputGamIndexID = toil.importFile(inputGam + '.gai')
-                except:
-                    inputGamIndexID = None
-                # we allow some GAMs to have indexes and some to have None
-                inputGamIndexFileIDs.append(inputGamIndexID)
-            if options.alt_path_gam is not None:
-                inputAltPathGamID = importer.load(options.alt_path_gam)
-                inputAltPathGaiID = toil.importFile(options.alt_path_gam + '.gai')
-            else:
-                inputAltPathGamID, inputAltPathGaiID = None, None
-            if options.genotype_vcf is not None:
+            inputGraphFileID = importer.load(options.graph)
+            inputGamFileID = importer.load(options.gam)
+            snarlsFileID = None
+            if options.snarls:
+                snarlsFileID = importer.load(options.snarls)
+            inputVcfID = None
+            inputTbiID = None
+            if options.genotype_vcf:
                 inputVcfID = importer.load(options.genotype_vcf)
                 inputTbiID = importer.load(options.genotype_vcf + '.tbi')
-            else:
-                inputVcfID, inputTbiID = None, None
-            inputIDRangesID = None
-            if options.id_ranges:
-                inputIDRangesID = importer.load(options.id_ranges)
-            inputSnarlsID = None
-            if options.snarls:
-                inputSnarlsID = importer.load(options.snarls)
 
             importer.wait()
 
-            # Make a root job
-            root_job = Job.wrapJobFn(run_all_calling, context, importer.resolve(inputXGFileID),
-                                     importer.resolve(inputGamFileIDs), inputGamIndexFileIDs,
-                                     options.chroms, options.vcf_offsets, options.sample_name,
-                                     genotype=options.genotype,
-                                     recall=options.recall or options.genotype_vcf is not None,
-                                     alt_gam_id=importer.resolve(inputAltPathGamID),
-                                     alt_gai_id=inputAltPathGaiID,
-                                     genotype_vcf_id=importer.resolve(inputVcfID),
-                                     genotype_tbi_id=importer.resolve(inputTbiID),
-                                     id_ranges_id=importer.resolve(inputIDRangesID),
-                                     snarls_id=importer.resolve(inputSnarlsID),
-                                     pack_support=options.pack,
-                                     old_call=options.old_call,
-                                     cores=context.config.misc_cores,
-                                     memory=context.config.misc_mem,
-                                     disk=context.config.misc_disk)
+            # transform our vcf_offsets into a dict
+            if options.vcf_offsets:
+                vcf_offset_dict = {}
+                for (ref_path_name, vcf_offset) in zip(options.ref_paths, options.vcf_offsets):
+                    vcf_offset_dict[ref_path_name] = vcf_offset
+                options.vcf_offsets = vcf_offset_dict
+
+            # Filter the gam as a preprocessing step
+            # It's arguable this would be more efficient, especially in terms of disk, if
+            # it was moved after chunking, but it makes the logic more complicated and I want
+            # to eventually get away from running it at all.
+            filtered_gam_id = None
+            filtered_gam_basename = None
+            root_job = None
+            if options.filter_opts:
+                root_job = Job.wrapJobFn(run_filtering, context,
+                                         graph_id = importer.resolve(inputGraphFileID),
+                                         graph_basename = os.path.basename(options.graph),
+                                         gam_id = importer.resolve(inputGamFileID),
+                                         gam_basename = os.path.basename(options.gam),
+                                         filter_opts = options.filter_opts,
+                                         cores=context.config.call_chunk_cores,
+                                         memory=context.config.call_chunk_mem,
+                                         disk=context.config.call_chunk_disk)
+                filtered_gam_id = root_job.rv()
+                filtered_gam_basename = os.path.splitext(os.path.basename(options.gam))[0] + '.filter.gam'
+            else:
+                filtered_gam_id = importer.resolve(inputGamFileID),
+                filtered_gam_basename = os.path.basename(options.gam)
+
+            calling_job = Job.wrapJobFn(run_chunked_calling, context,
+                                        graph_id = importer.resolve(inputGraphFileID),
+                                        graph_basename = os.path.basename(options.graph),
+                                        gam_id = importer.resolve(inputGamFileID),
+                                        gam_basename = os.path.basename(options.gam),
+                                        batch_input=None,
+                                        snarls_id = importer.resolve(snarlsFileID),
+                                        genotype_vcf_id = importer.resolve(inputVcfID),
+                                        input_tbi_id = importer.resolve(inputTbiID),
+                                        sample=options.sample,
+                                        connected_component_chunking=options.connected_components,
+                                        augment_gam=options.augment_gam,
+                                        output_format=options.output_format,
+                                        min_augment_coverage=options.min_augment_coverage,
+                                        expected_coverage=options.expected_coverage,
+                                        min_mapq=options.min_mapq,
+                                        min_baseq=options.min_baseq,
+                                        ref_paths=options.ref_paths,
+                                        ref_path_chunking=options.ref_path_chunking,
+                                        min_call_support=options.min_call_support,
+                                        vcf_offsets=options.vcf_offsets)
+
+            if root_job:
+                root_job.addFollowOn(calling_job)
+            else:
+                root_job = calling_job
 
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
@@ -955,11 +464,10 @@ def call_main(context, options):
             toil.start(init_job)
         else:
             toil.restart()
-                
+
     end_time_pipeline = timeit.default_timer()
     run_time_pipeline = end_time_pipeline - start_time_pipeline
  
     logger.info("All jobs completed successfully. Pipeline took {} seconds.".format(run_time_pipeline))
-    
     
     

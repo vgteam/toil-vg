@@ -166,7 +166,7 @@ def pipeline_subparser(parser_run):
     map_parse_index_args(parser_run)
     
     # Add common calling options shared with vg_call
-    chunked_call_parse_args(parser_run)
+    call_parse_args(parser_run)
 
     # Add common calling options shared with vg_vcfeval
     vcfeval_parse_args(parser_run)

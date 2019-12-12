@@ -32,7 +32,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_vg.vg_call import chunked_call_parse_args, run_all_calling, run_concat_vcfs
+from toil_vg.vg_call import call_parse_args, run_chunked_calling, run_concat_vcfs
 from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy, run_sv_eval
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta, run_make_control_vcfs
@@ -66,7 +66,7 @@ def calleval_subparser(parser):
     add_common_vg_parse_args(parser)
 
     # Add common call options shared with toil_vg pipeline
-    chunked_call_parse_args(parser)
+    call_parse_args(parser)
     
     # Add common vcfeval options shared with toil_vg pipeline
     vcfeval_parse_args(parser)

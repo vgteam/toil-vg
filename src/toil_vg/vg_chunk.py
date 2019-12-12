@@ -33,10 +33,13 @@ def chunk_subparser(parser):
     # Add the Toil options so the job store is the first argument
     Job.Runner.addToilOptions(parser)
     
-    # General options
-    
+    # General options    
     parser.add_argument("out_store",
                         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
+    parser.add_argument("--gam", type=make_url,
+                        help="GAM to chunk")
+    parser.add_argument("--graph", type=make_url, required=True,
+                        help="graph or xg index to chunk")
         
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -47,26 +50,27 @@ def chunk_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
 
-    # local main options
-    parser.add_argument("--gam", type=make_url,
-                        help="GAM to chunk")
-    parser.add_argument("--graph", type=make_url, required=True,
-                        help="graph or xg index to chunk")
 
-
-def chunk_parse_args(parser, stand_alone = False):
+def chunk_parse_args(parser, path_components=True):
     """
     Define chunk arguments that may be shared with other commands
     """
 
     parser.add_argument("--connected_components", action="store_true",
                         help="split into connected components")
-    parser.add_argument("--all_path_components", action="store_true",
+    if path_components:
+        # we let toil-vg call override this with its own more specific --ref_paths and --ref_path_chunking options
+        parser.add_argument("--all_path_components", action="store_true",
                         help="split into connected component for each path in graph")
-    parser.add_argument("--path_components", nargs="+", default=[],
-                        help="split into connected component for each given path")
+        parser.add_argument("--path_components", nargs="+", default=[],
+                            help="split into connected component for each given path")
     parser.add_argument("--output_format", choices="pg, hg, vg", default="pg",
                         help="output format [pg]")
+    parser.add_argument("--call_chunk_cores", type=int,
+                        help="number of threads used for extracting chunks for calling")
+    parser.add_argument("--call_chunk_mem", type=str,
+                        help="memory alotment for extracting chunks for calling")
+
     
 def validate_chunk_options(options, chunk_optional=False):
     num_opts = [options.connected_components, options.all_path_components, len(options.path_components) > 0].count(True)
@@ -80,7 +84,7 @@ def validate_chunk_options(options, chunk_optional=False):
     if options.gam:
         require(options.gam.endswith('.gam'),
                 "Input GAM file must have .gam extension")
-        
+
 def run_chunking(job, context,
                  graph_id,
                  graph_basename,
@@ -133,6 +137,7 @@ def run_chunking(job, context,
         for dump_path in [graph_path, gam_path, paths_path]:
             if dump_path and os.path.isfile(dump_path):
                 context.write_output_file(job, dump_path)
+        raise
         
     # Scrape the BED into dictionary that maps path name to file id
     chunk_output = {}
