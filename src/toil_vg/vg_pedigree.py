@@ -56,13 +56,21 @@ def pedigree_subparser(parser):
                         help="size of kmers to use in gcsa-kmer mapping mode")
     parser.add_argument("--id_ranges", type=make_url, default=None,
                         help="Path to file with node id ranges for each chromosome in BED format.")
+    parser.add_argument("--ref_fasta", type=make_url, default=None,
+                        help="Path to file with reference fasta.")
+    parser.add_argument("--ref_fasta", type=make_url, default=None,
+                        help="Path to file with reference fasta.")
+    parser.add_argument("--ref_fasta_index", type=make_url, default=None,
+                        help="Path to file with reference fasta index.")
+    parser.add_argument("--ref_fasta_dict", type=make_url, default=None,
+                        help="Path to file with reference fasta dict index.")
     parser.add_argument("--fastq_proband", nargs='+', type=make_url,
                         help="Proband input fastq(s) (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--fastq_maternal", nargs='+', type=make_url,
                         help="Maternal input fastq(s) (possibly compressed), two are allowed, one for each mate")
     parser.add_argument("--fastq_paternal", nargs='+', type=make_url,
                         help="Paternal input fastq(s) (possibly compressed), two are allowed, one for each mate")
-    parser.add_argument("--fastq_siblings", nargs='+', type=make_url,
+    parser.add_argument("--fastq_siblings", nargs='+', type=make_url, default=None,
                         help="Sibling input fastq(s) (possibly compressed), two are allowed, one for each mate per sibling.
                             Sibling read-pairs must be input adjacent to eachother. Must follow same order as input to
                             --sibling_names argument.")
@@ -160,13 +168,127 @@ def validate_pedigree_options(context, options):
     require (not options.id_ranges or not options.surject,
              '--surject not currently supported with --id_ranges')
         
+def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
 
-def run_pedigree(job, context, fastq_proband, gam_input_reads_proband, bam_input_reads_proband,
+    RealtimeLogger.info("Starting fastq split")
+    start_time = timeit.default_timer()
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the sample fastq for alignment
+    fastq_name = os.path.basename(fastq[fastq_i])
+    fastq_path = os.path.join(work_dir, fastq_name)
+    fastq_gzipped = os.path.splitext(fastq_name)[1] == '.gz'
+    fastq_name = os.path.splitext(fastq_name)[0]
+    if fastq_gzipped:
+        fastq_name = os.path.splitext(fastq_name)[0]
+    job.fileStore.readGlobalFile(sample_fastq_id, fastq_path)
+
+    # Split up the fastq into chunks
+
+    # Make sure chunk size even in case paired interleaved
+    chunk_size = context.config.reads_per_chunk
+    if chunk_size % 2 != 0:
+        chunk_size += 1
+
+    # 4 lines per read
+    chunk_lines = chunk_size * 4
+
+    # Note we do this on the command line because Python is too slow
+    if fastq_gzipped:
+        cmd = [['gzip', '-d', '-c', os.path.basename(fastq_path)]]
+    else:
+        cmd = [['cat', os.path.basename(fastq_path)]]
+
+    cmd.append(['split', '-l', str(chunk_lines),
+                '--filter=pigz -p {} > $FILE.fq.gz'.format(max(1, int(context.config.fq_split_cores) - 1)),
+                '-', '{}-chunk.'.format(fastq_name)])
+
+    context.runner.call(job, cmd, work_dir = work_dir, tool_name='pigz')
+
+    fastq_chunk_ids = []
+    for chunk_name in sorted(os.listdir(work_dir)):
+        if chunk_name.endswith('.fq.gz') and chunk_name.startswith('{}-chunk'.format(fastq_name)):
+            fastq_chunk_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, chunk_name)))
+
+    end_time = timeit.default_timer()
+    run_time = end_time - start_time
+    RealtimeLogger.info("Split fastq into {} chunks. Process took {} seconds.".format(len(fastq_chunk_ids), run_time))
+
+    return fastq_chunk_ids
+
+def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
+                                    ref_fasta_index_id, ref_fasta_dict_id, pcr_indel_model="CONSERVATIVE"):
+
+    RealtimeLogger.info("Starting gatk haplotypecalling gvcfs")
+    start_time = timeit.default_timer()
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the sample bam for variant calling
+    bam_name = os.path.basename(chr_bam_id)
+    bam_path = os.path.join(work_dir, bam_name)
+    job.fileStore.readGlobalFile(chr_bam_id, bam_path
+    bam_name = os.path.splitext(bam_name)[0]
+    
+    ref_fasta_name = os.path.basename(ref_fasta_id)
+    ref_fasta_path = os.path.join(work_dir, ref_fasta_name)
+    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
+    
+    ref_fasta_index_name = os.path.basename(ref_fasta_index_id)
+    ref_fasta_index_path = os.path.join(work_dir, ref_fasta_index_name)
+    job.fileStore.readGlobalFile(ref_fasta_index_id, ref_fasta_index_path)
+    
+    ref_fasta_dict_name = os.path.basename(ref_fasta_dict_id)
+    ref_fasta_dict_path = os.path.join(work_dir, ref_fasta_dict_name)
+    job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
+    
+    # Run variant calling commands
+    command = ['gatk', 'BuildBamIndex', '--INPUT', os.path.basename(bam_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    command = ['gatk', 'HaplotypeCaller',
+                '--native-pair-hmm-threads', context.config.calling_cores,
+                '-ERC', 'GVCF',
+                '--pcr-indel-model', pcr_indel_model,
+                '--reference', os.path.basename(ref_fasta_path),
+                '--input', os.path.basename(bam_path),
+                '--output', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    context.runner.call(job, ['bgzip' '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
+                        work_dir = work_dir, tool_name='gatk')
+    
+    # Write output to intermediate store
+    out_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name))
+    vcf_file_id = context.write_intermediate_file(job, out_file)
+    
+    return vcf_file_id
+    
+def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id):
+    """
+    Call all the chromosomes and return a merged up vcf/tbi pair
+    """
+    # we make a child job so that all calling is encapsulated in a top-level job
+    child_job = Job()
+    job.addChild(child_job)
+    vcf_ids = []
+    tbi_ids = []
+    for chr_bam_id in chr_bam_ids:
+        call_job = child_job.addChildJobFn(run_gatk_haplotypecaller_gvcf, context, sample_name,
+                                            chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id)
+
+        vcf_ids.append(call_job.rv(0))
+        tbi_ids.append(call_job.rv(1))
+
+    return child_job.addFollowOnJobFn(run_concat_vcfs, context, sample_name, vcf_ids, tbi_ids)
+
+def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, bam_input_reads_proband,
                 fastq_maternal, gam_input_reads_maternal, bam_input_reads_maternal,
                 fastq_paternal, gam_input_reads_paternal, bam_input_reads_paternal,
                 fastq_siblings, gam_input_reads_siblings, bam_input_reads_siblings,
                 proband_name, maternal_name, paternal_name, siblings_names,
-                interleaved, mapper, indexes,
+                interleaved, mapper, indexes, ref_fasta_ids,
                 reads_file_ids_proband=None, reads_file_ids_maternal=None, reads_file_ids_paternal=None, reads_file_ids_siblings=None,
                 reads_chunk_ids_proband=None, reads_chunk_ids_maternal=None, reads_chunk_ids_paternal=None, reads_chunk_ids_siblings=None,
                 bam_output=False, surject=False, 
@@ -215,7 +337,7 @@ def run_pedigree(job, context, fastq_proband, gam_input_reads_proband, bam_input
     assert(bool(reads_file_ids_paternal) + bool(reads_chunk_ids_paternal) == 1)
     assert(bool(reads_file_ids_siblings) + bool(reads_chunk_ids_siblings) <= 1)
     
-    # to encapsulate everything under this job
+    # define the job workflow structure
     proband_mapping_calling_child_jobs = Job()
     maternal_mapping_calling_child_jobs = Job()
     paternal_mapping_calling_child_jobs = Job()
@@ -241,9 +363,11 @@ def run_pedigree(job, context, fastq_proband, gam_input_reads_proband, bam_input
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
     # Start the proband alignment and variant calling
-    proband_calling_output = proband_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
-                                chr_bam_ids=proband_first_mapping_job.rv(2), baseline_vcf_id, baseline_tbi_id,
-                                fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
+    proband_calling_output = proband_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                proband_name, chr_bam_ids=proband_first_mapping_job.rv(2), 
+                                ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                cores=context.config.misc_cores,
+                                memory=context.config.misc_mem,
                                 disk=context.config.misc_disk).rv()
     
     maternal_mapping_job = maternal_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_maternal,
@@ -257,9 +381,11 @@ def run_pedigree(job, context, fastq_proband, gam_input_reads_proband, bam_input
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
     # Start the maternal alignment and variant calling
-    maternal_calling_output = maternal_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
-                                chr_bam_ids=maternal_mapping_job.rv(2), baseline_vcf_id, baseline_tbi_id,
-                                fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
+    maternal_calling_output = maternal_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                maternal_name, chr_bam_ids=maternal_mapping_job.rv(2),
+                                ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                cores=context.config.misc_cores,
+                                memory=context.config.misc_mem,
                                 disk=context.config.misc_disk).rv()
     
     paternal_mapping_job = paternal_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_paternal,
@@ -273,15 +399,17 @@ def run_pedigree(job, context, fastq_proband, gam_input_reads_proband, bam_input
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
     # Start the paternal alignment and variant calling
-    paternal_calling_output = paternal_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call, context, options, indexes['xg'], indexes.get('id_ranges'),
-                                chr_bam_ids=paternal_mapping_job.rv(2), baseline_vcf_id, baseline_tbi_id,
-                                fasta_id, bed_id, cores=context.config.misc_cores, memory=context.config.misc_mem,
+    paternal_calling_output = paternal_mapping_calling_child_jobs.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                paternal_name, chr_bam_ids=paternal_mapping_job.rv(2),
+                                ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                cores=context.config.misc_cores,
+                                memory=context.config.misc_mem,
                                 disk=context.config.misc_disk).rv()
     
     
-    proband_mapping_output = proband_mapping_root_job.rv()
-    maternal_mapping_output = maternal_mapping_root_job.rv()
-    paternal_mapping_output = maternal_mapping_root_job.rv()
+    proband_mapping_output = proband_mapping_job.rv(2)
+    maternal_mapping_output = maternal_mapping_job.rv(2)
+    paternal_mapping_output = paternal_mapping_job.rv(2)
    
     #TODO: ADD TRIO VARIANT CALLING HERE
     #       -- incorporate gvcf calling job functions here
@@ -356,6 +484,13 @@ def pedigree_main(context, options):
             if options.id_ranges is not None:
                 indexes['id_ranges'] = importer.load(options.id_ranges)
             
+            # Upload ref fasta files to the remote IO Store
+            # ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+            inputRefFastaFileIDs = []
+            inputRefFastaFileID.append(importer.load(options.ref_fasta))
+            inputRefFastaFileID.append(importer.load(options.ref_fasta_index))
+            inputRefFastaFileID.append(importer.load(options.ref_fasta_dict))
+            
             # Upload other local files to the remote IO Store
             inputReadsFileIDsProband = []
             if options.fastq_proband:
@@ -401,7 +536,7 @@ def pedigree_main(context, options):
             importer.wait()
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_pedigree, context, options.fastq_proband,
+            root_job = Job.wrapJobFn(run_pedigree, context, options, options.fastq_proband,
                                      options.gam_input_reads_proband, options.bam_input_reads_proband,
                                      options.fastq_maternal,
                                      options.gam_input_reads_maternal, options.bam_input_reads_maternal,
@@ -414,6 +549,7 @@ def pedigree_main(context, options):
                                      options.paternal_name,
                                      options.sibling_names,
                                      options.interleaved, options.mapper, importer.resolve(indexes),
+                                     importer.resolve(inputRefFastaFileIDs),
                                      reads_file_ids_proband=importer.resolve(inputReadsFileIDsProband),
                                      reads_file_ids_maternal=importer.resolve(inputReadsFileIDsMaternal),
                                      reads_file_ids_paternal=importer.resolve(inputReadsFileIDsPaternal),
