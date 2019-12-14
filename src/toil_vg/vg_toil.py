@@ -164,7 +164,13 @@ def pipeline_subparser(parser_run):
     # add common mapping options shared with vg_map
     map_parse_args(parser_run)
     map_parse_index_args(parser_run)
-    
+
+    # Add common chunking options
+    chunk_parse_args(parser_run, path_components=False)
+
+    # Add common augmenting options
+    augment_parse_args(parser_run)
+
     # Add common calling options shared with vg_call
     call_parse_args(parser_run)
 
@@ -225,8 +231,6 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         wanted.add('xg')
     if inputGCSAFileID is None:
         wanted.add('gcsa')
-    if inputIDRangesFileID is None:
-        wanted.add('id_ranges')
     graph_names = map(os.path.basename, options.graphs)
     # todo: interface for multiple vcf.  
     vcf_ids = [] if not inputVCFFileID else [inputVCFFileID]
@@ -312,15 +316,32 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
         chroms = [x[0] for x in parse_id_ranges(job, id_ranges_file_id)]
     else:
         chroms = options.chroms
-    assert len(chr_gam_ids) == len(chroms)
+    
+    # transform our vcf_offsets into a dict
+    if options.vcf_offsets:
+        vcf_offset_dict = {}
+        for (ref_path_name, vcf_offset) in zip(options.chroms, options.vcf_offsets):
+            vcf_offset_dict[ref_path_name] = vcf_offset
+        options.vcf_offsets = vcf_offset_dict
 
-    call_job = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, None, chroms,
-                                 options.vcf_offsets, options.sample_name,
-                                 options.genotype, recall=options.recall,
-                                 pack_support = options.pack,
-                                 old_call = options.old_call,
-                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                 disk=context.config.misc_disk)
+    call_job = job.addChildJobFn(run_chunked_calling, context,
+                                 graph_id=xg_file_id,
+                                 graph_basename='graph.xg',
+                                 gam_id=chr_gam_ids[0],
+                                 gam_basename='reads1.gam',
+                                 batch_input=None,
+                                 genotype_vcf_id=None,
+                                 genotype_tbi_id=None,
+                                 sample=options.sample_name,
+                                 augment=not options.recall,
+                                 output_format=options.output_format,
+                                 min_augment_coverage=options.min_augment_coverage,
+                                 expected_coverage=options.expected_coverage,
+                                 min_mapq=options.min_mapq,
+                                 ref_paths=chroms,
+                                 ref_path_chunking=options.ref_path_chunking,
+                                 min_call_support=options.min_call_support,
+                                 vcf_offsets=options.vcf_offsets)
     
     vcf_tbi_wg_id_pair = call_job.rv(0), call_job.rv(1)
 

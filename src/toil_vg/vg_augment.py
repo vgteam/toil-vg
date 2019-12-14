@@ -47,7 +47,7 @@ def augment_subparser(parser):
     add_common_vg_parse_args(parser)
 
     # Add augment options
-    augment_parse_args(parser)
+    augment_parse_args(parser, stand_alone = True)
 
     # Add common chunking options shared with vg_chunk
     chunk_parse_args(parser)
@@ -60,8 +60,9 @@ def augment_parse_args(parser, stand_alone = False):
     """
     Define map arguments shared with mapeval and run
     """
-    parser.add_argument("--augment_gam", action="store_true",
-                        help="produce and augmented GAM")    
+    if stand_alone:
+        parser.add_argument("--augment_gam", action="store_true",
+                            help="produce and augmented GAM")    
     parser.add_argument("--min_augment_coverage", type=int, 
                         help="minimum coverage for breakpoint to be applied")
     parser.add_argument("--expected_coverage", type=int,

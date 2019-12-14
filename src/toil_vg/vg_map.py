@@ -43,8 +43,6 @@ def map_subparser(parser):
                         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--kmer_size", type=int,
                         help="size of kmers to use in gcsa-kmer mapping mode")
-    parser.add_argument("--id_ranges", type=make_url, default=None,
-                        help="Path to file with node id ranges for each chromosome in BED format.")
         
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -112,6 +110,9 @@ def map_parse_args(parser, stand_alone = False):
                         help="surject output, producing BAM in addition to GAM alignments")
     parser.add_argument("--validate", action="store_true",
                         help="run vg validate on ouput GAMs")
+    parser.add_argument("--id_ranges", type=make_url, default=None,
+                        help="Path to file with node id ranges for each chromosome in BED format.")
+
     
 def validate_map_options(context, options):
     """

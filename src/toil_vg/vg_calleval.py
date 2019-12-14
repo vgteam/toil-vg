@@ -54,13 +54,9 @@ def calleval_subparser(parser):
     parser.add_argument('out_store',
                         help='output store.  All output written here. Path specified using same syntax as toil jobStore')
 
-    parser.add_argument("--chroms", nargs='+', required=True,
-                        help="Name(s) of reference path in graph(s) (separated by space).")
     # todo: move to chunked_call_parse_args and share with toil-vg run
     parser.add_argument("--gams", nargs='+', type=make_url,
                         help="GAMs to call.  Each GAM treated as separate input (and must contain all chroms)")
-    parser.add_argument("--sample_name", type=str, required=True,
-                        help="sample name (ex NA12878)")
 
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -95,14 +91,12 @@ def calleval_parse_args(parser):
                         help='names of bwa runs (corresponds to bams)')
     parser.add_argument('--bams', nargs='+', type=make_url, default=[],
                         help='bam inputs for freebayes')
-    parser.add_argument('--filter_opts_gt',
-                        help='override filter-opts for genotype only')
     parser.add_argument('--clip_only', action='store_true',
                         help='only compute accuracy clipped to --vcfeval_bed_regions')
     parser.add_argument('--plot_sets', nargs='+', default=[],
                         help='comma-separated lists of condition-tagged BAM/GAM names (primary-mp-pe, etc.) with colon-separated title prefixes')
     parser.add_argument('--call', action='store_true',
-                        help='run vg call (even if --genotype used)')    
+                        help='run vg call')    
     parser.add_argument("--surject", action="store_true",
                         help="surject GAMs to BAMs, adding the latter to the comparison")
     parser.add_argument("--interleaved", action="store_true", default=False,
@@ -116,8 +110,8 @@ def validate_calleval_options(options):
         require(options.gams and options.gam_names and options.xg_paths and
                 len(options.gam_names) == len(options.xg_paths) == len(options.gams),
                 '--gam_names, --xg_paths, --gams must all contain same number of elements')
-        require(options.call or options.genotype or options.surject,
-                '--call and/or --genotype and/or --surject required with --gams')
+        require(options.call or options.surject,
+                '--call and/or and/or --surject required with --gams')
     if options.freebayes or options.platypus:
         require(options.bams or options.surject, '--bams and/or --surject needed with --freebayes or --platypus')
     if options.bams or options.bam_names:
@@ -125,8 +119,8 @@ def validate_calleval_options(options):
                 '--bams and --bam_names must be same length')
     require(options.vcfeval_baseline, '--vcfeval_baseline required')
     require(options.vcfeval_fasta, '--vcfeval_fasta required')
-    if options.call or options.genotype or options.surject:
-        require(options.gams, '--gams must be given with --call, --genotype, and --surject')
+    if options.call or options.surject:
+        require(options.gams, '--gams must be given with --call and --surject')
     require(options.vcfeval_bed_regions is not None or not options.clip_only,
             '--vcfeval_bed_regions must be given with --clip_only')
     if options.surject or options.bams:
@@ -418,7 +412,7 @@ def run_calleval_results(job, context, names, vcf_tbi_pairs, eval_results_dict, 
     times_path = os.path.join(work_dir, 'call_times.tsv')
     
     # organize our expected labels a bit
-    calling_labels = ['call', 'genotype', 'freebayes', 'platypus']
+    calling_labels = ['call', 'freebayes', 'platypus']
     augmenting_labels = ['call-filter-augment', 'call-augment', 'call-filter']
     all_labels = set()
     for timer in timing_results:
@@ -463,12 +457,12 @@ def run_vcf_subset(job, context, vcf_file_id, tbi_file_id, regions):
         
 def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_ids, gam_names, bam_names,
                  vcfeval_baseline_id, vcfeval_baseline_tbi_id, caller_fasta_id, vcfeval_fasta_id,
-                 bed_id, clip_only, call, genotype, sample_name, chroms, vcf_offsets,
-                 vcfeval_score_field, plot_sets, filter_opts_gt, surject, interleaved,
+                 bed_id, clip_only, call, sample_name, chroms, vcf_offsets,
+                 vcfeval_score_field, plot_sets, surject, interleaved,
                  freebayes, platypus, happy, sveval, recall, min_sv_len, max_sv_len, sv_overlap,
                  sv_region_overlap, normalize, ins_ref_len, del_min_rol, ins_seq_comp):
     """
-    top-level call-eval function. Runs the caller and genotype on every
+    top-level call-eval function. Runs the caller on every
     gam, and freebayes on every bam. The resulting vcfs are put through
     vcfeval and the accuracies are tabulated in the output.
     
@@ -651,100 +645,110 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                 timing_results.append(timing_result)
                 names.append(bam_caller_out_name)
 
-    # optional override to filter-opts when running genotype
-    # this is allows us to run different filter-opts for call and genotype
-    # (something we don't really need an interface for besides in calleval)
-    if filter_opts_gt:
-        gt_context = copy.deepcopy(context)
-        gt_context.config.filter_opts = filter_opts_gt.split()
-    else:
-        gt_context = context
-
     if gam_ids:
         for gam_id, gam_idx_id, gam_name, xg_id in zip(gam_ids, gam_idx_ids, gam_names, xg_ids):
-            for gt in [False, True]:
-                if (call and not gt) or (genotype and gt):
-                    out_name = '{}{}'.format(gam_name, '-gt' if gt else '-call')
-                    call_job = child_job.addChildJobFn(run_all_calling, gt_context if gt else context,
-                                                       xg_id, [gam_id], [gam_idx_id], chroms, vcf_offsets,
-                                                       sample_name, genotype=gt, recall=recall,
-                                                       out_name=out_name,
-                                                       cores=context.config.misc_cores,
-                                                       memory=context.config.misc_mem,
-                                                       disk=context.config.misc_disk)
-                    vcf_tbi_id_pair = (call_job.rv(0), call_job.rv(1))
-                    timing_result = call_job.rv(2)
+            if call:
+                out_name = '{}{}'.format(gam_name, '-call')
 
-                    if not vcfeval_score_field:
-                        score_field = 'GQ' if gt else 'QUAL'
-                    else:
-                        score_field = vcfeval_score_field
+                call_job = child_job.addChildJobFn(run_chunked_calling, context,
+                                                    graph_id=xg_id,
+                                                    graph_basename='graph.xg',
+                                                    gam_id=gam_id,
+                                                    gam_basename='aln.gam',
+                                                    batch_input=None,
+                                                    snarls_id=None,
+                                                    genotype_vcf_id=None,
+                                                    genotype_tbi_id=None,
+                                                    sample=sample_name,
+                                                    augment=not recall,
+                                                    connected_component_chunking=False,
+                                                    output_format='pg',
+                                                    min_augment_coverage=2,
+                                                    expected_coverage=None,
+                                                    min_mapq=5,
+                                                    min_baseq=5,
+                                                    ref_paths=chroms,
+                                                    ref_path_chunking=True,
+                                                    min_call_support=None,
+                                                    vcf_offsets=vcf_offsets,
+                                                    cores=context.config.misc_cores,
+                                                    memory=context.config.misc_mem,
+                                                    disk=context.config.misc_disk)
+                
+                vcf_tbi_id_pair = (call_job.rv(0), call_job.rv(1))
+                #timing_result = call_job.rv(2)
+                timing_result = TimeTracker()
 
-                    if bed_id:
-                        eval_results[out_name]["clipped"] = \
-                            call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      vcfeval_fasta_id, bed_id, out_name=out_name,
-                                                      score_field=score_field).rv()
-                        if happy:
-                            happy_results[out_name]["clipped"] = \
-                            call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      vcfeval_fasta_id, bed_id, out_name=out_name).rv()
+                if not vcfeval_score_field:
+                    score_field = 'QUAL'
+                else:
+                    score_field = vcfeval_score_field
 
-                        if sveval:
-                            sveval_results[out_name]["clipped"] = \
-                            call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id,
-                                                      min_sv_len=min_sv_len,
-                                                      max_sv_len=max_sv_len,
-                                                      sv_overlap=sv_overlap,
-                                                      sv_region_overlap=sv_region_overlap,
-                                                      ins_ref_len=ins_ref_len,
-                                                      del_min_rol=del_min_rol,
-                                                      ins_seq_comp=ins_seq_comp, 
-                                                      bed_id = bed_id, out_name=out_name,
-                                                      fasta_path = 'ref.fasta',
-                                                      fasta_id = vcfeval_fasta_id,
-                                                      normalize = normalize).rv()
-                                                    
-                    if not clip_only:
-                        # Also do unclipped
-                        eval_results[out_name]["unclipped"] = \
-                            call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      vcfeval_fasta_id, None,
-                                                      out_name=out_name if not bed_id else out_name + '-unclipped',
-                                                      score_field=score_field).rv()
-                        if happy:
-                            happy_results[out_name]["unclipped"] = \
-                            call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
-                                                      vcfeval_fasta_id, None,
-                                                      out_name=out_name if not bed_id else out_name + '-unclipped').rv()
+                if bed_id:
+                    eval_results[out_name]["clipped"] = \
+                        call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
+                                                  truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                  vcfeval_fasta_id, bed_id, out_name=out_name,
+                                                  score_field=score_field).rv()
+                    if happy:
+                        happy_results[out_name]["clipped"] = \
+                        call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                  truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                  vcfeval_fasta_id, bed_id, out_name=out_name).rv()
 
-                        if sveval:
-                            sveval_results[out_name]["unclipped"] = \
-                            call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
-                                                      truth_vcf_id, truth_vcf_tbi_id,
-                                                      min_sv_len=min_sv_len,
-                                                      max_sv_len=max_sv_len,
-                                                      sv_overlap=sv_overlap,
-                                                      sv_region_overlap=sv_region_overlap,
-                                                      bed_id = None,
-                                                      ins_ref_len=ins_ref_len,
-                                                      del_min_rol=del_min_rol,
-                                                      ins_seq_comp=ins_seq_comp, 
-                                                      out_name=out_name if not bed_id else out_name + '-unclipped',
-                                                      fasta_path = 'ref.fasta',
-                                                      fasta_id = vcfeval_fasta_id,
-                                                      normalize = normalize).rv()
+                    if sveval:
+                        sveval_results[out_name]["clipped"] = \
+                        call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
+                                                  truth_vcf_id, truth_vcf_tbi_id,
+                                                  min_sv_len=min_sv_len,
+                                                  max_sv_len=max_sv_len,
+                                                  sv_overlap=sv_overlap,
+                                                  sv_region_overlap=sv_region_overlap,
+                                                  ins_ref_len=ins_ref_len,
+                                                  del_min_rol=del_min_rol,
+                                                  ins_seq_comp=ins_seq_comp, 
+                                                  bed_id = bed_id, out_name=out_name,
+                                                  fasta_path = 'ref.fasta',
+                                                  fasta_id = vcfeval_fasta_id,
+                                                  normalize = normalize).rv()
+
+                if not clip_only:
+                    # Also do unclipped
+                    eval_results[out_name]["unclipped"] = \
+                        call_job.addFollowOnJobFn(run_vcfeval, context, sample_name, vcf_tbi_id_pair,
+                                                  truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                  vcfeval_fasta_id, None,
+                                                  out_name=out_name if not bed_id else out_name + '-unclipped',
+                                                  score_field=score_field).rv()
+                    if happy:
+                        happy_results[out_name]["unclipped"] = \
+                        call_job.addFollowOnJobFn(run_happy, context, sample_name, vcf_tbi_id_pair,
+                                                  truth_vcf_id, truth_vcf_tbi_id, 'ref.fasta',
+                                                  vcfeval_fasta_id, None,
+                                                  out_name=out_name if not bed_id else out_name + '-unclipped').rv()
+
+                    if sveval:
+                        sveval_results[out_name]["unclipped"] = \
+                        call_job.addFollowOnJobFn(run_sv_eval, context, sample_name, vcf_tbi_id_pair,
+                                                  truth_vcf_id, truth_vcf_tbi_id,
+                                                  min_sv_len=min_sv_len,
+                                                  max_sv_len=max_sv_len,
+                                                  sv_overlap=sv_overlap,
+                                                  sv_region_overlap=sv_region_overlap,
+                                                  bed_id = None,
+                                                  ins_ref_len=ins_ref_len,
+                                                  del_min_rol=del_min_rol,
+                                                  ins_seq_comp=ins_seq_comp, 
+                                                  out_name=out_name if not bed_id else out_name + '-unclipped',
+                                                  fasta_path = 'ref.fasta',
+                                                  fasta_id = vcfeval_fasta_id,
+                                                  normalize = normalize).rv()
                             
                     
-                    vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
-                    timing_results.append(timing_result)
-                    names.append(out_name)            
-                    
+                vcf_tbi_id_pairs.append(vcf_tbi_id_pair)
+                timing_results.append(timing_result)
+                names.append(out_name)            
+
 
     calleval_results = child_job.addFollowOnJobFn(run_calleval_results, context, names,
                                                   vcf_tbi_id_pairs, eval_results, happy_results, sveval_results,
@@ -818,7 +822,14 @@ def calleval_main(context, options):
             plot_sets = parse_plot_sets(options.plot_sets) 
 
             importer.wait()
-            
+
+            # transform our vcf_offsets into a dict
+            if options.vcf_offsets:
+                vcf_offset_dict = {}
+                for (ref_path_name, vcf_offset) in zip(options.ref_paths, options.vcf_offsets):
+                    vcf_offset_dict[ref_path_name] = vcf_offset
+                options.vcf_offsets = vcf_offset_dict
+
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
                                      memory=context.config.misc_mem,
@@ -841,12 +852,20 @@ def calleval_main(context, options):
                 # Use the same FASTA as evaluation
                 caller_fasta_id = vcfeval_fasta_id
 
-            if options.chroms:
+            if options.ref_paths:
                 # Make sure the comparison respects --chroms if it's provided
                 vcf_subset_job = init_job.addChildJobFn(run_vcf_subset, context, importer.resolve(vcfeval_baseline_id),
                                                         importer.resolve(vcfeval_baseline_tbi_id),
-                                                        options.chroms, disk=context.config.vcfeval_disk)
+                                                        options.ref_paths, disk=context.config.vcfeval_disk)
                 vcfeval_baseline_id, vcfeval_baseline_tbi_id = vcf_subset_job.rv(0), vcf_subset_job.rv(1)
+
+            # transform our vcf_offsets into a dict
+            if options.vcf_offsets:
+                vcf_offset_dict = {}
+                for (ref_path_name, vcf_offset) in zip(options.ref_paths, options.vcf_offsets):
+                    vcf_offset_dict[ref_path_name] = vcf_offset
+                options.vcf_offsets = vcf_offset_dict
+                
 
             # Make a root job
             root_job = Job.wrapJobFn(run_calleval, context,
@@ -862,12 +881,10 @@ def calleval_main(context, options):
                                      importer.resolve(vcfeval_fasta_id),
                                      importer.resolve(bed_id), clip_only,
                                      options.call,
-                                     options.genotype,
-                                     options.sample_name,
-                                     options.chroms, options.vcf_offsets,
+                                     options.sample,
+                                     options.ref_paths, options.vcf_offsets,
                                      options.vcfeval_score_field,
                                      plot_sets,
-                                     options.filter_opts_gt,
                                      options.surject,
                                      options.interleaved,
                                      options.freebayes,
