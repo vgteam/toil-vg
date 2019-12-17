@@ -100,7 +100,7 @@ def pedigree_subparser(parser):
     map_parse_index_args(parser)
 
     # Add pedigree options shared only with map
-    pedigree_parse_index_args(parser)
+    pedigree_parse_args(parser)
     
     # Add common docker options
     add_container_tool_parse_args(parser)
@@ -256,8 +256,117 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
                 '--input', os.path.basename(bam_path),
                 '--output', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
-    context.runner.call(job, ['bgzip' '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
-                        work_dir = work_dir, tool_name='gatk')
+    context.runner.call(job, ['bgzip', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
+                        work_dir = work_dir, tool_name='vg')
+    
+    # Write output to intermediate store
+    out_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name))
+    vcf_file_id = context.write_intermediate_file(job, out_file)
+    
+    return vcf_file_id
+
+def run_gatk_joint_genotyper(job, context, sample_name, proband_gvcf_id, maternal_gvcf_id, paternal_gvcf_id,
+                                    ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id):
+
+    RealtimeLogger.info("Starting gatk joint calling gvcfs")
+    start_time = timeit.default_timer()
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the sample gvcfs for joint genotyping
+    proband_gvcf_name = os.path.basename(proband_gvcf_id)
+    proband_gvcf_path = os.path.join(work_dir, proband_gvcf_name)
+    job.fileStore.readGlobalFile(proband_gvcf_id, proband_gvcf_path)
+    
+    maternal_gvcf_name = os.path.basename(maternal_gvcf_id)
+    maternal_gvcf_path = os.path.join(work_dir, maternal_gvcf_name)
+    job.fileStore.readGlobalFile(maternal_gvcf_id, maternal_gvcf_path)
+    
+    paternal_gvcf_name = os.path.basename(paternal_gvcf_id)
+    paternal_gvcf_path = os.path.join(work_dir, paternal_gvcf_name)
+    job.fileStore.readGlobalFile(paternal_gvcf_id, paternal_gvcf_path)
+    
+    ref_fasta_name = os.path.basename(ref_fasta_id)
+    ref_fasta_path = os.path.join(work_dir, ref_fasta_name)
+    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
+    
+    ref_fasta_index_name = os.path.basename(ref_fasta_index_id)
+    ref_fasta_index_path = os.path.join(work_dir, ref_fasta_index_name)
+    job.fileStore.readGlobalFile(ref_fasta_index_id, ref_fasta_index_path)
+    
+    ref_fasta_dict_name = os.path.basename(ref_fasta_dict_id)
+    ref_fasta_dict_path = os.path.join(work_dir, ref_fasta_dict_name)
+    job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
+    
+    # Run variant calling commands
+    command = ['gatk', 'IndexFeatureFile', '-F', os.path.basename(proband_gvcf_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    command = ['gatk', 'IndexFeatureFile', '-F', os.path.basename(maternal_gvcf_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    command = ['gatk', 'IndexFeatureFile', '-F', os.path.basename(paternal_gvcf_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    command = ['gatk', 'CombineGVCFs',
+                '--reference', os.path.basename(ref_fasta_path),
+                '-V', os.path.basename(maternal_gvcf_path),
+                '-V', os.path.basename(paternal_gvcf_path),
+                '-V', os.path.basename(proband_gvcf_path),
+                '--output', '{}_trio.combined.gvcf'.format(sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    command = ['gatk', 'GenotypeGVCFs',
+                '--reference', os.path.basename(ref_fasta_path),
+                '--variant', '{}_trio.combined.gvcf'.format(sample_name),
+                '--output', '{}_trio.jointgenotyped.vcf'.format(sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    context.runner.call(job, ['bgzip', '{}_trio.jointgenotyped.vcf'.format(sample_name)],
+                        work_dir = work_dir, tool_name='vg')
+    
+    # Write output to intermediate store
+    out_file = os.path.join(work_dir, '{}_trio.jointgenotyped.vcf.gz'.format(sample_name))
+    joint_vcf_file_id = context.write_intermediate_file(job, out_file)
+    
+    return joint_vcf_file_id
+
+def run_split_jointcalled_vcf(job, context, sample_name, contigs_list, ref_fasta_id,
+                                    ref_fasta_index_id, ref_fasta_dict_id, pcr_indel_model="CONSERVATIVE"):
+
+    RealtimeLogger.info("Starting gatk haplotypecalling gvcfs")
+    start_time = timeit.default_timer()
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the sample bam for variant calling
+    bam_name = os.path.basename(chr_bam_id)
+    bam_path = os.path.join(work_dir, bam_name)
+    job.fileStore.readGlobalFile(chr_bam_id, bam_path
+    bam_name = os.path.splitext(bam_name)[0]
+    
+    ref_fasta_name = os.path.basename(ref_fasta_id)
+    ref_fasta_path = os.path.join(work_dir, ref_fasta_name)
+    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
+    
+    ref_fasta_index_name = os.path.basename(ref_fasta_index_id)
+    ref_fasta_index_path = os.path.join(work_dir, ref_fasta_index_name)
+    job.fileStore.readGlobalFile(ref_fasta_index_id, ref_fasta_index_path)
+    
+    ref_fasta_dict_name = os.path.basename(ref_fasta_dict_id)
+    ref_fasta_dict_path = os.path.join(work_dir, ref_fasta_dict_name)
+    job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
+    
+    # Run variant calling commands
+    command = ['gatk', 'BuildBamIndex', '--INPUT', os.path.basename(bam_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    command = ['gatk', 'HaplotypeCaller',
+                '--native-pair-hmm-threads', context.config.calling_cores,
+                '-ERC', 'GVCF',
+                '--pcr-indel-model', pcr_indel_model,
+                '--reference', os.path.basename(ref_fasta_path),
+                '--input', os.path.basename(bam_path),
+                '--output', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+    context.runner.call(job, ['bgzip', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
+                        work_dir = work_dir, tool_name='vg')
     
     # Write output to intermediate store
     out_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name))
@@ -410,7 +519,14 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     proband_mapping_output = proband_mapping_job.rv(2)
     maternal_mapping_output = maternal_mapping_job.rv(2)
     paternal_mapping_output = paternal_mapping_job.rv(2)
-   
+
+    joint_calling_output = parental_graph_construction_job.addChildJobFn(run_gatk_joint_genotyper, context, proband_name,
+                                proband_calling_output, maternal_calling_output, paternal_calling_output,
+                                cores=context.config.misc_cores,
+                                memory=context.config.misc_mem,
+                                disk=context.config.misc_disk).rv()
+    run_split_jointcalled_vcf(joint_calling_output)
+    
     #TODO: ADD TRIO VARIANT CALLING HERE
     #       -- incorporate gvcf calling job functions here
     #       -- adapt chunk calling infrastructure here
