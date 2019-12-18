@@ -327,52 +327,33 @@ def run_gatk_joint_genotyper(job, context, sample_name, proband_gvcf_id, materna
     
     return joint_vcf_file_id
 
-def run_split_jointcalled_vcf(job, context, sample_name, contigs_list, ref_fasta_id,
-                                    ref_fasta_index_id, ref_fasta_dict_id, pcr_indel_model="CONSERVATIVE"):
-
-    RealtimeLogger.info("Starting gatk haplotypecalling gvcfs")
+def run_split_jointcalled_vcf(job, context, joint_called_vcf_id, proband_name, maternal_name, pathernal_name, id_ranges_file)
+#TODO
+    RealtimeLogger.info("Starting split joint-called trio vcf")
     start_time = timeit.default_timer()
 
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
+    
+    joint_vcf_name = os.path.basename(joint_called_vcf_id)
+    joint_vcf_path = os.path.join(work_dir, joint_vcf_name)
+    job.fileStore.readGlobalFile(joint_called_vcf_id, joint_vcf_path)
+    
+    contig_vcf_ids = []
+    with open(id_ranges_file) as in_ranges:
+        for line in in_ranges:
+            toks = line.strip().split()
+            contig_id = toks[0]
+            # And a temp file for our aligner output
+            output_file = os.path.join(work_dir, "{}_trio_{}.vcf".format(sample_name, contig_id))
 
-    # We need the sample bam for variant calling
-    bam_name = os.path.basename(chr_bam_id)
-    bam_path = os.path.join(work_dir, bam_name)
-    job.fileStore.readGlobalFile(chr_bam_id, bam_path
-    bam_name = os.path.splitext(bam_name)[0]
+            # Open the file stream for writing
+            with open(output_file, "w") as contig_vcf_file:
+                context.runner.call(job, ['bcftools', 'view', '-O', 'z', '-r', contig_id, joint_vcf_name]
+                                    work_dir = work_dir, tool_name='bcftools', outfile=contig_vcf_file)
+            contig_vcf_ids.append(contig_vcf_file)
     
-    ref_fasta_name = os.path.basename(ref_fasta_id)
-    ref_fasta_path = os.path.join(work_dir, ref_fasta_name)
-    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
-    
-    ref_fasta_index_name = os.path.basename(ref_fasta_index_id)
-    ref_fasta_index_path = os.path.join(work_dir, ref_fasta_index_name)
-    job.fileStore.readGlobalFile(ref_fasta_index_id, ref_fasta_index_path)
-    
-    ref_fasta_dict_name = os.path.basename(ref_fasta_dict_id)
-    ref_fasta_dict_path = os.path.join(work_dir, ref_fasta_dict_name)
-    job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
-    
-    # Run variant calling commands
-    command = ['gatk', 'BuildBamIndex', '--INPUT', os.path.basename(bam_path)]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
-    command = ['gatk', 'HaplotypeCaller',
-                '--native-pair-hmm-threads', context.config.calling_cores,
-                '-ERC', 'GVCF',
-                '--pcr-indel-model', pcr_indel_model,
-                '--reference', os.path.basename(ref_fasta_path),
-                '--input', os.path.basename(bam_path),
-                '--output', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
-    context.runner.call(job, ['bgzip', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
-                        work_dir = work_dir, tool_name='vg')
-    
-    # Write output to intermediate store
-    out_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name))
-    vcf_file_id = context.write_intermediate_file(job, out_file)
-    
-    return vcf_file_id
+    return contig_vcf_ids
     
 def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id):
     """
@@ -453,8 +434,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     parental_graph_construction_job = Job()
     proband_sibling_mapping_calling_child_jobs = Job()
     pedigree_joint_calling_job = Job()
-    proband_sibling_mapping_calling_child_jobs.addFollowOn(pedigree_joint_calling_job)
-    parental_graph_construction_job.addFollowOn(proband_sibling_mapping_calling_child_jobs)
     
     job.addChild(proband_mapping_calling_child_jobs)
     job.addChild(maternal_mapping_calling_child_jobs)
@@ -464,7 +443,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     proband_first_mapping_job = proband_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_proband,
                                      gam_input_reads_proband, bam_input_reads_proband,
                                      proband_name,
-                                     options.interleaved, options.mapper, importer.resolve(indexes),
+                                     interleaved, mapper, indexes,
                                      reads_file_ids_proband,
                                      bam_output=True, surject=True,
                                      validate,
@@ -482,7 +461,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     maternal_mapping_job = maternal_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_maternal,
                                      gam_input_reads_maternal, bam_input_reads_maternal,
                                      maternal_name,
-                                     options.interleaved, options.mapper, importer.resolve(indexes),
+                                     interleaved, mapper, indexes,
                                      reads_file_ids_maternal,
                                      bam_output=True, surject=True,
                                      validate,
@@ -500,7 +479,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     paternal_mapping_job = paternal_mapping_calling_child_jobs.addChildJobFn(run_mapping, context, fastq_paternal,
                                      gam_input_reads_paternal, bam_input_reads_paternal,
                                      paternal_name,
-                                     options.interleaved, options.mapper, importer.resolve(indexes),
+                                     interleaved, mapper, indexes,
                                      reads_file_ids_paternal,
                                      bam_output=True, surject=True,
                                      validate,
@@ -520,13 +499,16 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     maternal_mapping_output = maternal_mapping_job.rv(2)
     paternal_mapping_output = paternal_mapping_job.rv(2)
 
-    joint_calling_output = parental_graph_construction_job.addChildJobFn(run_gatk_joint_genotyper, context, proband_name,
+    joint_calling_job = parental_graph_construction_job.addChildJobFn(run_gatk_joint_genotyper, context, proband_name,
                                 proband_calling_output, maternal_calling_output, paternal_calling_output,
                                 cores=context.config.misc_cores,
                                 memory=context.config.misc_mem,
-                                disk=context.config.misc_disk).rv()
-    run_split_jointcalled_vcf(joint_calling_output)
+                                disk=context.config.misc_disk)
+    joint_calling_output = parental_graph_construction_job.addFollowOnJobFn(run_split_jointcalled_vcf, context, joint_calling_job.rv(),
+                                proband_name, maternal_name, paternal_name, indexes['id_ranges'])
     
+    proband_sibling_mapping_calling_child_jobs.addFollowOn(pedigree_joint_calling_job)
+    parental_graph_construction_job.addFollowOn(proband_sibling_mapping_calling_child_jobs)
     #TODO: ADD TRIO VARIANT CALLING HERE
     #       -- incorporate gvcf calling job functions here
     #       -- adapt chunk calling infrastructure here
