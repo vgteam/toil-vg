@@ -409,7 +409,7 @@ class VGCGLTest(TestCase):
         self.test_vg_graph2 = os.path.join(self.workdir, 'snp1kg-brca2.vg')        
         self.baseline = os.path.join(self.workdir, 'platinum_NA12877_BRCA1_BRCA2.vcf.gz')
         self.chrom_fa = os.path.join(self.workdir, 'BRCA1_BRCA2.fa.gz')
-        
+
         self._run(self.base_command +
                   [self.jobStoreLocal, 'NA12877',
                    self.local_outstore,
@@ -420,7 +420,7 @@ class VGCGLTest(TestCase):
                    '--single_reads_chunk', '--index_name', 'genome', '--realTimeStderr',
                    '--vcfeval_baseline', self.baseline, '--vcfeval_fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
-        
+
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.70)
 
         ''' Test running vg call on one gam that contains multiple paths
@@ -428,7 +428,6 @@ class VGCGLTest(TestCase):
 
         self.sample_gam = os.path.join(self.local_outstore, 'NA12877_default.gam')             
         self.xg_index = os.path.join(self.local_outstore, 'genome.xg')        
-
         outstore = self.local_outstore + '.2'
         self._run(['toil-vg', 'call', self.jobStoreLocal,
                    '--container', self.containerType,
@@ -446,6 +445,44 @@ class VGCGLTest(TestCase):
                    '--vcfeval_fasta', self.chrom_fa, outstore,
                    '--realTimeLogging', '--realTimeStderr', '--logInfo',
                    '--vcfeval_opts', ' --ref-overlap'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._assertOutput(None, outstore, f1_threshold=0.70)
+
+        ''' Test the same thing but running chunk and augment separately
+        '''
+        outstore = self.local_outstore + '.3'
+        self._run(['toil-vg', 'chunk', self.jobStoreLocal,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--graph', self.xg_index, outstore, '--gam', self.sample_gam,
+                   '--path_components', '17', '13',
+                   '--realTimeLogging', '--realTimeStderr', '--logInfo'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'augment', self.jobStoreLocal, outstore, '--clean', 'never',
+                   '--graph', os.path.join(outstore, 'genome_13.pg'),
+                   '--gam', os.path.join(outstore, 'genome_13.gam'),
+                   '--augment_gam',
+                   '--realTimeLogging', '--realTimeStderr', '--logInfo'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+        
+        self._run(['toil-vg', 'call', self.jobStoreLocal, outstore, '--clean', 'never',
+                   '--graph', os.path.join(outstore, 'genome_13-aug.pg'),
+                   '--gam', os.path.join(outstore, 'genome_13-aug.gam'),
+                   '--sample', 'NA12877', '--recall',
+                   '--calling_cores', '4',
+                   '--min_mapq', '15', '--min_baseq', '10',
+                   '--ref_paths', '13', '--vcf_offsets', '32314860',
+                   '--realTimeLogging', '--realTimeStderr', '--logInfo'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'vcfeval', self.jobStoreLocal, '--clean', 'never',
+                       '--call_vcf', os.path.join(outstore, 'genome_13-aug_NA12877.vcf.gz'),
+                       '--vcfeval_baseline', self.baseline,
+                       '--vcfeval_fasta', self.chrom_fa, outstore,
+                       '--realTimeLogging', '--realTimeStderr', '--logInfo',
+                       '--vcfeval_opts', ' --ref-overlap'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._assertOutput(None, outstore, f1_threshold=0.70)
@@ -754,7 +791,7 @@ class VGCGLTest(TestCase):
                    '--ref_paths', 'chr21', 'chr22',
                    '--gam', os.path.join(self.local_outstore, 'HG00514_default.gam'),
                    '--genotype_vcf', vcf_path,
-                   '--call_chunk_cores', '8'])
+                   '--calling_cores', '8'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         

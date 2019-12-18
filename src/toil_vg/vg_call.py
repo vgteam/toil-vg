@@ -81,7 +81,7 @@ def validate_call_options(options):
     require(not options.vcf_offsets or len(options.vcf_offsets) == len(options.ref_paths),
             'Number of --vcf_offsets if specified must be same as number of --ref_paths')
     require(not options.snarls or options.recall or options.genotype_vcf,
-            '--snarls must be used with --recall or --genotype_vcf')
+            '--snarls can only be used with --recall or --genotype_vcf')
     require(not options.connected_components or not options.genotype_vcf,
             '--only path chunking (not --connected_components) supported with --genotype_vcf')
     require(not options.connected_components or not options.ref_path_chunking,
@@ -130,9 +130,9 @@ def run_chunked_calling(job, context,
                                                 output_format=output_format,
                                                 gam_id=gam_id,
                                                 to_outstore=False,
-                                                cores=context.config.call_chunk_cores,
-                                                memory=context.config.call_chunk_mem,
-                                                disk=context.config.call_chunk_disk)
+                                                cores=context.config.chunk_cores,
+                                                memory=context.config.chunk_mem,
+                                                disk=context.config.chunk_disk)
 
             batch_input = chunk_job.rv()
 
@@ -161,12 +161,12 @@ def run_chunked_calling(job, context,
             return recurse_job.rv()
         else:
             # convert if we're augmenting and not chunking
-            if augment and os.path.splitext(graph_basename) != output_format:
+            if augment and os.path.splitext(graph_basename)[1] != '.' + output_format:
                 convert_job = child_job.addChildJobFn(run_convert, context,
                                                       graph_id=graph_id,
                                                       graph_basename=graph_basename,
                                                       output_format=output_format,
-                                                      disk=context.config.call_chunk_disk)
+                                                      disk=context.config.calling_disk)
                 graph_id = convert_job.rv()
                 graph_basename = os.path.splitext(graph_basename)[0] + '.' + output_format
                 # todo: clean up
@@ -201,9 +201,9 @@ def run_chunked_calling(job, context,
                                                             min_mapq=min_mapq,
                                                             min_baseq=min_baseq,
                                                             to_outstore=True,
-                                                            cores=context.config.call_chunk_cores,
-                                                            memory=context.config.call_chunk_mem,
-                                                            disk=context.config.call_chunk_disk)
+                                                            cores=context.config.augment_cores,
+                                                            memory=context.config.augment_mem,
+                                                            disk=context.config.augment_disk)
             graph_id = augment_job.rv(0)
             graph_basename = os.path.splitext(graph_basename)[0] + '-aug' + os.path.splitext(graph_basename)[1]
             gam_id = augment_job.rv(1)
@@ -230,9 +230,9 @@ def run_chunked_calling(job, context,
                                                         ref_paths=ref_path,
                                                         min_call_support=min_call_support,
                                                         vcf_offsets=vcf_offsets,
-                                                        cores=context.config.call_chunk_cores,
-                                                        memory=context.config.call_chunk_mem,
-                                                        disk=context.config.call_chunk_disk)
+                                                        cores=context.config.calling_cores,
+                                                        memory=context.config.calling_mem,
+                                                        disk=context.config.calling_disk)
 
         call_results.append((chunk_name, calling_job.rv()))
 
@@ -329,6 +329,8 @@ def run_calling(job, context,
                 
     if sample:
         call_cmd += ['-s', sample]
+    if context.config.call_opts:
+        call_cmd += context.config.call_opts
 
     try:
         with open(out_vcf_path, 'w') as out_vcf_file:
@@ -502,16 +504,16 @@ def call_main(context, options):
             # it was moved after chunking, but it makes the logic more complicated and I want
             # to eventually get away from running it at all.
             root_job = None
-            if options.filter_opts:
+            if context.config.filter_opts:
                 root_job = Job.wrapJobFn(run_filtering, context,
                                          graph_id = importer.resolve(inputGraphFileID),
                                          graph_basename = os.path.basename(options.graph),
                                          gam_id = importer.resolve(inputGamFileID),
                                          gam_basename = os.path.basename(options.gam),
                                          filter_opts = options.filter_opts,
-                                         cores=context.config.call_chunk_cores,
-                                         memory=context.config.call_chunk_mem,
-                                         disk=context.config.call_chunk_disk)
+                                         cores=context.config.calling_cores,
+                                         memory=context.config.calling_mem,
+                                         disk=context.config.calling_disk)
                 filtered_gam_id = root_job.rv()
                 filtered_gam_basename = os.path.splitext(os.path.basename(options.gam))[0] + '.filter.gam'
             else:

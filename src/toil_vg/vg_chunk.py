@@ -66,9 +66,9 @@ def chunk_parse_args(parser, path_components=True):
                             help="split into connected component for each given path")
     parser.add_argument("--output_format", choices="pg, hg, vg", default="pg",
                         help="output format [pg]")
-    parser.add_argument("--call_chunk_cores", type=int,
+    parser.add_argument("--chunk_cores", type=int,
                         help="number of threads used for extracting chunks for calling")
-    parser.add_argument("--call_chunk_mem", type=str,
+    parser.add_argument("--chunk_mem", type=str,
                         help="memory alotment for extracting chunks for calling")
 
     
@@ -114,7 +114,7 @@ def run_chunking(job, context,
         input_opts += ['-P', os.path.basename(paths_path)]
 
     # output options
-    chunk_prefix = 'chunk/chunk'
+    chunk_prefix = 'chunk/{}'.format(os.path.splitext(graph_basename)[0])
     os.makedirs(os.path.join(work_dir, os.path.dirname(chunk_prefix)))    
     output_opts = ['-b', chunk_prefix, ]
     output_bed_path = os.path.join(work_dir, 'chunks.bed')
@@ -195,9 +195,9 @@ def chunk_main(context, options):
                                      output_format=options.output_format,
                                      gam_id = importer.resolve(inputGamFileID),
                                      to_outstore = True,
-                                     cores=context.config.call_chunk_cores,
-                                     memory=context.config.call_chunk_mem,
-                                     disk=context.config.call_chunk_disk)
+                                     cores=context.config.chunk_cores,
+                                     memory=context.config.chunk_mem,
+                                     disk=context.config.chunk_disk)
 
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,

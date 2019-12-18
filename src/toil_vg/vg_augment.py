@@ -106,9 +106,9 @@ def run_chunked_augmenting(job, context,
                                                 output_format=output_format,
                                                 gam_id=gam_id,
                                                 to_outstore=False,
-                                                cores=context.config.call_chunk_cores,
-                                                memory=context.config.call_chunk_mem,
-                                                disk=context.config.call_chunk_disk)
+                                                cores=context.config.chunk_cores,
+                                                memory=context.config.chunk_mem,
+                                                disk=context.config.chunk_disk)
             batch_input = chunk_job.rv()
 
             # recurse on chunks
@@ -151,9 +151,9 @@ def run_chunked_augmenting(job, context,
                                         min_mapq=min_mapq,
                                         min_baseq=min_baseq,
                                         to_outstore=to_outstore,
-                                        cores=context.config.call_chunk_cores,
-                                        memory=context.config.call_chunk_mem,
-                                        disk=context.config.call_chunk_disk)
+                                        cores=context.config.augment_cores,
+                                        memory=context.config.augment_mem,
+                                        disk=context.config.augment_disk)
         
         augment_results.append((chunk_name, augment_job.rv()))
 
@@ -201,6 +201,10 @@ def run_augmenting(job, context,
         augment_cmd += ['-Q', str(min_mapq)]
     if min_baseq is not None:
         augment_cmd += ['-q', str(min_baseq)]
+    if context.config.augment_opts:
+        augment_cmd += context.config.augment_opts
+    # always support subgraphs
+    augment_cmd += ['-s']
 
     # run the command
     try:
