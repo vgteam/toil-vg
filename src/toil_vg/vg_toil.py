@@ -324,25 +324,51 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
             vcf_offset_dict[ref_path_name] = vcf_offset
         options.vcf_offsets = vcf_offset_dict
 
-    call_job = job.addChildJobFn(run_chunked_calling, context,
-                                 graph_id=xg_file_id,
-                                 graph_basename='graph.xg',
-                                 gam_id=chr_gam_ids[0],
-                                 gam_basename='reads1.gam',
-                                 batch_input=None,
-                                 genotype_vcf_id=None,
-                                 genotype_tbi_id=None,
-                                 sample=options.sample_name,
-                                 augment=not options.recall,
-                                 output_format=options.output_format,
-                                 min_augment_coverage=options.min_augment_coverage,
-                                 expected_coverage=options.expected_coverage,
-                                 min_mapq=options.min_mapq,
-                                 ref_paths=chroms,
-                                 ref_path_chunking=options.ref_path_chunking,
-                                 min_call_support=options.min_call_support,
-                                 vcf_offsets=options.vcf_offsets)
+    # toil-vg call no longer supports multiple chromosome gams
+    # this should get taken out of the toil-vg run interface
+    assert len(chr_gam_ids) == 1
     
+    if context.config.filter_opts:
+        filter_job = Job.wrapJobFn(run_filtering, context,
+                                   graph_id = xg_file_id,
+                                   graph_basename = 'graph.xg',
+                                   gam_id = chr_gam_ids[0],
+                                   gam_basename = 'reasd1.gam',
+                                   filter_opts = context.config.filter_opts,
+                                   cores=context.config.calling_cores,
+                                   memory=context.config.calling_mem,
+                                   disk=context.config.calling_disk)
+        gam_id = filter_job.rv()
+    else:
+        gam_id = chr_gam_ids[0]
+        filter_job = None
+
+    call_job = Job.wrapJobFn(run_chunked_calling, context,
+                             graph_id=xg_file_id,
+                             graph_basename='graph.xg',
+                             gam_id=gam_id,
+                             gam_basename='reads1.gam',
+                             batch_input=None,
+                             genotype_vcf_id=None,
+                             genotype_tbi_id=None,
+                             sample=options.sample_name,
+                             augment=not options.recall,
+                             output_format=options.output_format,
+                             min_augment_coverage=options.min_augment_coverage,
+                             expected_coverage=options.expected_coverage,
+                             min_mapq=options.min_mapq,
+                             min_baseq=options.min_baseq,
+                             ref_paths=chroms,
+                             ref_path_chunking=options.ref_path_chunking,
+                             min_call_support=options.min_call_support,
+                             vcf_offsets=options.vcf_offsets)
+
+    if filter_job:
+        job.addChild(filter_job)
+        filter_job.addFollowOn(call_job)
+    else:
+        job.addChild(call_job)
+        
     vcf_tbi_wg_id_pair = call_job.rv(0), call_job.rv(1)
 
     # optionally run vcfeval at the very end.  output will end up in the outstore.

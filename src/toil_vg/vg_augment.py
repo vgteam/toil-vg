@@ -71,6 +71,10 @@ def augment_parse_args(parser, stand_alone = False):
                         help="ignore reads with MAPQ less than this")
     parser.add_argument("--min_baseq", type=int,
                         help="ignore edits with minimum average base quality less than this")
+    parser.add_argument("--augment_cores", type=int,
+                        help="number of threads during augmentation")
+    parser.add_argument("--augment_mem", type=str,
+                        help="memory alotment during augmentation")
 
 def run_chunked_augmenting(job, context,
                            graph_id,

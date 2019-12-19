@@ -337,6 +337,7 @@ class VGCGLTest(TestCase):
                    '--sample', '1',
                    '--calling_cores', '2',
                    '--call',
+                   '--min_mapq', '5', '--min_baseq', '5', '--min_augment_coverage', '2',
                    '--freebayes', '--force_outstore',
                    '--bams', os.path.join(self.local_outstore, 'bwa-mem.bam'),
                    os.path.join(self.local_outstore, 'bwa-mem-pe.bam'),

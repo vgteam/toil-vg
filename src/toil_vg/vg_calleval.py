@@ -37,6 +37,8 @@ from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta, run_make_control_vcfs
 from toil_vg.vg_surject import run_surjecting
+from toil_vg.vg_augment import augment_parse_args
+from toil_vg.vg_chunk import chunk_parse_args
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,12 @@ def calleval_subparser(parser):
 
     # Add common call options shared with toil_vg pipeline
     call_parse_args(parser)
+
+    # Add common chunking options
+    chunk_parse_args(parser, path_components=False)
+
+    # Add common augmenting options
+    augment_parse_args(parser)
     
     # Add common vcfeval options shared with toil_vg pipeline
     vcfeval_parse_args(parser)
@@ -171,7 +179,6 @@ def run_all_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,
     for chrom, offset in zip(chroms, offsets):
         fb_job = child_job.addChildJobFn(run_bam_caller, context, fasta_file_id, bam_file_id, bam_idx_id,
                                          sample_name, chrom, offset, out_name, bam_caller, bam_caller_opts,
-                                         cores=context.config.calling_cores,
                                          memory=context.config.calling_mem,
                                          disk=context.config.calling_disk)
         fb_vcf_ids.append(fb_job.rv(0))
@@ -460,7 +467,8 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                  bed_id, clip_only, call, sample_name, chroms, vcf_offsets,
                  vcfeval_score_field, plot_sets, surject, interleaved,
                  freebayes, platypus, happy, sveval, recall, min_sv_len, max_sv_len, sv_overlap,
-                 sv_region_overlap, normalize, ins_ref_len, del_min_rol, ins_seq_comp):
+                 sv_region_overlap, normalize, ins_ref_len, del_min_rol, ins_seq_comp,
+                 min_mapq=0, min_baseq=0, min_augment_coverage=0):
     """
     top-level call-eval function. Runs the caller on every
     gam, and freebayes on every bam. The resulting vcfs are put through
@@ -663,12 +671,12 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
                                                     augment=not recall,
                                                     connected_component_chunking=False,
                                                     output_format='pg',
-                                                    min_augment_coverage=2,
+                                                    min_augment_coverage=min_augment_coverage,
                                                     expected_coverage=None,
-                                                    min_mapq=5,
-                                                    min_baseq=5,
+                                                    min_mapq=min_mapq,
+                                                    min_baseq=min_baseq,
                                                     ref_paths=chroms,
-                                                    ref_path_chunking=True,
+                                                    ref_path_chunking=False,
                                                     min_call_support=None,
                                                     vcf_offsets=vcf_offsets,
                                                     cores=context.config.misc_cores,
@@ -897,6 +905,9 @@ def calleval_main(context, options):
                                      options.sv_overlap,
                                      options.sv_region_overlap,
                                      options.normalize,
+                                     min_mapq=options.min_mapq,
+                                     min_baseq=options.min_baseq,
+                                     min_augment_coverage=options.min_augment_coverage,
                                      ins_ref_len=options.ins_max_gap,
                                      del_min_rol=options.del_min_rol,
                                      ins_seq_comp=options.ins_seq_comp,

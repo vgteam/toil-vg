@@ -61,7 +61,7 @@ def call_parse_args(parser):
     parser.add_argument("--ref_paths", nargs='+', default=[],
                         help="reference paths to call (and chunk) on")
     parser.add_argument("--ref_path_chunking", action="store_true",
-                        help="chunk on --reF_paths")
+                        help="chunk on --ref_paths")
     parser.add_argument("--genotype_vcf", type=make_url,
                         help="genotype the given VCF.  Input graph must contain alt paths from VCF")
     parser.add_argument("--recall", action="store_true",
@@ -510,7 +510,7 @@ def call_main(context, options):
                                          graph_basename = os.path.basename(options.graph),
                                          gam_id = importer.resolve(inputGamFileID),
                                          gam_basename = os.path.basename(options.gam),
-                                         filter_opts = options.filter_opts,
+                                         filter_opts = context.config.filter_opts,
                                          cores=context.config.calling_cores,
                                          memory=context.config.calling_mem,
                                          disk=context.config.calling_disk)
