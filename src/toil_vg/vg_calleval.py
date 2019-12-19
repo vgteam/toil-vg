@@ -32,7 +32,7 @@ from toil.common import Toil
 from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
-from toil_vg.vg_call import call_parse_args, run_chunked_calling, run_concat_vcfs
+from toil_vg.vg_call import call_parse_args, run_chunked_calling, run_concat_vcfs, run_filtering
 from toil_vg.vg_vcfeval import vcfeval_parse_args, run_vcfeval, run_vcfeval_roc_plot, run_happy, run_sv_eval
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import run_unzip_fasta, run_make_control_vcfs
@@ -657,32 +657,50 @@ def run_calleval(job, context, xg_ids, gam_ids, gam_idx_ids, bam_ids, bam_idx_id
         for gam_id, gam_idx_id, gam_name, xg_id in zip(gam_ids, gam_idx_ids, gam_names, xg_ids):
             if call:
                 out_name = '{}{}'.format(gam_name, '-call')
-
-                call_job = child_job.addChildJobFn(run_chunked_calling, context,
-                                                    graph_id=xg_id,
-                                                    graph_basename='graph.xg',
-                                                    gam_id=gam_id,
-                                                    gam_basename='aln.gam',
-                                                    batch_input=None,
-                                                    snarls_id=None,
-                                                    genotype_vcf_id=None,
-                                                    genotype_tbi_id=None,
-                                                    sample=sample_name,
-                                                    augment=not recall,
-                                                    connected_component_chunking=False,
-                                                    output_format='pg',
-                                                    min_augment_coverage=min_augment_coverage,
-                                                    expected_coverage=None,
-                                                    min_mapq=min_mapq,
-                                                    min_baseq=min_baseq,
-                                                    ref_paths=chroms,
-                                                    ref_path_chunking=False,
-                                                    min_call_support=None,
-                                                    vcf_offsets=vcf_offsets,
-                                                    cores=context.config.misc_cores,
-                                                    memory=context.config.misc_mem,
-                                                    disk=context.config.misc_disk)
                 
+                if context.config.filter_opts:
+                    filter_job = Job.wrapJobFn(run_filtering, context,
+                                               graph_id=xg_id,
+                                               graph_basename = 'graph.xg',
+                                               gam_id=gam_id,
+                                               gam_basename = 'aln.gam',
+                                               filter_opts = context.config.filter_opts,
+                                               cores=context.config.calling_cores,
+                                               memory=context.config.calling_mem,
+                                               disk=context.config.calling_disk)
+                    gam_id = filter_job.rv()
+                
+                call_job = Job.wrapJobFn(run_chunked_calling, context,
+                                         graph_id=xg_id,
+                                         graph_basename='graph.xg',
+                                         gam_id=gam_id,
+                                         gam_basename='aln.gam',
+                                         batch_input=None,
+                                         snarls_id=None,
+                                         genotype_vcf_id=None,
+                                         genotype_tbi_id=None,
+                                         sample=sample_name,
+                                         augment=not recall,
+                                         connected_component_chunking=False,
+                                         output_format='pg',
+                                         min_augment_coverage=min_augment_coverage,
+                                         expected_coverage=None,
+                                         min_mapq=min_mapq,
+                                         min_baseq=min_baseq,
+                                         ref_paths=chroms,
+                                         ref_path_chunking=False,
+                                         min_call_support=None,
+                                         vcf_offsets=vcf_offsets,
+                                         cores=context.config.misc_cores,
+                                         memory=context.config.misc_mem,
+                                         disk=context.config.misc_disk)
+
+                if context.config.filter_opts:
+                    child_job.addChild(filter_job)
+                    filter_job.addFollowOn(call_job)
+                else:
+                    child_job.addChild(call_job)
+                    
                 vcf_tbi_id_pair = (call_job.rv(0), call_job.rv(1))
                 #timing_result = call_job.rv(2)
                 timing_result = TimeTracker()
