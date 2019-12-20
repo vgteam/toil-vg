@@ -50,7 +50,7 @@ toil-vg can run vg, along with some other tools, via [Docker](http://www.docker.
 
 ## Configuration
 
-A configuration file can be used as an alternative to most command line options.  A default configuration file can be generated using
+A configuration file can be used as an alternative to some command line options, as well as to tune Toil job resources.  A default configuration file can be generated using
 
     toil-vg generate-config > config.yaml
 

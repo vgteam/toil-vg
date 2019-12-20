@@ -14,7 +14,6 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_call import sort_vcf
 from toil_vg.vg_construct import run_make_control_vcfs
 
 logger = logging.getLogger(__name__)
@@ -104,6 +103,16 @@ def validate_vcfeval_options(options):
     assert not options.normalize or options.vcfeval_fasta
     assert not options.normalize_calls or options.vcfeval_fasta
     assert not options.normalize_baseline or options.vcfeval_fasta
+
+def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
+    """ from vcflib """
+    vcf_dir, vcf_name = os.path.split(vcf_path)
+    with open(sorted_vcf_path, "w") as outfile:
+        drunner.call(job, [['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
+                     work_dir=vcf_dir)
+        drunner.call(job, [['bcftools', 'view', '-H', vcf_name],
+                      ['sort', '-k1,1d', '-k2,2n']], outfile=outfile,
+                     work_dir=vcf_dir)
 
 def parse_f1(summary_path):
     """ grab the best f1 out of vcfeval's summary.txt """

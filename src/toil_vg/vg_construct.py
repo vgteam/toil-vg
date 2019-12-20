@@ -1454,7 +1454,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
                 with open(vg_with_thread_as_path_path, 'w') as thread_only_file:
                     # strip paths from our original graph            
-                    cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+                    cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_only_file)
 
                     # get haplotype thread paths from the gbwt
@@ -1470,9 +1470,9 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 # Then we trim out anything other than our thread path
                 cmd = [['vg', 'mod', '-N', os.path.basename(vg_with_thread_as_path_path)]]
                 # And get rid of our thread paths since they take up lots of space when re-indexing
-                filter_cmd = ['vg', 'mod', '-']
+                filter_cmd = ['vg', 'paths', '-v', '-']
                 for chrom in chroms:
-                    filter_cmd += ['-r', chrom]
+                    filter_cmd += ['--retain-paths', chrom]
                 cmd.append(filter_cmd)
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = trimmed_file)
 
@@ -1577,7 +1577,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
         logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
         with open(extract_graph_path, 'w') as extract_graph_file:
             # strip paths from our original graph            
-            cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+            cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
             context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
 
             for hap in haplotypes:
@@ -1596,7 +1596,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
         # Then we trim out anything other than our thread paths
         cmd = [['vg', 'mod', '-N', os.path.basename(extract_graph_path)]]
         if not leave_thread_paths:
-            cmd.append(['vg', 'mod', '-', '-D'])
+            cmd.append(['vg', 'paths', '-v', '-', '-d'])
         context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
         
     if validate:
