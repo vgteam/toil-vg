@@ -45,6 +45,8 @@ from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.vg_construct import *
 from toil_vg.vg_surject import *
 from toil_vg.vg_msga import *
+from toil_vg.vg_chunk import *
+from toil_vg.vg_augment import *
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +122,14 @@ def parse_args(args=None):
     parser_msga = subparsers.add_parser('msga', help='Align fasta sequences to a graph')
     msga_subparser(parser_msga)
 
+    # chunk subparser
+    parser_chunk = subparsers.add_parser('chunk', help='Split a graph into components')
+    chunk_subparser(parser_chunk)
+
+    # augment subparser
+    parser_augment = subparsers.add_parser('augment', help='Augment a graph with variation from a GAM')
+    augment_subparser(parser_augment)
+    
     # version subparser
     parser_version = subparsers.add_parser('version', help='Print version')
 
@@ -154,9 +164,15 @@ def pipeline_subparser(parser_run):
     # add common mapping options shared with vg_map
     map_parse_args(parser_run)
     map_parse_index_args(parser_run)
-    
+
+    # Add common chunking options
+    chunk_parse_args(parser_run, path_components=False)
+
+    # Add common augmenting options
+    augment_parse_args(parser_run)
+
     # Add common calling options shared with vg_call
-    chunked_call_parse_args(parser_run)
+    call_parse_args(parser_run)
 
     # Add common calling options shared with vg_vcfeval
     vcfeval_parse_args(parser_run)
@@ -215,8 +231,6 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         wanted.add('xg')
     if inputGCSAFileID is None:
         wanted.add('gcsa')
-    if inputIDRangesFileID is None:
-        wanted.add('id_ranges')
     graph_names = map(os.path.basename, options.graphs)
     # todo: interface for multiple vcf.  
     vcf_ids = [] if not inputVCFFileID else [inputVCFFileID]
@@ -302,16 +316,59 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
         chroms = [x[0] for x in parse_id_ranges(job, id_ranges_file_id)]
     else:
         chroms = options.chroms
-    assert len(chr_gam_ids) == len(chroms)
-
-    call_job = job.addChildJobFn(run_all_calling, context, xg_file_id, chr_gam_ids, None, chroms,
-                                 options.vcf_offsets, options.sample_name,
-                                 options.genotype, recall=options.recall,
-                                 pack_support = options.pack,
-                                 old_call = options.old_call,
-                                 cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                 disk=context.config.misc_disk)
     
+    # transform our vcf_offsets into a dict
+    if options.vcf_offsets:
+        vcf_offset_dict = {}
+        for (ref_path_name, vcf_offset) in zip(options.chroms, options.vcf_offsets):
+            vcf_offset_dict[ref_path_name] = vcf_offset
+        options.vcf_offsets = vcf_offset_dict
+
+    # toil-vg call no longer supports multiple chromosome gams
+    # this should get taken out of the toil-vg run interface
+    assert len(chr_gam_ids) == 1
+    
+    if context.config.filter_opts:
+        filter_job = Job.wrapJobFn(run_filtering, context,
+                                   graph_id = xg_file_id,
+                                   graph_basename = 'graph.xg',
+                                   gam_id = chr_gam_ids[0],
+                                   gam_basename = 'reasd1.gam',
+                                   filter_opts = context.config.filter_opts,
+                                   cores=context.config.calling_cores,
+                                   memory=context.config.calling_mem,
+                                   disk=context.config.calling_disk)
+        gam_id = filter_job.rv()
+    else:
+        gam_id = chr_gam_ids[0]
+        filter_job = None
+
+    call_job = Job.wrapJobFn(run_chunked_calling, context,
+                             graph_id=xg_file_id,
+                             graph_basename='graph.xg',
+                             gam_id=gam_id,
+                             gam_basename='reads1.gam',
+                             batch_input=None,
+                             genotype_vcf_id=None,
+                             genotype_tbi_id=None,
+                             sample=options.sample_name,
+                             augment=not options.recall,
+                             output_format=options.output_format,
+                             min_augment_coverage=options.min_augment_coverage,
+                             expected_coverage=options.expected_coverage,
+                             min_mapq=options.min_mapq,
+                             min_baseq=options.min_baseq,
+                             ref_paths=chroms,
+                             ref_path_chunking=options.ref_path_chunking,
+                             min_call_support=options.min_call_support,
+                             vcf_offsets=options.vcf_offsets)
+
+    if filter_job:
+        job.addChild(filter_job)
+        filter_job.addFollowOn(call_job)
+    else:
+        job.addChild(call_job)
+        
     vcf_tbi_wg_id_pair = call_job.rv(0), call_job.rv(1)
 
     # optionally run vcfeval at the very end.  output will end up in the outstore.
@@ -407,6 +464,10 @@ def main():
         plot_main(context, args)
     elif args.command == 'msga':
         msga_main(context, args)
+    elif args.command == 'chunk':
+        chunk_main(context, args)
+    elif args.command == 'augment':
+        augment_main(context, args)
     else:
         raise RuntimeError('Unimplemented subcommand {}'.format(args.command))
         

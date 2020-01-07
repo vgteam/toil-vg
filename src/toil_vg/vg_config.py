@@ -114,11 +114,15 @@ alignment-mem: '4G'
 alignment-disk: '2G'
 
 # Resources for chunking up a graph/gam for calling (and merging)
-# typically take xg for whoe grpah, and gam for a chromosome,
-# and split up into chunks of call-chunk-size (below)
-call-chunk-cores: 1
-call-chunk-mem: '4G'
-call-chunk-disk: '2G'
+# typically take xg for whoe grpah, and gam for a chromosome
+chunk-cores: 1
+chunk-mem: '4G'
+chunk-disk: '2G'
+
+# Resources for augmenting a graph
+augment-cores: 1
+augment-mem: '4G'
+augment-disk: '2G'
 
 # Resources for calling each chunk (currently includes augment/call/genotype)
 calling-cores: 1
@@ -153,7 +157,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.20.0'
+vg-docker: 'quay.io/vgteam/vg:v1.20.0-134-gc29c4a250-t347-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -256,46 +260,18 @@ msga-context: 50
 
 #########################
 ### vg_call Arguments ###
-# Overlap option that is passed into make_chunks and call_chunk
-overlap: 2000
-
-# Chunk size (set to 0 to disable chunking)
-call-chunk-size: 2000000
-
-# Context expansion used for graph chunking
-chunk_context: 50
 
 # Options to pass to vg filter when running vg call. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
-
-# Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
-# Also used with --genotype_vcf
-recall-filter-opts: []
+filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
-augment-opts: ['-q', '10']
+augment-opts: []
 
 # Options to pass to vg pack. (do not include any file names or -t/--threads)
-pack-opts: ['-Q', '15']
+pack-opts: []
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
-call-opts: ['-e', '10']
-
-# Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
-# Also used with --genotype_vcf
-recall-opts: ['-u', '-n', '0', '-e', '1000', '-G', '3']
-
-# Override chunk context when using --recall or --genotype_vcf
-recall-context: 2500
-
-# Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
-genotype-opts: []
-
-# Use vg genotype instead of vg call
-genotype: False
-
-# If input GAMs needed to be sorted, save a copy of the sorted version in the output store
-keep-sorted-gams: False
+call-opts: []
 
 #########################
 ### vcfeval Arguments ###
@@ -409,11 +385,15 @@ alignment-mem: '100G'
 alignment-disk: '100G'
 
 # Resources for chunking up a graph/gam for calling (and merging)
-# typically take xg for whoe grpah, and gam for a chromosome,
-# and split up into chunks of call-chunk-size (below)
-call-chunk-cores: 16
-call-chunk-mem: '100G'
-call-chunk-disk: '100G'
+# typically take xg for whoe grpah, and gam for a chromosome
+chunk-cores: 16
+chunk-mem: '100G'
+chunk-disk: '100G'
+
+# Resources for augmenting a graph
+augment-cores: 8
+augment-mem: '64G'
+augment-disk: '64G'
 
 # Resources for calling each chunk (currently includes augment/call/genotype)
 calling-cores: 4
@@ -448,7 +428,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.20.0'
+vg-docker: 'quay.io/vgteam/vg:v1.20.0-134-gc29c4a250-t347-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -551,46 +531,18 @@ msga-context: 2000
 
 #########################
 ### vg_call Arguments ###
-# Overlap option that is passed into make_chunks and call_chunk
-overlap: 100000
-
-# Chunk size (set to 0 to disable chunking)
-call-chunk-size: 2500000
-
-# Context expansion used for graph chunking
-chunk_context: 50
 
 # Options to pass to vg filter when running vg call. (do not include file names or -t/--threads)
-filter-opts: ['-r', '0.9', '-fu', '-s', '1000', '-m', '1', '-q', '15', '-D', '999']
-
-# Options to pass to vg filter when using --recall. (do not include file names or -t/--threads)
-# Also used with --genotype_vcf
-recall-filter-opts: []
+filter-opts: []
 
 # Options to pass to vg augment. (do not include any file names or -t/--threads or -a/--augmentation-mode)
-augment-opts: ['-q', '10']
+augment-opts: []
 
 # Options to pass to vg pack. (do not include any file names or -t/--threads)
-pack-opts: ['-Q', '15']
+pack-opts: []
 
 # Options to pass to vg call. (do not include file/contig/sample names or -t/--threads)
-call-opts: ['-e', '10']
-
-# Options to pass to vg call when using --recall. (do not include file/contig/sample names or -t/--threads)
-# Also used with --genotype_vcf
-recall-opts: ['-u', '-n', '0', '-e', '1000', '-G', '3']
-
-# Override chunk context when using --recall or --genotype_vcf
-recall-context: 2500
-
-# Options to pass to vg genotype. (do not include file/contig/sample names or -t/--threads)
-genotype-opts: []
-
-# Use vg genotype instead of vg call
-genotype: False
-
-# If input GAMs needed to be sorted, save a copy of the sorted version in the output store
-keep-sorted-gams: False
+call-opts: []
 
 #########################
 ### vcfeval Arguments ###
