@@ -953,8 +953,8 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
 
 def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name, merge_output_name = None):
     """
-    Join the ids of some graphs. If a merge_output_name is given, cat them all
-    together as well.
+    Join the ids of some graphs. If a merge_output_name is given, merge the
+    graph files all together as well.
     
     Saves the unmerged, id-joined graphs, or the single merged graph if its
     name is given, to the output store. Also saves the node mapping file,
@@ -980,10 +980,11 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         
     work_dir = job.fileStore.getLocalTempDir()
 
-    # download graph for each region
+    # Download graph for each region.
+    # To keep command line lengths short we name the files by numbers.
     region_files = []
-    for region_graph_id, region_name in zip(region_graph_ids, region_names):
-        region_file = '{}.vg'.format(region_name)
+    for number, (region_graph_id, region_name) in enumerate(zip(region_graph_ids, region_names)):
+        region_file = '{}.vg'.format(number)
         job.fileStore.readGlobalFile(region_graph_id, os.path.join(work_dir, region_file), mutable=True)
         region_files.append(region_file)
 
@@ -1013,13 +1014,15 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         to_return['mapping'] = context.write_intermediate_file(job, mapping_file)
     
     if merge_output_name is not None:
-        # We want a sinbgle merged output file, so merge the graphs that we now know are in a joined ID space.
-        assert merge_output_name[:-3] not in region_names
+        # We want a single merged output file, so merge the graphs that we now know are in a joined ID space.
+        
+        # Make sure we aren't writing to an input file
+        assert merge_output_name not in region_files
+        
+        # Run vg to combine into that file
+        cmd = ['vg', 'combine'] + region_files
         with open(os.path.join(work_dir, merge_output_name), 'w') as merge_file:
-            # Manually concatenate all the graph files
-            for region_file in region_files:
-                with open(os.path.join(work_dir, region_file)) as cf:
-                    shutil.copyfileobj(cf, merge_file)
+            context.runner.call(job, cmd, work_dir=work_dir, outfile = merge_file)
                     
         # And write the merged graph as an output file
         to_return['merged'] = context.write_output_file(job, os.path.join(work_dir, merge_output_name))
@@ -1450,18 +1453,38 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
             else:
                 # We know we have haplotype data on this contig.
                 # Pull out the graph with just the haplotype thread as the only path to vg_with_thread_as_path_path
+                
+                # To accomplish this we now need to make sure to use vg combine
+                # to combine the path-only vg Protobuf and the actual graph. So
+                # first get them in different files.
+                
+                base_graph_filename = '{}{}_thread_{}_base.vg'.format(output_name, tag, hap)
+                
+                # strip paths from our original graph            
+                cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
+                with open(os.path.join(work_dir, base_graph_filename), 'w') as out_file:
+                    context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
+                    
+                path_graph_filename = '{}{}_thread_{}_path.vg'.format(output_name, tag, hap)
+
+                # get haplotype thread paths from the gbwt
+                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg', '-x', os.path.basename(xg_path)]
+                for chrom in chroms:
+                    cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+                with open(os.path.join(work_dir, path_graph_filename), 'w') as out_file:
+                    context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
+                
+                # Now combine the two files, adding the paths to the graph
                 vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
                 logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
-                with open(vg_with_thread_as_path_path, 'w') as thread_only_file:
-                    # strip paths from our original graph            
-                    cmd = ['vg', 'mod', '-D', os.path.basename(vg_path)]
-                    context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_only_file)
-
-                    # get haplotype thread paths from the gbwt
-                    cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg', '-x', os.path.basename(xg_path)]
-                    for chrom in chroms:
-                        cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
-                    context.runner.call(job, cmd, work_dir = work_dir, outfile = thread_only_file)
+                cmd = ['vg', 'combine', base_graph_filename, path_graph_filename]
+                with open(vg_with_thread_as_path_path, 'w') as out_file:
+                    context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
+                    
+                # Now delete the intermediates
+                os.unlink(os.path.join(work_dir, base_graph_filename))
+                os.unlink(os.path.join(work_dir, path_graph_filename))
+                    
                 
             # Now trim the graph vg_with_thread_as_path_path into vg_trimmed_path, dropping anything not covered by a path
             vg_trimmed_path = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
