@@ -401,10 +401,10 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
         # Put it in the workdir
         full_filename = os.path.join(work_dir, filename)
         
-        # Save to the given file, possibly as a symlink.
+        # Save to the given file
         got_filename = job.fileStore.readGlobalFile(in_id, full_filename)
         
-        logger.info('Downloaded graph ID {} to {} (which should be {}) for joining'.format(in_id, got_filename, full_filename))
+        RealtimeLogger.info('Downloaded graph ID {} to {} (which should be {}) for joining'.format(in_id, got_filename, full_filename))
         
         # Keep the filename
         filenames.append(filename)
