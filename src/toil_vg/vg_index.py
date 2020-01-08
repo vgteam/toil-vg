@@ -383,7 +383,7 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
     # Define work directory for local files
     work_dir = job.fileStore.getLocalTempDir()
     
-    RealtimeLogger.info("Starting VG graph concatenation...")
+    RealtimeLogger.info("Starting VG graph merge...")
     start_time = timeit.default_timer()
     
     # The file names we are given can be very long, so if we download and cat
@@ -398,8 +398,13 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
         # Determine where to save the graph
         filename = '{}.vg'.format(number)
         
+        # Put it in the workdir
+        full_filename = os.path.join(work_dir, filename)
+        
         # Save to the given file, possibly as a symlink.
-        job.fileStore.readGlobalFile(in_id, os.path.join(work_dir, filename), symlink=True)
+        got_filename = job.fileStore.readGlobalFile(in_id, full_filename)
+        
+        logger.info('Downloaded graph ID {} to {} (which should be {}) for joining'.format(in_id, got_filename, full_filename))
         
         # Keep the filename
         filenames.append(filename)
