@@ -414,8 +414,18 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
     
     # Run vg to combine into that file
     cmd = ['vg', 'combine'] + filenames
-    with open(os.path.join(work_dir, concatenated_basename), 'w') as out_file:
-        context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
+    
+    try:
+        with open(os.path.join(work_dir, concatenated_basename), 'w') as out_file:
+            context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
+    except:
+        # Dump everything we need to replicate the index run
+        logging.error("Graph merging failed. Dumping files.")
+
+        for graph_filename in filenames:
+            context.write_output_file(job, os.path.join(work_dir, graph_filename))
+        
+        raise
     
     # Now we generate the concatenated file ID
     concatenated_file_id = None
