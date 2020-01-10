@@ -765,6 +765,9 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
     for each  shard.
     """
     
+    RealtimeLogger.info('For chrom {}, merge files: {}'.format(chr_name, chunk_file_ids))
+    RealtimeLogger.info('Args: {} {} {} {} {}'.format(job, context, sample_name, chr_name, chunk_file_ids))
+    
     # Check disk requirements to make sure we have enough room for 2 copies of everything, plus a bit.
     # Get file size in a way that is robust to strs
     disk_required = sum((job.fileStore.getGlobalFileSize(gam) for gam in chunk_file_ids)) * 2 + (2 * 1024**3)
@@ -785,6 +788,7 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
         with open(output_file, 'a') as merge_file:
             for chunk_gam_id in chunk_file_ids:
                 tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
+                RealtimeLogger.info('Download file ID {} to {}'.format(chunk_gam_id, tmp_gam_file))
                 job.fileStore.readGlobalFile(chunk_gam_id, tmp_gam_file)
                 with open(tmp_gam_file) as tmp_f:
                     shutil.copyfileobj(tmp_f, merge_file)
