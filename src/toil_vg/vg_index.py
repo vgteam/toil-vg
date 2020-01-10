@@ -109,6 +109,9 @@ def index_parse_args(parser):
 
     parser.add_argument("--gcsa_opts", type=str,
                         help="Options to pass to gcsa indexing.")
+                        
+    parser.add_argument("--minimizer_opts", type=str,
+                        help="Options to pass to minimizer indexing.")
 
     parser.add_argument("--vcf_phasing", nargs='+', type=make_url, default=[],
                         help="Import phasing information from VCF(s) into xg (or GBWT with --gbwt_index)")
@@ -778,7 +781,7 @@ def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=
     minimizer_filename = os.path.join(work_dir, (index_name if index_name is not None else 'graph') + '.min')
 
     cmd = ['vg', 'minimizer', '-t', max(1, int(job.cores)), '-i', os.path.basename(minimizer_filename),
-        '-g', os.path.basename(gbwt_filename), os.path.basename(xg_filename)]
+        '-g', os.path.basename(gbwt_filename)] + context.config.minimizer_opts + [os.path.basename(xg_filename)]
     try:
         # Compute the index to the correct file
         context.runner.call(job, cmd, work_dir=work_dir)

@@ -224,6 +224,9 @@ prune-opts: []
 # Options to pass to vg gcsa indexing
 gcsa-opts: []
 
+# Options to pass to vg minimizer indexing
+minimizer-opts: []
+
 # Randomly phase unphased variants when constructing GBWT
 force-phasing: True
 
@@ -495,6 +498,9 @@ prune-opts: []
 # Options to pass to vg gcsa indexing
 gcsa-opts: []
 
+# Options to pass to vg minimizer indexing
+minimizer-opts: []
+
 # Randomly phase unphased variants when constructing GBWT
 force-phasing: True
 
@@ -583,8 +589,8 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'recall_filter_opts', 'genotype_opts',
-                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts', 'gaffe_opts',
-                   'augment_opts', 'pack_opts', 'prune_opts']:
+                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'minimizer_opts', 'mpmap_opts',
+                    'gaffe_opts', 'augment_opts', 'pack_opts', 'prune_opts']:
         if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
 
