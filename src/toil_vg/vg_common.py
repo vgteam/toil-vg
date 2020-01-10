@@ -945,13 +945,13 @@ def ensure_disk_bytes(job, job_function, required_disk_bytes):
             # job_run_args[0] should always be the job itself.
             job_rerun_args = job_run_args[1:] + (job_run_varargs or [])
             # Add the kwargs for cores/memory/disk
-            job_rerun_kwargs = dict(job_run_kwargs)
+            job_rerun_kwargs = dict(job_run_kwargs or {})
             job_rerun_kwargs.update({"cores": job.cores, "memory": job.memory, "disk": required_disk_bytes})
             
             RealtimeLogger.info("Re-queueing {} because we only have {}/{} estimated necessary disk space.".format(
                 job_function.__name__, job.disk, required_disk_bytes))
             # Queue the job again as a child with more disk.
-            promise = job.addChildJobFn(job_function, *job_rerun_args, **(job_rerun_kwargs or {})).rv()
+            promise = job.addChildJobFn(job_function, *job_rerun_args, **job_rerun_kwargs).rv()
             
             return promise
         finally:
