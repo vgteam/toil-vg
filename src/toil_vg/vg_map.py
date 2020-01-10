@@ -22,7 +22,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import *
 from toil_vg.context import Context, run_write_info_to_outstore
-from toil_vg.vg_surject import *
+from toil_vg.vg_surject import run_merge_bams, run_whole_surject 
 
 logger = logging.getLogger(__name__)
 
@@ -758,12 +758,20 @@ def run_merge_gams(job, context, sample_name, id_ranges_file_id, gam_chunk_file_
             total_running_time += float(running_time)
     
     return chr_gam_ids, total_running_time
-
+    
 def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
     """
-    Make a chromosome gam by merging up a bunch of gam ids, one 
-    for each  shard.  
+    Make a chromosome gam by merging up a list of gam ids, one 
+    for each  shard.
     """
+    
+    # Check disk requirements to make sure we have enough room for 2 copies of everything, plus a bit
+    disk_required = sum((gam.size for gam in chunk_file_ids)) * 2 + (2 * 1024**3)
+    requeued = ensure_disk_bytes(job, run_merge_chrom_gam, disk_required)
+    if requeued is not None:
+        # If not, requeue the job with more disk.
+        return requeued
+    
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
