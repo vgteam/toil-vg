@@ -765,8 +765,9 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
     for each  shard.
     """
     
-    # Check disk requirements to make sure we have enough room for 2 copies of everything, plus a bit
-    disk_required = sum((gam.size for gam in chunk_file_ids)) * 2 + (2 * 1024**3)
+    # Check disk requirements to make sure we have enough room for 2 copies of everything, plus a bit.
+    # Get file size in a way that is robust to strs
+    disk_required = sum((job.fileStore.getGlobalFileSize(gam) for gam in chunk_file_ids)) * 2 + (2 * 1024**3)
     requeued = ensure_disk_bytes(job, run_merge_chrom_gam, disk_required)
     if requeued is not None:
         # If not, requeue the job with more disk.
