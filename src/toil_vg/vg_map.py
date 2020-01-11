@@ -271,7 +271,13 @@ def run_split_reads(job, context, fastq, gam_input_reads, bam_input_reads, reads
 
 
 def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
-    
+   
+    disk_required = job.fileStore.getGlobalFileSize(sample_fastq_id) * 2 + (2 * 1024**3)
+    requeued = ensure_disk_bytes(job, run_split_fastq, disk_required)
+    if requeued is not None:
+        # If not, requeue the job with more disk.
+        return requeued
+   
     RealtimeLogger.info("Starting fastq split")
     start_time = timeit.default_timer()
     
@@ -323,6 +329,13 @@ def run_split_fastq(job, context, fastq, fastq_i, sample_fastq_id):
 def run_split_gam_reads(job, context, gam_input_reads, gam_reads_file_id):
     """ split up an input reads file in GAM format
     """
+    
+    disk_required = job.fileStore.getGlobalFileSize(gam_reads_file_id) * 2 + (2 * 1024**3)
+    requeued = ensure_disk_bytes(job, run_split_gam_reads, disk_required)
+    if requeued is not None:
+        # If not, requeue the job with more disk.
+        return requeued
+    
     RealtimeLogger.info("Starting gam split")
     start_time = timeit.default_timer()
     
@@ -359,6 +372,13 @@ def run_split_gam_reads(job, context, gam_input_reads, gam_reads_file_id):
 def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
     """ split up an input reads file in BAM format
     """
+    
+    disk_required = job.fileStore.getGlobalFileSize(bam_reads_file_id) * 2 + (2 * 1024**3)
+    requeued = ensure_disk_bytes(job, run_split_bam_reads, disk_required)
+    if requeued is not None:
+        # If not, requeue the job with more disk.
+        return requeued
+    
     RealtimeLogger.info("Starting bam split")
     start_time = timeit.default_timer()
     
@@ -484,7 +504,8 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     Takes a dict from index type to index file ID. Some indexes are extra and
     specifying them will change mapping behavior.
     """
-                        
+    
+    # TODO: Work out what indexes we will want and ensure_disk_bytes
 
     RealtimeLogger.info("Starting {} alignment on {} chunk {}".format(mapper, sample_name, chunk_id))
 
