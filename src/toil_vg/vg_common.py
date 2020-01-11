@@ -939,13 +939,18 @@ def ensure_disk_bytes(job, job_function, required_disk_bytes):
         # Grab our caller's stack frame.
         job_frame = inspect.stack()[1][0]
         try:
-            # Grab the arg values from it
-            (job_run_args, job_run_varargs, job_run_kwargs, _) = inspect.getargvalues(job_frame)
-            # Drop the job argument itself and combine real and variable args.
-            # job_run_args[0] should always be the job itself.
-            job_rerun_args = job_run_args[1:] + (job_run_varargs or [])
-            # Add the kwargs for cores/memory/disk
-            job_rerun_kwargs = dict(job_run_kwargs or {})
+            # Grab the arg names and the dict to look them up in
+            (job_run_args, job_run_varargs, job_run_kwargs, job_locals) = inspect.getargvalues(job_frame)
+            # Drop the job argument itself and look them all up in job_locals.
+            # job_run_args[0]'s value should always be the job itself, and we don't need to pass that along.
+            job_rerun_args = [job_locals[name] for name in job_run_args[1:]]
+            if job_run_varargs is not None:
+                # Append all the varargs arguments to the call
+                job_run_args += job_locals[job_run_varargs]
+            
+            # Get the base kwargs that came into the job, or {} if there were none
+            job_rerun_kwargs = {} if job_run_kwargs is None else dict(job_locals[job_run_kwargs])
+            # Add the cores/memory/disk that Toil will pull out
             job_rerun_kwargs.update({"cores": job.cores, "memory": job.memory, "disk": required_disk_bytes})
             
             RealtimeLogger.info("Re-queueing {} because we only have {}/{} estimated necessary disk space.".format(
