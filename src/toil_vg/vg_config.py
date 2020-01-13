@@ -399,8 +399,8 @@ augment-mem: '64G'
 augment-disk: '64G'
 
 # Resources for calling each chunk (currently includes augment/call/genotype)
-calling-cores: 4
-calling-mem: '64G'
+calling-cores: 8
+calling-mem: '60G'
 calling-disk: '16G'
 
 # Resources for vcfeval
