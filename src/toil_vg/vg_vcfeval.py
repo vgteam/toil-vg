@@ -103,6 +103,7 @@ def validate_vcfeval_options(options):
     assert not options.normalize or options.vcfeval_fasta
     assert not options.normalize_calls or options.vcfeval_fasta
     assert not options.normalize_baseline or options.vcfeval_fasta
+    assert options.sveval or options.vcfeval_fasta
 
 def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
