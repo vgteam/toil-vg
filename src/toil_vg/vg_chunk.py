@@ -75,8 +75,9 @@ def validate_chunk_options(options, chunk_optional=False):
     if chunk_optional == False:
         require(num_opts == 1,
                 "Must specify (exactly) one of --connected_component_chunking, ref_path_chunking")
-        require(options.ref_path_chunking == false or not options.ref_paths,
-                "Must specify --ref_path_chunking with --ref_paths")
+        if options.ref_paths:
+            require(options.ref_path_chunking == True,
+                "Must specify --ref_path_chunking when using --ref_paths")
     else:
         require(num_opts in [0, 1],
                 "Must specify at most one of --connected_component_chunking or --ref_path_chunking")
