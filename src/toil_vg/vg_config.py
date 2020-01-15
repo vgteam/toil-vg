@@ -279,7 +279,7 @@ call-opts: []
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
+vcfeval-opts: ['--ref-overlap']
 
 #########################
 ### sim and mapeval Arguments ###
@@ -553,7 +553,7 @@ call-opts: []
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
+vcfeval-opts: ['--ref-overlap']
 
 #########################
 ### sim and mapeval Arguments ###
