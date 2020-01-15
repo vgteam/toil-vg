@@ -58,10 +58,6 @@ def call_parse_args(parser):
     """ centralize calling parameters here """
     parser.add_argument("--sample", type=str,
                         help="sample name for output VCF")
-    parser.add_argument("--ref_paths", nargs='+', default=[],
-                        help="reference paths to call (and chunk) on")
-    parser.add_argument("--ref_path_chunking", action="store_true",
-                        help="chunk on --ref_paths")
     parser.add_argument("--genotype_vcf", type=make_url,
                         help="genotype the given VCF.  Input graph must contain alt paths from VCF")
     parser.add_argument("--recall", action="store_true",
@@ -76,15 +72,17 @@ def call_parse_args(parser):
                         help="number of threads during the variant calling step")
     parser.add_argument("--calling_mem", type=str,
                         help="memory alotment during the variant calling step")
+    parser.add_argument("--gam_chunking", action="store_true",
+                        help="split the GAM into chromosome components (in addition to the graph)")
 
 def validate_call_options(options):
     require(not options.vcf_offsets or len(options.vcf_offsets) == len(options.ref_paths),
             'Number of --vcf_offsets if specified must be same as number of --ref_paths')
     require(not options.snarls or options.recall or options.genotype_vcf,
             '--snarls can only be used with --recall or --genotype_vcf')
-    require(not options.connected_components or not options.genotype_vcf,
-            '--only path chunking (not --connected_components) supported with --genotype_vcf')
-    require(not options.connected_components or not options.ref_path_chunking,
+    require(not options.connected_component_chunking or not options.genotype_vcf,
+            '--only path chunking (not --connected_component_chunking) supported with --genotype_vcf')
+    require(not options.connected_component_chunking or not options.ref_path_chunking,
             '--connected_components cannot be used with --ref_path_chunking')
 
 def run_chunked_calling(job, context,
@@ -107,7 +105,8 @@ def run_chunked_calling(job, context,
                         ref_paths=[],
                         ref_path_chunking=True,
                         min_call_support=None,
-                        vcf_offsets={}):
+                        vcf_offsets={},
+                        gam_chunking=False):
 
     # simple way to keep follow-ons down the tree
     child_job = Job()
@@ -128,7 +127,7 @@ def run_chunked_calling(job, context,
                                                 chunk_paths=ref_paths,
                                                 connected_component_chunking=connected_component_chunking,
                                                 output_format=output_format,
-                                                gam_id=gam_id,
+                                                gam_id=gam_id if gam_chunking else None,
                                                 to_outstore=False,
                                                 cores=context.config.chunk_cores,
                                                 memory=context.config.chunk_mem,
@@ -140,8 +139,8 @@ def run_chunked_calling(job, context,
             recurse_job = child_job.addFollowOnJobFn(run_chunked_calling, context,
                                                      graph_id=None,
                                                      graph_basename=graph_basename,
-                                                     gam_id=None,
-                                                     gam_basename=None,
+                                                     gam_id=gam_id,
+                                                     gam_basename=gam_basename,
                                                      batch_input=batch_input,
                                                      snarls_id=snarls_id,
                                                      genotype_vcf_id=genotype_vcf_id,
@@ -187,7 +186,11 @@ def run_chunked_calling(job, context,
         calling_root_job = Job()
         child_job.addChild(calling_root_job)
 
-        graph_id, graph_basename, gam_id, gam_basename = chunk_results
+        graph_id = chunk_results[0]
+        graph_basename = chunk_results[1]
+        if gam_chunking:
+            gam_id = chunk_results[2]
+        gam_basename = chunk_results[3]
         
         if augment:
             augment_job = calling_root_job.addFollowOnJobFn(run_augmenting, context,
@@ -530,7 +533,7 @@ def call_main(context, options):
                                         genotype_vcf_id = importer.resolve(inputVcfID),
                                         genotype_tbi_id = importer.resolve(inputTbiID),
                                         sample=options.sample,
-                                        connected_component_chunking=options.connected_components,
+                                        connected_component_chunking=options.connected_component_chunking,
                                         augment=not options.recall and options.genotype_vcf is None,
                                         output_format=options.output_format,
                                         min_augment_coverage=options.min_augment_coverage,
@@ -540,7 +543,8 @@ def call_main(context, options):
                                         ref_paths=options.ref_paths,
                                         ref_path_chunking=options.ref_path_chunking,
                                         min_call_support=options.min_call_support,
-                                        vcf_offsets=options.vcf_offsets)
+                                        vcf_offsets=options.vcf_offsets,
+                                        gam_chunking=options.gam_chunking)
 
             if root_job:
                 root_job.addFollowOn(calling_job)

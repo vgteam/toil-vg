@@ -457,7 +457,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--graph', self.xg_index, outstore, '--gam', self.sample_gam,
-                   '--path_components', '17', '13',
+                   '--ref_path_chunking', '--ref_paths', '17', '13',
                    '--realTimeLogging', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 

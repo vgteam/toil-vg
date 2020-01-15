@@ -279,7 +279,7 @@ call-opts: []
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
+vcfeval-opts: ['--ref-overlap']
 
 #########################
 ### sim and mapeval Arguments ###
@@ -399,8 +399,8 @@ augment-mem: '64G'
 augment-disk: '64G'
 
 # Resources for calling each chunk (currently includes augment/call/genotype)
-calling-cores: 4
-calling-mem: '64G'
+calling-cores: 8
+calling-mem: '60G'
 calling-disk: '16G'
 
 # Resources for vcfeval
@@ -553,7 +553,7 @@ call-opts: []
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
+vcfeval-opts: ['--ref-overlap']
 
 #########################
 ### sim and mapeval Arguments ###
