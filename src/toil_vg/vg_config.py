@@ -157,7 +157,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.20.0-134-gc29c4a250-t347-run'
+vg-docker: 'quay.io/vgteam/vg:v1.21.0-115-gf1eb801db-t351-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -431,7 +431,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.20.0-134-gc29c4a250-t347-run'
+vg-docker: 'quay.io/vgteam/vg:v1.21.0-115-gf1eb801db-t351-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'

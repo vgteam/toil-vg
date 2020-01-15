@@ -367,9 +367,9 @@ def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
 
  
 
-def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name, intermediate=False):
+def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name, intermediate=False):
     """
-    Concatenate a list of graph files. We do this because the haplotype index vg index
+    Merge a list of graph files. We do this because the haplotype index vg index
     produces can only be built for a single graph.
     
     Takes the file IDs to concatenate, the human-readable names for those
@@ -386,52 +386,62 @@ def run_concat_graphs(job, context, inputGraphFileIDs, graph_names, index_name, 
     # Define work directory for local files
     work_dir = job.fileStore.getLocalTempDir()
     
-    RealtimeLogger.info("Starting VG graph concatenation...")
+    RealtimeLogger.info("Starting VG graph merge...")
     start_time = timeit.default_timer()
     
     # The file names we are given can be very long, so if we download and cat
     # everything we can run into maximum command line length limits.
     
-    # Rather than using cat, we will just shuffle all the bits around ourselves.
+    # Unfortuantely, we need to use vg to do the graph combining because who
+    # knows what HandleGraph format each file is in.
     
+    # So download the files to short names.
+    filenames = []
+    for number, in_id in enumerate(inputGraphFileIDs):
+        # Determine where to save the graph
+        filename = '{}.vg'.format(number)
+        
+        # Put it in the workdir
+        full_filename = os.path.join(work_dir, filename)
+        
+        # Save to the given file
+        got_filename = job.fileStore.readGlobalFile(in_id, full_filename)
+        
+        RealtimeLogger.info('Downloaded graph ID {} to {} (which should be {}) for joining'.format(in_id, got_filename, full_filename))
+        
+        # Keep the filename
+        filenames.append(filename)
+        
     # Work out the file name we want to report
     concatenated_basename = "{}.cat.vg".format(index_name)
     
-    def concat_to_stream(out_stream):
-        """
-        Send all the input graphs to the given file object.
-        """
+    # Run vg to combine into that file
+    cmd = ['vg', 'combine'] + filenames
+    
+    try:
+        with open(os.path.join(work_dir, concatenated_basename), 'w') as out_file:
+            context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
+    except:
+        # Dump everything we need to replicate the index run
+        logging.error("Graph merging failed. Dumping files.")
+
+        for graph_filename in filenames:
+            context.write_output_file(job, os.path.join(work_dir, graph_filename))
         
-        for in_id in inputGraphFileIDs:
-            # For each graph to concatenate
-            with job.fileStore.readGlobalFileStream(in_id) as in_stream:
-                # Blit it across
-                shutil.copyfileobj(in_stream, out_stream)
-        
+        raise
+    
     # Now we generate the concatenated file ID
     concatenated_file_id = None
     if intermediate:
-        with job.fileStore.writeGlobalFileStream() as (out_stream, out_id):
-            # Make the file we are writing
-            # And send everything to it
-            concat_to_stream(out_stream)
-            
-            concatenated_file_id = out_id
+        # Save straight to the file store
+        concatenated_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, concatenated_basename))
     else:
-        # We need to produce a real output file in the out store.
-        # The easy way to do that is to save the file on disk and upload it
-        concatenated_filename = os.path.join(work_dir, concatenated_basename)
-
-        with open(concatenated_filename, "wb") as out_stream:
-            # Concatenate all the graphs.
-            concat_to_stream(out_stream)
-
         # Checkpoint concatednated graph file to output store
-        concatenated_file_id = context.write_output_file(job, concatenated_filename)
+        concatenated_file_id = context.write_output_file(job, os.path.join(work_dir, concatenated_basename))
         
     end_time = timeit.default_timer()
     run_time = end_time - start_time
-    RealtimeLogger.info("Finished VG graph concatenation. Process took {} seconds.".format(run_time))
+    RealtimeLogger.info("Finished VG graph merge. Process took {} seconds.".format(run_time))
 
     return (concatenated_file_id, concatenated_basename)
 
@@ -555,7 +565,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                         make_gbwt=False, gbwt_regions=[], 
                         intermediate=False, intermediate_cat=True, include_alt_paths=False):
     """
-    Encapsulates run_concat_graphs and run_xg_indexing job functions.
+    Encapsulates run_combine_graphs and run_xg_indexing job functions.
     Can be used for ease of programming in job functions that require running only
     during runs of the run_xg_indexing job function.
 
@@ -572,7 +582,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     job.addChild(child_job)    
     
     # Concatenate the graph files.
-    vg_concat_job = child_job.addChildJobFn(run_concat_graphs, context, inputGraphFileIDs,
+    vg_concat_job = child_job.addChildJobFn(run_combine_graphs, context, inputGraphFileIDs,
                                             graph_names, index_name, intermediate=(intermediate or intermediate_cat))
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
