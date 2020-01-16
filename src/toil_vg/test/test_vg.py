@@ -441,7 +441,7 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal, '--clean', 'never',
-                   '--call_vcf', os.path.join(outstore, 'genome-aug_NA12877.vcf.gz'),
+                   '--call_vcf', os.path.join(outstore, 'genome_NA12877.vcf.gz'),
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_fasta', self.chrom_fa, outstore,
                    '--realTimeLogging', '--realTimeStderr', '--logInfo',

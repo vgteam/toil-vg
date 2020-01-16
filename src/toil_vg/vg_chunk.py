@@ -157,6 +157,8 @@ def run_chunking(job, context,
                     gam_chunk_path = os.path.join(work_dir, toks[3].rstrip())
                     if not gam_chunk_path.endswith('.gam'):
                         gam_chunk_path = remove_ext(gam_chunk_path, '.' + output_format) + '.gam'
+                    # vg chunk's not going to write empty files, so make sure we have one
+                    open(gam_chunk_path, 'a').close()
                     gam_chunk_id = write_fn(job, gam_chunk_path)
                     chunk_output[toks[0]] += [gam_chunk_id, os.path.basename(gam_chunk_path)]
 
