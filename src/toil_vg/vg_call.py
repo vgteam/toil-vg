@@ -233,6 +233,7 @@ def run_chunked_calling(job, context,
                                                         ref_paths=ref_path,
                                                         min_call_support=min_call_support,
                                                         vcf_offsets=vcf_offsets,
+                                                        to_outstore=False,
                                                         cores=context.config.calling_cores,
                                                         memory=context.config.calling_mem,
                                                         disk=context.config.calling_disk)
