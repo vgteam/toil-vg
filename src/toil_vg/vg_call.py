@@ -190,7 +190,7 @@ def run_chunked_calling(job, context,
         graph_basename = chunk_results[1]
         if gam_chunking:
             gam_id = chunk_results[2]
-        gam_basename = chunk_results[3]
+            gam_basename = chunk_results[3]
         
         if augment:
             augment_job = calling_root_job.addFollowOnJobFn(run_augmenting, context,
