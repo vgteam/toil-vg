@@ -182,6 +182,8 @@ def run_chunked_calling(job, context,
     assert batch_input
 
     call_results = []
+    in_gam_id = gam_id
+    in_gam_basename = gam_basename
     for chunk_name, chunk_results in batch_input.items():
         calling_root_job = Job()
         child_job.addChild(calling_root_job)
@@ -191,7 +193,10 @@ def run_chunked_calling(job, context,
         if gam_chunking:
             gam_id = chunk_results[2]
             gam_basename = chunk_results[3]
-        
+        else:
+            gam_id = in_gam_id
+            gam_basename = in_gam_basename
+            
         if augment:
             augment_job = calling_root_job.addChildJobFn(run_augmenting, context,
                                                          graph_id=graph_id,
