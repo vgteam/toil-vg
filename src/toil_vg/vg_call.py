@@ -193,25 +193,24 @@ def run_chunked_calling(job, context,
             gam_basename = chunk_results[3]
         
         if augment:
-            augment_job = calling_root_job.addFollowOnJobFn(run_augmenting, context,
-                                                            graph_id=graph_id,
-                                                            graph_basename=graph_basename,
-                                                            gam_id=gam_id,
-                                                            gam_basename=gam_basename,
-                                                            augment_gam=True,
-                                                            min_augment_coverage=min_augment_coverage,
-                                                            expected_coverage=expected_coverage,
-                                                            min_mapq=min_mapq,
-                                                            min_baseq=min_baseq,
-                                                            to_outstore=True,
-                                                            cores=context.config.augment_cores,
-                                                            memory=context.config.augment_mem,
-                                                            disk=context.config.augment_disk)
+            augment_job = calling_root_job.addChildJobFn(run_augmenting, context,
+                                                         graph_id=graph_id,
+                                                         graph_basename=graph_basename,
+                                                         gam_id=gam_id,
+                                                         gam_basename=gam_basename,
+                                                         augment_gam=True,
+                                                         min_augment_coverage=min_augment_coverage,
+                                                         expected_coverage=expected_coverage,
+                                                         min_mapq=min_mapq,
+                                                         min_baseq=min_baseq,
+                                                         to_outstore=True,
+                                                         cores=context.config.augment_cores,
+                                                         memory=context.config.augment_mem,
+                                                         disk=context.config.augment_disk)
             graph_id = augment_job.rv(0)
             graph_basename = os.path.splitext(graph_basename)[0] + '-aug' + os.path.splitext(graph_basename)[1]
             gam_id = augment_job.rv(1)
             gam_basename = os.path.splitext(gam_basename)[0] + '-aug' + os.path.splitext(gam_basename)[1]
-            calling_root_job = augment_job
 
         # When path chunking, we subset our reference paths down to the current path
         if ref_path_chunking:
