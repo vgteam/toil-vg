@@ -156,7 +156,8 @@ def run_chunked_calling(job, context,
                                                      ref_paths=ref_paths,
                                                      ref_path_chunking=ref_path_chunking,
                                                      min_call_support=min_call_support,
-                                                     vcf_offsets=vcf_offsets)
+                                                     vcf_offsets=vcf_offsets,
+                                                     gam_chunking=gam_chunking)
             return recurse_job.rv()
         else:
             # convert if we're augmenting and not chunking
