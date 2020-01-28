@@ -1299,7 +1299,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                 indexes['gbwt'] = indexes['chrom_gbwt'][0]
                 
         # now do the whole genome xg (without any gbwt)
-        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1:
+        if 'chrom_xg' in indexes and len(indexes['chrom_xg']) == 1:
             # We made per-chromosome XGs and we have exactly one.
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
@@ -1330,7 +1330,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     if 'gcsa' in wanted:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
         # todo: we're only taking in a genome gbwt as input, because that's all we write
-        if (not indexes.has_key('chrom_gbwt') or indexes['chrom_gbwt'] == []) and indexes.has_key('gbwt'):
+        if ('chrom_gbwt' not in indexes or indexes['chrom_gbwt'] == []) and 'gbwt' in indexes:
             # We lack per-chromosome GBWTs but we have a whole genome one we can use
             indexes['chrom_gbwt'] = indexes['gbwt'] * len(inputGraphFileIDs)
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
@@ -1384,7 +1384,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         
         indexes['distance'] = distance_job.rv()
         
-    if 'minimizer' in wanted and indexes.has_key('gbwt'):
+    if 'minimizer' in wanted and 'gbwt' in indexes:
         # We need a minimizer index, based on the GBWT (either provided or
         # computed) and the XG (which we know is being computed).
         

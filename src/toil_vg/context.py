@@ -31,7 +31,7 @@ def run_write_info_to_outstore(job, context, argv):
     before doing all the compute if possible.  To do this, this job needs to be passed
     to the root of the workflow """
     
-    f = tempfile.NamedTemporaryFile(delete=True)
+    f = tempfile.NamedTemporaryFile(mode='w',delete=True)
     now = datetime.datetime.now()
     if argv:
         f.write('{}\n\n'.format(' '.join(argv)))
