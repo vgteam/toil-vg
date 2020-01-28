@@ -572,7 +572,7 @@ def generate_config(whole_genome = False):
     return whole_genome_config if whole_genome is True else default_config
 
 def make_opts_list(x_opts):
-    opts_list = filter(lambda a : len(a), x_opts.split(' '))
+    opts_list = list(filter(lambda a : len(a), x_opts.split(' ')))
     # get rid of any -t or --threads while we're at it    
     for t in ['-t', '--threads']:
         if t in opts_list:
