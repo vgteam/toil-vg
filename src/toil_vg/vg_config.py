@@ -7,9 +7,8 @@ for reading and generating config files.
 from __future__ import print_function
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import textwrap
@@ -601,8 +600,8 @@ def apply_config_file_args(args):
                 args.__dict__['more_mpmap_opts'][i] = make_opts_list(m_opts)
 
     # If no config file given, we generate a default one
-    wg_config = args.__dict__.has_key('whole_genome_config') and args.whole_genome_config
-    if not args.__dict__.has_key('config') or args.config is None:
+    wg_config = 'whole_genome_config' in args.__dict__.keys() and args.whole_genome_config
+    if 'config' not in args.__dict__.keys() or args.config is None:
         config = generate_config(whole_genome = wg_config)
     else:
         if wg_config:
@@ -613,7 +612,7 @@ def apply_config_file_args(args):
             config = conf.read()
                 
     # Parse config
-    parsed_config = {x.replace('-', '_'): y for x, y in yaml.safe_load(config).iteritems()}
+    parsed_config = {x.replace('-', '_'): y for x, y in yaml.safe_load(config).items()}
     if 'prune_opts_2' in parsed_config:
         raise RuntimeError('prune-opts-2 from config no longer supported')
     options = argparse.Namespace(**parsed_config)

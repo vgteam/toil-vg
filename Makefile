@@ -46,8 +46,8 @@ help:
 	@echo "$$help"
 
 
-python=python2.7
-pip=pip2.7
+python=python3
+pip=pip3
 tests=src
 container=Docker
 extras=

@@ -6,9 +6,8 @@ run on vg_mapeval.py output.
 from __future__ import print_function
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string, math
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -316,7 +315,7 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets):
                 roc_kind += '-unclipped'
             
             # Get all the eval results for this mode, by condition name
-            mode_results = {name: eval_result.get(mode) for name, eval_result in eval_results_dict.iteritems()}
+            mode_results = {name: eval_result.get(mode) for name, eval_result in eval_results_dict.items()}
             
             if None in mode_results.itervalues():
                 # We can't do this mode since it wasn't run
@@ -326,7 +325,7 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets):
             # condition name. This dict is implicitly for the clipped or
             # unclipped mode, depending on which mode we are doing. The
             # condition name keys don't have clipping tags.
-            roc_table_ids = {name: result.get(roc_type) for name, result in mode_results.iteritems()}
+            roc_table_ids = {name: result.get(roc_type) for name, result in mode_results.items()}
             
             for subset_number, plot_set in enumerate(plot_sets):
                 # For each plot set specifier

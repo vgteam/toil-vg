@@ -95,7 +95,7 @@ class Context(object):
         # Get the default Toil options
         toil_options = Job.Runner.getDefaultOptions(job_store)
         
-        for k, v in self.config.__dict__.iteritems():
+        for k, v in self.config.__dict__.items():
             # Blit over all the overrides, some of which will be relevant
             toil_options.__dict__[k] = v
         

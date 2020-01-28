@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 Thin wrapper for vcfeval, as a convenience to stick a vcfeval output directory
 along with the other toil-vg output.  Can be run standalone as well.
@@ -67,7 +67,7 @@ def vcfeval_parse_args(parser):
                         help="run bed-based sv comparison.")
     parser.add_argument("--min_sv_len", type=int, default=20,
                         help="minimum length to consider when doing bed sv comparison (using --sveval)")
-    parser.add_argument("--max_sv_len", type=int, default=sys.maxint,
+    parser.add_argument("--max_sv_len", type=int, default=sys.maxsize,
                         help="maximum length to consider when doing bed sv comparison (using --sveval)")    
     parser.add_argument("--sv_region_overlap", type=float, default=1.0,
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
@@ -552,7 +552,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     sveval_cmd += ', out.bed.prefix="{}"'.format(out_name)
     if min_sv_len > 0:
         sveval_cmd += ', min.size={}'.format(min_sv_len)
-    if max_sv_len < sys.maxint:
+    if max_sv_len < sys.maxsize:
         sveval_cmd += ', max.size={}'.format(max_sv_len)
     sveval_cmd += ', max.ins.dist={}'.format(ins_ref_len)
     sveval_cmd += ', min.del.rol={}'.format(del_min_rol)
