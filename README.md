@@ -1,4 +1,4 @@
-# TOIl-VG
+# TOIL-VG
 [UCSC Computational Genomics Lab](https://cgl.genomics.ucsc.edu/)
 
 [vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [Toil](http://toil.ucsc-cgl.org/)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
