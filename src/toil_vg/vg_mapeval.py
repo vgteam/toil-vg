@@ -1257,9 +1257,6 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 if condition["aligner"] == "minimap2" and not paired:
                     # Don't run minimap2 in unpaired mode; it will pair up all pairable inputs
                     continue
-                if condition["aligner"] == "vg" and condition["mapper"] == "gaffe" and paired:
-                    # Don't run gaffe in paired mode; it doesn't support it yet
-                    continue
                 extended = dict(condition)
                 extended.update({"paired": paired})
                 yield extended
