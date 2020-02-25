@@ -3,7 +3,7 @@
 vg_construct.py: construct a graph from a vcf and fasta
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
@@ -365,7 +365,7 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
             something_to_rename = True
             out_regions.append(name_map[region_name] + region[len(region_name):])
         else:
-            something_to_rename = something_to_rename or region_name in name_map.values()
+            something_to_rename = something_to_rename or region_name in list(name_map.values())
             out_regions.append(region)
         
     # map the vcf
@@ -678,7 +678,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
     # treated below (the same vcf is given to each region)
     if regions and len(regions) > len(vcf_ids) and len(vcf_ids) != 1:
         padding = [None] * (len(regions) - len(vcf_ids))
-        for key, val in output.items():
+        for key, val in list(output.items()):
             val[0] += padding
             val[1] += padding
             val[2] += padding
@@ -704,7 +704,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
     output = []
     
-    for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
+    for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in list(vcf_inputs.items()):
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
         output_name_base = remove_ext(output_name, '.vg')
         # special case that need thread indexes no matter what

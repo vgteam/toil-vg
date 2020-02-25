@@ -3,7 +3,7 @@
 vg_augment.py: augment a vg graph to include variation from a GAM alignment
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
@@ -142,7 +142,7 @@ def run_chunked_augmenting(job, context,
     assert batch_input
 
     augment_results = []
-    for chunk_name, chunk_results in batch_input.items():
+    for chunk_name, chunk_results in list(batch_input.items()):
         augment_job = job.addChildJobFn(run_augmenting, context,
                                         graph_id=chunk_results[0],
                                         graph_basename=chunk_results[1],

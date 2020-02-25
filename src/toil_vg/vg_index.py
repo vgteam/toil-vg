@@ -3,7 +3,7 @@
 vg_index.py: index a graph so it can be mapped to
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit, distutils
 import logging, logging.handlers, struct, socket, threading
@@ -623,7 +623,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         RealtimeLogger.info("Breaking up snarl computation for {}".format(str(graph_names)))
         
         snarl_jobs = []
-        for file_id, file_name in itertools.izip(inputGraphFileIDs, graph_names):
+        for file_id, file_name in zip(inputGraphFileIDs, graph_names):
             # For each input graph, make a child job to index it.
             snarl_jobs.append(job.addChildJobFn(run_snarl_indexing, context, [file_id], [file_name],
                                                 include_trivial=include_trivial,
@@ -638,7 +638,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk)
         
-        for i in xrange(1, len(snarl_jobs)):
+        for i in range(1, len(snarl_jobs)):
             # And make it wait for all of them
             snarl_jobs[i].addFollowOn(concat_job)
             
@@ -1015,7 +1015,7 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
         RealtimeLogger.info("Breaking up alt path GAM computation for {}".format(str(graph_names)))
         
         sub_jobs = []
-        for i, (file_id, file_name) in enumerate(itertools.izip(inputGraphFileIDs, graph_names)):
+        for i, (file_id, file_name) in enumerate(zip(inputGraphFileIDs, graph_names)):
             # For each input graph, make a child job to index it.
             sub_jobs.append(job.addChildJobFn(run_alt_path_extraction, context, [file_id], [file_name],
                                               index_name + '.{}'.format(i) if index_name else None,
@@ -1029,7 +1029,7 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
                                                   memory=context.config.chunk_mem,
                                                   disk=context.config.chunk_disk)
         
-        for i in xrange(1, len(sub_jobs)):
+        for i in range(1, len(sub_jobs)):
             # And make it wait for all of them
             sub_jobs[i].addFollowOn(concat_job)
             

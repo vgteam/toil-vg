@@ -4,7 +4,7 @@ vg_msga.py: use vg's banded aligner to align contigs into the graph.  By associa
 contig, we can parallelize by chromosome. 
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading

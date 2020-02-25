@@ -10,7 +10,7 @@ chr_length_list obtained from Mike Lin's vg dnanexus pipeline configuration
     chr_label_list = ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y"]
     chr_length_list = [249250621,243199373,198022430,191154276,180915260,171115067,159138663,146364022,141213431,135534747,135006516,133851895,115169878,107349540,102531392,90354753,81195210,78077248,59128983,63025520,48129895,51304566,155270560,59373566]
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
@@ -196,7 +196,7 @@ def validate_pipeline_options(options):
             ' passed with --fastq')
     require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
             '--interleaved cannot be used when > 1 fastq given')
-    require(sum(map(lambda x : 1 if x else 0, [options.fastq, options.gam_input_reads, options.bam_input_reads])) == 1,
+    require(sum([1 if x else 0 for x in [options.fastq, options.gam_input_reads, options.bam_input_reads]]) == 1,
             'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
             
     # TODO: to support gaffe here we need to add code to load its indexes from
@@ -231,7 +231,7 @@ def run_pipeline_index(job, context, options, inputGraphFileIDs, inputReadsFileI
         wanted.add('xg')
     if inputGCSAFileID is None:
         wanted.add('gcsa')
-    graph_names = map(os.path.basename, options.graphs)
+    graph_names = list(map(os.path.basename, options.graphs))
     # todo: interface for multiple vcf.  
     vcf_ids = [] if not inputVCFFileID else [inputVCFFileID]
     tbi_ids = [] if not inputTBIFileID else [inputTBIFileID]

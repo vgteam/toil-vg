@@ -174,7 +174,7 @@ def _singularity(job,
     if len(parameters) > 0 and type(parameters[0]) is list:
         # When piping, all arguments now get merged into a single string to bash -c.
         # We try to support spaces in paths by wrapping them all in quotes first.
-        chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
+        chain_params = [' '.join(p) for p in [list(map(pipes.quote, q)) for q in parameters]]
         # Use bash's set -eo pipefail to detect and abort on a failure in any command in the chain
         call = baseSingularityCall + [sandbox_dirname, '/bin/bash', '-c',
                                  'set -eo pipefail && {}'.format(' | '.join(chain_params))]

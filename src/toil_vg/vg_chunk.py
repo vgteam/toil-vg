@@ -3,7 +3,7 @@
 vg_chunk.py: split a graph and/or GAM into chunks by connected component
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading

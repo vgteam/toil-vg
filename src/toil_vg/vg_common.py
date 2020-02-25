@@ -3,7 +3,7 @@
 Shared stuff between different modules in this package.  Some
 may eventually move to or be replaced by stuff in toil-lib.
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno
 import fcntl
@@ -577,7 +577,7 @@ to do: Should go somewhere more central """
             # Set the locale to C for consistent sorting, and activate vg traceback     
             update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1', 'TMPDIR': '.'}
             old_env = {}
-            for env_name, env_val in update_env.items():
+            for env_name, env_val in list(update_env.items()):
                 old_env[env_name] = os.environ.get(env_name)
                 os.environ[env_name] = env_val
             
@@ -587,7 +587,7 @@ to do: Should go somewhere more central """
                 ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
             
             # Restore old locale and vg traceback
-            for env_name, env_val in update_env.items():
+            for env_name, env_val in list(update_env.items()):
                 if old_env[env_name] is not None:
                     os.environ[env_name] = old_env[env_name]
                 else:
@@ -717,7 +717,7 @@ def get_files_by_file_size(dirname, reverse=False):
             filepaths.append(filename)
 
     # Re-populate list with filename, size tuples
-    for i in xrange(len(filepaths)):
+    for i in range(len(filepaths)):
         filepaths[i] = (filepaths[i], os.path.getsize(filepaths[i]))
 
     return filepaths
@@ -794,21 +794,21 @@ class TimeTracker:
         self.running[name] = timeit.default_timer()
     def stop(self, name = None):
         """ stop a timer. if no name, do all running """
-        names = [name] if name else self.running.keys()
+        names = [name] if name else list(self.running.keys())
         ti = timeit.default_timer()
         for name in names:
             self.times[name] += ti - self.running[name]
             del self.running[name]
     def add(self, time_dict):
         """ add in all times from another TimeTracker """
-        for key, value in time_dict.times.items():
+        for key, value in list(time_dict.times.items()):
             self.times[key] += value
     def total(self, names = None):
         if not names:
-            names = self.times.keys()
+            names = list(self.times.keys())
         return sum([self.times[name] for name in names])
     def names(self):
-        return self.times.keys()
+        return list(self.times.keys())
         
         
 def run_concat_lists(job, *args):
@@ -1062,7 +1062,7 @@ class AsyncImporter(object):
         elif isinstance(result, (list, tuple)):
             return [self.resolve(x) for x in result]
         elif isinstance(result, dict):
-            return dict([(k,self.resolve(v)) for k,v in result.items()])
+            return dict([(k,self.resolve(v)) for k,v in list(result.items())])
         elif isinstance(result, argparse.Namespace):
             result.__dict__ = self.resolve(result.__dict__)
             return result

@@ -4,7 +4,7 @@ vg_mapeval.py: Compare alignment positions from gam or bam to a truth set
 that was created with vg sim --gam
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
@@ -18,6 +18,7 @@ from collections import Counter
 
 from math import ceil
 from subprocess import Popen, PIPE
+from functools import reduce
 
 try:
     import numpy as np
@@ -187,7 +188,7 @@ def validate_options(options):
     """
 
     # We can only deal with one source of unaligned input reads
-    input_count = sum(map(lambda x : x is not None, [options.gam_input_reads, options.bam_input_reads, options.fastq]))
+    input_count = sum([x is not None for x in [options.gam_input_reads, options.bam_input_reads, options.fastq]])
     require(input_count <= 1,
             'no more than one of --gam_input_reads, --fastq, or --bam_input_reads allowed for input')
     
@@ -208,7 +209,7 @@ def validate_options(options):
             'only 1 or two fastqs accepted with --fatsq')
 
     # only gzipped fastqs accpeted
-    require(not options.fastq or all(map(lambda x : x.endswith('.gz'), options.fastq)),
+    require(not options.fastq or all([x.endswith('.gz') for x in options.fastq]),
             'only gzipped fastqs (ending with .gz) accepted by --fastq')
             
     # check bwa / minimap2 / bam input parameters.  
@@ -442,7 +443,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     """
     
     requeue_promise = ensure_disk(job, run_bwa_mem, [context, fq_reads_ids, bwa_index_ids, paired_mode], {},
-        itertools.chain(fq_reads_ids, bwa_index_ids.values()))
+        itertools.chain(fq_reads_ids, list(bwa_index_ids.values())))
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
@@ -457,7 +458,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
 
     # and the index files
     fasta_file = os.path.join(work_dir, 'reference.fa')
-    for suf, idx_id in bwa_index_ids.items():
+    for suf, idx_id in list(bwa_index_ids.items()):
         job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
 
     # output positions file
@@ -921,8 +922,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 
                 # map seq name->position
                 # Grab everything after the tags column and before the score and mapq columns, in pairs.
-                true_pos_dict = dict(zip(true_fields[2:-2:2], map(parse_int, true_fields[3:-2:2])))
-                aln_pos_dict = dict(zip(test_fields[2:-2:2], map(parse_int, test_fields[3:-2:2])))
+                true_pos_dict = dict(list(zip(true_fields[2:-2:2], list(map(parse_int, true_fields[3:-2:2])))))
+                aln_pos_dict = dict(list(zip(test_fields[2:-2:2], list(map(parse_int, test_fields[3:-2:2])))))
                 
                 # Make sure the true reads came from somewhere
                 assert(len(true_pos_dict) > 0)
@@ -930,7 +931,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 # Skip over score field and get the MAPQ, which is last
                 aln_mapq = parse_int(test_fields[-1])
                 aln_correct = 0
-                for aln_chr, aln_pos in aln_pos_dict.items():
+                for aln_chr, aln_pos in list(aln_pos_dict.items()):
                     if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
                         aln_correct = 1
                         break
@@ -1313,7 +1314,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     if not do_vg_mapping:
         # We shouldn't run vg. gam_names is actually condition names, and gams is the mapped gams to re-use
         
-        for name, gam_id, xg_id in itertools.izip(gam_names, gam_file_ids, xg_ids):
+        for name, gam_id, xg_id in zip(gam_names, gam_file_ids, xg_ids):
             # Synthesize a set of condition results for each pre-aligned GAM
             results_dict[name]['gam'] = gam_id
             results_dict[name]['runtime'] = 0
@@ -1419,17 +1420,17 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                     # Drop the GBWT index if present for the non-GBWT conditions for mappers that don't need it.
                     # If gbwt isn't in the condition dict, the GBWT is treated as required and preserved.
                     indexes = dict(indexes)
-                    if indexes.has_key("gbwt"):
+                    if "gbwt" in indexes:
                         del indexes["gbwt"]
                         
                 if not condition.get("snarls", True):
                     # Drop the snarls index if present for the non-snarls conditions
                     # TODO: what if some graphs are missing snarls files?
                     indexes = dict(indexes)
-                    if indexes.has_key("snarls"):
+                    if "snarls" in indexes:
                         del indexes["snarls"]
                         
-                if not read_chunk_jobs.has_key(tuple(fastq_ids)):
+                if tuple(fastq_ids) not in read_chunk_jobs:
                     # We have not yet asked to split the appropriate FASTQs.
                     # Make a job to do that, and save it so we can grab its rv later.
                     read_chunk_jobs[tuple(fastq_ids)] = job.addChildJobFn(run_split_reads_if_needed, context, fq_names(fastq_ids),
@@ -1748,7 +1749,7 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, mappin
         # We want to propagate the GBWT usage tag from this condition's stats file. Find it.
         tag_stats_id = mapping_condition_dict[gbwt_usage_tag_gam_name]['stats']
         
-        for name, condition in mapping_condition_dict.items():
+        for name, condition in list(mapping_condition_dict.items()):
             # We will replace the stats files with (promises for) the stats files with the tag propagated
             
             if 'stats' in condition:
@@ -1763,7 +1764,7 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, mappin
         job.addFollowOn(root)
         
     compare_ids = {}
-    for name, condition in mapping_condition_dict.items():
+    for name, condition in list(mapping_condition_dict.items()):
         # When the (modified) individual stats files are ready, run the position comparison
         compare_ids[name] = root.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
                                                condition['stats'], mapeval_threshold,
@@ -1934,7 +1935,7 @@ def run_process_position_comparisons(job, context, compare_ids):
    
     RealtimeLogger.info("Processing position comparisons for conditions: {}".format(list(compare_ids.keys())))
     
-    for name, compare_id in compare_ids.items():
+    for name, compare_id in list(compare_ids.items()):
         # Each per-condition per-read input comparison file has been already exported, so we can just use it.
         
         # Compute the summary file and add it to the list to concatenate
@@ -2000,7 +2001,7 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
             for toks in reader:
                 # Label the read fields so we can see what we're doing
                 # Note that empty 'tags' columns may not be read by the TSV reader.
-                read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
+                read = dict(list(zip(['name', 'correct', 'mapq', 'tags'], toks)))
                 
                 if read['correct'] == '1':
                     # Correct, so summarize
@@ -2008,7 +2009,7 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
                 else:
                     # Incorrect, write the whole line
                     writer.line(read['correct'], read['mapq'], read.get('tags', '.'), aligner_name, read['name'], 1)
-            for parts, count in summary_counts.items():
+            for parts, count in list(summary_counts.items()):
                 # Write summary lines with empty read names
                 # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
                 writer.list_line(list(parts) + ['.', count])
@@ -2031,7 +2032,7 @@ def run_write_position_stats(job, context, map_stats):
     stats_file = os.path.join(work_dir, 'stats.tsv')
     with open(stats_file, 'w') as stats_out:
         stats_out.write('aligner\tcount\tacc\tauc\tqq-r\tmax-f1\n')
-        for name, stats in map_stats.items():
+        for name, stats in list(map_stats.items()):
             stats_out.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
                                                           stats[1][0], stats[2], stats[3]))
 
@@ -2200,7 +2201,7 @@ def run_qq(job, context, name, compare_id):
 
         qual_scores = []
         qual_observed = []            
-        for qual, cor in correct.items():
+        for qual, cor in list(correct.items()):
             qual_scores.append(qual)
             p_err = max(1. - float(cor) / float(total[qual]), sys.float_info.epsilon)
             observed_score =-10. * math.log10(p_err)
@@ -2240,7 +2241,7 @@ def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file
     """
     
     compare_ids = {}
-    for name, condition in mapping_condition_dict.items():
+    for name, condition in list(mapping_condition_dict.items()):
         if 'gam' not in condition:
             # TODO: For now we only process GAMs because only they have their scores extracted
             continue
@@ -2294,7 +2295,7 @@ def run_process_score_comparisons(job, context, baseline_name, compare_ids):
                             raise RuntimeError('Invalid comparison file line ' + content)
                         out_results.line(toks[1], a)
 
-        for name, compare_id in compare_ids.items():
+        for name, compare_id in list(compare_ids.items()):
             compare_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
             job.fileStore.readGlobalFile(compare_id, compare_file)
             context.write_output_file(job, compare_file)
@@ -2325,7 +2326,7 @@ def run_write_score_stats(job, context, baseline_name, map_stats):
         # Put each stat as a different column.
         stats_out = tsv.TsvWriter(stats_out_file)
         stats_out.comment('aligner\tcount\tworse')
-        for name, stats in map_stats.items():
+        for name, stats in list(map_stats.items()):
             stats_out.line(name, stats[0][0], stats[0][1])
 
     return context.write_output_file(job, stats_file)
@@ -2929,7 +2930,7 @@ def run_write_map_times(job, context, mapping_condition_dict):
     with open(times_path, 'w') as times_file:
         times_file.write('aligner\tmap time (s)\n')
         
-        for name, results in mapping_condition_dict.items():
+        for name, results in list(mapping_condition_dict.items()):
             if results.get('runtime') is not None:
                 times_file.write('{}\t{}\n'.format(name, round(results.get('runtime'), 5)))
         

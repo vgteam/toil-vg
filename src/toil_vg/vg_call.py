@@ -2,7 +2,7 @@
 """
 Generate a VCF from a GAM and XG by splitting into GAM/VG chunks.
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno, copy, time
 from uuid import uuid4
@@ -185,7 +185,7 @@ def run_chunked_calling(job, context,
     call_results = []
     in_gam_id = gam_id
     in_gam_basename = gam_basename
-    for chunk_name, chunk_results in batch_input.items():
+    for chunk_name, chunk_results in list(batch_input.items()):
         calling_root_job = Job()
         child_job.addChild(calling_root_job)
 

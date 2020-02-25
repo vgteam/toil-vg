@@ -3,7 +3,7 @@
 Thin wrapper for vcfeval, as a convenience to stick a vcfeval output directory
 along with the other toil-vg output.  Can be run standalone as well.
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, time, timeit, errno, vcf
 from uuid import uuid4

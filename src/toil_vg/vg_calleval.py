@@ -3,7 +3,7 @@
 vg_calleval.py: Compare vcfs with vcfeval.  Option to make freebayes calls to use as baseline.  Can
 run on vg_mapeval.py output. 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
@@ -310,14 +310,14 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets):
             # What kind of ROC plot is it?
             # It should be this unless there is a clipped mode for this ROC and we are the unclipped one.
             roc_kind = roc_type
-            if mode == 'unclipped' and True in [eval_results_dict.has_key('clipped') for eval_result in eval_results_dict.itervalues()]:
+            if mode == 'unclipped' and True in ['clipped' in eval_results_dict for eval_result in eval_results_dict.values()]:
                 # We are the unclipped mode and there will be a clipped mode
                 roc_kind += '-unclipped'
             
             # Get all the eval results for this mode, by condition name
-            mode_results = {name: eval_result.get(mode) for name, eval_result in eval_results_dict.items()}
+            mode_results = {name: eval_result.get(mode) for name, eval_result in list(eval_results_dict.items())}
             
-            if None in mode_results.itervalues():
+            if None in iter(mode_results.values()):
                 # We can't do this mode since it wasn't run
                 continue
                 
@@ -325,7 +325,7 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets):
             # condition name. This dict is implicitly for the clipped or
             # unclipped mode, depending on which mode we are doing. The
             # condition name keys don't have clipping tags.
-            roc_table_ids = {name: result.get(roc_type) for name, result in mode_results.items()}
+            roc_table_ids = {name: result.get(roc_type) for name, result in list(mode_results.items())}
             
             for subset_number, plot_set in enumerate(plot_sets):
                 # For each plot set specifier
@@ -349,9 +349,9 @@ def run_calleval_plots(job, context, names, eval_results_dict, plot_sets):
                         message = 'Condition {} not found in list of available conditions {}'.format(name, names)
                         RealtimeLogger.error(message)
                         raise RuntimeError(message)
-                    if not roc_table_ids.has_key(name):
+                    if name not in roc_table_ids:
                         # Complain if any of the names in the subset lacks ROC data
-                        message = 'Condition {} has no ROC data; data only available for {}'.format(name, roc_table_ids.keys())
+                        message = 'Condition {} has no ROC data; data only available for {}'.format(name, list(roc_table_ids.keys()))
                         RealtimeLogger.error(message)
                         raise RuntimeError(message)
 
