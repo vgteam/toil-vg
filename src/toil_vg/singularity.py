@@ -23,7 +23,7 @@ import time
 
 from toil.lib.misc import mkdir_p
 
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 if sys.version_info[0] < 3:
     # Define the error we see when trying to clobber a directory with a rename
@@ -102,7 +102,7 @@ def _singularity(job,
         workDir = os.getcwd()
 
     # Setup the outgoing subprocess call for singularity
-    baseSingularityCall = ['singularity', '-q', 'exec']
+    baseSingularityCall = ['singularity', 'exec', '-w']
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
@@ -113,7 +113,7 @@ def _singularity(job,
         # home at anything other than our real home (like something under /var
         # where Toil puts things).
         # Note that we target Singularity 3+.
-        baseSingularityCall += ['-u', '-B', '{}:{}'.format(os.path.abspath(workDir), '/mnt'), '--pwd', '/mnt']
+        baseSingularityCall += ['-B', '{}:{}'.format(os.path.abspath(workDir), '/mnt'), '--pwd', '/mnt']
         
     # Problem: Multiple Singularity downloads sharing the same cache directory will
     # not work correctly. See https://github.com/sylabs/singularity/issues/3634
@@ -150,7 +150,7 @@ def _singularity(job,
         download_env = os.environ.copy()
         download_env['SINGULARITY_CACHEDIR'] = job.fileStore.getLocalTempDir()
         subprocess.check_call(['singularity', 'build', '-s', '-F', temp_sandbox_dirname, source_image], env=download_env)
-
+        
         # Clean up the Singularity cache since it is single use
         shutil.rmtree(download_env['SINGULARITY_CACHEDIR'])
         
@@ -169,7 +169,13 @@ def _singularity(job,
         # system here.
 
     # Make subprocess call for singularity run
-
+    
+    # Set the TMPDIR environment variable to relative path '.' when running an already built
+    # container. This is to get around issues with differences between TMPDIR path accessibility
+    # when running Singularity build and singularity exec
+    download_env = os.environ.copy()
+    download_env['TMPDIR'] = '.'
+    
     # If parameters is list of lists, treat each list as separate command and chain with pipes
     if len(parameters) > 0 and type(parameters[0]) is list:
         # When piping, all arguments now get merged into a single string to bash -c.
@@ -180,9 +186,10 @@ def _singularity(job,
                                  'set -eo pipefail && {}'.format(' | '.join(chain_params))]
     else:
         call = baseSingularityCall + [sandbox_dirname] + parameters
-    _logger.info("Calling singularity with " + repr(call))
+    logger.info("Calling singularity with " + repr(call))
 
     params = {}
+    params['env'] = download_env
     if outfile:
         params['stdout'] = outfile
     if checkOutput:
