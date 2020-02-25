@@ -309,9 +309,6 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
     # Download input files
     fasta_file = os.path.join(work_dir, os.path.basename(fasta_name))
     job.fileStore.readGlobalFile(fasta_id, fasta_file)
-    #env_result = subprocess.check_output(["env"])
-    #mount_result = subprocess.check_output(["mount"])
-    #pwd_result = subprocess.check_output(["pwd"])
     
     # reluctant to use slow python library, so just running grep instead
     cmd = ['grep', '>', os.path.basename(fasta_file)]
