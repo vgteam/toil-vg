@@ -207,6 +207,12 @@ bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 # Docker image to use for sveval R package
 sveval-docker: 'jmonlong/sveval:version-1.2.0'
 
+# Docker image to use for gatk
+gatk-docker: 'broadinstitute/gatk:4.1.1.0'
+
+# Docker image to use for snpEff
+snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -477,6 +483,12 @@ bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 
 # Docker image to use for sveval R package
 sveval-docker: 'jmonlong/sveval:version-1.2.0'
+
+# Docker image to use for gatk
+gatk-docker: 'broadinstitute/gatk:4.1.1.0'
+
+# Docker image to use for snpEff
+snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
 
 ##############################
 ### vg_construct Arguments ###
