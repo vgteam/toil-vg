@@ -68,6 +68,7 @@ def parse_args(args=None):
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
     subparsers = parser.add_subparsers(dest='command')
+    subparsers.required = True
     
     # Config subparser
     parser_config = subparsers.add_parser('generate-config',
