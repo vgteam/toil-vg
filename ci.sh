@@ -8,7 +8,7 @@ virtualenv -p python3.6 --never-download .env
 . .env/bin/activate
 
 # Upgrade pip3
-pip3 install --upgrade pip3 setuptools
+pip3 install --upgrade pip setuptools
 
 # Prepare directory for temp files
 # Sometimes the instances have un-deletable files in tmp, so we continue through errors
