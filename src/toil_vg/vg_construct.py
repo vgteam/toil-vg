@@ -1020,7 +1020,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         
         # Run vg to combine into that file
         cmd = ['vg', 'combine'] + region_files
-        with open(os.path.join(work_dir, merge_output_name), 'w') as merge_file:
+        with open(os.path.join(work_dir, merge_output_name), 'wb') as merge_file:
             context.runner.call(job, cmd, work_dir=work_dir, outfile = merge_file)
                     
         # And write the merged graph as an output file
@@ -1102,7 +1102,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
 
     vg_path = os.path.join(work_dir, region_name)
     try:
-        with open(vg_path, 'w') as vg_file:
+        with open(vg_path, 'wb') as vg_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = vg_file)
     except:
         # Dump everything we need to replicate the construction
@@ -1151,7 +1151,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples, vcf_
     # Can we detect/avoid this?
     cmd = ['bcftools', 'view', os.path.basename(vcf_file), '--private',
            '--samples', ','.join(samples), '--force-samples', '--output-type', 'z']
-    with open(os.path.join(work_dir, private_vcf_name), 'w') as out_file:
+    with open(os.path.join(work_dir, private_vcf_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
         
     # bcftools isec demands indexed input, so index the itnermediate file.
@@ -1164,7 +1164,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples, vcf_
             '--write', '1'],
            ['bcftools', 'view', '-', '--samples', '^' + (','.join(samples)), '--trim-alt-alleles',
             '--force-samples', '--output-type', 'z']]
-    with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
+    with open(os.path.join(work_dir, filter_vcf_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
 
     if vcf_subdir:
