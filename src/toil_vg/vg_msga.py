@@ -127,7 +127,7 @@ def run_msga(job, context, graph_name, graph_id, fasta_id, target_regions_id, ch
         if target_regions_id and chrom:
             fasta_subset_path = os.path.join(work_dir, '{}.fa'.format(chrom))
             subset_count = 0
-            with open(fasta_subset_path, 'w') as subset_file:
+            with open(fasta_subset_path, 'wb') as subset_file:
                 for target_region in target_regions:
                     toks = line.strip().split('\t')
                     context.runner.call(job, ['samtools', 'faidx', os.path.basename(fasta_path),

@@ -201,7 +201,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         reads_file = os.path.join(work_dir, 'sim_reads_{}_{}'.format(xg_i, chunk_i))
 
         # run vg sim
-        with open(reads_file, 'w') as output_reads:
+        with open(reads_file, 'wb') as output_reads:
             try:
                 context.runner.call(job, sim_cmd, work_dir = work_dir, outfile=output_reads)
             except:

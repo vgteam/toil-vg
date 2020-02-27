@@ -319,10 +319,10 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
         context.runner.call(job, cmd, work_dir = work_dir)
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
         gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', 's/\/1/_1/g'], ['gzip', '-c']]
-        with open(sim_fq_files[0] + '.gz', 'w') as gz_file:
+        with open(sim_fq_files[0] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
         gzip_cmd = [['sed', os.path.basename(sim_fq_files[1]), '-e', 's/\/2/_2/g'], ['gzip', '-c']]
-        with open(sim_fq_files[1] + '.gz', 'w') as gz_file:
+        with open(sim_fq_files[1] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
         return [context.write_intermediate_file(job, sim_fq_files[0] + '.gz'),
                 context.write_intermediate_file(job, sim_fq_files[1] + '.gz')]
@@ -332,7 +332,7 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
         cmd.append(['sed', '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
         cmd.append(['gzip'])
-        with open(sim_fq_file, 'w') as sim_file:
+        with open(sim_fq_file, 'wb') as sim_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_file)
         return [context.write_intermediate_file(job, sim_fq_file)]
     
@@ -354,7 +354,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
         # convert to json (todo: have docker image that can do vg and jq)
         json_file = gam_file + '.json'
         cmd = ['vg', 'view', '-a', os.path.basename(gam_file)]
-        with open(json_file, 'w') as out_json:
+        with open(json_file, 'wb') as out_json:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_json)
 
         sim_fq_files = [None, os.path.join(work_dir, '{}_1{}.fq.gz'.format(out_name, 's' if add_paired_suffix else '')),
@@ -366,7 +366,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
             cmd = ['jq', '-cr', 'select(.name | test("_{}$"))'.format(i),
                    os.path.basename(json_file)]
             end_file = json_file + '.{}'.format(i)
-            with open(end_file, 'w') as end_out:
+            with open(end_file, 'wb') as end_out:
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = end_out)
 
             cmd = [['vg', 'view', '-JaG', os.path.basename(end_file)]]
@@ -375,7 +375,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
                 cmd.append(['sed', 's/_{}$//'.format(i)])
             cmd.append(['gzip'])
 
-            with open(sim_fq_files[i], 'w') as sim_out:
+            with open(sim_fq_files[i], 'wb') as sim_out:
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_out)
 
             os.remove(end_file)
@@ -388,7 +388,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
         extracted_reads_file = os.path.join(work_dir, '{}.fq.gz'.format(out_name))
         cmd = [['vg', 'view', '-X', os.path.basename(gam_file)]]
         cmd.append(['gzip'])
-        with open(extracted_reads_file, 'w') as out_ext:
+        with open(extracted_reads_file, 'wb') as out_ext:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
 
         return [write_fn(job, extracted_reads_file)]
@@ -431,7 +431,7 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
         cmd = [['pigz', '-dc', os.path.basename(fq_name)]]
         cmd.append(['sed', '-e', 's/_1$\|_2$//g'])
         cmd.append(['pigz', '-c', '-p', str(max(1, job.cores))])
-        with open(out_name, 'w') as out_file:
+        with open(out_name, 'wb') as out_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
         out_ids.append(context.write_intermediate_file(job, out_name))
 
@@ -481,7 +481,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
             cmd += ['-p']
         cmd += context.config.bwa_opts
         
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -495,7 +495,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
     # single end
@@ -507,7 +507,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
                 os.path.basename(fq_file_names[0])] + context.config.bwa_opts
 
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -521,7 +521,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
 
@@ -587,7 +587,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
             cmd.append(os.path.basename(fq_file_names[1]))
         # If one file comes in, it had better be interleaved
         
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -600,7 +600,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
     # single end
@@ -613,7 +613,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
             context.config.minimap2_opts +
             [os.path.basename(ref_filename), os.path.basename(fq_file_names[0])])
 
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -626,7 +626,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
 
@@ -649,7 +649,7 @@ def downsample_bam(job, context, bam_file_id, fraction):
     job.fileStore.readGlobalFile(bam_file_id, in_file)
     
     cmd = ['samtools', 'view', '-b', '-s', str(fraction), os.path.basename(in_file)]
-    with open(out_file, 'w') as out_bam:
+    with open(out_file, 'wb') as out_bam:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
         
     return context.write_intermediate_file(job, out_file)
@@ -668,7 +668,7 @@ def downsample_gam(job, context, gam_file_id, fraction):
     job.fileStore.readGlobalFile(gam_file_id, in_file)
     
     cmd = ['vg', 'filter', '-t', str(job.cores), '--downsample', str(fraction), os.path.basename(in_file)]
-    with open(out_file, 'w') as out_gam:
+    with open(out_file, 'wb') as out_gam:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_gam)
         
     return context.write_intermediate_file(job, out_file)
@@ -715,7 +715,7 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
         cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
     cmd.append(['sort'])
     
-    with open(out_pos_file, 'w') as out_pos:
+    with open(out_pos_file, 'wb') as out_pos:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_pos)
 
     stats_file_id = context.write_intermediate_file(job, out_pos_file)
@@ -739,7 +739,7 @@ def annotate_gam(job, context, xg_file_id, gam_file_id):
     annotated_gam_file = os.path.join(work_dir, 'annotated.gam')
     
     cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
-    with open(annotated_gam_file, 'w') as out_file:
+    with open(annotated_gam_file, 'wb') as out_file:
         try:
             context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
         except:
@@ -781,7 +781,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
     # go through intermediate json file until docker worked out
     gam_annot_json = gam_file + '.json'
     cmd = [['vg', 'view', '-aj', os.path.basename(gam_file)]]
-    with open(gam_annot_json, 'w') as output_annot_json:
+    with open(gam_annot_json, 'wb') as output_annot_json:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
         
     # Write jq code to generate additional tags
@@ -803,7 +803,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
               os.path.basename(gam_annot_json)]
     # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
     jq_pipe = [jq_cmd, ['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g']]
-    with open(out_pos_file + '.unsorted', 'w') as out_pos:
+    with open(out_pos_file + '.unsorted', 'wb') as out_pos:
         context.runner.call(job, jq_pipe, work_dir = work_dir, outfile=out_pos)
 
     # get rid of that big json asap
@@ -811,7 +811,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
 
     # sort the read stats file (not piping due to memory fears)
     sort_cmd = ['sort', os.path.basename(out_pos_file) + '.unsorted']
-    with open(out_pos_file, 'w') as out_pos:
+    with open(out_pos_file, 'wb') as out_pos:
         context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
 
     # Some lines may have refpos set while others do not (and those columns may be absent)

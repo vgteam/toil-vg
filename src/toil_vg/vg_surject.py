@@ -154,7 +154,7 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
     output_file = os.path.join(work_dir, "surject_{}.bam".format(chunk_id))
 
     # Open the file stream for writing
-    with open(output_file, "w") as surject_file:
+    with open(output_file, 'wb') as surject_file:
 
         cmd = ['vg', 'surject', os.path.basename(gam_files[0]), '--bam-output']
         if interleaved:

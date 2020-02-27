@@ -174,6 +174,10 @@ to do: Should go somewhere more central """
         output's contents.
         
         """
+        # make python3 errors pop more
+        if outfile is not None:
+            assert 'b' in outfile.mode
+            
         # from here on, we assume our args is a list of lists
         if len(args) == 0 or len(args) > 0 and type(args[0]) is not list:
             args = [args]

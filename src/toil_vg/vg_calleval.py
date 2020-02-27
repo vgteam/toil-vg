@@ -217,7 +217,7 @@ def run_bam_caller(job, context, fasta_file_id, bam_file_id, bam_idx_id,
         if chrom:
             fb_cmd += ['-r', chrom]
         timer = TimeTracker('freebayes')
-        with open(vcf_path, 'w') as out_vcf:
+        with open(vcf_path, 'wb') as out_vcf:
             context.runner.call(job, fb_cmd, work_dir=work_dir, outfile=out_vcf)
         timer.stop()
             
