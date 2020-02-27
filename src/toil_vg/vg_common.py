@@ -443,9 +443,7 @@ to do: Should go somewhere more central """
                         # There is no data available. Don't even try to read. Treat it as if a read refused to block.
                         data = None
                     
-                    
-                        
-                    if len(data) > 0:
+                    if data and len(data) > 0:
                         # Send our data to the outfile
                         outfile.write(data)
                         saw_data = True
