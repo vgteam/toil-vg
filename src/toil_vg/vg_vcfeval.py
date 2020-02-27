@@ -108,7 +108,7 @@ def validate_vcfeval_options(options):
 def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
     vcf_dir, vcf_name = os.path.split(vcf_path)
-    with open(sorted_vcf_path, "w") as outfile:
+    with open(sorted_vcf_path, "wb") as outfile:
         drunner.call(job, [['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
                      work_dir=vcf_dir)
         drunner.call(job, [['bcftools', 'view', '-H', vcf_name],

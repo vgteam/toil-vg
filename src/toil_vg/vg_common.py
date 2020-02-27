@@ -422,7 +422,7 @@ to do: Should go somewhere more central """
                             # Do a nonblocking read. Since we checked with select we never should get "" unless there's an EOF.
                             data = os.read(output_fd, 4096)
                             
-                            if data == "":
+                            if len(data) == 0:
                                 # We didn't throw and we got nothing, so it must be EOF.
                                 RealtimeLogger.debug("Got EOF")
                                 break
@@ -441,7 +441,7 @@ to do: Should go somewhere more central """
                     
                     
                         
-                    if data is not None:
+                    if len(data) > 0:
                         # Send our data to the outfile
                         outfile.write(data)
                         saw_data = True
