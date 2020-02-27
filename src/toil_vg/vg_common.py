@@ -122,7 +122,7 @@ def toil_call(job, context, cmd, work_dir, out_path = None, out_append = False):
     """ use to run a one-job toil workflow just to call a command
     using context.runner """
     if out_path:
-        open_flag = 'a' if out_append is True else 'w'
+        open_flag = 'ab' if out_append is True else 'wb'
         with open(os.path.abspath(out_path), open_flag) as out_file:
             context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
     else:
@@ -188,8 +188,8 @@ to do: Should go somewhere more central """
         if self.realtime_stderr and not errfile:
             # Make our pipe
             rfd, wfd = os.pipe()
-            rfile = os.fdopen(rfd, 'r', 0)
-            wfile = os.fdopen(wfd, 'w', 0)
+            rfile = os.fdopen(rfd, 'rb', 0)
+            wfile = os.fdopen(wfd, 'wb', 0)
             # Fork our child process (pid == 0) to catch stderr and log it
             pid = os.fork()
             if pid == 0:
@@ -980,10 +980,10 @@ def run_concat_files(job, context, file_ids, dest_name=None, header=None):
 
     # Concatenate all the files
     # TODO: We don't use the trick where we append to the first file to save a copy. Should we?
-    with open(out_name, 'w') as out_file:
+    with open(out_name, 'wb') as out_file:
         if header is not None:
             # Put the header if specified
-            out_file.write(header + '\n')
+            out_file.write('{}\n'.format(header).encode())
         for file_id in file_ids:
             with job.fileStore.readGlobalFileStream(file_id) as in_file:
                 # Then beam over each file

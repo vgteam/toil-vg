@@ -46,7 +46,7 @@ class VGCGLTest(TestCase):
         # And where does it come from?
         url = self._ci_input_path(filename)
         print(url)
-        with open(tgt, 'w') as f:
+        with open(tgt, 'wb') as f:
             # Download the file from the URL
             connection = urllib.request.urlopen(url)
             shutil.copyfileobj(connection, f)

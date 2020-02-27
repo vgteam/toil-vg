@@ -211,7 +211,7 @@ def run_augmenting(job, context,
 
     # run the command
     try:
-        with open(augmented_graph_path, 'w') as augmented_graph_file:
+        with open(augmented_graph_path, 'wb') as augmented_graph_file:
             context.runner.call(job, augment_cmd, work_dir = work_dir, outfile = augmented_graph_file)
     except Exception as e:
         logging.error("Augment failed. Dumping input files to outstore.")

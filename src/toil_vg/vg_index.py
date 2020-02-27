@@ -206,7 +206,7 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
     else:
         cmd[-1] += ['--restore-paths']
         
-    with open(pruned_filename, 'w') as pruned_file:
+    with open(pruned_filename, 'wb') as pruned_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile=pruned_file)
     
     end_time = timeit.default_timer()
@@ -353,7 +353,8 @@ def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
         job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name + '.tbi'))
 
     cmd = ['bcftools', 'concat'] + [vcf_name for vcf_name in vcf_names] + ['-O', 'z']
-    with open(os.path.join(work_dir, out_name), 'w') as out_file:
+    
+    with open(os.path.join(work_dir, out_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
 
     cmd = ['tabix', '-f', '-p', 'vcf', out_name]
@@ -418,7 +419,7 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
     cmd = ['vg', 'combine'] + filenames
     
     try:
-        with open(os.path.join(work_dir, concatenated_basename), 'w') as out_file:
+        with open(os.path.join(work_dir, concatenated_basename), 'wb') as out_file:
             context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
     except:
         # Dump everything we need to replicate the index run
@@ -667,7 +668,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         cmd = ['vg', 'snarls', graph_filename]
         if include_trivial:
             cmd += ['--include-trivial']
-        with open(snarl_filename, "w") as snarl_file:
+        with open(snarl_filename, "wb") as snarl_file:
             try:
                 # Compute snarls to the correct file
                 context.runner.call(job, cmd, work_dir=work_dir, outfile=snarl_file)
@@ -877,7 +878,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
     # Where do we put the id ranges tsv?
     id_range_filename = os.path.join(work_dir, '{}_id_ranges.tsv'.format(index_name))
 
-    with open(id_range_filename, 'w') as f:
+    with open(id_range_filename, 'wb') as f:
         for id_range in id_ranges:
             f.write('{}\t{}\t{}\n'.format(*id_range))
 
@@ -1052,7 +1053,7 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
         gam_filename = os.path.join(work_dir, "{}_alts.gam".format(index_name if index_name is not None else "part"))
 
         cmd = ['vg', 'paths', '-v', graph_filename, '-Q', '_alt_', '-X']
-        with open(gam_filename, "w") as gam_file:
+        with open(gam_filename, 'wb') as gam_file:
             try:
                 # Compute snarls to the correct file
                 context.runner.call(job, cmd, work_dir=work_dir, outfile=gam_file)
@@ -1085,7 +1086,7 @@ def run_gam_indexing(job, context, gam_id, index_name):
 
     cmd = ['vg', 'gamsort', os.path.basename(gam_filename) + '.unsorted',
            '-i', os.path.basename(gam_filename) + '.gai', '-t', str(job.cores)]
-    with open(gam_filename, 'w') as gam_file:
+    with open(gam_filename, 'wb') as gam_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile=gam_file)
 
     if index_name is not None:

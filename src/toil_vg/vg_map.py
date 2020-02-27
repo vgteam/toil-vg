@@ -538,7 +538,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     output_file = os.path.join(work_dir, "{}_{}.gam".format(sample_name, chunk_id))
 
     # Open the file stream for writing
-    with open(output_file, "w") as alignment_file:
+    with open(output_file, 'wb') as alignment_file:
 
         # Start the aligner and have it write to the file
 
@@ -685,7 +685,7 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
     output_index = output_sorted + '.gai'
     sort_cmd = ['vg', 'gamsort', '-i', os.path.basename(output_index),
         '-t', str(context.config.alignment_cores), os.path.basename(gam_file)]
-    with open(output_sorted, "w") as sorted_file:
+    with open(output_sorted, 'wb') as sorted_file:
         context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = sorted_file)
  
     # Chunk the alignment into chromosomes using the id ranges
@@ -772,11 +772,11 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
 
     if len(chunk_file_ids) > 1:
         # Would be nice to be able to do this merge with fewer copies.. 
-        with open(output_file, 'a') as merge_file:
+        with open(output_file, 'ab') as merge_file:
             for chunk_gam_id in chunk_file_ids:
                 tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
                 job.fileStore.readGlobalFile(chunk_gam_id, tmp_gam_file)
-                with open(tmp_gam_file) as tmp_f:
+                with open(tmp_gam_file, 'rb') as tmp_f:
                     shutil.copyfileobj(tmp_f, merge_file)
                                 
     # checkpoint to out store

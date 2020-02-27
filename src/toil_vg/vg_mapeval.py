@@ -851,6 +851,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
+    def list_or_none(l):
+        return l if l is None else list(l)
+    
     with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out_stream:
         out = tsv.TsvWriter(out_stream)
         
@@ -859,8 +862,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
         test_reader = iter(tsv.TsvReader(test))
         
         # Start an iteration over them
-        true_fields = next(truth_reader, None)
-        test_fields = next(test_reader, None)
+        true_fields = list_or_none(next(truth_reader, None))
+        test_fields = list_or_none(next(test_reader, None))
         
         # Track line numbers for error reporting
         true_line = 1
@@ -885,14 +888,14 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
             
             if true_read_name < aln_read_name:
                 # We need to advance the true read
-                true_fields = next(truth_reader, None)
+                true_fields = list_or_none(next(truth_reader, None))
                 true_line += 1
                 # Make sure we went forward
                 assert(true_fields == None or true_fields[0] > true_read_name)
                 continue
             elif aln_read_name < true_read_name:
                 # We need to advance the aligned read
-                test_fields = next(test_reader, None)
+                test_fields = list_or_node(next(test_reader, None))
                 test_line += 1
                 # Make sure we went forward
                 assert(test_fields == None or test_fields[0] > aln_read_name)
@@ -939,9 +942,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 out.line(aln_read_name, aln_correct, aln_mapq, combined_tags_string)
         
                 # Advance both reads
-                true_fields = next(truth_reader, None)
+                true_fields = list_or_none(next(truth_reader, None))
                 true_line += 1
-                test_fields = next(test_reader, None)
+                test_fields = list_or_none(next(test_reader, None))
                 test_line += 1
         
     out_file_id = context.write_output_file(job, out_file)
@@ -974,6 +977,9 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
 
     out_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
 
+    def list_or_none(l):
+        return l if l is None else list(l)
+    
     with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test, open(out_file, 'w') as out:
         
         # Make readers for the files
@@ -981,8 +987,8 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
         test_reader = iter(tsv.TsvReader(test))
         
         # Start an iteration over them
-        baseline_fields = next(baseline_reader, None)
-        test_fields = next(test_reader, None)
+        baseline_fields = list_or_none(next(baseline_reader, None))
+        test_fields = list_or_none(next(test_reader, None))
         
         # Track line numbers for error reporting
         baseline_line = 1
@@ -1004,12 +1010,12 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
             
             if baseline_read_name < aln_read_name:
                 # We need to advance the baseline read
-                baseline_fields = next(baseline_reader, None)
+                baseline_fields = list_or_none(next(baseline_reader, None))
                 baseline_line += 1
                 continue
             elif aln_read_name < baseline_read_name:
                 # We need to advance the aligned read
-                test_fields = next(test_reader, None)
+                test_fields = list_or_none(next(test_reader, None))
                 test_line += 1
                 continue
             else:
@@ -1025,9 +1031,9 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
                 out.write('{}, {}, {}, {}\n'.format(baseline_fields[0], score_diff, aligned_score, baseline_score))
 
                 # Advance both reads
-                baseline_fields = next(baseline_reader, None)
+                baseline_fields = list_or_none(next(baseline_reader, None))
                 baseline_line += 1
-                test_fields = next(test_reader, None)
+                test_fields = list_or_none(next(test_reader, None))
                 test_line += 1
                 
     # Save stats file for inspection
@@ -1988,8 +1994,10 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
     with open(out_filename, 'w') as out_stream:
         # Write TSV to the output compressed file
         writer = tsv.TsvWriter(out_stream)
-        
-        with job.fileStore.readGlobalFileStream(compare_id) as in_stream:
+
+        compare_file_path = os.path.join(work_dir, 'compare-file')
+        job.fileStore.readGlobalFile(compare_id, compare_file_path)
+        with open(compare_file_path, 'r') as in_stream:
             # Read it from the input per-read file
             reader = tsv.TsvReader(in_stream)
             
@@ -2001,7 +2009,7 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
             for toks in reader:
                 # Label the read fields so we can see what we're doing
                 # Note that empty 'tags' columns may not be read by the TSV reader.
-                read = dict(list(zip(['name', 'correct', 'mapq', 'tags'], toks)))
+                read = dict(list(zip(['name', 'correct', 'mapq', 'tags'], list(toks))))
                 
                 if read['correct'] == '1':
                     # Correct, so summarize
@@ -2058,7 +2066,7 @@ def run_acc(job, context, name, compare_id):
     with open(compare_file) as compare_f:
         for toks in tsv.TsvReader(compare_f):
             total += 1
-            if toks[1] == '1':
+            if list(toks)[1] == '1':
                 correct += 1
                 
     acc = float(correct) / float(total) if total > 0 else 0
@@ -2715,6 +2723,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         # Open the stats file
         for line in tsv.TsvReader(stats_stream):
             # And read all the lines.
+            line = list(line)
             
             if line_num == 0:
                 # Skip the header
