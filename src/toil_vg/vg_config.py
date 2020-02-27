@@ -213,6 +213,9 @@ gatk-docker: 'broadinstitute/gatk:4.1.1.0'
 # Docker image to use for snpEff
 snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
 
+# Docker image to use for picard
+picard-docker: 'docker pull broadinstitute/picard:2.21.9'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -489,6 +492,9 @@ gatk-docker: 'broadinstitute/gatk:4.1.1.0'
 
 # Docker image to use for snpEff
 snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
+
+# Docker image to use for picard
+picard-docker: 'docker pull broadinstitute/picard:2.21.9'
 
 ##############################
 ### vg_construct Arguments ###

@@ -436,10 +436,11 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
                                                       validate=validate,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
-        if not bam_output:
+        if not bam_output or surject:
             gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
-        else:
+        if bam_output:
             bam_chunk_file_ids.append(chunk_alignment_job.rv(0))
+            
         gam_chunk_running_times.append(chunk_alignment_job.rv(1))
 
 
@@ -454,16 +455,17 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     else:
         gam_chrom_ids = []
         gam_chunk_time = None
-        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, sample_name, bam_chunk_file_ids)
+        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, sample_name, context, bam_chunk_file_ids)
         bam_chrom_ids = [merge_bams_job.rv()]
 
-    if surject:
+    if surject and not bam_output:
         interleaved_surject = interleaved or (fastq and len(fastq) == 2)
         zip_job = child_job.addFollowOnJobFn(run_zip_surject_input, context, gam_chunk_file_ids)
         xg_id = indexes['xg-surject'] if 'xg-surject' in indexes else indexes['xg']
         bam_chrom_ids = [zip_job.addFollowOnJobFn(run_whole_surject, context, zip_job.rv(), sample_name + '-surject',
                                                   interleaved_surject, xg_id, []).rv()]
-
+    
+    logger.info("DEBUGGER INSIDE run_whole_alignment OUTPUT bam_chrom_ids: {}".format(bam_chrom_ids))
     return gam_chrom_ids, gam_chunk_time, bam_chrom_ids
     
 def run_zip_surject_input(job, context, gam_chunk_file_ids):
@@ -660,10 +662,11 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             gam_chunk_ids.append(context.write_intermediate_file(job, gam_chunk))
 
         return gam_chunk_ids, run_time
-        
     else:
         # We can just report one chunk of everything
-        return [context.write_intermediate_file(job, output_file)], run_time
+        bam_chunk_ids = [context.write_intermediate_file(job, output_file)]
+        return bam_chunk_ids, run_time
+        #return [context.write_intermediate_file(job, output_file)], run_time
 
 def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_file):
     """

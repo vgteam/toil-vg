@@ -374,7 +374,9 @@ def run_convert(job, context,
 def run_concat_vcfs(job, context, out_name, vcf_ids, tbi_ids = [], write_to_outstore = False,
                     call_timers_lists = [], batch_data=None):
     """ Concat up a bunch of VCFs. Input assumed to be bgzipped iff tbi_ids specified """
-
+    
+    logger.info("DEBUGGER INSIDE run_concat_vcfs vcf_ids: {}".format(vcf_ids))
+    logger.info("DEBUGGER INSIDE run_concat_vcfs tbi_ids: {}".format(tbi_ids))
     # hack to re-use this function with new interface
     if batch_data:
         vcf_ids = [result[1][0] for result in batch_data]

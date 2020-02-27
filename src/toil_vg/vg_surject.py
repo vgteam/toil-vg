@@ -113,7 +113,6 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
                                                     disk=context.config.alignment_disk)
         bam_chunk_file_ids.append(chunk_surject_job.rv(0))
         bam_chunk_running_times.append(chunk_surject_job.rv(1))
-
     return child_job.addFollowOnJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
                                       cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
@@ -218,12 +217,12 @@ def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
 
     # todo: option to give name
     surject_path = os.path.join(work_dir, '{}.bam'.format(output_name))
-
+    
     cmd = ['samtools', 'cat'] + [os.path.basename(chunk_path) for chunk_path in chunk_paths]
     cmd += ['-o', os.path.basename(surject_path)]
 
     context.runner.call(job, cmd, work_dir = work_dir)
-
+    
     return context.write_output_file(job, surject_path)
 
 def surject_main(context, options):

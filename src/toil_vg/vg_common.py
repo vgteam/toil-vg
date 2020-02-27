@@ -113,8 +113,9 @@ def get_container_tool_map(options):
     cmap[0]['bedtools'] = options.bedtools_docker
     cmap[0]['R'] = options.sveval_docker
     cmap[0]['bedops'] = options.bedops_docker
-    cmap[0]['gatk'] = options.gatk-docker
-    cmap[0]['snpEff'] = options.snpEff-docker
+    cmap[0]['gatk'] = options.gatk_docker
+    cmap[0]['snpEff'] = options.snpEff_docker
+    cmap[0]['picard'] = options.picard_docker
     
     # to do: could be a good place to do an existence check on these tools
 
