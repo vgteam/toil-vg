@@ -299,6 +299,9 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
     
     Note that even turning off paired_mode may not dissuade minimap2 from pairing up your reads.
     """
+    
+    RealtimeLogger.info("Make FASTQ from BAM id {}".format(bam_file_id))
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     # read the bam file
@@ -341,6 +344,9 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
     """
     convert a gam to fastq (or pair of fastqs)
     """
+    
+    RealtimeLogger.info("Make FASTQ from GAM id {}".format(gam_file_id))
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     # read the gam file
@@ -396,6 +402,9 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
 def run_concat_fastqs(job, context, fq_reads_ids):
     """ concatenate some fastq files
     """
+    
+    RealtimeLogger.info("Concatenate {} FASTQs".format(len(fq_reads_ids)))
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     assert len(fq_reads_ids) == 2
@@ -416,6 +425,8 @@ def run_concat_fastqs(job, context, fq_reads_ids):
 def run_strip_fq_ext(job, context, fq_reads_ids):
     """ bwa can't read reads with _1 _2 extensions for paired end alignment.  strip here
     """
+    
+    RealtimeLogger.info("Remove read numbers from {} FASTQs".format(len(fq_reads_ids)))
     
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -441,6 +452,8 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     """ run bwa-mem on reads in a fastq.  optionally run in paired mode
     return id of bam file
     """
+    
+    RealtimeLogger.info("Run BWA MEM on {} FASTQs".format(len(fq_reads_ids)))
     
     requeue_promise = ensure_disk(job, run_bwa_mem, [context, fq_reads_ids, bwa_index_ids, paired_mode], {},
         itertools.chain(fq_reads_ids, bwa_index_ids.values()))
@@ -539,6 +552,8 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
     
     Automatically converts minimap2's SAM output to BAM.
     """
+    
+    RealtimeLogger.info("Run minimap2 on {} FASTQs".format(len(fq_reads_ids)))
 
     requeue_promise = ensure_disk(job, run_minimap2, [context, fq_reads_ids, fasta_id],
         {'minimap2_index_id': minimap2_index_id, 'paired_mode': paired_mode},
@@ -641,6 +656,8 @@ def downsample_bam(job, context, bam_file_id, fraction):
     file ID for the new BAM file.
     """
     
+    RealtimeLogger.info("Downasmple BAM id {} to {}".format(bam_file_id, fraction))
+    
     work_dir = job.fileStore.getLocalTempDir()
     
     in_file = os.path.join(work_dir, 'full.bam')
@@ -659,7 +676,9 @@ def downsample_gam(job, context, gam_file_id, fraction):
     Extract the given fraction of reads from the given GAM file. Return the
     file ID for the new GAM file.
     """
-    
+   
+    RealtimeLogger.info("Downasmple GAM id {} to {}".format(gam_file_id, fraction))
+   
     work_dir = job.fileStore.getLocalTempDir()
     
     in_file = os.path.join(work_dir, 'full.gam')
@@ -727,6 +746,8 @@ def annotate_gam(job, context, xg_file_id, gam_file_id):
     Annotate the given GAM file with positions from the given XG file.
     """
     
+    RealtimeLogger.info("Annotate GAM id {} with XG id {}".format(gam_file_id, xg_file_id))
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     # download input
@@ -770,6 +791,8 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
     will both contain only "0" values.
 
     """
+    
+    RealtimeLogger.info("Extract GAM read stats from {}".format(name))
 
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -842,6 +865,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
     TODO: Replace with a vg mapeval call.
     
     """
+    
+    RealtimeLogger.info("Compare mapping positions for {}".format(name))
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     true_read_stats_file = os.path.join(work_dir, 'true.tsv')
@@ -965,6 +991,9 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
     test.
     
     """
+    
+    RealtimeLogger.info("Compare mapping scores for {}".format(name))
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     baseline_read_stats_file = os.path.join(work_dir, 'baseline.tsv')
@@ -1050,6 +1079,8 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
     components.
     
     """
+    
+    RealtimeLogger.info("Compute graph indexes")
 
     # index_ids are dicts from index type to file ID as returned by run_indexing
     index_ids = []
@@ -1225,9 +1256,6 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
             for paired in matrix["paired"]:
                 if condition["aligner"] == "minimap2" and not paired:
                     # Don't run minimap2 in unpaired mode; it will pair up all pairable inputs
-                    continue
-                if condition["aligner"] == "vg" and condition["mapper"] == "gaffe" and paired:
-                    # Don't run gaffe in paired mode; it doesn't support it yet
                     continue
                 extended = dict(condition)
                 extended.update({"paired": paired})
@@ -1590,7 +1618,9 @@ def run_map_eval_comparison(job, context, mapping_condition_dict, true_read_stat
     all the other conditions nin the combined stats file.
     
     """
-    
+   
+    RealtimeLogger.info("Comparing mapping results")
+   
     # We're going to use mapping_condition_dict and add in "stats" for each BAM or GAM.
     # TODO: If there's both a BAM and a GAM, the BAM will win and provide the stats.
     
@@ -1742,6 +1772,8 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, mappin
     Returns a dict of comparison file IDs by condition name, and the stats file ID.
     """
 
+    RealtimeLogger.info("Comparing positions")
+
     # This is the job that roots the position comparison
     root = job
     
@@ -1790,7 +1822,9 @@ def propagate_tag(job, context, from_id, to_id, tag_name):
     Returns the ID of the modified to file.
     
     """
-    
+
+    RealtimeLogger.info("Propagating tag {} from GAM id {} to GAM id {}".format(tag_name, from_id, to_id))
+
     if from_id == to_id:
         # Nothing to do! All tags will be the same.
         return to_id
@@ -1979,6 +2013,8 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
+        
+    RealtimeLogger.info("Summarizing position comparisons for {}".format(aligner_name))
   
     # TODO: We want to just stream the output, but because of
     # https://github.com/DataBiosphere/toil/issues/1020 if we do that
@@ -2028,6 +2064,8 @@ def run_write_position_stats(job, context, map_stats):
     This is different than the stats TSV format used internally, for read stats.
     """
 
+    RealtimeLogger.info("Writing position statistics summary")
+
     work_dir = job.fileStore.getLocalTempDir()
     stats_file = os.path.join(work_dir, 'stats.tsv')
     with open(stats_file, 'w') as stats_out:
@@ -2047,6 +2085,8 @@ def run_acc(job, context, name, compare_id):
     Comparison file input must be TSV with one row per read, column 0 unused
     and column 1 as the correct flag.
     """
+    
+    RealtimeLogger.info("Computing accuracy")
     
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -2077,6 +2117,9 @@ def run_auc(job, context, name, compare_id):
     column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
+    
+    RealtimeLogger.info("Computing AUC")
+    
     if not have_sklearn:
         return ["sklearn_not_installed"] * 2 
     
@@ -2115,6 +2158,9 @@ def run_max_f1(job, context, name, compare_id):
     column 1 as the correct flag, and column 2 as the MAPQ.
     
     """
+    
+    RealtimeLogger.info("Computing max F1")
+    
     if not have_sklearn:
         return "sklearn_not_installed" 
     
@@ -2181,6 +2227,9 @@ def run_qq(job, context, name, compare_id):
     Comparison file input must be TSV with one row per read, column 0 unused,
     column 1 as the correct flag, and column 2 as the MAPQ.
     """
+    
+    RealtimeLogger.info("Computing QQ information")
+    
     if not have_sklearn:
         return "sklearn_not_installed"
 
@@ -2240,6 +2289,8 @@ def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file
     
     """
     
+    RealtimeLogger.info("Comparing scores against baseline")
+    
     compare_ids = {}
     for name, condition in mapping_condition_dict.iteritems():
         if 'gam' not in condition:
@@ -2267,6 +2318,8 @@ def run_process_score_comparisons(job, context, baseline_name, compare_ids):
     
     Returns the file ID of the overall stats file "score.stats.<baseline name>.tsv".
     """
+
+    RealtimeLogger.info("Processing score comparisons")
 
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -2319,6 +2372,8 @@ def run_write_score_stats(job, context, baseline_name, map_stats):
     
     This is different than the stats TSV format used internally, for read stats.
     """
+    
+    RealtimeLogger.info("Writing score statistics summary")
 
     work_dir = job.fileStore.getLocalTempDir()
     stats_file = os.path.join(work_dir, 'score.stats.{}.tsv'.format(baseline_name))
@@ -2336,6 +2391,8 @@ def run_portion_worse(job, context, name, compare_id):
     Compute percentage of reads that get worse from the baseline graph.
     Return total reads and portion that got worse.
     """
+    
+    RealtimeLogger.info("Computing portion worse than baseline")
     
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -2377,6 +2434,8 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
     and just runs the mapping.
     
     """
+    
+    RealtimeLogger.info("Running toil-vg mapeval")
     
     # This should be the only Toil job that actually uses options (in order to
     # orchestrate the right shape of workflow depending on whether we want
@@ -2924,6 +2983,8 @@ def run_write_map_times(job, context, mapping_condition_dict):
     Takes in a dict by mapped condition name of condition dicts, each may have
     a "runtime" key with a float runtime in seconds.
     """
+    
+    RealtimeLogger.info("Writing mapping times")
 
     work_dir = job.fileStore.getLocalTempDir()
     times_path = os.path.join(work_dir, 'map_times.tsv')
