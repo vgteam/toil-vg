@@ -1,14 +1,20 @@
+image: quay.io/vgteam/dind
+
 before_script:
   - whoami
   - sudo apt-get -q -y update
   # Make sure we have some curl stuff for pycurl which we need for some Python stuff
   - sudo apt-get -q -y install docker.io python3-pip python-virtualenv libcurl4-gnutls-dev libgnutls28-dev python3-dev 
+  - startdocker || true
   - docker info
   # Build .pypirc with PyPI credentials
   - touch ~/.pypirc
   - chmod 600 ~/.pypirc
   - 'printf "[distutils]\nindex-servers =\n    pypi\n\n[pypi]\nusername: ${PYPI_USERNAME}\npassword: ${PYPI_PASSWORD}\n" > ~/.pypirc'
-  
+
+after_script:
+  - stopdocker || true
+
 stages:
   - test
 
