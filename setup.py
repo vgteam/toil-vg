@@ -4,7 +4,7 @@ import os
 # We can't import version.py because only one "version" module can ever be
 # loaded in a Python process, and multiple setup.py scripts may have to run in
 # the same process.
-execfile(os.path.join(os.path.dirname(os.path.realpath(__file__)), "version.py"))
+exec(open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "version.py")).read())
 
 from setuptools import find_packages, setup
 from setuptools.command.test import test as TestCommand
@@ -16,8 +16,8 @@ kwargs = dict(
     author='UCSC Computational Genomics Lab',
     author_email='cgl-toil@googlegroups.com',
     url="https://github.com/BD2KGenomics/toil-vg",
-    python_requires='>=2.7,<3.0',
-    install_requires=[x + y for x, y in required_versions.iteritems()],
+    python_requires='>=3.0',
+    install_requires=[x + y for x, y in required_versions.items()],
     dependency_links=[],
     tests_require=['pytest==2.8.3', 'numpy', 'scipy'],
     package_dir={'': 'src'},

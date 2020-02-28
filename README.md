@@ -23,9 +23,9 @@ Why use toil-vg?
 
 Installation requires Python and [Toil](https://toil.readthedocs.io/en/latest/gettingStarted/install.html).  We recommend installing within a virtualenv as follows
 
-    virtualenv toilvenv
+    virtualenv -p python3.6 toilvenv
     source toilvenv/bin/activate
-    pip install toil[aws,mesos]==3.20.0
+    pip install toil[aws,mesos]==3.24.0
     pip install toil-vg
     
 Developers may want to work with the latest master branch from github instead:

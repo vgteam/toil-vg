@@ -1,14 +1,13 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_surject.py: chunked surject of gam file
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -155,7 +154,7 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
     output_file = os.path.join(work_dir, "surject_{}.bam".format(chunk_id))
 
     # Open the file stream for writing
-    with open(output_file, "w") as surject_file:
+    with open(output_file, 'wb') as surject_file:
 
         cmd = ['vg', 'surject', os.path.basename(gam_files[0]), '--bam-output']
         if interleaved:

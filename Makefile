@@ -46,8 +46,8 @@ help:
 	@echo "$$help"
 
 
-python=python2.7
-pip=pip2.7
+python=python3
+pip=pip3
 tests=src
 container=Docker
 extras=
@@ -108,8 +108,8 @@ prepare: check_venv
 	$(pip) install numpy
 	# TODO scikit-learn can't even begin to install unless numpy is already there, so numpy has to be first and by itself.
 	# See https://github.com/scikit-learn/scikit-learn/issues/4164
-	$(pip) install scipy scikit-learn==0.18.2
-	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.20.0' biopython==1.67 pyvcf==0.6.8
+	$(pip) install scipy scikit-learn==0.22.1
+	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.24.0' biopython==1.67 pyvcf==0.6.8
 	pip list
 clean_prepare: check_venv
 	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf

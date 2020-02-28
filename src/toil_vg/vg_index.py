@@ -1,14 +1,13 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_index.py: index a graph so it can be mapped to
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit, distutils
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import logging
@@ -207,7 +206,7 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
     else:
         cmd[-1] += ['--restore-paths']
         
-    with open(pruned_filename, 'w') as pruned_file:
+    with open(pruned_filename, 'wb') as pruned_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile=pruned_file)
     
     end_time = timeit.default_timer()
@@ -354,7 +353,8 @@ def run_concat_vcfs(job, context, vcf_ids, tbi_ids):
         job.fileStore.readGlobalFile(tbi_id, os.path.join(work_dir, vcf_name + '.tbi'))
 
     cmd = ['bcftools', 'concat'] + [vcf_name for vcf_name in vcf_names] + ['-O', 'z']
-    with open(os.path.join(work_dir, out_name), 'w') as out_file:
+    
+    with open(os.path.join(work_dir, out_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
 
     cmd = ['tabix', '-f', '-p', 'vcf', out_name]
@@ -419,7 +419,7 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
     cmd = ['vg', 'combine'] + filenames
     
     try:
-        with open(os.path.join(work_dir, concatenated_basename), 'w') as out_file:
+        with open(os.path.join(work_dir, concatenated_basename), 'wb') as out_file:
             context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
     except:
         # Dump everything we need to replicate the index run
@@ -624,7 +624,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         RealtimeLogger.info("Breaking up snarl computation for {}".format(str(graph_names)))
         
         snarl_jobs = []
-        for file_id, file_name in itertools.izip(inputGraphFileIDs, graph_names):
+        for file_id, file_name in zip(inputGraphFileIDs, graph_names):
             # For each input graph, make a child job to index it.
             snarl_jobs.append(job.addChildJobFn(run_snarl_indexing, context, [file_id], [file_name],
                                                 include_trivial=include_trivial,
@@ -639,7 +639,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
                                                     memory=context.config.snarl_index_mem,
                                                     disk=context.config.snarl_index_disk)
         
-        for i in xrange(1, len(snarl_jobs)):
+        for i in range(1, len(snarl_jobs)):
             # And make it wait for all of them
             snarl_jobs[i].addFollowOn(concat_job)
             
@@ -668,7 +668,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         cmd = ['vg', 'snarls', graph_filename]
         if include_trivial:
             cmd += ['--include-trivial']
-        with open(snarl_filename, "w") as snarl_file:
+        with open(snarl_filename, "wb") as snarl_file:
             try:
                 # Compute snarls to the correct file
                 context.runner.call(job, cmd, work_dir=work_dir, outfile=snarl_file)
@@ -878,7 +878,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
     # Where do we put the id ranges tsv?
     id_range_filename = os.path.join(work_dir, '{}_id_ranges.tsv'.format(index_name))
 
-    with open(id_range_filename, 'w') as f:
+    with open(id_range_filename, 'wb') as f:
         for id_range in id_ranges:
             f.write('{}\t{}\t{}\n'.format(*id_range))
 
@@ -1016,7 +1016,7 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
         RealtimeLogger.info("Breaking up alt path GAM computation for {}".format(str(graph_names)))
         
         sub_jobs = []
-        for i, (file_id, file_name) in enumerate(itertools.izip(inputGraphFileIDs, graph_names)):
+        for i, (file_id, file_name) in enumerate(zip(inputGraphFileIDs, graph_names)):
             # For each input graph, make a child job to index it.
             sub_jobs.append(job.addChildJobFn(run_alt_path_extraction, context, [file_id], [file_name],
                                               index_name + '.{}'.format(i) if index_name else None,
@@ -1030,7 +1030,7 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
                                                   memory=context.config.chunk_mem,
                                                   disk=context.config.chunk_disk)
         
-        for i in xrange(1, len(sub_jobs)):
+        for i in range(1, len(sub_jobs)):
             # And make it wait for all of them
             sub_jobs[i].addFollowOn(concat_job)
             
@@ -1053,7 +1053,7 @@ def run_alt_path_extraction(job, context, inputGraphFileIDs, graph_names, index_
         gam_filename = os.path.join(work_dir, "{}_alts.gam".format(index_name if index_name is not None else "part"))
 
         cmd = ['vg', 'paths', '-v', graph_filename, '-Q', '_alt_', '-X']
-        with open(gam_filename, "w") as gam_file:
+        with open(gam_filename, 'wb') as gam_file:
             try:
                 # Compute snarls to the correct file
                 context.runner.call(job, cmd, work_dir=work_dir, outfile=gam_file)
@@ -1086,7 +1086,7 @@ def run_gam_indexing(job, context, gam_id, index_name):
 
     cmd = ['vg', 'gamsort', os.path.basename(gam_filename) + '.unsorted',
            '-i', os.path.basename(gam_filename) + '.gai', '-t', str(job.cores)]
-    with open(gam_filename, 'w') as gam_file:
+    with open(gam_filename, 'wb') as gam_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile=gam_file)
 
     if index_name is not None:
@@ -1300,7 +1300,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                 indexes['gbwt'] = indexes['chrom_gbwt'][0]
                 
         # now do the whole genome xg (without any gbwt)
-        if indexes.has_key('chrom_xg') and len(indexes['chrom_xg']) == 1:
+        if 'chrom_xg' in indexes and len(indexes['chrom_xg']) == 1:
             # We made per-chromosome XGs and we have exactly one.
             # our first chromosome is effectively the whole genome (note that above we
             # detected this and put in index_name so it's saved right (don't care about chrom names))
@@ -1331,7 +1331,7 @@ def run_indexing(job, context, inputGraphFileIDs,
     if 'gcsa' in wanted:
         # We know we made the per-chromosome indexes already, so we can use them here to make the GCSA                                               
         # todo: we're only taking in a genome gbwt as input, because that's all we write
-        if (not indexes.has_key('chrom_gbwt') or indexes['chrom_gbwt'] == []) and indexes.has_key('gbwt'):
+        if ('chrom_gbwt' not in indexes or indexes['chrom_gbwt'] == []) and 'gbwt' in indexes:
             # We lack per-chromosome GBWTs but we have a whole genome one we can use
             indexes['chrom_gbwt'] = indexes['gbwt'] * len(inputGraphFileIDs)
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
@@ -1385,7 +1385,7 @@ def run_indexing(job, context, inputGraphFileIDs,
         
         indexes['distance'] = distance_job.rv()
         
-    if 'minimizer' in wanted and indexes.has_key('gbwt'):
+    if 'minimizer' in wanted and 'gbwt' in indexes:
         # We need a minimizer index, based on the GBWT (either provided or
         # computed) and the XG (which we know is being computed).
         

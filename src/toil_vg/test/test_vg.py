@@ -8,9 +8,10 @@ import filecmp
 import shutil
 from contextlib import closing
 from unittest import TestCase, skip
-from urlparse import urlparse
+from urllib.parse import urlparse
 from uuid import uuid4
-import urllib2, gzip
+import gzip
+import urllib.request
 
 import os, sys
 import posixpath
@@ -45,9 +46,9 @@ class VGCGLTest(TestCase):
         # And where does it come from?
         url = self._ci_input_path(filename)
         print(url)
-        with open(tgt, 'w') as f:
+        with open(tgt, 'wb') as f:
             # Download the file from the URL
-            connection = urllib2.urlopen(url)
+            connection = urllib.request.urlopen(url)
             shutil.copyfileobj(connection, f)
 
     def setUp(self):
@@ -824,7 +825,7 @@ class VGCGLTest(TestCase):
 
         with open(local_f1) as f1_file:
             f1_score = float(f1_file.readline().strip())
-        print f1_score
+        print(f1_score)
         self.assertGreaterEqual(f1_score, f1_threshold)
 
     def _assertMapEvalOutput(self, outstore, test_count, names, acc_threshold):

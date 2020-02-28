@@ -1,14 +1,13 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_plot.py: Make plots from toil-vg experiments
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string, math
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -124,7 +123,7 @@ def run_plot(job, context, options, position_stats_file_id=None, eval_results_di
         # Do variant calling plotting
         
         # Get the names back
-        names = eval_results_dict.keys()
+        names = list(eval_results_dict.keys())
         
         plot_job = job.addChildJobFn(run_calleval_plots, context, names, eval_results_dict, plot_sets=plot_sets)
     

@@ -3,12 +3,11 @@
 vg_construct.py: construct a graph from a vcf and fasta
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import logging
@@ -251,7 +250,7 @@ def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
         raise RuntimeError('vcf merging expects unique filenames')
 
     merged_name = '_'.join(names) + '.vcf.gz'
-    with open(os.path.join(work_dir, merged_name), 'w') as merged_file:
+    with open(os.path.join(work_dir, merged_name), 'wb') as merged_file:
         cmd = [['bcftools', 'merge', '--missing-to-ref', '--force-samples'] + vcf_names]
         # phase the ref/ref calls added by --missing-to-ref
         cmd.append(['sed', '-e', 's/0\/0/0\|0/g'])
@@ -294,7 +293,7 @@ def run_mask_ambiguous(job, context, fasta_id, fasta_name):
 
     fa_mask_cmd = ['awk',  'BEGIN{FS=\" \"}{if(!/>/){ gsub(/[YRWSKMDVHBXyrwskmdvhbx]/,"N"); print }else{print $1}}',
                    os.path.basename(fasta_file)]
-    with open(mask_file, 'w') as mf:
+    with open(mask_file, 'wb') as mf:
         context.runner.call(job, fa_mask_cmd, outfile=mf, work_dir=work_dir)
 
     return context.write_intermediate_file(job, mask_file), os.path.basename(mask_file)
@@ -366,7 +365,7 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
             something_to_rename = True
             out_regions.append(name_map[region_name] + region[len(region_name):])
         else:
-            something_to_rename = something_to_rename or region_name in name_map.values()
+            something_to_rename = something_to_rename or region_name in list(name_map.values())
             out_regions.append(region)
         
     # map the vcf
@@ -679,7 +678,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
     # treated below (the same vcf is given to each region)
     if regions and len(regions) > len(vcf_ids) and len(vcf_ids) != 1:
         padding = [None] * (len(regions) - len(vcf_ids))
-        for key, val in output.items():
+        for key, val in list(output.items()):
             val[0] += padding
             val[1] += padding
             val[2] += padding
@@ -705,7 +704,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
     output = []
     
-    for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
+    for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in list(vcf_inputs.items()):
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
         output_name_base = remove_ext(output_name, '.vg')
         # special case that need thread indexes no matter what
@@ -1021,7 +1020,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         
         # Run vg to combine into that file
         cmd = ['vg', 'combine'] + region_files
-        with open(os.path.join(work_dir, merge_output_name), 'w') as merge_file:
+        with open(os.path.join(work_dir, merge_output_name), 'wb') as merge_file:
             context.runner.call(job, cmd, work_dir=work_dir, outfile = merge_file)
                     
         # And write the merged graph as an output file
@@ -1103,7 +1102,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
 
     vg_path = os.path.join(work_dir, region_name)
     try:
-        with open(vg_path, 'w') as vg_file:
+        with open(vg_path, 'wb') as vg_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = vg_file)
     except:
         # Dump everything we need to replicate the construction
@@ -1152,7 +1151,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples, vcf_
     # Can we detect/avoid this?
     cmd = ['bcftools', 'view', os.path.basename(vcf_file), '--private',
            '--samples', ','.join(samples), '--force-samples', '--output-type', 'z']
-    with open(os.path.join(work_dir, private_vcf_name), 'w') as out_file:
+    with open(os.path.join(work_dir, private_vcf_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
         
     # bcftools isec demands indexed input, so index the itnermediate file.
@@ -1165,7 +1164,7 @@ def run_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, samples, vcf_
             '--write', '1'],
            ['bcftools', 'view', '-', '--samples', '^' + (','.join(samples)), '--trim-alt-alleles',
             '--force-samples', '--output-type', 'z']]
-    with open(os.path.join(work_dir, filter_vcf_name), 'w') as out_file:
+    with open(os.path.join(work_dir, filter_vcf_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
 
     if vcf_subdir:
@@ -1203,7 +1202,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     # bcftools -s won't work so we handle here as a special case, assuming no sample means no variants
     cmd = ['bcftools', 'query', '--list-samples', os.path.basename(vcf_file)]
     found_samples = context.runner.call(job, cmd, work_dir=work_dir, check_output=True)
-    found_sample = sample in found_samples.strip().split('\n')
+    found_sample = sample in found_samples.decode().strip().split('\n')
 
     # Hacky interface to not do anything if we can't find the sample.
     # By default, we'd return an empty VCF in this case
@@ -1230,7 +1229,7 @@ def run_make_control_vcfs(job, context, vcf_id, vcf_name, tbi_id, sample, pos_on
     out_neg_name = out_pos_name + '_minus_{}.vcf.gz'.format(sample)
     out_pos_name += '_{}.vcf.gz'.format(sample)
 
-    with open(os.path.join(work_dir, out_pos_name), 'w') as out_file:
+    with open(os.path.join(work_dir, out_pos_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir=work_dir, outfile = out_file)
 
     context.runner.call(job, ['tabix', '--force', '--preset', 'vcf', out_pos_name], work_dir=work_dir)
@@ -1278,7 +1277,7 @@ def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, mi
     af_vcf_name = '{}_minaf_{}.vcf.gz'.format(vcf_base, min_af)
 
     cmd = ['bcftools', 'view', '--min-af', min_af, '-O', 'z', os.path.basename(vcf_file)]
-    with open(os.path.join(work_dir, af_vcf_name), 'w') as out_file:
+    with open(os.path.join(work_dir, af_vcf_name), 'wb') as out_file:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=out_file)
 
     if vcf_subdir:
@@ -1462,7 +1461,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 
                 # strip paths from our original graph            
                 cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
-                with open(os.path.join(work_dir, base_graph_filename), 'w') as out_file:
+                with open(os.path.join(work_dir, base_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
                     
                 path_graph_filename = '{}{}_thread_{}_path.vg'.format(output_name, tag, hap)
@@ -1471,14 +1470,14 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg', '-x', os.path.basename(xg_path)]
                 for chrom in chroms:
                     cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
-                with open(os.path.join(work_dir, path_graph_filename), 'w') as out_file:
+                with open(os.path.join(work_dir, path_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
                 
                 # Now combine the two files, adding the paths to the graph
                 vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
                 logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
                 cmd = ['vg', 'combine', base_graph_filename, path_graph_filename]
-                with open(vg_with_thread_as_path_path, 'w') as out_file:
+                with open(vg_with_thread_as_path_path, 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
                     
                 # Now delete the intermediates
@@ -1488,7 +1487,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
             # Now trim the graph vg_with_thread_as_path_path into vg_trimmed_path, dropping anything not covered by a path
             vg_trimmed_path = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
             logger.info('Creating trimmed thread graph {}'.format(vg_trimmed_path))
-            with open(vg_trimmed_path, 'w') as trimmed_file:
+            with open(vg_trimmed_path, 'wb') as trimmed_file:
                 # Then we trim out anything other than our thread path
                 cmd = [['vg', 'mod', '-N', os.path.basename(vg_with_thread_as_path_path)]]
                 # And get rid of our thread paths since they take up lots of space when re-indexing
@@ -1597,7 +1596,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
         # We have actual thread data for the graph. Go extract the relevant threads.
         extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
         logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
-        with open(extract_graph_path, 'w') as extract_graph_file:
+        with open(extract_graph_path, 'wb') as extract_graph_file:
             # strip paths from our original graph            
             cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
             context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
@@ -1614,7 +1613,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
 
     sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
     logger.info('Creating sample graph {}'.format(sample_graph_path))
-    with open(sample_graph_path, 'w') as sample_graph_file:
+    with open(sample_graph_path, 'wb') as sample_graph_file:
         # Then we trim out anything other than our thread paths
         cmd = [['vg', 'mod', '-N', os.path.basename(extract_graph_path)]]
         if not leave_thread_paths:

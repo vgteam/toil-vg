@@ -1,9 +1,9 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 Thin wrapper for vcfeval, as a convenience to stick a vcfeval output directory
 along with the other toil-vg output.  Can be run standalone as well.
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, time, timeit, errno, vcf
 from uuid import uuid4
@@ -67,7 +67,7 @@ def vcfeval_parse_args(parser):
                         help="run bed-based sv comparison.")
     parser.add_argument("--min_sv_len", type=int, default=20,
                         help="minimum length to consider when doing bed sv comparison (using --sveval)")
-    parser.add_argument("--max_sv_len", type=int, default=sys.maxint,
+    parser.add_argument("--max_sv_len", type=int, default=sys.maxsize,
                         help="maximum length to consider when doing bed sv comparison (using --sveval)")    
     parser.add_argument("--sv_region_overlap", type=float, default=1.0,
                         help="sv must overlap bed region (--vcfeval_bed_regions) by this fraction to be considered")
@@ -108,7 +108,7 @@ def validate_vcfeval_options(options):
 def sort_vcf(job, drunner, vcf_path, sorted_vcf_path):
     """ from vcflib """
     vcf_dir, vcf_name = os.path.split(vcf_path)
-    with open(sorted_vcf_path, "w") as outfile:
+    with open(sorted_vcf_path, "wb") as outfile:
         drunner.call(job, [['bcftools', 'view', '-h', vcf_name]], outfile=outfile,
                      work_dir=vcf_dir)
         drunner.call(job, [['bcftools', 'view', '-H', vcf_name],
@@ -497,11 +497,11 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
             if normalize:
                 cmd.append(fa_upper_cmd)
             fasta_name = fasta_name[:-3]
-            with open(os.path.join(work_dir, fasta_name), 'w') as fasta_file:
+            with open(os.path.join(work_dir, fasta_name), 'wb') as fasta_file:
                 context.runner.call(job, cmd, work_dir = work_dir, outfile=fasta_file)
         elif normalize:
             upper_fasta_name = os.path.splitext(fasta_name)[0] + '_upper.fa'
-            with open(os.path.join(work_dir, upper_fasta_name), 'w') as fasta_file:
+            with open(os.path.join(work_dir, upper_fasta_name), 'wb') as fasta_file:
                 context.runner.call(job, fa_upper_cmd + [fasta_name], work_dir = work_dir, outfile=fasta_file)
             fasta_name = upper_fasta_name
 
@@ -518,7 +518,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
         if normalize_calls:
             norm_inputs.append((call_vcf_name, norm_call_vcf_name))
         for vcf_name, norm_name in norm_inputs:
-            with open(os.path.join(work_dir, norm_name), 'w') as norm_file:
+            with open(os.path.join(work_dir, norm_name), 'wb') as norm_file:
                 # haploid variants throw off bcftools norm --multiallelic +both (TODO: stop making them in vg call)
                 norm_cmd = [['bcftools', 'view', vcf_name, '--exclude', 'GT="0" || GT="." || GT="1"']]
 
@@ -552,7 +552,7 @@ def run_sv_eval(job, context, sample, vcf_tbi_id_pair, vcfeval_baseline_id, vcfe
     sveval_cmd += ', out.bed.prefix="{}"'.format(out_name)
     if min_sv_len > 0:
         sveval_cmd += ', min.size={}'.format(min_sv_len)
-    if max_sv_len < sys.maxint:
+    if max_sv_len < sys.maxsize:
         sveval_cmd += ', max.size={}'.format(max_sv_len)
     sveval_cmd += ', max.ins.dist={}'.format(ins_ref_len)
     sveval_cmd += ', min.del.rol={}'.format(del_min_rol)

@@ -2,7 +2,7 @@
 """
 Generate a VCF from a GAM and XG by splitting into GAM/VG chunks.
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno, copy, time
 from uuid import uuid4
@@ -185,7 +185,7 @@ def run_chunked_calling(job, context,
     call_results = []
     in_gam_id = gam_id
     in_gam_basename = gam_basename
-    for chunk_name, chunk_results in batch_input.items():
+    for chunk_name, chunk_results in list(batch_input.items()):
         calling_root_job = Job()
         child_job.addChild(calling_root_job)
 
@@ -293,7 +293,7 @@ def run_calling(job, context,
             # cut the VCF to match our chunk
             sub_vcf_path = remove_ext(genotype_vcf_path, '.vcf.gz') + '_' + ref_paths[0] + '.vcf.gz'
             sub_tbi_path = sub_vcf_path + '.tbi'
-            with open(sub_vcf_path, 'w') as sub_vcf_file:
+            with open(sub_vcf_path, 'wb') as sub_vcf_file:
                 context.runner.call(job, ['bcftools', 'view', os.path.basename(genotype_vcf_path), '-r',
                                           ref_paths[0], '-O', 'z'], work_dir = work_dir, outfile = sub_vcf_file)
             context.runner.call(job, ['tabix', '-f', '-p', 'vcf', os.path.basename(sub_vcf_path)], work_dir = work_dir)
@@ -342,7 +342,7 @@ def run_calling(job, context,
         call_cmd += context.config.call_opts
 
     try:
-        with open(out_vcf_path, 'w') as out_vcf_file:
+        with open(out_vcf_path, 'wb') as out_vcf_file:
             context.runner.call(job, [call_cmd, ['bgzip']], work_dir = work_dir, outfile = out_vcf_file)
     except Exception as e:
         logging.error("Pack failed. Dumping input files to outstore.")
@@ -370,7 +370,7 @@ def run_convert(job, context,
 
     out_graph_path = os.path.splitext(graph_path)[0] + '.' + output_format
 
-    with open(out_graph_path, 'w') as out_graph_file:
+    with open(out_graph_path, 'wb') as out_graph_file:
         convert_cmd = ['vg', 'convert', os.path.basename(graph_path)]
         flag_map = { 'vg' : '-v', 'hg' : '-a', 'pg' : '-p' }
         assert output_format in flag_map
@@ -463,7 +463,7 @@ def run_filtering(job, context,
         filter_opts += ['-x', os.path.basename(graph_path)]
 
     filter_path = os.path.splitext(gam_path)[0] + '-filter.gam'
-    with open(filter_path, 'w') as filter_file:
+    with open(filter_path, 'wb') as filter_file:
         context.runner.call(job, ['vg', 'filter', os.path.basename(gam_path)] + filter_opts,
                             work_dir=work_dir, outfile = filter_file)
 

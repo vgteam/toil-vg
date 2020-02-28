@@ -1,15 +1,14 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_mapeval.py: Compare alignment positions from gam or bam to a truth set
 that was created with vg sim --gam
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string, math
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -19,6 +18,7 @@ from collections import Counter
 
 from math import ceil
 from subprocess import Popen, PIPE
+from functools import reduce
 
 try:
     import numpy as np
@@ -188,7 +188,7 @@ def validate_options(options):
     """
 
     # We can only deal with one source of unaligned input reads
-    input_count = sum(map(lambda x : x is not None, [options.gam_input_reads, options.bam_input_reads, options.fastq]))
+    input_count = sum([x is not None for x in [options.gam_input_reads, options.bam_input_reads, options.fastq]])
     require(input_count <= 1,
             'no more than one of --gam_input_reads, --fastq, or --bam_input_reads allowed for input')
     
@@ -209,7 +209,7 @@ def validate_options(options):
             'only 1 or two fastqs accepted with --fatsq')
 
     # only gzipped fastqs accpeted
-    require(not options.fastq or all(map(lambda x : x.endswith('.gz'), options.fastq)),
+    require(not options.fastq or all([x.endswith('.gz') for x in options.fastq]),
             'only gzipped fastqs (ending with .gz) accepted by --fastq')
             
     # check bwa / minimap2 / bam input parameters.  
@@ -322,10 +322,10 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
         context.runner.call(job, cmd, work_dir = work_dir)
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
         gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', 's/\/1/_1/g'], ['gzip', '-c']]
-        with open(sim_fq_files[0] + '.gz', 'w') as gz_file:
+        with open(sim_fq_files[0] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
         gzip_cmd = [['sed', os.path.basename(sim_fq_files[1]), '-e', 's/\/2/_2/g'], ['gzip', '-c']]
-        with open(sim_fq_files[1] + '.gz', 'w') as gz_file:
+        with open(sim_fq_files[1] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
         return [context.write_intermediate_file(job, sim_fq_files[0] + '.gz'),
                 context.write_intermediate_file(job, sim_fq_files[1] + '.gz')]
@@ -335,7 +335,7 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
         cmd.append(['sed', '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
         cmd.append(['gzip'])
-        with open(sim_fq_file, 'w') as sim_file:
+        with open(sim_fq_file, 'wb') as sim_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_file)
         return [context.write_intermediate_file(job, sim_fq_file)]
     
@@ -360,7 +360,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
         # convert to json (todo: have docker image that can do vg and jq)
         json_file = gam_file + '.json'
         cmd = ['vg', 'view', '-a', os.path.basename(gam_file)]
-        with open(json_file, 'w') as out_json:
+        with open(json_file, 'wb') as out_json:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_json)
 
         sim_fq_files = [None, os.path.join(work_dir, '{}_1{}.fq.gz'.format(out_name, 's' if add_paired_suffix else '')),
@@ -372,7 +372,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
             cmd = ['jq', '-cr', 'select(.name | test("_{}$"))'.format(i),
                    os.path.basename(json_file)]
             end_file = json_file + '.{}'.format(i)
-            with open(end_file, 'w') as end_out:
+            with open(end_file, 'wb') as end_out:
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = end_out)
 
             cmd = [['vg', 'view', '-JaG', os.path.basename(end_file)]]
@@ -381,7 +381,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
                 cmd.append(['sed', 's/_{}$//'.format(i)])
             cmd.append(['gzip'])
 
-            with open(sim_fq_files[i], 'w') as sim_out:
+            with open(sim_fq_files[i], 'wb') as sim_out:
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_out)
 
             os.remove(end_file)
@@ -394,7 +394,7 @@ def run_gam_to_fastq(job, context, gam_file_id, paired_mode,
         extracted_reads_file = os.path.join(work_dir, '{}.fq.gz'.format(out_name))
         cmd = [['vg', 'view', '-X', os.path.basename(gam_file)]]
         cmd.append(['gzip'])
-        with open(extracted_reads_file, 'w') as out_ext:
+        with open(extracted_reads_file, 'wb') as out_ext:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_ext)
 
         return [write_fn(job, extracted_reads_file)]
@@ -442,7 +442,7 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
         cmd = [['pigz', '-dc', os.path.basename(fq_name)]]
         cmd.append(['sed', '-e', 's/_1$\|_2$//g'])
         cmd.append(['pigz', '-c', '-p', str(max(1, job.cores))])
-        with open(out_name, 'w') as out_file:
+        with open(out_name, 'wb') as out_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
         out_ids.append(context.write_intermediate_file(job, out_name))
 
@@ -456,7 +456,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
     RealtimeLogger.info("Run BWA MEM on {} FASTQs".format(len(fq_reads_ids)))
     
     requeue_promise = ensure_disk(job, run_bwa_mem, [context, fq_reads_ids, bwa_index_ids, paired_mode], {},
-        itertools.chain(fq_reads_ids, bwa_index_ids.values()))
+        itertools.chain(fq_reads_ids, list(bwa_index_ids.values())))
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs
         return requeue_promise
@@ -471,7 +471,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
 
     # and the index files
     fasta_file = os.path.join(work_dir, 'reference.fa')
-    for suf, idx_id in bwa_index_ids.items():
+    for suf, idx_id in list(bwa_index_ids.items()):
         job.fileStore.readGlobalFile(idx_id, '{}{}'.format(fasta_file, suf))
 
     # output positions file
@@ -494,7 +494,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
             cmd += ['-p']
         cmd += context.config.bwa_opts
         
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -508,7 +508,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
     # single end
@@ -520,7 +520,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
         cmd = ['bwa', 'mem', '-t', str(context.config.alignment_cores), os.path.basename(fasta_file),
                 os.path.basename(fq_file_names[0])] + context.config.bwa_opts
 
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -534,7 +534,7 @@ def run_bwa_mem(job, context, fq_reads_ids, bwa_index_ids, paired_mode):
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
 
@@ -602,7 +602,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
             cmd.append(os.path.basename(fq_file_names[1]))
         # If one file comes in, it had better be interleaved
         
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -615,7 +615,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
     # single end
@@ -628,7 +628,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
             context.config.minimap2_opts +
             [os.path.basename(ref_filename), os.path.basename(fq_file_names[0])])
 
-        with open(bam_file + '.sam', 'w') as out_sam:
+        with open(bam_file + '.sam', 'wb') as out_sam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_sam)
 
         end_time = timeit.default_timer()
@@ -641,7 +641,7 @@ def run_minimap2(job, context, fq_reads_ids, fasta_id, minimap2_index_id=None, p
         # separate samtools for docker (todo find image with both)
         # 2304 = get rid of 256 (secondary) + 2048 (supplementary)
         cmd = ['samtools', 'view', '-1', '-F', '2304', os.path.basename(bam_file + '.sam')]
-        with open(bam_file, 'w') as out_bam:
+        with open(bam_file, 'wb') as out_bam:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
 
 
@@ -666,7 +666,7 @@ def downsample_bam(job, context, bam_file_id, fraction):
     job.fileStore.readGlobalFile(bam_file_id, in_file)
     
     cmd = ['samtools', 'view', '-b', '-s', str(fraction), os.path.basename(in_file)]
-    with open(out_file, 'w') as out_bam:
+    with open(out_file, 'wb') as out_bam:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_bam)
         
     return context.write_intermediate_file(job, out_file)
@@ -687,7 +687,7 @@ def downsample_gam(job, context, gam_file_id, fraction):
     job.fileStore.readGlobalFile(gam_file_id, in_file)
     
     cmd = ['vg', 'filter', '-t', str(job.cores), '--downsample', str(fraction), os.path.basename(in_file)]
-    with open(out_file, 'w') as out_gam:
+    with open(out_file, 'wb') as out_gam:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_gam)
         
     return context.write_intermediate_file(job, out_file)
@@ -734,7 +734,7 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
         cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
     cmd.append(['sort'])
     
-    with open(out_pos_file, 'w') as out_pos:
+    with open(out_pos_file, 'wb') as out_pos:
         context.runner.call(job, cmd, work_dir = work_dir, outfile = out_pos)
 
     stats_file_id = context.write_intermediate_file(job, out_pos_file)
@@ -760,7 +760,7 @@ def annotate_gam(job, context, xg_file_id, gam_file_id):
     annotated_gam_file = os.path.join(work_dir, 'annotated.gam')
     
     cmd = [['vg', 'annotate', '-p', '-a', os.path.basename(gam_file), '-x', os.path.basename(xg_file)]]
-    with open(annotated_gam_file, 'w') as out_file:
+    with open(annotated_gam_file, 'wb') as out_file:
         try:
             context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
         except:
@@ -804,7 +804,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
     # go through intermediate json file until docker worked out
     gam_annot_json = gam_file + '.json'
     cmd = [['vg', 'view', '-aj', os.path.basename(gam_file)]]
-    with open(gam_annot_json, 'w') as output_annot_json:
+    with open(gam_annot_json, 'wb') as output_annot_json:
         context.runner.call(job, cmd, work_dir = work_dir, outfile=output_annot_json)
         
     # Write jq code to generate additional tags
@@ -826,7 +826,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
               os.path.basename(gam_annot_json)]
     # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
     jq_pipe = [jq_cmd, ['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g']]
-    with open(out_pos_file + '.unsorted', 'w') as out_pos:
+    with open(out_pos_file + '.unsorted', 'wb') as out_pos:
         context.runner.call(job, jq_pipe, work_dir = work_dir, outfile=out_pos)
 
     # get rid of that big json asap
@@ -834,7 +834,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
 
     # sort the read stats file (not piping due to memory fears)
     sort_cmd = ['sort', os.path.basename(out_pos_file) + '.unsorted']
-    with open(out_pos_file, 'w') as out_pos:
+    with open(out_pos_file, 'wb') as out_pos:
         context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_pos)
 
     # Some lines may have refpos set while others do not (and those columns may be absent)
@@ -877,6 +877,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
 
     out_file = os.path.join(work_dir, name + '.compare.positions')
 
+    def list_or_none(l):
+        return l if l is None else list(l)
+    
     with open(true_read_stats_file) as truth, open(test_read_stats_file) as test, open(out_file, 'w') as out_stream:
         out = tsv.TsvWriter(out_stream)
         
@@ -885,8 +888,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
         test_reader = iter(tsv.TsvReader(test))
         
         # Start an iteration over them
-        true_fields = next(truth_reader, None)
-        test_fields = next(test_reader, None)
+        true_fields = list_or_none(next(truth_reader, None))
+        test_fields = list_or_none(next(test_reader, None))
         
         # Track line numbers for error reporting
         true_line = 1
@@ -911,14 +914,14 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
             
             if true_read_name < aln_read_name:
                 # We need to advance the true read
-                true_fields = next(truth_reader, None)
+                true_fields = list_or_none(next(truth_reader, None))
                 true_line += 1
                 # Make sure we went forward
                 assert(true_fields == None or true_fields[0] > true_read_name)
                 continue
             elif aln_read_name < true_read_name:
                 # We need to advance the aligned read
-                test_fields = next(test_reader, None)
+                test_fields = list_or_node(next(test_reader, None))
                 test_line += 1
                 # Make sure we went forward
                 assert(test_fields == None or test_fields[0] > aln_read_name)
@@ -948,8 +951,8 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 
                 # map seq name->position
                 # Grab everything after the tags column and before the score and mapq columns, in pairs.
-                true_pos_dict = dict(zip(true_fields[2:-2:2], map(parse_int, true_fields[3:-2:2])))
-                aln_pos_dict = dict(zip(test_fields[2:-2:2], map(parse_int, test_fields[3:-2:2])))
+                true_pos_dict = dict(list(zip(true_fields[2:-2:2], list(map(parse_int, true_fields[3:-2:2])))))
+                aln_pos_dict = dict(list(zip(test_fields[2:-2:2], list(map(parse_int, test_fields[3:-2:2])))))
                 
                 # Make sure the true reads came from somewhere
                 assert(len(true_pos_dict) > 0)
@@ -957,7 +960,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 # Skip over score field and get the MAPQ, which is last
                 aln_mapq = parse_int(test_fields[-1])
                 aln_correct = 0
-                for aln_chr, aln_pos in aln_pos_dict.items():
+                for aln_chr, aln_pos in list(aln_pos_dict.items()):
                     if aln_chr in true_pos_dict and abs(true_pos_dict[aln_chr] - aln_pos) < mapeval_threshold:
                         aln_correct = 1
                         break
@@ -965,9 +968,9 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 out.line(aln_read_name, aln_correct, aln_mapq, combined_tags_string)
         
                 # Advance both reads
-                true_fields = next(truth_reader, None)
+                true_fields = list_or_none(next(truth_reader, None))
                 true_line += 1
-                test_fields = next(test_reader, None)
+                test_fields = list_or_none(next(test_reader, None))
                 test_line += 1
         
     out_file_id = context.write_output_file(job, out_file)
@@ -1003,6 +1006,9 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
 
     out_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
 
+    def list_or_none(l):
+        return l if l is None else list(l)
+    
     with open(baseline_read_stats_file) as baseline, open(test_read_stats_file) as test, open(out_file, 'w') as out:
         
         # Make readers for the files
@@ -1010,8 +1016,8 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
         test_reader = iter(tsv.TsvReader(test))
         
         # Start an iteration over them
-        baseline_fields = next(baseline_reader, None)
-        test_fields = next(test_reader, None)
+        baseline_fields = list_or_none(next(baseline_reader, None))
+        test_fields = list_or_none(next(test_reader, None))
         
         # Track line numbers for error reporting
         baseline_line = 1
@@ -1033,12 +1039,12 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
             
             if baseline_read_name < aln_read_name:
                 # We need to advance the baseline read
-                baseline_fields = next(baseline_reader, None)
+                baseline_fields = list_or_none(next(baseline_reader, None))
                 baseline_line += 1
                 continue
             elif aln_read_name < baseline_read_name:
                 # We need to advance the aligned read
-                test_fields = next(test_reader, None)
+                test_fields = list_or_none(next(test_reader, None))
                 test_line += 1
                 continue
             else:
@@ -1054,9 +1060,9 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
                 out.write('{}, {}, {}, {}\n'.format(baseline_fields[0], score_diff, aligned_score, baseline_score))
 
                 # Advance both reads
-                baseline_fields = next(baseline_reader, None)
+                baseline_fields = list_or_none(next(baseline_reader, None))
                 baseline_line += 1
-                test_fields = next(test_reader, None)
+                test_fields = list_or_none(next(test_reader, None))
                 test_line += 1
                 
     # Save stats file for inspection
@@ -1342,7 +1348,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     if not do_vg_mapping:
         # We shouldn't run vg. gam_names is actually condition names, and gams is the mapped gams to re-use
         
-        for name, gam_id, xg_id in itertools.izip(gam_names, gam_file_ids, xg_ids):
+        for name, gam_id, xg_id in zip(gam_names, gam_file_ids, xg_ids):
             # Synthesize a set of condition results for each pre-aligned GAM
             results_dict[name]['gam'] = gam_id
             results_dict[name]['runtime'] = 0
@@ -1448,17 +1454,17 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                     # Drop the GBWT index if present for the non-GBWT conditions for mappers that don't need it.
                     # If gbwt isn't in the condition dict, the GBWT is treated as required and preserved.
                     indexes = dict(indexes)
-                    if indexes.has_key("gbwt"):
+                    if "gbwt" in indexes:
                         del indexes["gbwt"]
                         
                 if not condition.get("snarls", True):
                     # Drop the snarls index if present for the non-snarls conditions
                     # TODO: what if some graphs are missing snarls files?
                     indexes = dict(indexes)
-                    if indexes.has_key("snarls"):
+                    if "snarls" in indexes:
                         del indexes["snarls"]
                         
-                if not read_chunk_jobs.has_key(tuple(fastq_ids)):
+                if tuple(fastq_ids) not in read_chunk_jobs:
                     # We have not yet asked to split the appropriate FASTQs.
                     # Make a job to do that, and save it so we can grab its rv later.
                     read_chunk_jobs[tuple(fastq_ids)] = job.addChildJobFn(run_split_reads_if_needed, context, fq_names(fastq_ids),
@@ -1627,7 +1633,7 @@ def run_map_eval_comparison(job, context, mapping_condition_dict, true_read_stat
     # We need to keep the GAM and BAM stats jobs around to wait on them
     stats_jobs = []
     
-    for condition_number, (name, condition) in enumerate(mapping_condition_dict.iteritems()):
+    for condition_number, (name, condition) in enumerate(mapping_condition_dict.items()):
         if 'bam' in condition:
             # Compute bam stats
             
@@ -1781,7 +1787,7 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, mappin
         # We want to propagate the GBWT usage tag from this condition's stats file. Find it.
         tag_stats_id = mapping_condition_dict[gbwt_usage_tag_gam_name]['stats']
         
-        for name, condition in mapping_condition_dict.iteritems():
+        for name, condition in list(mapping_condition_dict.items()):
             # We will replace the stats files with (promises for) the stats files with the tag propagated
             
             if 'stats' in condition:
@@ -1796,7 +1802,7 @@ def run_map_eval_compare_positions(job, context, true_read_stats_file_id, mappin
         job.addFollowOn(root)
         
     compare_ids = {}
-    for name, condition in mapping_condition_dict.iteritems():
+    for name, condition in list(mapping_condition_dict.items()):
         # When the (modified) individual stats files are ready, run the position comparison
         compare_ids[name] = root.addChildJobFn(compare_positions, context, true_read_stats_file_id, name,
                                                condition['stats'], mapeval_threshold,
@@ -1969,7 +1975,7 @@ def run_process_position_comparisons(job, context, compare_ids):
    
     RealtimeLogger.info("Processing position comparisons for conditions: {}".format(list(compare_ids.keys())))
     
-    for name, compare_id in compare_ids.iteritems():
+    for name, compare_id in list(compare_ids.items()):
         # Each per-condition per-read input comparison file has been already exported, so we can just use it.
         
         # Compute the summary file and add it to the list to concatenate
@@ -2024,8 +2030,10 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
     with open(out_filename, 'w') as out_stream:
         # Write TSV to the output compressed file
         writer = tsv.TsvWriter(out_stream)
-        
-        with job.fileStore.readGlobalFileStream(compare_id) as in_stream:
+
+        compare_file_path = os.path.join(work_dir, 'compare-file')
+        job.fileStore.readGlobalFile(compare_id, compare_file_path)
+        with open(compare_file_path, 'r') as in_stream:
             # Read it from the input per-read file
             reader = tsv.TsvReader(in_stream)
             
@@ -2037,7 +2045,7 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
             for toks in reader:
                 # Label the read fields so we can see what we're doing
                 # Note that empty 'tags' columns may not be read by the TSV reader.
-                read = dict(zip(['name', 'correct', 'mapq', 'tags'], toks))
+                read = dict(list(zip(['name', 'correct', 'mapq', 'tags'], list(toks))))
                 
                 if read['correct'] == '1':
                     # Correct, so summarize
@@ -2045,7 +2053,7 @@ def run_summarize_position_comparison(job, context, compare_id, aligner_name):
                 else:
                     # Incorrect, write the whole line
                     writer.line(read['correct'], read['mapq'], read.get('tags', '.'), aligner_name, read['name'], 1)
-            for parts, count in summary_counts.iteritems():
+            for parts, count in list(summary_counts.items()):
                 # Write summary lines with empty read names
                 # Omitting the read name entirely upsets R, so we will use a dot as in VCF for missing data.
                 writer.list_line(list(parts) + ['.', count])
@@ -2070,7 +2078,7 @@ def run_write_position_stats(job, context, map_stats):
     stats_file = os.path.join(work_dir, 'stats.tsv')
     with open(stats_file, 'w') as stats_out:
         stats_out.write('aligner\tcount\tacc\tauc\tqq-r\tmax-f1\n')
-        for name, stats in map_stats.iteritems():
+        for name, stats in list(map_stats.items()):
             stats_out.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(name, stats[0][0], stats[0][1],
                                                           stats[1][0], stats[2], stats[3]))
 
@@ -2098,7 +2106,7 @@ def run_acc(job, context, name, compare_id):
     with open(compare_file) as compare_f:
         for toks in tsv.TsvReader(compare_f):
             total += 1
-            if toks[1] == '1':
+            if list(toks)[1] == '1':
                 correct += 1
                 
     acc = float(correct) / float(total) if total > 0 else 0
@@ -2250,7 +2258,7 @@ def run_qq(job, context, name, compare_id):
 
         qual_scores = []
         qual_observed = []            
-        for qual, cor in correct.items():
+        for qual, cor in list(correct.items()):
             qual_scores.append(qual)
             p_err = max(1. - float(cor) / float(total[qual]), sys.float_info.epsilon)
             observed_score =-10. * math.log10(p_err)
@@ -2292,7 +2300,7 @@ def run_map_eval_compare_scores(job, context, baseline_name, baseline_stats_file
     RealtimeLogger.info("Comparing scores against baseline")
     
     compare_ids = {}
-    for name, condition in mapping_condition_dict.iteritems():
+    for name, condition in list(mapping_condition_dict.items()):
         if 'gam' not in condition:
             # TODO: For now we only process GAMs because only they have their scores extracted
             continue
@@ -2348,7 +2356,7 @@ def run_process_score_comparisons(job, context, baseline_name, compare_ids):
                             raise RuntimeError('Invalid comparison file line ' + content)
                         out_results.line(toks[1], a)
 
-        for name, compare_id in compare_ids.iteritems():
+        for name, compare_id in list(compare_ids.items()):
             compare_file = os.path.join(work_dir, '{}.compare.{}.scores'.format(name, baseline_name))
             job.fileStore.readGlobalFile(compare_id, compare_file)
             context.write_output_file(job, compare_file)
@@ -2381,7 +2389,7 @@ def run_write_score_stats(job, context, baseline_name, map_stats):
         # Put each stat as a different column.
         stats_out = tsv.TsvWriter(stats_out_file)
         stats_out.comment('aligner\tcount\tworse')
-        for name, stats in map_stats.iteritems():
+        for name, stats in list(map_stats.items()):
             stats_out.line(name, stats[0][0], stats[0][1])
 
     return context.write_output_file(job, stats_file)
@@ -2774,6 +2782,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
         # Open the stats file
         for line in tsv.TsvReader(stats_stream):
             # And read all the lines.
+            line = list(line)
             
             if line_num == 0:
                 # Skip the header
@@ -2991,7 +3000,7 @@ def run_write_map_times(job, context, mapping_condition_dict):
     with open(times_path, 'w') as times_file:
         times_file.write('aligner\tmap time (s)\n')
         
-        for name, results in mapping_condition_dict.iteritems():
+        for name, results in list(mapping_condition_dict.items()):
             if results.get('runtime') is not None:
                 times_file.write('{}\t{}\n'.format(name, round(results.get('runtime'), 5)))
         
