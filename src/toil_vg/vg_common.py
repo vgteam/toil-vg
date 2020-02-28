@@ -64,7 +64,7 @@ def test_singularity():
     try:
         # Run Singularity
         # TODO: implement around singularityCall somehow?
-        subprocess.check_call(['singularity', 'version'], stdout=nowhere, stderr=nowhere)
+        subprocess.check_call(['singularity', 'help'], stdout=nowhere, stderr=nowhere)
         # And report that it worked
         return True
     except:

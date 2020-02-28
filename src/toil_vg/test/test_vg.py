@@ -19,6 +19,7 @@ import posixpath
 import pytest
 
 from toil_vg.iostore import IOStore
+from toil_vg.vg_common import test_singularity as check_singularity
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +110,9 @@ class VGCGLTest(TestCase):
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_02_sim_small_standalone(self):
+        self._test_02_sim_small_standalone(self.containerType)
+        
+    def _test_02_sim_small_standalone(self, container_override):
         ''' 
         Same as above, but chain standalone tools instead of toil-vg run
         '''
@@ -118,7 +122,7 @@ class VGCGLTest(TestCase):
         self.chrom_fa = self._ci_input_path('small.fa.gz')
         
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
@@ -130,7 +134,7 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--xg_index', os.path.join(self.local_outstore, 'small.xg'),
                    '--gcsa_index', os.path.join(self.local_outstore, 'small.gcsa'),
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--fastq', self.sample_reads,
                    '--alignment_cores', '8', '--reads_per_chunk', '8000',
@@ -141,7 +145,7 @@ class VGCGLTest(TestCase):
                    '--graph', os.path.join(self.local_outstore, 'small.xg'),
                    '--sample', 'sample',
                    self.local_outstore, 
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--gam', os.path.join(self.local_outstore, 'sample_default.gam'), 
                    '--ref_paths', 'x', '--calling_cores', '4',
@@ -149,7 +153,7 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--call_vcf', os.path.join(self.local_outstore, 'small_sample.vcf.gz'),
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_fasta', self.chrom_fa, self.local_outstore,
@@ -537,6 +541,9 @@ class VGCGLTest(TestCase):
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_09_construct(self):
+        self._test_09_construct(self.containerType)
+        
+    def _test_09_construct(self, container_override):
         '''
         Test that the output of toil-vg construct is somewhat reasonable
         '''
@@ -548,7 +555,7 @@ class VGCGLTest(TestCase):
         out_name = 'snp1kg-BRCA1'
         
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', out_name, '--pangenome', '--pos_control', 'HG00096',
@@ -808,6 +815,16 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
         self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.31)        
+
+    def test_17_sim_small_standalone_singularity(self):
+        if not check_singularity():
+            pytest.skip("singularity not installed")
+        self._test_02_sim_small_standalone('Singularity')
+
+    def test_18_construct_singularity(self):
+        if not check_singularity():
+            pytest.skip("singularity not installed")
+        self._test_09_construct('Singularity')
         
     def _run(self, args):
         log.info('Running %r', args)

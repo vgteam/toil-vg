@@ -4,7 +4,7 @@ before_script:
   - whoami
   - sudo apt-get -q -y update
   # Make sure we have some curl stuff for pycurl which we need for some Python stuff
-  - sudo apt-get -q -y install docker.io python3-pip python-virtualenv libcurl4-gnutls-dev libgnutls28-dev python3-dev 
+  - sudo apt-get -q -y install docker.io python3-pip python-virtualenv libcurl4-gnutls-dev libgnutls28-dev python3-dev singularity-container
   - startdocker || true
   - docker info
   # Build .pypirc with PyPI credentials
