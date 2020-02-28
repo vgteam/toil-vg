@@ -30,6 +30,27 @@ if sys.version_info[0] < 3:
     FileExistsError = OSError
 
 
+def is_containerized():
+    """
+    Return True if we think we are already running in a Docker/Kubernetes
+    container (where Singularity is unlikely to work without user-mode
+    namespaces), and False otherwsie.
+    """
+
+    if not os.path.exists('/proc/self/cgroup'):
+        # Not on container-having Linux
+        return False
+
+    with open('/proc/self/cgroup') as fh:
+        for line in fh:
+            line = line.lower()
+            if 'docker' in line or 'kube' in line:
+                # If any of the cgroups smells Docker or Kube-y, assume we are
+                # in a container.
+                return True
+    return False
+
+
 def singularityCall(job,
                tool,
                parameters=None,
@@ -43,10 +64,12 @@ def singularityCall(job,
     :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
-    :param str workDir: Directory to mount into the container via `-v`. Destination convention is /data
-    :param list[str] singularityParameters: Parameters to pass to Singularity. Default parameters are `--rm`,
-            `--log-driver none`, and the mountpoint `-v work_dir:/data` where /data is the destination convention.
-             These defaults are removed if singularity_parmaters is passed, so be sure to pass them if they are desired.
+    :param str workDir: Directory to mount into the container via `-v`.
+           Destination convention is /mnti, which almost certainly exists in the
+           container.
+    :param list[str] singularityParameters: Parameters to pass to Singularity.
+           Overrides defaults which mount the workDir and configure user mode and
+           writability.
     :param file outfile: Pipe output of Singularity call to file handle
     """
     return _singularity(job, tool=tool, parameters=parameters, workDir=workDir, singularityParameters=singularityParameters,
@@ -66,10 +89,12 @@ def singularityCheckOutput(job,
     :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
-    :param str workDir: Directory to mount into the container via `-v`. Destination convention is /data
-    :param list[str] singularityParameters: Parameters to pass to Singularity. Default parameters are `--rm`,
-            `--log-driver none`, and the mountpoint `-v work_dir:/data` where /data is the destination convention.
-             These defaults are removed if singularity_parmaters is passed, so be sure to pass them if they are desired.
+    :param str workDir: Directory to mount into the container via `-v`.
+           Destination convention is /mnti, which almost certainly exists in the
+           container.
+    :param list[str] singularityParameters: Parameters to pass to Singularity.
+           Overrides defaults which mount the workDir and configure user mode and
+           writability.
     :returns: Stdout from the singularity call
     :rtype: str
     """
@@ -89,10 +114,12 @@ def _singularity(job,
     :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
-    :param str workDir: Directory to mount into the container via `--bind`. Destination convention is /data
-    :param list[str] singularityrParameters: Parameters to pass to Singularity. Default parameters are the mountpoint
-             `--bind work_dir:/data` where /data is the destination convention.
-             These defaults are removed if singularity_parmaters is passed, so be sure to pass them if they are desired.
+    :param str workDir: Directory to mount into the container via `-v`.
+           Destination convention is /mnti, which almost certainly exists in the
+           container.
+    :param list[str] singularityParameters: Parameters to pass to Singularity.
+           Overrides defaults which mount the workDir and configure user mode and
+           writability.
     :param file outfile: Pipe output of Singularity call to file handle
     :param bool checkOutput: When True, this function returns singularity's output.
     """
@@ -101,11 +128,22 @@ def _singularity(job,
     if workDir is None:
         workDir = os.getcwd()
 
-    # Setup the outgoing subprocess call for singularity
-    baseSingularityCall = ['singularity', 'exec', '-w']
+    # Setup the outgoing subprocess call for singularity.
+    baseSingularityCall = ['singularity', 'exec']
     if singularityParameters:
         baseSingularityCall += singularityParameters
     else:
+        # Make the container writable. Writing to the container is still not
+        # advised, but some tools/environments break if it is not enabled.
+        baseSingularityCall.append('-w')
+
+        if is_containerized():
+            # We are already in a container. We need to run in user mode,
+            # because the container may not be privileged. If we don't use user
+            # mode, Singularity tries to do some confining that it can't do in
+            # an un-privileged container, and fails.
+            baseSingularityCall.append('-u')
+
         # Mount workdir as /mnt and work in there.
         # Hope the image actually has a /mnt available.
         # Otherwise this silently doesn't mount.
@@ -162,7 +200,7 @@ def _singularity(job,
             # Make sure someone else has made the directory
             assert os.path.exists(sandbox_dirname)
             # Remove our redundant copy
-            shutil.rmtree(temp_sandbox_name)
+            shutil.rmtree(temp_sandbox_dirname)
             
         # TODO: we could save some downloading by having one process download
         # and the others wait, but then we would need a real fnctl locking
