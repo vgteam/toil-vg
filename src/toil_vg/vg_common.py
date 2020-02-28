@@ -568,7 +568,6 @@ to do: Should go somewhere more central """
         # but allow overriding of this with the tool_name parameter
         name = tool_name if tool_name is not None else args[0][0]
         tool = self.docker_tool_map[name]
-
         parameters = args[0] if len(args) == 1 else args
         
         # Get a lock on the environment
@@ -577,7 +576,7 @@ to do: Should go somewhere more central """
             # TODO: We can't stop other threads using os.environ or subprocess or w/e on their own
 
             # Set the locale to C for consistent sorting, and activate vg traceback     
-            update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1', 'TMPDIR': '.'}
+            update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1'}
             old_env = {}
             for env_name, env_val in list(update_env.items()):
                 old_env[env_name] = os.environ.get(env_name)
@@ -620,7 +619,7 @@ to do: Should go somewhere more central """
         # vg uses TMPDIR for temporary files
         # this is particularly important for gcsa, which makes massive files.
         # we will default to keeping these in our working directory
-        my_env['TMPDIR'] = '.'
+        my_env['TMPDIR'] = '{}'.format(os.getcwd())
         
         # Set the locale to C for consistent sorting
         my_env['LC_ALL'] = 'C'
