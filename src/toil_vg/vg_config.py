@@ -214,7 +214,10 @@ gatk-docker: 'broadinstitute/gatk:4.1.1.0'
 snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
 
 # Docker image to use for picard
-picard-docker: 'docker pull broadinstitute/picard:2.21.9'
+picard-docker: 'broadinstitute/picard:2.21.9'
+
+# Docker image to use for whatshap
+whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 
 ##############################
 ### vg_construct Arguments ###
@@ -494,7 +497,10 @@ gatk-docker: 'broadinstitute/gatk:4.1.1.0'
 snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
 
 # Docker image to use for picard
-picard-docker: 'docker pull broadinstitute/picard:2.21.9'
+picard-docker: 'broadinstitute/picard:2.21.9'
+
+# Docker image to use for whatshap
+whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 
 ##############################
 ### vg_construct Arguments ###
