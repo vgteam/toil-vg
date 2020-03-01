@@ -524,7 +524,16 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     phased_vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
     
     return phased_vcf_file_id, phased_vcf_index_file_id
-        
+
+def run_collect_concat_vcfs(job, context, vcf_file_id, vcf_index_file_id):
+    inputVCFFileIDs = []
+    inputVCFNames = []
+    inputTBIFileIDs = []
+    
+    inputVCFFileIDs.append([vcf_file_id])
+    inputVCFNames.append([os.path.basename(vcf_file_id)])
+    inputTBIFileIDs.append([vcf_index_file_id])
+    return inputVCFFileIDs, inputVCFNames, inputTBIFileIDs
 
 def run_pipeline_construct_parental_graphs(job, context, options, joint_called_vcf_id, joint_called_vcf_index_id, proband_name, maternal_name, paternal_name, 
                                             proband_bam_id, proband_bam_index_id,
@@ -566,7 +575,17 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
         phased_vcf_index_ids.append(phasing_job.rv(1))
     
     concat_job = phasing_jobs.addFollowOnJobFn(run_concat_vcfs, context, proband_name, phased_vcf_ids, phased_vcf_index_ids)
-    return concat_job.rv(0), concat_job.rv(1)
+    concat_job = concat_job.addFollowOnJobFn(run_collect_concat_vcfs, context, concat_job.rv(0), concat_job.rv(1))
+    input_vcf_job = concat_job.addFollowOnJobFn(run_generate_input_vcfs, context,
+                                                    concat_job.rv(0), concat_job.rv(1), concat_job.rv(2),
+                                                    contigs_list, '{}.parental_graphs'.format(proband_name))
+    construct_job = input_vcf_job.addFollowOnJobFn(run_construct_all, context, [ref_fasta_id],
+                                                    [os.path.basename(ref_fasta_id)], input_vcf_job.rv(),
+                                                    max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=False, regions=contigs_list,
+                                                    merge_graphs=False, sort_ids = True, join_ids = True,
+                                                    wanted_indexes = ['xg', 'gcsa', 'gbwt'], gbwt_prune = True)
+    
+    return construct_job.rv()
 
 def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, bam_input_reads_proband,
                 fastq_maternal, gam_input_reads_maternal, bam_input_reads_maternal,
