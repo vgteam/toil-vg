@@ -365,6 +365,7 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
 def run_gatk_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf_index_id,
                                     maternal_gvcf_id, maternal_gvcf_index_id,
                                     paternal_gvcf_id, paternal_gvcf_index_id,
+                                    sibling_call_gvcf_ids, sibling_call_gvcf_index_ids,
                                     ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id):
 
     RealtimeLogger.info("Starting gatk joint calling gvcfs")
@@ -399,13 +400,23 @@ def run_gatk_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband
     ref_fasta_dict_path = os.path.join(work_dir, '{}.dict'.format(os.path.splitext(ref_fasta_name)[0]))
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
+    sibling_gatk_options_list = []
+    if sibling_call_gvcf_ids is not None and sibling_call_gvcf_index_ids is not None:
+        for sibling_gvcf_id, sibling_call_gvcf_index in zip(sibling_call_gvcf_ids,sibling_call_gvcf_index_ids):
+            sibling_gvcf_path = os.path.join(work_dir, os.path.basename(sibling_gvcf_id))
+            job.fileStore.readGlobalFile(sibling_gvcf_id, sibling_gvcf_path)
+            sibling_gvcf_index_path = os.path.join(work_dir, '{}.tbi'.format(os.path.basename(sibling_gvcf_id)))
+            job.fileStore.readGlobalFile(sibling_call_gvcf_index, sibling_gvcf_index_path)
+            sibling_gatk_options_list += ['-V', os.path.basename(sibling_gvcf_path)]
+            
     # Run variant calling commands
     command = ['gatk', 'CombineGVCFs',
                 '--reference', os.path.basename(ref_fasta_path),
                 '-V', os.path.basename(maternal_gvcf_path),
                 '-V', os.path.basename(paternal_gvcf_path),
-                '-V', os.path.basename(proband_gvcf_path),
-                '--output', '{}_trio.combined.gvcf'.format(sample_name)]
+                '-V', os.path.basename(proband_gvcf_path)]
+    command += sibling_gatk_options_list
+    command += ['--output', '{}_trio.combined.gvcf'.format(sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
     command = ['gatk', 'GenotypeGVCFs',
                 '--reference', os.path.basename(ref_fasta_path),
@@ -530,9 +541,9 @@ def run_collect_concat_vcfs(job, context, vcf_file_id, vcf_index_file_id):
     inputVCFNames = []
     inputTBIFileIDs = []
     
-    inputVCFFileIDs.append([vcf_file_id])
-    inputVCFNames.append([os.path.basename(vcf_file_id)])
-    inputTBIFileIDs.append([vcf_index_file_id])
+    inputVCFFileIDs.append(vcf_file_id)
+    inputVCFNames.append(os.path.basename(vcf_file_id))
+    inputTBIFileIDs.append(vcf_index_file_id)
     return inputVCFFileIDs, inputVCFNames, inputTBIFileIDs
 
 def run_pipeline_construct_parental_graphs(job, context, options, joint_called_vcf_id, joint_called_vcf_index_id, proband_name, maternal_name, paternal_name, 
@@ -578,12 +589,15 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
     concat_job = concat_job.addFollowOnJobFn(run_collect_concat_vcfs, context, concat_job.rv(0), concat_job.rv(1))
     input_vcf_job = concat_job.addFollowOnJobFn(run_generate_input_vcfs, context,
                                                     concat_job.rv(0), concat_job.rv(1), concat_job.rv(2),
-                                                    contigs_list, '{}.parental_graphs'.format(proband_name))
-    construct_job = input_vcf_job.addFollowOnJobFn(run_construct_all, context, [ref_fasta_id],
-                                                    [os.path.basename(ref_fasta_id)], input_vcf_job.rv(),
+                                                    contigs_list, '{}.parental_graphs'.format(proband_name),
+                                                    do_pan=True)
+    inputFastaFileIDs = [ref_fasta_id]
+    inputFastaNames = [os.path.basename(ref_fasta_id)]
+    construct_job = input_vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
+                                                    inputFastaNames, input_vcf_job.rv(),
                                                     max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=False, regions=contigs_list,
-                                                    merge_graphs=False, sort_ids = True, join_ids = True,
-                                                    wanted_indexes = ['xg', 'gcsa', 'gbwt'], gbwt_prune = True)
+                                                    merge_graphs=False, sort_ids=True, join_ids=True,
+                                                    wanted_indexes=['xg','gcsa','gbwt'], gbwt_prune=True)
     
     return construct_job.rv()
 
@@ -653,8 +667,8 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     stage3_jobs = Job()
     proband_2nd_mapping_calling_jobs = Job()
     
-    #stage4_jobs = Job()
-    #pedigree_joint_calling_job = Job()
+    stage4_jobs = Job()
+    pedigree_joint_calling_job = Job()
     
     stage1_jobs.addChild(proband_mapping_calling_jobs)
     stage1_jobs.addChild(maternal_mapping_calling_jobs)
@@ -662,13 +676,12 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     stage1_jobs.addFollowOn(stage2_jobs)
     
     stage2_jobs.addChild(parental_graph_construction_job)
-    #stage2_jobs.addFollowOn(stage3_jobs)
-    #
-    #stage3_jobs.addChild(proband_2nd_mapping_calling_jobs)
-    #for sibling_name in siblings_names:
-    #    stage3_jobs.addChild()
-    #
-    #stage3_jobs.addFollowOn(stage4_jobs)
+    stage2_jobs.addFollowOn(stage3_jobs)
+    
+    stage3_jobs.addChild(proband_2nd_mapping_calling_jobs)
+    stage3_jobs.addFollowOn(stage4_jobs)
+    
+    stage4_jobs.addChild(pedigree_joint_calling_job)
     
     job.addChild(stage1_jobs)
     
@@ -725,14 +738,11 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 disk=context.config.misc_disk)
     
     
-    proband_mapping_output = proband_first_mapping_job.rv(2)
-    maternal_mapping_output = maternal_mapping_job.rv(2)
-    paternal_mapping_output = paternal_mapping_job.rv(2)
-
     joint_calling_job = parental_graph_construction_job.addChildJobFn(run_gatk_joint_genotyper, context, proband_name,
                                 proband_calling_job.rv(2), proband_calling_job.rv(3),
                                 maternal_calling_job.rv(2), maternal_calling_job.rv(3),
                                 paternal_calling_job.rv(2), paternal_calling_job.rv(3),
+                                None, None,
                                 ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
                                 cores=context.config.misc_cores,
                                 memory=context.config.misc_mem,
@@ -748,6 +758,9 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
                                 misc_file_ids[0], misc_file_ids[1], gen_map_file_id)
     
+    # Make a parental graph index collection
+    parental_indexes = graph_construction_job.rv(0,2)
+    
     #proband_sibling_mapping_calling_child_jobs.addFollowOn(pedigree_joint_calling_job)
     #parental_graph_construction_job.addFollowOn(proband_sibling_mapping_calling_child_jobs)
     #TODO: ADD TRIO VARIANT CALLING HERE
@@ -756,35 +769,72 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     #TODO: ADD PARENTAL GRAPH CONSTRUCTION HERE
     #TODO: HOOK PARENTAL GRAPH INTO PROBAND AND SIBLING ALIGNMENT HERE
     
-    #sibling_root_job_dict =  {}
-    #if siblings_names is not None: 
-    #    for sibling_number in xrange(len(siblings_names)):
-    #        
-    #        reads_file_ids_siblings_list = []
-    #        if fastq_siblings:
-    #            reads_file_ids_siblings_list = reads_file_ids_siblings[sibling_number*2:(sibling_number*2)+2]
-    #        elif gam_input_reads_siblings or bam_input_reads_siblings:
-    #            reads_file_ids_siblings_list = reads_file_ids_siblings[sibling_number]
-    #        sibling_root_job_dict[sibling_number] = Job.wrapJobFn(run_mapping, context, fastq_siblings[sibling_number],
-    #                                         gam_input_reads_siblings[sibling_number], bam_input_reads_siblings[sibling_number],
-    #                                         siblings_names[sibling_number],
-    #                                         options.interleaved, options.mapper, importer.resolve(indexes),
-    #                                         reads_file_ids_siblings_list,
-    #                                         bam_output=True, surject=False,
-    #                                         cores=context.config.misc_cores,
-    #                                         memory=context.config.misc_mem,
-    #                                         disk=context.config.misc_disk)
-    #        # Start the sibling alignment
-    #        job.addChild(sibling_root_job_dict[sibling_number])
-    #
-    #sibling_mapping_output_dict = {}
-    #if siblings_names is not None:
-    #    for sibling_number in xrange(len(siblings_names)):
-    #        sibling_mapping_output_dict[sibling_number] = sibling_root_job_dict[sibling_number].rv()
+    sibling_call_gvcf_ids = None
+    sibling_call_gvcf_index_ids = None
+    if siblings_names is not None: 
+        sibling_root_job_dict =  {}
+        sibling_call_gvcf_ids = []
+        sibling_call_gvcf_index_ids = []
+        for sibling_number in xrange(len(siblings_names)):
+            
+            # Dynamically allocate sibling map allignment jobs to overall workflow structure
+            sibling_name = siblings_names[sibling_number]
+            sibling_root_job_dict[sibling_name] = Job()
+            stage3_jobs.addChild(sibling_root_job_dict[sibling_name])
+            
+            reads_file_ids_siblings_list = []
+            if fastq_siblings:
+                reads_file_ids_siblings_list = reads_file_ids_siblings[sibling_number*2:(sibling_number*2)+2]
+            elif gam_input_reads_siblings or bam_input_reads_siblings:
+                reads_file_ids_siblings_list = reads_file_ids_siblings[sibling_number]
+            sibling_mapping_job = sibling_root_job_dict[sibling_name].addChildJobFn(run_mapping, context, fastq_siblings[sibling_number],
+                                             gam_input_reads_siblings[sibling_number], bam_input_reads_siblings[sibling_number],
+                                             siblings_names[sibling_number],
+                                             options.interleaved, options.mapper, parental_indexes,
+                                             reads_file_ids_siblings_list,
+                                             bam_output=True, surject=False,
+                                             cores=context.config.misc_cores,
+                                             memory=context.config.misc_mem,
+                                             disk=context.config.misc_disk)
+            sibling_calling_job = sibling_root_job_dict[sibling_name].addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                            sibling_name, sibling_mapping_job.rv(2),
+                                            ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                            cores=context.config.misc_cores,
+                                            memory=context.config.misc_mem,
+                                            disk=context.config.misc_disk)
+            sibling_call_gvcf_ids.append(sibling_calling_job.rv(2))
+            sibling_call_gvcf_index_ids.append(sibling_calling_job.rv(3))
     
-    #return align_job.rv()
-    return graph_construction_job.rv()
-    #return joint_calling_job.rv()
+    # Define the probands 2nd alignment and variant calling jobs
+    proband_second_mapping_job = proband_2nd_mapping_calling_jobs.addChildJobFn(run_mapping, context, fastq_proband,
+                                     gam_input_reads_proband, bam_input_reads_proband,
+                                     proband_name,
+                                     interleaved, mapper, parental_indexes,
+                                     reads_file_ids_proband,
+                                     bam_output=True, surject=False,
+                                     cores=context.config.misc_cores,
+                                     memory=context.config.misc_mem,
+                                     disk=context.config.misc_disk)
+    proband_parental_calling_job = proband_2nd_mapping_calling_jobs.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                    proband_name, proband_second_mapping_job.rv(2), 
+                                    ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                    cores=context.config.misc_cores,
+                                    memory=context.config.misc_mem,
+                                    disk=context.config.misc_disk)
+    
+    pedigree_joint_call_job = pedigree_joint_calling_job.addChildJobFn(run_gatk_joint_genotyper, context, proband_name,
+                                        proband_parental_calling_job.rv(2), proband_parental_calling_job.rv(3),
+                                        maternal_calling_job.rv(2), maternal_calling_job.rv(3),
+                                        paternal_calling_job.rv(2), paternal_calling_job.rv(3),
+                                        sibling_call_gvcf_ids, sibling_call_gvcf_index_ids,
+                                        ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                        cores=context.config.misc_cores,
+                                        memory=context.config.misc_mem,
+                                        disk=context.config.misc_disk)
+
+    
+    return pedigree_joint_call_job.rv()
+    #return graph_construction_job.rv()
 
 def pedigree_main(context, options):
     """

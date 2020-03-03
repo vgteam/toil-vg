@@ -504,7 +504,7 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
     if vcf_subdir is specified, the various created vcfs will be stored in a subfolder of that
     name in the output store.  if it's not specified, then these intermediate vcfs will not be saved
     """
-
+    
     output = dict()
 
     # primary graph, containing just the input fasta
@@ -702,7 +702,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
     indexes is the index dict from index type to file ID.
     
     """
-
+    
     output = []
     
     for name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names) in vcf_inputs.items():
@@ -710,13 +710,14 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         output_name_base = remove_ext(output_name, '.vg')
         # special case that need thread indexes no matter what
         haplo_extraction = name in ['haplo', 'sample-graph']
+        
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, ('gbwt' in wanted_indexes) or haplo_extraction or alt_paths,
                                           flat_alts, handle_svs, regions,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
                                           normalize and name != 'haplo', validate, alt_regions_id)
-
+        
         mapping_id = construct_job.rv('mapping')
         
         # Find the joined VG files, which always exist
@@ -734,7 +735,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             single_vg_name = None
             
         # Now the graphs are ready
-
+        
         if not regions:
             chroms = []
             gbwt_regions = []
@@ -894,7 +895,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
     job.addChild(child_job)
 
     work_dir = job.fileStore.getLocalTempDir()
-
+    
     if not regions:
         regions, region_names = [None], ['genome']        
 
@@ -917,6 +918,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
             vcf_name = vcf_names[i]
         fasta_id = fasta_ids[0] if len(fasta_ids) == 1 else fasta_ids[i]
         fasta_name = fasta_names[0] if len(fasta_names) == 1 else fasta_names[i]
+        
         construct_region_job = child_job.addChildJobFn(run_construct_region_graph, context,
                                                        fasta_id, fasta_name,
                                                        vcf_id, vcf_name, tbi_id, region, region_name,
@@ -1058,7 +1060,7 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
     construct. This is off by default because vg currently does internal
     validation during construction.
     """
-
+    
     work_dir = job.fileStore.getLocalTempDir()
 
     # Download input files

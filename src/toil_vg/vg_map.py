@@ -465,7 +465,6 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
         bam_chrom_ids = [zip_job.addFollowOnJobFn(run_whole_surject, context, zip_job.rv(), sample_name + '-surject',
                                                   interleaved_surject, xg_id, []).rv()]
     
-    logger.info("DEBUGGER INSIDE run_whole_alignment OUTPUT bam_chrom_ids: {}".format(bam_chrom_ids))
     return gam_chrom_ids, gam_chunk_time, bam_chrom_ids
     
 def run_zip_surject_input(job, context, gam_chunk_file_ids):
@@ -487,9 +486,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     specifying them will change mapping behavior.
     """
                         
-
+    
     RealtimeLogger.info("Starting {} alignment on {} chunk {}".format(mapper, sample_name, chunk_id))
-
+    
     # How long did the alignment take to run, in seconds?
     run_time = None
     
