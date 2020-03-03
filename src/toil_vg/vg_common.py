@@ -199,7 +199,7 @@ to do: Should go somewhere more central """
             if pid == 0:
                 wfile.close()
                 while 1:
-                    data = rfile.readline()
+                    data = rfile.readline().decode('utf-8', 'replace')
                     if not data:
                         break
                     RealtimeLogger.info('(stderr) {}'.format(data.strip()))
@@ -521,15 +521,17 @@ to do: Should go somewhere more central """
             RealtimeLogger.error("Docker container for command {} failed with code {}".format(command, return_code))
             RealtimeLogger.error("Dumping stderr...")
             for line in container.logs(stderr=True, stdout=False, stream=True):
-                # Trim trailing \n
-                RealtimeLogger.error(line[:-1])
+                # We can loop over lines in UTF-8 data because UTF-8 guarantees
+                # no ASCII '\n' bytes inside multibyte characters.
+                # Slice to trim trailing \n.
+                RealtimeLogger.error(line.decode('utf-8', 'replace')[:-1])
                 
             if not check_output and outfile is None:
                 # Dump stdout as well, since it's not something the caller wanted as data
                 RealtimeLogger.error("Dumping stdout...")
                 for line in container.logs(stderr=False, stdout=True, stream=True):
                     # Trim trailing \n
-                    RealtimeLogger.error(line[:-1])
+                    RealtimeLogger.error(line.decode('utf-8', 'replace')[:-1])
         
             # Raise an error if it's not sucess
             raise RuntimeError("Docker container for command {} failed with code {}".format(command, return_code))
