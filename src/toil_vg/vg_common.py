@@ -114,6 +114,7 @@ def get_container_tool_map(options):
     cmap[0]['R'] = options.sveval_docker
     cmap[0]['bedops'] = options.bedops_docker
     cmap[0]['gatk'] = options.gatk_docker
+    cmap[0]['gatk3'] = options.gatk3_docker
     cmap[0]['snpEff'] = options.snpEff_docker
     cmap[0]['picard'] = options.picard_docker
     cmap[0]['whatshap'] = options.whatshap_docker

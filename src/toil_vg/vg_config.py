@@ -210,6 +210,9 @@ sveval-docker: 'jmonlong/sveval:version-1.2.0'
 # Docker image to use for gatk
 gatk-docker: 'broadinstitute/gatk:4.1.1.0'
 
+# Docker image to use for gatk3
+gatk3-docker: 'broadinstitute/gatk3:3.8-1'
+
 # Docker image to use for snpEff
 snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
 
@@ -492,6 +495,9 @@ sveval-docker: 'jmonlong/sveval:version-1.2.0'
 
 # Docker image to use for gatk
 gatk-docker: 'broadinstitute/gatk:4.1.1.0'
+
+# Docker image to use for gatk3
+gatk3-docker: 'broadinstitute/gatk3:3.8-1'
 
 # Docker image to use for snpEff
 snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
