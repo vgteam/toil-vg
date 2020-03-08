@@ -257,7 +257,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['gatk', 'HaplotypeCaller',
-                '--native-pair-hmm-threads', context.config.calling_cores,
+                '--native-pair-hmm-threads', job.cores,
                 '-ERC', 'GVCF',
                 '--pcr-indel-model', pcr_indel_model,
                 '--reference', os.path.basename(ref_fasta_path),
@@ -395,7 +395,7 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
     
     return processed_gvcf_file_id, processed_gvcf_index_file_id
 
-def run_merge_bams(job, context, sample_name, bam_ids, indel_realign_bams_name=False, write_to_outstore = False):
+def run_merge_bams_ped_workflow(job, context, sample_name, bam_ids, indel_realign_bams_name=False, write_to_outstore = False):
     
     RealtimeLogger.info("Starting samtools merge bams")
     start_time = timeit.default_timer()
@@ -414,7 +414,7 @@ def run_merge_bams(job, context, sample_name, bam_ids, indel_realign_bams_name=F
     if indel_realign_bams_name:
         out_file = os.path.join(work_dir, '{}_merged.indel_realigned.bam'.format(sample_name))
     
-    command = ['samtools', 'merge', '-f', '-p', '-c', '--threads', context.config.misc_cores,
+    command = ['samtools', 'merge', '-f', '-p', '-c', '--threads', job.cores,
                     os.path.basename(out_file), ' '.join(bam_paths)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['samtools', 'index', os.path.basename(out_file)]
@@ -444,18 +444,25 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
     processed_bam_ids = []
     if not run_dragen:
         for chr_bam_id in chr_bam_ids:
-            call_job = child_job.addChildJobFn(run_gatk_haplotypecaller_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id)
+            call_job = child_job.addChildJobFn(run_gatk_haplotypecaller_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
             vcf_ids.append(call_job.rv(0))
             tbi_ids.append(call_job.rv(1))
             processed_bam_ids.append(call_job.rv(2))
     else:
         for chr_bam_id in chr_bam_ids:
-            process_bam_job = child_job.addChildJobFn(run_process_chr_bam, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id)
+            process_bam_job = child_job.addChildJobFn(run_process_chr_bam, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
             processed_bam_ids.append(process_bam_job.rv())
     
     # Run merging of crhomosomal bams
     # Write bams to final outstore only if not also doing indel realignment
-    merge_chr_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, sample_name, processed_bam_ids, indel_realign_bams_name=False, write_to_outstore = not options.indel_realign_bams)
+    if options.indel_realign_bams:
+        write_to_outstore = False
+    else:
+        write_to_outstore = True
+    merge_chr_bams_job = child_job.addFollowOnJobFn(run_merge_bams_ped_workflow, context, sample_name, processed_bam_ids, False, write_to_outstore,
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
     
     # Run gvcf concatenation
     # If using the Illumina Dragen module for the NIH Biowulf system, then instead run that on the processed merged bam file
@@ -784,7 +791,7 @@ def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff
     snpeff_database_file_path =  os.path.join(work_dir, os.path.basename(snpeff_database_file_id))
     job.fileStore.readGlobalFile(snpeff_database_file_id, snpeff_database_file_path)
     
-    command = ['bcftools', 'norm', '-m-both', '--threads', context.config.calling_cores,
+    command = ['bcftools', 'norm', '-m-both', '--threads', job.cores,
                     '-o', '{}.unrolled.vcf'.format(cohort_name), os.path.basename(joint_called_vcf_path)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools')
     command = ['unzip', os.path.basename(snpeff_database_file_path)]
@@ -876,11 +883,12 @@ def run_cohort_indel_realign_pipeline(job, context, options, proband_name, mater
                 sibling_indel_realign_job_dict[sibling_name] = sibling_root_job_dict[sibling_name].addChildJobFn(run_indel_realignment, context,
                                                                         sibling_name, sibling_chr_bam_id,
                                                                         ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                                        cores=context.config.misc_cores,
-                                                                        memory=context.config.misc_mem,
-                                                                        disk=context.config.misc_disk) 
+                                                                        cores=context.config.alignment_cores,
+                                                                        memory=context.config.alignment_mem,
+                                                                        disk=context.config.alignment_disk)
                 sibling_chr_bam_indel_realign_output.append(sibling_indel_realign_job_dict[sibling_name].rv())
-            sibling_merged_bam_job_dict[sibling_name] = sibling_root_job_dict[sibling_name].addFollowOnJobFn(run_merge_bams, context, sibling_name, sibling_chr_bam_indel_realign_output, indel_realign_bams_name=True, write_to_outstore=True)
+            sibling_merged_bam_job_dict[sibling_name] = sibling_root_job_dict[sibling_name].addFollowOnJobFn(run_merge_bams_ped_workflow, context, sibling_name, sibling_chr_bam_indel_realign_output, True, True,
+                                                                                                                cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
             sibling_merge_bam_ids_list.append(sibling_merged_bam_job_dict[sibling_name].rv(0))
             sibling_merge_bam_index_ids_list.append(sibling_merged_bam_job_dict[sibling_name].rv(1))
     
@@ -889,33 +897,36 @@ def run_cohort_indel_realign_pipeline(job, context, options, proband_name, mater
         proband_chr_bam_indel_realign_job = proband_indel_realign_jobs.addChildJobFn(run_indel_realignment, context,
                                                                 proband_name, proband_chr_bam_id,
                                                                 ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                                cores=context.config.misc_cores,
-                                                                memory=context.config.misc_mem,
-                                                                disk=context.config.misc_disk) 
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.alignment_disk)
         proband_chr_bam_indel_realign_output.append(proband_chr_bam_indel_realign_job.rv())
-    proband_merged_bam_job = proband_indel_realign_jobs.addFollowOnJobFn(run_merge_bams, context, proband_name, proband_chr_bam_indel_realign_output, indel_realign_bams_name=True, write_to_outstore=True)
+    proband_merged_bam_job = proband_indel_realign_jobs.addFollowOnJobFn(run_merge_bams_ped_workflow, context, proband_name, proband_chr_bam_indel_realign_output, True, True,
+                                                                                        cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
     
     maternal_chr_bam_indel_realign_output = []
     for maternal_chr_bam_id in maternal_chr_bam_ids:
         maternal_chr_bam_indel_realign_job = maternal_indel_realign_jobs.addChildJobFn(run_indel_realignment, context,
                                                                 maternal_name, maternal_chr_bam_id,
                                                                 ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                                cores=context.config.misc_cores,
-                                                                memory=context.config.misc_mem,
-                                                                disk=context.config.misc_disk) 
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.alignment_disk)
         maternal_chr_bam_indel_realign_output.append(maternal_chr_bam_indel_realign_job.rv())
-    maternal_merged_bam_job = maternal_indel_realign_jobs.addFollowOnJobFn(run_merge_bams, context, maternal_name, maternal_chr_bam_indel_realign_output, indel_realign_bams_name=True, write_to_outstore=True)
+    maternal_merged_bam_job = maternal_indel_realign_jobs.addFollowOnJobFn(run_merge_bams_ped_workflow, context, maternal_name, maternal_chr_bam_indel_realign_output, True, True,
+                                                                                        cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
     
     paternal_chr_bam_indel_realign_output = []
     for paternal_chr_bam_id in paternal_chr_bam_ids:
         paternal_chr_bam_indel_realign_job = paternal_indel_realign_jobs.addChildJobFn(run_indel_realignment, context,
                                                                 paternal_name, paternal_chr_bam_id,
                                                                 ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                                cores=context.config.misc_cores,
-                                                                memory=context.config.misc_mem,
-                                                                disk=context.config.misc_disk) 
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.alignment_disk)
         paternal_chr_bam_indel_realign_output.append(paternal_chr_bam_indel_realign_job.rv())
-    paternal_merged_bam_job = paternal_indel_realign_jobs.addFollowOnJobFn(run_merge_bams, context, paternal_name, paternal_chr_bam_indel_realign_output, indel_realign_bams_name=True, write_to_outstore=True)
+    paternal_merged_bam_job = paternal_indel_realign_jobs.addFollowOnJobFn(run_merge_bams_ped_workflow, context, paternal_name, paternal_chr_bam_indel_realign_output, True, True,
+                                                                                        cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
     
     return proband_merged_bam_job.rv(), maternal_merged_bam_job.rv(), paternal_merged_bam_job.rv(), sibling_merge_bam_ids_list, sibling_merge_bam_index_ids_list
     
@@ -1015,7 +1026,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      proband_name,
                                      interleaved, mapper, indexes,
                                      reads_file_ids_proband,
-                                     bam_output=True, surject=False,
+                                     bam_output=bam_output, surject=surject,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1034,7 +1045,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      maternal_name,
                                      interleaved, mapper, indexes,
                                      reads_file_ids_maternal,
-                                     bam_output=True, surject=False,
+                                     bam_output=options.bam_output, surject=options.surject,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1053,7 +1064,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      paternal_name,
                                      interleaved, mapper, indexes,
                                      reads_file_ids_paternal,
-                                     bam_output=True, surject=False,
+                                     bam_output=options.bam_output, surject=options.surject,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1076,9 +1087,9 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 snpeff_annotation=snpeff_annotation,
                                 run_dragen=options.run_dragen,
                                 dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
-                                cores=context.config.misc_cores,
-                                memory=context.config.misc_mem,
-                                disk=context.config.misc_disk)
+                                cores=context.config.calling_cores,
+                                memory=context.config.calling_mem,
+                                disk=context.config.calling_disk)
     
     gen_map_id = None
     if options.genetic_map is not None:
@@ -1130,7 +1141,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                              siblings_names[sibling_number],
                                              options.interleaved, options.mapper, parental_indexes,
                                              reads_file_ids_siblings_list,
-                                             bam_output=True, surject=False,
+                                             bam_output=options.bam_output, surject=options.surject,
                                              cores=context.config.misc_cores,
                                              memory=context.config.misc_mem,
                                              disk=context.config.misc_disk)
@@ -1154,7 +1165,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      proband_name,
                                      interleaved, mapper, parental_indexes,
                                      reads_file_ids_proband,
-                                     bam_output=True, surject=False,
+                                     bam_output=options.bam_output, surject=options.surject,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1176,9 +1187,9 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                         run_dragen=options.run_dragen,
                                         dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
                                         snpeff_annotation=snpeff_annotation,
-                                        cores=context.config.misc_cores,
-                                        memory=context.config.misc_mem,
-                                        disk=context.config.misc_disk)
+                                        cores=context.config.calling_cores,
+                                        memory=context.config.calling_mem,
+                                        disk=context.config.calling_disk)
     
     if indel_realign_bams:
         stage4_jobs.addChild(indel_realign_jobs)
@@ -1191,9 +1202,9 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         snpeff_job = snpeff_annotation_job.addChildJobFn(run_snpEff_annotation, context,
                                                         proband_name, pedigree_joint_call_job.rv(0),
                                                         misc_file_ids['snpeff_data'],
-                                                        cores=context.config.misc_cores,
-                                                        memory='10G',
-                                                        disk=context.config.misc_disk)
+                                                        cores=context.config.calling_cores,
+                                                        memory=context.config.calling_mem,
+                                                        disk=context.config.calling_disk)
     # Collect final outputs
     final_proband_bam = proband_parental_calling_job.rv(0)
     final_proband_bam_index = proband_parental_calling_job.rv(1)
