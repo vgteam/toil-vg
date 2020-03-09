@@ -141,10 +141,10 @@ fi
 if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---batchSystem singleMachine \\
+--batchSystem slurm \\
 --container Singularity \\
 --logInfo \\
---logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflo.log \\
+--logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir \\
 --whole_genome_config \\
@@ -177,10 +177,10 @@ ${PATERNAL_SAMPLE_NAME} \\
 else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---batchSystem singleMachine \\
+--batchSystem slurm \\
 --container Singularity \\
 --logInfo \\
---logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflo.log \\
+--logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\

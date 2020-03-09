@@ -73,7 +73,7 @@ if [ ! -d "${TOIL_VG_DIR}" ]; then
 fi
 
 cd ${TOIL_VG_DIR}
-git clone git clone --single-branch --branch vg_pedigree_workflow https://github.com/vgteam/toil-vg.git 
+git clone --single-branch --branch vg_pedigree_workflow https://github.com/vgteam/toil-vg.git 
 virtualenv toilvg_venv
 source toilvg_venv/bin/activate
 pip install toil[aws,mesos,slurm]==3.20.0
