@@ -144,7 +144,7 @@ ${RESTART_ARG} \\
 --batchSystem singleMachine \\
 --container Singularity \\
 --logInfo \\
---logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflo.log \\
+--logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir \\
 --whole_genome_config \\
@@ -180,7 +180,7 @@ ${RESTART_ARG} \\
 --batchSystem singleMachine \\
 --container Singularity \\
 --logInfo \\
---logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflo.log \\
+--logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
