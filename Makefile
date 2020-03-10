@@ -82,7 +82,7 @@ clean_sdist:
 test: check_venv check_build_reqs
 	TOIL_VG_TEST_CONTAINER=$(container) $(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
 
-pypi: check_venv check_clean_working_copy check_running_on_ci
+pypi: check_venv check_clean_working_copy
 	test "$$CI_COMMIT_REF_NAME" != "master" \
 	&& echo "We're building a PR, skipping PyPI." || ( \
 	set -x \
@@ -105,7 +105,7 @@ check_build_reqs:
 
 prepare: check_venv
 	# TODO: numpy cannot build from source correctly on some systems, and installing in a virtualenv fails with --only-binary :all:
-	$(pip) install numpy
+	$(pip) install numpy==1.17.1
 	# TODO scikit-learn can't even begin to install unless numpy is already there, so numpy has to be first and by itself.
 	# See https://github.com/scikit-learn/scikit-learn/issues/4164
 	$(pip) install scipy scikit-learn==0.22.1
@@ -130,12 +130,6 @@ check_clean_working_copy:
 			; git ls-files --other --exclude-standard --directory \
 			; false )
 
-
-check_running_on_ci:
-	@echo "$(green)Checking if running on CI ...$(normal)"
-	@test -n "$$CI" \
-		|| ( echo "$(red)This target should only be invoked on CI.$(normal)" ; false )
-
 clean_docker:
 	-cd docker && make clean
 
@@ -157,7 +151,6 @@ push_docker: docker
 		clean \
 		check_venv \
 		check_clean_working_copy \
-		check_running_on_ci \
 		docker \
 		push_docker \
 		clean_docker \

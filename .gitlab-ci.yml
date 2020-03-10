@@ -5,6 +5,17 @@ before_script:
   - sudo apt-get -q -y update
   # Make sure we have some curl stuff for pycurl which we need for some Python stuff
   - sudo apt-get -q -y install docker.io python3-pip python-virtualenv libcurl4-gnutls-dev libgnutls28-dev python3-dev 
+  # apt-get install singularity-container installs 2.4.2 which is too old to use, so we install from source
+  # https://stackoverflow.com/questions/50537404/error-called-singularity-config-get-value-on-uninitialized-config-subsystem-wh
+  - sudo apt-get -q -y install wget libarchive-dev squashfs-tools
+  - wget https://github.com/singularityware/singularity/releases/download/2.6.1/singularity-2.6.1.tar.gz
+  - tar xf singularity-2.6.1.tar.gz
+  - pushd singularity-2.6.1
+  - ./configure --prefix=/usr/local > /dev/null
+  - make > /dev/null
+  - sudo make install > /dev/null
+  - popd
+  - rm -rf singularity-2.6.1.tar.gz singularity-2.6.1 
   - startdocker || true
   - docker info
   # Build .pypirc with PyPI credentials
