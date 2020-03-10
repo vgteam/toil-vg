@@ -10,14 +10,7 @@ virtualenv -p python3.6 --never-download .env
 # Upgrade pip3
 pip3 install --upgrade pip setuptools==45.0.0
 
-# Prepare directory for temp files
-# Sometimes the instances have un-deletable files in tmp, so we continue through errors
-TMPDIR=/mnt/ephemeral/tmp
-set +e
-rm -rf $TMPDIR
-mkdir $TMPDIR
 set -e
-export TMPDIR
 
 # Create s3am venv
 rm -rf s3am
@@ -47,4 +40,4 @@ make pypi
 #make push_docker
 #make clean_docker
 
-rm -rf .env $TMPDIR
+rm -rf .env
