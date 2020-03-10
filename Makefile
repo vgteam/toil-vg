@@ -82,7 +82,7 @@ clean_sdist:
 test: check_venv check_build_reqs
 	TOIL_VG_TEST_CONTAINER=$(container) $(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
 
-pypi: check_venv check_clean_working_copy check_running_on_ci
+pypi: check_venv check_clean_working_copy
 	test "$$CI_COMMIT_REF_NAME" != "master" \
 	&& echo "We're building a PR, skipping PyPI." || ( \
 	set -x \
@@ -130,12 +130,6 @@ check_clean_working_copy:
 			; git ls-files --other --exclude-standard --directory \
 			; false )
 
-
-check_running_on_ci:
-	@echo "$(green)Checking if running on CI ...$(normal)"
-	@test -n "$$CI" \
-		|| ( echo "$(red)This target should only be invoked on CI.$(normal)" ; false )
-
 clean_docker:
 	-cd docker && make clean
 
@@ -157,7 +151,6 @@ push_docker: docker
 		clean \
 		check_venv \
 		check_clean_working_copy \
-		check_running_on_ci \
 		docker \
 		push_docker \
 		clean_docker \
