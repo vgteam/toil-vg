@@ -130,6 +130,7 @@ rm -f ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo '#!/bin/bash' >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo "module load singularity python/2.7" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo "source ${TOIL_VG_DIR}/toilvg_venv/bin/activate" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
+echo "export TOIL_SLURM_ARGS='-t 20:00:00'" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo "cd ${COHORT_WORKFLOW_DIR}" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 if [ $RESTART == false ]; then
     echo "toil clean ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_jobstore" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
@@ -146,17 +147,19 @@ ${RESTART_ARG} \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
---cleanWorkDir \\
+--cleanWorkDir onSuccess \\
 --whole_genome_config \\
-${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_jobstore \\
+${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
 ${PROBAND_SAMPLE_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
---sibling_names ${SIB_ID_LIST} \\
+--sibling_names ${SIB_ID_LIST[@]} \\
 --fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
+--fastq_siblings ${SIB_READ_PAIR_LIST[@]} \\
+--reads_per_chunk 20000000 \\
 --ref_fasta ${WORKFLOW_INPUT_DIR}/hs37d5.fa \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/hs37d5.fa.fai \\
 --ref_fasta_dict ${WORKFLOW_INPUT_DIR}/hs37d5.dict \\
@@ -182,16 +185,17 @@ ${RESTART_ARG} \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
---cleanWorkDir \\
-${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
+--cleanWorkDir always \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_jobstore \\
+${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
 ${PROBAND_SAMPLE_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
---sibling_names ${SIB_ID_LIST} \\
+--sibling_names ${SIB_ID_LIST[@]} \\
 --fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
+--fastq_siblings ${SIB_READ_PAIR_LIST[@]} \\
 --ref_fasta ${WORKFLOW_INPUT_DIR}/hs37d5.fa \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/hs37d5.fa.fai \\
 --ref_fasta_dict ${WORKFLOW_INPUT_DIR}/hs37d5.dict \\
