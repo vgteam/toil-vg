@@ -921,7 +921,7 @@ def compare_positions(job, context, truth_file_id, name, stats_file_id, mapeval_
                 continue
             elif aln_read_name < true_read_name:
                 # We need to advance the aligned read
-                test_fields = list_or_node(next(test_reader, None))
+                test_fields = list_or_none(next(test_reader, None))
                 test_line += 1
                 # Make sure we went forward
                 assert(test_fields == None or test_fields[0] > aln_read_name)
