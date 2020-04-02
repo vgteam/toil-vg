@@ -176,7 +176,7 @@ def _singularity(job,
     # Also, only sandbox directories work with user namespaces, and only user
     # namespaces work inside unprivileged Docker containers like the Toil
     # appliance.
-    sandbox_dirname = os.path.join(cache_dir, '{}.sandbox'.format(hashlib.sha256(source_image.encode()).hexdigest()))
+    sandbox_dirname = os.path.join(cache_dir, '{}.sandbox'.format(hashlib.sha256(source_image).hexdigest()))
     
     if not os.path.exists(sandbox_dirname):
         # We atomically drop the sandbox at that name when we get it
@@ -212,13 +212,14 @@ def _singularity(job,
     # container. This is to get around issues with differences between TMPDIR path accessibility
     # when running Singularity build and singularity exec
     download_env = os.environ.copy()
-    download_env['TMPDIR'] = '.'
+    if not 'rocker/tidyverse' in tool: 
+        download_env['TMPDIR'] = '.'
     
     # If parameters is list of lists, treat each list as separate command and chain with pipes
     if len(parameters) > 0 and type(parameters[0]) is list:
         # When piping, all arguments now get merged into a single string to bash -c.
         # We try to support spaces in paths by wrapping them all in quotes first.
-        chain_params = [' '.join(p) for p in [list(map(pipes.quote, q)) for q in parameters]]
+        chain_params = [' '.join(p) for p in [map(pipes.quote, q) for q in parameters]]
         # Use bash's set -eo pipefail to detect and abort on a failure in any command in the chain
         call = baseSingularityCall + [sandbox_dirname, '/bin/bash', '-c',
                                  'set -eo pipefail && {}'.format(' | '.join(chain_params))]

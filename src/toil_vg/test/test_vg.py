@@ -165,6 +165,9 @@ class VGCGLTest(TestCase):
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
 
     def test_03_sim_small_mapeval_plots(self):
+        self._test_03_sim_small_mapeval_plots(self.containerType)
+        
+    def _test_03_sim_small_mapeval_plots(self, container_override):
         ''' 
         Test running mapeval directly on the simulated reads and that plotting
         produces output
@@ -176,7 +179,7 @@ class VGCGLTest(TestCase):
         # check running mapeval on the vg graph
 
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
@@ -186,7 +189,7 @@ class VGCGLTest(TestCase):
         self._run(['toil-vg', 'sim', self.jobStoreLocal,
                    os.path.join(self.local_outstore, 'small.xg'), '2000',
                    self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--gam', '--sim_chunks', '5', '--maxCores', '8',
                    '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '1',
@@ -195,7 +198,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
                    self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--truth', os.path.join(self.local_outstore, 'true.pos'),
                    '--vg-graphs', self.test_vg_graph,
@@ -213,7 +216,7 @@ class VGCGLTest(TestCase):
         os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.svg'))
         self._run(['toil-vg', 'plot', self.jobStoreLocal,
                    self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
                    '--realTimeLogging', '--logInfo',
@@ -825,6 +828,11 @@ class VGCGLTest(TestCase):
         if not check_singularity():
             pytest.skip("singularity not installed")
         self._test_09_construct('Singularity')
+    
+    def test_19_sim_small_mapeval_plots_singularity(self):
+        if not check_singularity():
+            pytest.skip("singularity not installed")
+        self._test_03_sim_small_mapeval_plots('Singularity')
         
     def _run(self, args):
         log.info('Running %r', args)
