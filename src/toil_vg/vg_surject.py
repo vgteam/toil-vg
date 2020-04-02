@@ -1,14 +1,13 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_surject.py: chunked surject of gam file
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -113,6 +112,7 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
                                                     disk=context.config.alignment_disk)
         bam_chunk_file_ids.append(chunk_surject_job.rv(0))
         bam_chunk_running_times.append(chunk_surject_job.rv(1))
+
     return child_job.addFollowOnJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
                                       cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
@@ -154,7 +154,7 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
     output_file = os.path.join(work_dir, "surject_{}.bam".format(chunk_id))
 
     # Open the file stream for writing
-    with open(output_file, "w") as surject_file:
+    with open(output_file, 'wb') as surject_file:
 
         cmd = ['vg', 'surject', os.path.basename(gam_files[0]), '--bam-output']
         if interleaved:
@@ -217,12 +217,12 @@ def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
 
     # todo: option to give name
     surject_path = os.path.join(work_dir, '{}.bam'.format(output_name))
-    
+
     cmd = ['samtools', 'cat'] + [os.path.basename(chunk_path) for chunk_path in chunk_paths]
     cmd += ['-o', os.path.basename(surject_path)]
 
     context.runner.call(job, cmd, work_dir = work_dir)
-    
+
     return context.write_output_file(job, surject_path)
 
 def surject_main(context, options):

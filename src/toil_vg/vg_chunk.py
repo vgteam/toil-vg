@@ -3,12 +3,11 @@
 vg_chunk.py: split a graph and/or GAM into chunks by connected component
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -56,15 +55,13 @@ def chunk_parse_args(parser, path_components=True):
     Define chunk arguments that may be shared with other commands
     """
 
-    parser.add_argument("--connected_components", action="store_true",
+    parser.add_argument("--connected_component_chunking", action="store_true",
                         help="split into connected components")
-    if path_components:
-        # we let toil-vg call override this with its own more specific --ref_paths and --ref_path_chunking options
-        parser.add_argument("--all_path_components", action="store_true",
-                        help="split into connected component for each path in graph")
-        parser.add_argument("--path_components", nargs="+", default=[],
-                            help="split into connected component for each given path")
-    parser.add_argument("--output_format", choices="pg, hg, vg", default="pg",
+    parser.add_argument("--ref_path_chunking", action="store_true",
+                        help="chunk on --ref_paths if specified, all paths otherwise")
+    parser.add_argument("--ref_paths", nargs='+', default=[],
+                        help="reference paths to call (and chunk) on")    
+    parser.add_argument("--output_format", choices=["pg", "hg", "vg"], default="pg",
                         help="output format [pg]")
     parser.add_argument("--chunk_cores", type=int,
                         help="number of threads used for extracting chunks for calling")
@@ -73,13 +70,16 @@ def chunk_parse_args(parser, path_components=True):
 
     
 def validate_chunk_options(options, chunk_optional=False):
-    num_opts = [options.connected_components, options.all_path_components, len(options.path_components) > 0].count(True)
+    num_opts = [options.connected_component_chunking, options.ref_path_chunking].count(True)
     if chunk_optional == False:
         require(num_opts == 1,
-                "Must specify (exactly) one of --connected_components, --all_path_components or --path_components")
+                "Must specify (exactly) one of --connected_component_chunking, ref_path_chunking")
+        if options.ref_paths:
+            require(options.ref_path_chunking == True,
+                "Must specify --ref_path_chunking when using --ref_paths")
     else:
         require(num_opts in [0, 1],
-                "Must specify at most one of --connected_components, --all_path_components or --path_components")
+                "Must specify at most one of --connected_component_chunking or --ref_path_chunking")
 
     if options.gam:
         require(options.gam.endswith('.gam'),
@@ -156,6 +156,8 @@ def run_chunking(job, context,
                     gam_chunk_path = os.path.join(work_dir, toks[3].rstrip())
                     if not gam_chunk_path.endswith('.gam'):
                         gam_chunk_path = remove_ext(gam_chunk_path, '.' + output_format) + '.gam'
+                    # vg chunk's not going to write empty files, so make sure we have one
+                    open(gam_chunk_path, 'a').close()
                     gam_chunk_id = write_fn(job, gam_chunk_path)
                     chunk_output[toks[0]] += [gam_chunk_id, os.path.basename(gam_chunk_path)]
 
@@ -190,8 +192,8 @@ def chunk_main(context, options):
             root_job = Job.wrapJobFn(run_chunking, context,
                                      importer.resolve(inputGraphFileID),
                                      os.path.basename(options.graph),
-                                     chunk_paths=options.path_components,
-                                     connected_component_chunking=options.connected_components,
+                                     chunk_paths=options.ref_paths,
+                                     connected_component_chunking=options.connected_component_chunking,
                                      output_format=options.output_format,
                                      gam_id = importer.resolve(inputGamFileID),
                                      to_outstore = True,

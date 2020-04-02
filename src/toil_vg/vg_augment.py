@@ -3,12 +3,11 @@
 vg_augment.py: augment a vg graph to include variation from a GAM alignment
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -143,7 +142,7 @@ def run_chunked_augmenting(job, context,
     assert batch_input
 
     augment_results = []
-    for chunk_name, chunk_results in batch_input.items():
+    for chunk_name, chunk_results in list(batch_input.items()):
         augment_job = job.addChildJobFn(run_augmenting, context,
                                         graph_id=chunk_results[0],
                                         graph_basename=chunk_results[1],
@@ -212,7 +211,7 @@ def run_augmenting(job, context,
 
     # run the command
     try:
-        with open(augmented_graph_path, 'w') as augmented_graph_file:
+        with open(augmented_graph_path, 'wb') as augmented_graph_file:
             context.runner.call(job, augment_cmd, work_dir = work_dir, outfile = augmented_graph_file)
     except Exception as e:
         logging.error("Augment failed. Dumping input files to outstore.")
@@ -258,9 +257,9 @@ def augment_main(context, options):
                                      gam_id = importer.resolve(inputGamFileID),
                                      gam_basename = os.path.basename(options.gam),
                                      batch_input=None,
-                                     all_path_components=options.all_path_components,
-                                     chunk_paths=options.path_components,
-                                     connected_component_chunking=options.connected_components,
+                                     all_path_components=options.ref_path_chunking,
+                                     chunk_paths=options.ref_paths,
+                                     connected_component_chunking=options.connected_component_chunking,
                                      output_format=options.output_format,
                                      augment_gam=options.augment_gam,
                                      min_augment_coverage=options.min_augment_coverage,

@@ -1,14 +1,13 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_sim.py: this wrapper to run vg sim in parallel
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -187,7 +186,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         tag_beds.append(bed_file)
 
     # run vg sim
-    sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', num_reads] + context.config.sim_opts
+    sim_cmd = ['vg', 'sim', '-x', os.path.basename(xg_file), '-n', int(num_reads)] + context.config.sim_opts
     if seed_base is not None:
         sim_cmd += ['-s', seed_base + chunk_i]
     if fastq_id:
@@ -202,7 +201,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         reads_file = os.path.join(work_dir, 'sim_reads_{}_{}'.format(xg_i, chunk_i))
 
         # run vg sim
-        with open(reads_file, 'w') as output_reads:
+        with open(reads_file, 'wb') as output_reads:
             try:
                 context.runner.call(job, sim_cmd, work_dir = work_dir, outfile=output_reads)
             except:
@@ -238,7 +237,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
                 
         cmd.append(['tee', os.path.basename(gam_file)])
         cmd.append(['vg', 'view', '-aj', '-'])
-        with open(gam_json, 'w') as output_json:
+        with open(gam_json, 'wb') as output_json:
             try:
                 context.runner.call(job, cmd, work_dir = work_dir, outfile=output_json)
                 if validate:
@@ -272,7 +271,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
                    os.path.basename(gam_json)]
         # output truth positions
         true_pos_file = os.path.join(work_dir, 'true_{}_{}.pos'.format(xg_i, chunk_i))
-        with open(true_pos_file, 'w') as out_true_pos:
+        with open(true_pos_file, 'wb') as out_true_pos:
             context.runner.call(job, jq_cmd, work_dir = work_dir, outfile=out_true_pos)
 
         # get rid of that big json asap
@@ -325,24 +324,24 @@ def run_merge_sim_chunks(job, context, gam, sim_out_id_infos, out_name):
         merged_gam_file = os.path.join(work_dir, '{}.gam'.format(reads_name))
         merged_true_file = os.path.join(work_dir, '{}.pos.unsorted'.format(pos_name))
         
-        with open(merged_gam_file, 'a') as out_gam, \
-             open(merged_true_file, 'a') as out_true:
+        with open(merged_gam_file, 'ab') as out_gam, \
+             open(merged_true_file, 'ab') as out_true:
             
             for i, sim_out_id_info in enumerate(sim_out_id_infos):
                 gam_file = os.path.join(work_dir, 'sim_{}.gam'.format(i))
                 job.fileStore.readGlobalFile(sim_out_id_info[0], gam_file)
-                with open(gam_file) as rf:
+                with open(gam_file, 'rb') as rf:
                     shutil.copyfileobj(rf, out_gam)
                     
                 true_file = os.path.join(work_dir, 'true_{}.pos'.format(i))
                 job.fileStore.readGlobalFile(sim_out_id_info[1], true_file)
-                with open(true_file) as rf:
+                with open(true_file, 'rb') as rf:
                     shutil.copyfileobj(rf, out_true)
 
         # sort the positions file
         sorted_true_file = os.path.join(work_dir, '{}.pos'.format(pos_name))
         sort_cmd = ['sort', os.path.basename(merged_true_file)]
-        with open(sorted_true_file, 'w') as out_true:
+        with open(sorted_true_file, 'wb') as out_true:
             context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = out_true)
 
         

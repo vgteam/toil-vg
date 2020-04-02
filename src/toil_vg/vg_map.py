@@ -1,14 +1,13 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_map.py: map to vg graph producing gam for each chrom
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import gzip
@@ -135,7 +134,7 @@ def validate_map_options(context, options):
             ' passed with --fastq')
     require(options.interleaved == False or options.fastq is None or len(options.fastq) == 1,
             '--interleaved cannot be used when > 1 fastq given')
-    require(sum(map(lambda x : 1 if x else 0, [options.fastq, options.gam_input_reads, options.bam_input_reads])) == 1,
+    require(sum([1 if x else 0 for x in [options.fastq, options.gam_input_reads, options.bam_input_reads]]) == 1,
             'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
     require(options.mapper == 'mpmap' or options.snarls_index is None,
             '--snarls_index can only be used with --mapper mpmap') 
@@ -436,11 +435,10 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
                                                       validate=validate,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
-        if not bam_output or surject:
+        if not bam_output:
             gam_chunk_file_ids.append(chunk_alignment_job.rv(0))
-        if bam_output:
+        else:
             bam_chunk_file_ids.append(chunk_alignment_job.rv(0))
-            
         gam_chunk_running_times.append(chunk_alignment_job.rv(1))
 
 
@@ -455,16 +453,16 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     else:
         gam_chrom_ids = []
         gam_chunk_time = None
-        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, sample_name, context, bam_chunk_file_ids)
+        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, sample_name, bam_chunk_file_ids)
         bam_chrom_ids = [merge_bams_job.rv()]
 
-    if surject and not bam_output:
+    if surject:
         interleaved_surject = interleaved or (fastq and len(fastq) == 2)
         zip_job = child_job.addFollowOnJobFn(run_zip_surject_input, context, gam_chunk_file_ids)
         xg_id = indexes['xg-surject'] if 'xg-surject' in indexes else indexes['xg']
         bam_chrom_ids = [zip_job.addFollowOnJobFn(run_whole_surject, context, zip_job.rv(), sample_name + '-surject',
                                                   interleaved_surject, xg_id, []).rv()]
-    
+
     return gam_chrom_ids, gam_chunk_time, bam_chrom_ids
     
 def run_zip_surject_input(job, context, gam_chunk_file_ids):
@@ -472,7 +470,7 @@ def run_zip_surject_input(job, context, gam_chunk_file_ids):
     run_whole_surject takes input in different format than what we have above, so we shuffle the 
     promised lists around here to avoid a (probably-needed) refactor of the existing interface
     """
-    return zip(*gam_chunk_file_ids)
+    return list(zip(*gam_chunk_file_ids))
 
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
@@ -486,9 +484,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     specifying them will change mapping behavior.
     """
                         
-    
+
     RealtimeLogger.info("Starting {} alignment on {} chunk {}".format(mapper, sample_name, chunk_id))
-    
+
     # How long did the alignment take to run, in seconds?
     run_time = None
     
@@ -505,12 +503,12 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         index_files['gcsa'] = graph_file + ".gcsa"
         index_files['lcp'] = index_files['gcsa'] + ".lcp"
         
-        if indexes.has_key('gbwt'):
+        if 'gbwt' in indexes:
             # We have a GBWT haplotype index available.
             index_files['gbwt'] = graph_file + ".gbwt"
             
     if mapper == 'mpmap':
-        if indexes.has_key('snarls'):
+        if 'snarls' in indexes:
             # mpmap knows how to use the snarls, and we have them, so we should use them
             
             # Note that passing them will affect mapping, if using multiple
@@ -524,7 +522,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         index_files['gbwt'] = graph_file + ".gbwt"
      
         
-    for index_type in index_files.keys():
+    for index_type in list(index_files.keys()):
         # Download each index file
         job.fileStore.readGlobalFile(indexes[index_type], index_files[index_type])
     
@@ -540,7 +538,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     output_file = os.path.join(work_dir, "{}_{}.gam".format(sample_name, chunk_id))
 
     # Open the file stream for writing
-    with open(output_file, "w") as alignment_file:
+    with open(output_file, 'wb') as alignment_file:
 
         # Start the aligner and have it write to the file
 
@@ -593,11 +591,11 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             'minimizer': '-m',
             'snarls': '--snarls'
         }
-        for index_type, index_file in index_files.items():
+        for index_type, index_file in list(index_files.items()):
             if type_to_option[index_type] is not None:
                 vg_parts += [type_to_option[index_type], os.path.basename(index_file)]
 
-        if index_files.has_key('gbwt'):
+        if 'gbwt' in index_files:
             # We may have a GBWT recombination rate/penalty override
             if gbwt_penalty is not None:
                 # We have a recombination penalty value to apply
@@ -633,7 +631,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             # Dump everything we need to replicate the alignment
             end_time = timeit.default_timer()
             logging.error("Mapping failed. Dumping files.")
-            for index_file in index_files.values():
+            for index_file in list(index_files.values()):
                 context.write_output_file(job, index_file)
             for reads_file in reads_files:
                 context.write_output_file(job, reads_file)
@@ -646,7 +644,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     RealtimeLogger.info("Aligned {}. Process took {} seconds with {} vg-{}".format(
         output_file, run_time, 'paired-end' if paired_end else 'single-end', mapper))
 
-    if indexes.has_key('id_ranges'):
+    if 'id_ranges' in indexes:
         # Break GAM into multiple chunks at the end. So we need the file
         # defining those chunks.
         id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
@@ -661,11 +659,10 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             gam_chunk_ids.append(context.write_intermediate_file(job, gam_chunk))
 
         return gam_chunk_ids, run_time
+        
     else:
         # We can just report one chunk of everything
-        bam_chunk_ids = [context.write_intermediate_file(job, output_file)]
-        return bam_chunk_ids, run_time
-        #return [context.write_intermediate_file(job, output_file)], run_time
+        return [context.write_intermediate_file(job, output_file)], run_time
 
 def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_file):
     """
@@ -688,7 +685,7 @@ def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_f
     output_index = output_sorted + '.gai'
     sort_cmd = ['vg', 'gamsort', '-i', os.path.basename(output_index),
         '-t', str(context.config.alignment_cores), os.path.basename(gam_file)]
-    with open(output_sorted, "w") as sorted_file:
+    with open(output_sorted, 'wb') as sorted_file:
         context.runner.call(job, sort_cmd, work_dir = work_dir, outfile = sorted_file)
  
     # Chunk the alignment into chromosomes using the id ranges
@@ -775,11 +772,11 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
 
     if len(chunk_file_ids) > 1:
         # Would be nice to be able to do this merge with fewer copies.. 
-        with open(output_file, 'a') as merge_file:
+        with open(output_file, 'ab') as merge_file:
             for chunk_gam_id in chunk_file_ids:
                 tmp_gam_file = os.path.join(work_dir, 'tmp_{}.gam'.format(uuid4()))
                 job.fileStore.readGlobalFile(chunk_gam_id, tmp_gam_file)
-                with open(tmp_gam_file) as tmp_f:
+                with open(tmp_gam_file, 'rb') as tmp_f:
                     shutil.copyfileobj(tmp_f, merge_file)
                                 
     # checkpoint to out store
