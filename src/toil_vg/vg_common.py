@@ -3,7 +3,7 @@
 Shared stuff between different modules in this package.  Some
 may eventually move to or be replaced by stuff in toil-lib.
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, random, subprocess, shutil, itertools, glob
 import json, timeit, errno
 import fcntl
@@ -64,7 +64,7 @@ def test_singularity():
     try:
         # Run Singularity
         # TODO: implement around singularityCall somehow?
-        subprocess.check_call(['singularity', 'version'], stdout=nowhere, stderr=nowhere)
+        subprocess.check_call(['singularity', 'help'], stdout=nowhere, stderr=nowhere)
         # And report that it worked
         return True
     except:
@@ -113,7 +113,7 @@ def get_container_tool_map(options):
     cmap[0]['bedtools'] = options.bedtools_docker
     cmap[0]['R'] = options.sveval_docker
     cmap[0]['bedops'] = options.bedops_docker
-    
+     
     # to do: could be a good place to do an existence check on these tools
 
     return cmap
@@ -122,7 +122,7 @@ def toil_call(job, context, cmd, work_dir, out_path = None, out_append = False):
     """ use to run a one-job toil workflow just to call a command
     using context.runner """
     if out_path:
-        open_flag = 'a' if out_append is True else 'w'
+        open_flag = 'ab' if out_append is True else 'wb'
         with open(os.path.abspath(out_path), open_flag) as out_file:
             context.runner.call(job, cmd, work_dir=work_dir, outfile=out_file)
     else:
@@ -174,6 +174,10 @@ to do: Should go somewhere more central """
         output's contents.
         
         """
+        # make python3 errors pop more
+        if outfile is not None:
+            assert 'b' in outfile.mode
+            
         # from here on, we assume our args is a list of lists
         if len(args) == 0 or len(args) > 0 and type(args[0]) is not list:
             args = [args]
@@ -188,8 +192,8 @@ to do: Should go somewhere more central """
         if self.realtime_stderr and not errfile:
             # Make our pipe
             rfd, wfd = os.pipe()
-            rfile = os.fdopen(rfd, 'r', 0)
-            wfile = os.fdopen(wfd, 'w', 0)
+            rfile = os.fdopen(rfd, 'rb', 0)
+            wfile = os.fdopen(wfd, 'wb', 0)
             # Fork our child process (pid == 0) to catch stderr and log it
             pid = os.fork()
             if pid == 0:
@@ -422,7 +426,7 @@ to do: Should go somewhere more central """
                             # Do a nonblocking read. Since we checked with select we never should get "" unless there's an EOF.
                             data = os.read(output_fd, 4096)
                             
-                            if data == "":
+                            if len(data) == 0:
                                 # We didn't throw and we got nothing, so it must be EOF.
                                 RealtimeLogger.debug("Got EOF")
                                 break
@@ -439,9 +443,7 @@ to do: Should go somewhere more central """
                         # There is no data available. Don't even try to read. Treat it as if a read refused to block.
                         data = None
                     
-                    
-                        
-                    if data is not None:
+                    if data and len(data) > 0:
                         # Send our data to the outfile
                         outfile.write(data)
                         saw_data = True
@@ -574,14 +576,13 @@ to do: Should go somewhere more central """
             # TODO: We can't stop other threads using os.environ or subprocess or w/e on their own
 
             # Set the locale to C for consistent sorting, and activate vg traceback     
-            
             update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1'}
             if name == 'Rscript':
                 # The R dockers by default want to install packages in non-writable directories. Sometimes.
                 # Make sure a writable directory which exists is used.
                 update_env['R_LIBS']='/tmp'
             old_env = {}
-            for env_name, env_val in update_env.items():
+            for env_name, env_val in list(update_env.items()):
                 old_env[env_name] = os.environ.get(env_name)
                 os.environ[env_name] = env_val
             
@@ -591,7 +592,7 @@ to do: Should go somewhere more central """
                 ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
             
             # Restore old locale and vg traceback
-            for env_name, env_val in update_env.items():
+            for env_name, env_val in list(update_env.items()):
                 if old_env[env_name] is not None:
                     os.environ[env_name] = old_env[env_name]
                 else:
@@ -721,7 +722,7 @@ def get_files_by_file_size(dirname, reverse=False):
             filepaths.append(filename)
 
     # Re-populate list with filename, size tuples
-    for i in xrange(len(filepaths)):
+    for i in range(len(filepaths)):
         filepaths[i] = (filepaths[i], os.path.getsize(filepaths[i]))
 
     return filepaths
@@ -798,21 +799,21 @@ class TimeTracker:
         self.running[name] = timeit.default_timer()
     def stop(self, name = None):
         """ stop a timer. if no name, do all running """
-        names = [name] if name else self.running.keys()
+        names = [name] if name else list(self.running.keys())
         ti = timeit.default_timer()
         for name in names:
             self.times[name] += ti - self.running[name]
             del self.running[name]
     def add(self, time_dict):
         """ add in all times from another TimeTracker """
-        for key, value in time_dict.times.items():
+        for key, value in list(time_dict.times.items()):
             self.times[key] += value
     def total(self, names = None):
         if not names:
-            names = self.times.keys()
+            names = list(self.times.keys())
         return sum([self.times[name] for name in names])
     def names(self):
-        return self.times.keys()
+        return list(self.times.keys())
         
         
 def run_concat_lists(job, *args):
@@ -984,10 +985,10 @@ def run_concat_files(job, context, file_ids, dest_name=None, header=None):
 
     # Concatenate all the files
     # TODO: We don't use the trick where we append to the first file to save a copy. Should we?
-    with open(out_name, 'w') as out_file:
+    with open(out_name, 'wb') as out_file:
         if header is not None:
             # Put the header if specified
-            out_file.write(header + '\n')
+            out_file.write('{}\n'.format(header).encode())
         for file_id in file_ids:
             with job.fileStore.readGlobalFileStream(file_id) as in_file:
                 # Then beam over each file
@@ -1066,7 +1067,7 @@ class AsyncImporter(object):
         elif isinstance(result, (list, tuple)):
             return [self.resolve(x) for x in result]
         elif isinstance(result, dict):
-            return dict([(k,self.resolve(v)) for k,v in result.items()])
+            return dict([(k,self.resolve(v)) for k,v in list(result.items())])
         elif isinstance(result, argparse.Namespace):
             result.__dict__ = self.resolve(result.__dict__)
             return result
