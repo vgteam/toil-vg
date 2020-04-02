@@ -1,4 +1,4 @@
-# TOIl-VG
+# TOIL-VG
 [UCSC Computational Genomics Lab](https://cgl.genomics.ucsc.edu/)
 
 [vg](https://github.com/vgteam/vg) is a toolkit for DNA sequence analysis using variation graphs.  Toil-vg is a [Toil](http://toil.ucsc-cgl.org/)-based framework for running common vg pipelines at scale, either locally or on a distributed computing environment: 
@@ -23,9 +23,9 @@ Why use toil-vg?
 
 Installation requires Python and [Toil](https://toil.readthedocs.io/en/latest/gettingStarted/install.html).  We recommend installing within a virtualenv as follows
 
-    virtualenv toilvenv
+    virtualenv -p python3.6 toilvenv
     source toilvenv/bin/activate
-    pip install toil[aws,mesos]==3.20.0
+    pip install toil[aws,mesos]==3.24.0
     pip install toil-vg
     
 Developers may want to work with the latest master branch from github instead:

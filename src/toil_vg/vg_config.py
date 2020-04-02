@@ -4,12 +4,11 @@ vg_config.py: Default configuration values all here (and only here), as well as 
 for reading and generating config files.
 
 """
-from __future__ import print_function
+
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import pdb
 import textwrap
@@ -157,7 +156,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.20.0-134-gc29c4a250-t347-run'
+vg-docker: 'quay.io/vgteam/vg:v1.21.0-132-g46fe0722f-t353-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -205,7 +204,7 @@ bedtools-docker: 'quay.io/biocontainers/bedtools:2.27.0--1'
 bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 
 # Docker image to use for sveval R package
-sveval-docker: 'jmonlong/sveval:version-1.2.0'
+sveval-docker: 'jmonlong/sveval:version-1.3.0'
 
 # Docker image to use for gatk
 gatk-docker: 'broadinstitute/gatk:4.1.1.0'
@@ -238,6 +237,9 @@ prune-opts: []
 
 # Options to pass to vg gcsa indexing
 gcsa-opts: []
+
+# Options to pass to vg minimizer indexing
+minimizer-opts: []
 
 # Randomly phase unphased variants when constructing GBWT
 force-phasing: True
@@ -291,7 +293,7 @@ call-opts: []
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
+vcfeval-opts: ['--ref-overlap']
 
 #########################
 ### sim and mapeval Arguments ###
@@ -411,8 +413,8 @@ augment-mem: '64G'
 augment-disk: '64G'
 
 # Resources for calling each chunk (currently includes augment/call/genotype)
-calling-cores: 4
-calling-mem: '64G'
+calling-cores: 8
+calling-mem: '60G'
 calling-disk: '16G'
 
 # Resources for vcfeval
@@ -443,7 +445,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.20.0-134-gc29c4a250-t347-run'
+vg-docker: 'quay.io/vgteam/vg:v1.21.0-132-g46fe0722f-t353-run'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -491,7 +493,7 @@ bedtools-docker: 'quay.io/biocontainers/bedtools:2.27.0--1'
 bedops-docker: 'quay.io/biocontainers/bedops:2.4.35--0'
 
 # Docker image to use for sveval R package
-sveval-docker: 'jmonlong/sveval:version-1.2.0'
+sveval-docker: 'jmonlong/sveval:version-1.3.0'
 
 # Docker image to use for gatk
 gatk-docker: 'broadinstitute/gatk:4.1.1.0'
@@ -524,6 +526,9 @@ prune-opts: []
 
 # Options to pass to vg gcsa indexing
 gcsa-opts: []
+
+# Options to pass to vg minimizer indexing
+minimizer-opts: []
 
 # Randomly phase unphased variants when constructing GBWT
 force-phasing: True
@@ -577,7 +582,7 @@ call-opts: []
 #########################
 ### vcfeval Arguments ###
 # Options to pass to rgt vcfeval. (do not include filenaems or threads or BED)
-vcfeval-opts: ['--ref-overlap', '--vcf-score-field', 'QUAL']
+vcfeval-opts: ['--ref-overlap']
 
 #########################
 ### sim and mapeval Arguments ###
@@ -597,7 +602,7 @@ def generate_config(whole_genome = False):
     return whole_genome_config if whole_genome is True else default_config
 
 def make_opts_list(x_opts):
-    opts_list = filter(lambda a : len(a), x_opts.split(' '))
+    opts_list = list([a for a in x_opts.split(' ') if len(a)])
     # get rid of any -t or --threads while we're at it    
     for t in ['-t', '--threads']:
         if t in opts_list:
@@ -613,20 +618,20 @@ def apply_config_file_args(args):
 
     # turn --*_opts from strings to lists to be consistent with config file
     for x_opts in ['map_opts', 'call_opts', 'recall_opts', 'filter_opts', 'recall_filter_opts', 'genotype_opts',
-                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'mpmap_opts', 'gaffe_opts',
-                   'augment_opts', 'pack_opts', 'prune_opts']:
-        if x_opts in args.__dict__.keys() and type(args.__dict__[x_opts]) is str:
+                   'vcfeval_opts', 'sim_opts', 'bwa_opts', 'minimap2_opts', 'gcsa_opts', 'minimizer_opts', 'mpmap_opts',
+                    'gaffe_opts', 'augment_opts', 'pack_opts', 'prune_opts']:
+        if x_opts in list(args.__dict__.keys()) and type(args.__dict__[x_opts]) is str:
             args.__dict__[x_opts] = make_opts_list(args.__dict__[x_opts])
 
     # do the same thing for more_mpmap_opts which is a list of strings
-    if 'more_mpmap_opts' in args.__dict__.keys() and args.__dict__['more_mpmap_opts']:
+    if 'more_mpmap_opts' in list(args.__dict__.keys()) and args.__dict__['more_mpmap_opts']:
         for i, m_opts in enumerate(args.__dict__['more_mpmap_opts']):
-            if isinstance(m_opts, basestring):
+            if isinstance(m_opts, str):
                 args.__dict__['more_mpmap_opts'][i] = make_opts_list(m_opts)
 
     # If no config file given, we generate a default one
-    wg_config = args.__dict__.has_key('whole_genome_config') and args.whole_genome_config
-    if not args.__dict__.has_key('config') or args.config is None:
+    wg_config = 'whole_genome_config' in list(args.__dict__.keys()) and args.whole_genome_config
+    if 'config' not in list(args.__dict__.keys()) or args.config is None:
         config = generate_config(whole_genome = wg_config)
     else:
         if wg_config:
@@ -637,7 +642,7 @@ def apply_config_file_args(args):
             config = conf.read()
                 
     # Parse config
-    parsed_config = {x.replace('-', '_'): y for x, y in yaml.safe_load(config).iteritems()}
+    parsed_config = {x.replace('-', '_'): y for x, y in list(yaml.safe_load(config).items())}
     if 'prune_opts_2' in parsed_config:
         raise RuntimeError('prune-opts-2 from config no longer supported')
     options = argparse.Namespace(**parsed_config)
@@ -648,7 +653,7 @@ def apply_config_file_args(args):
     for args_key in args.__dict__:
         # Add in missing program arguments to config option list and
         # overwrite config options with corresponding options that are not None in program arguments
-        if (args.__dict__[args_key] is not None) or (args_key not in  options.__dict__.keys()):
+        if (args.__dict__[args_key] is not None) or (args_key not in  list(options.__dict__.keys())):
             options.__dict__[args_key] = args.__dict__[args_key]
             
     return options

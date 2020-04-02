@@ -24,7 +24,7 @@ https://github.com/BD2KGenomics/toil-lib
 
 
 import sys, os, os.path, json, collections, logging, logging.handlers
-import SocketServer, struct, socket, threading, tarfile, shutil
+import struct, socket, threading, tarfile, shutil
 import tempfile
 import functools
 import random
