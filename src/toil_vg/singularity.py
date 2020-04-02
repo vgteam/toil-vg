@@ -212,7 +212,8 @@ def _singularity(job,
     # container. This is to get around issues with differences between TMPDIR path accessibility
     # when running Singularity build and singularity exec
     download_env = os.environ.copy()
-    download_env['TMPDIR'] = '.'
+    if not 'rocker/tidyverse' in tool: 
+        download_env['TMPDIR'] = '.'
     
     # If parameters is list of lists, treat each list as separate command and chain with pipes
     if len(parameters) > 0 and type(parameters[0]) is list:

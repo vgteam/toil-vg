@@ -8,9 +8,10 @@ import filecmp
 import shutil
 from contextlib import closing
 from unittest import TestCase, skip
-from urlparse import urlparse
+from urllib.parse import urlparse
 from uuid import uuid4
-import urllib2, gzip
+import gzip
+import urllib.request
 
 import os, sys
 import posixpath
@@ -18,6 +19,7 @@ import posixpath
 import pytest
 
 from toil_vg.iostore import IOStore
+from toil_vg.vg_common import test_singularity as check_singularity
 
 log = logging.getLogger(__name__)
 
@@ -45,9 +47,9 @@ class VGCGLTest(TestCase):
         # And where does it come from?
         url = self._ci_input_path(filename)
         print(url)
-        with open(tgt, 'w') as f:
+        with open(tgt, 'wb') as f:
             # Download the file from the URL
-            connection = urllib2.urlopen(url)
+            connection = urllib.request.urlopen(url)
             shutil.copyfileobj(connection, f)
 
     def setUp(self):
@@ -108,6 +110,9 @@ class VGCGLTest(TestCase):
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_02_sim_small_standalone(self):
+        self._test_02_sim_small_standalone(self.containerType)
+        
+    def _test_02_sim_small_standalone(self, container_override):
         ''' 
         Same as above, but chain standalone tools instead of toil-vg run
         '''
@@ -117,7 +122,7 @@ class VGCGLTest(TestCase):
         self.chrom_fa = self._ci_input_path('small.fa.gz')
         
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
@@ -129,7 +134,7 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--xg_index', os.path.join(self.local_outstore, 'small.xg'),
                    '--gcsa_index', os.path.join(self.local_outstore, 'small.gcsa'),
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--fastq', self.sample_reads,
                    '--alignment_cores', '8', '--reads_per_chunk', '8000',
@@ -140,7 +145,7 @@ class VGCGLTest(TestCase):
                    '--graph', os.path.join(self.local_outstore, 'small.xg'),
                    '--sample', 'sample',
                    self.local_outstore, 
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--gam', os.path.join(self.local_outstore, 'sample_default.gam'), 
                    '--ref_paths', 'x', '--calling_cores', '4',
@@ -148,7 +153,7 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--call_vcf', os.path.join(self.local_outstore, 'small_sample.vcf.gz'),
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_fasta', self.chrom_fa, self.local_outstore,
@@ -160,6 +165,9 @@ class VGCGLTest(TestCase):
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
 
     def test_03_sim_small_mapeval_plots(self):
+        self._test_03_sim_small_mapeval_plots(self.containerType)
+        
+    def _test_03_sim_small_mapeval_plots(self, container_override):
         ''' 
         Test running mapeval directly on the simulated reads and that plotting
         produces output
@@ -171,7 +179,7 @@ class VGCGLTest(TestCase):
         # check running mapeval on the vg graph
 
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', '8',
@@ -181,7 +189,7 @@ class VGCGLTest(TestCase):
         self._run(['toil-vg', 'sim', self.jobStoreLocal,
                    os.path.join(self.local_outstore, 'small.xg'), '2000',
                    self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--gam', '--sim_chunks', '5', '--maxCores', '8',
                    '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '1',
@@ -190,7 +198,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'mapeval', self.jobStoreLocal,
                    self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--truth', os.path.join(self.local_outstore, 'true.pos'),
                    '--vg-graphs', self.test_vg_graph,
@@ -208,7 +216,7 @@ class VGCGLTest(TestCase):
         os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.svg'))
         self._run(['toil-vg', 'plot', self.jobStoreLocal,
                    self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
                    '--realTimeLogging', '--logInfo',
@@ -441,7 +449,7 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal, '--clean', 'never',
-                   '--call_vcf', os.path.join(outstore, 'genome-aug_NA12877.vcf.gz'),
+                   '--call_vcf', os.path.join(outstore, 'genome_NA12877.vcf.gz'),
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_fasta', self.chrom_fa, outstore,
                    '--realTimeLogging', '--realTimeStderr', '--logInfo',
@@ -457,7 +465,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--graph', self.xg_index, outstore, '--gam', self.sample_gam,
-                   '--path_components', '17', '13',
+                   '--ref_path_chunking', '--ref_paths', '17', '13',
                    '--realTimeLogging', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -536,6 +544,9 @@ class VGCGLTest(TestCase):
         self._assertOutput('1', self.local_outstore, f1_threshold=0.95)
 
     def test_09_construct(self):
+        self._test_09_construct(self.containerType)
+        
+    def _test_09_construct(self, container_override):
         '''
         Test that the output of toil-vg construct is somewhat reasonable
         '''
@@ -547,7 +558,7 @@ class VGCGLTest(TestCase):
         out_name = 'snp1kg-BRCA1'
         
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
-                   '--container', self.containerType,
+                   '--container', container_override,
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', out_name, '--pangenome', '--pos_control', 'HG00096',
@@ -807,6 +818,21 @@ class VGCGLTest(TestCase):
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
         self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.31)        
+
+    def test_17_sim_small_standalone_singularity(self):
+        if not check_singularity():
+            pytest.skip("singularity not installed")
+        self._test_02_sim_small_standalone('Singularity')
+
+    def test_18_construct_singularity(self):
+        if not check_singularity():
+            pytest.skip("singularity not installed")
+        self._test_09_construct('Singularity')
+    
+    def test_19_sim_small_mapeval_plots_singularity(self):
+        if not check_singularity():
+            pytest.skip("singularity not installed")
+        self._test_03_sim_small_mapeval_plots('Singularity')
         
     def _run(self, args):
         log.info('Running %r', args)
@@ -824,7 +850,7 @@ class VGCGLTest(TestCase):
 
         with open(local_f1) as f1_file:
             f1_score = float(f1_file.readline().strip())
-        print f1_score
+        print(f1_score)
         self.assertGreaterEqual(f1_score, f1_threshold)
 
     def _assertMapEvalOutput(self, outstore, test_count, names, acc_threshold):
