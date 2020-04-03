@@ -577,6 +577,10 @@ to do: Should go somewhere more central """
 
             # Set the locale to C for consistent sorting, and activate vg traceback     
             update_env = {'LC_ALL' : 'C', 'VG_FULL_TRACEBACK': '1'}
+            if name == 'Rscript':
+                # The R dockers by default want to install packages in non-writable directories. Sometimes.
+                # Make sure a writable directory which exists is used.
+                update_env['R_LIBS']='/tmp'
             old_env = {}
             for env_name, env_val in list(update_env.items()):
                 old_env[env_name] = os.environ.get(env_name)
