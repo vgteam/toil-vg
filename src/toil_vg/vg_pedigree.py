@@ -1,14 +1,12 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_pedigree.py: pedigree map and calling pipeline to produce parental-enhanced mapping and calling output.
 
 """
-from __future__ import print_function
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
-import logging, logging.handlers, SocketServer, struct, socket, threading
+import logging, logging.handlers, struct, socket, threading
 import string
-import urlparse
 import getpass
 import gzip
 import pipes
@@ -196,10 +194,10 @@ def validate_pedigree_options(context, options):
              '--bam_output cannot be used in combination with --surject')
     require (not options.id_ranges or not options.surject,
              '--surject not currently supported with --id_ranges')
-    require (options.snpeff_annotation and options.snpeff_database is not None,
+    require (options.snpeff_annotation or options.snpeff_database is None,
              '--snpeff_annotation must be accompanied with --snpeff_database')
-    require (options.run_dragen and options.dragen_ref_index_name is not None and options.udp_data_dir is not None and options.helix_username is not None,
-             '--run_dragen must be accompanied with --dragen_ref_index_name, --udp_data_dir, and --helix_username')
+    require (options.run_dragen or (options.dragen_ref_index_name is None and options.udp_data_dir is None and options.helix_username is None),
+             '--run_dragen must be accompanied with --dragen_ref_index_name, --udp_data_dir, and --helix_username {},{},{},{}'.format(options.run_dragen,options.dragen_ref_index_name,options.udp_data_dir,options.helix_username))
         
 def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
                                     ref_fasta_index_id, ref_fasta_dict_id, pcr_indel_model="CONSERVATIVE"):
@@ -241,14 +239,14 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'SAM', '-'])
     cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'BAM', '-'])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
-    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'w') as output_samtools_bam:
+    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
     command = ['samtools', 'index', '{}_positionsorted.mdtag.bam'.format(sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    command = ['java', '-Xmx{}'.format(job.emory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
+    command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
-    with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'w') as outerr_markdupes:
+    with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
     command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
                 'VALIDATION_STRINGENCY=LENIENT', 'REFERENCE_SEQUENCE={}'.format(os.path.basename(ref_fasta_path)), 'SEQUENCE_DICTIONARY={}'.format(os.path.basename(ref_fasta_dict_path)),
@@ -316,14 +314,14 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'SAM', '-'])
     cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'BAM', '-'])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
-    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'w') as output_samtools_bam:
+    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
     command = ['samtools', 'index', '{}_positionsorted.mdtag.bam'.format(sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
-    with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'w') as outerr_markdupes:
+    with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
     command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
                 'VALIDATION_STRINGENCY=LENIENT', 'REFERENCE_SEQUENCE={}'.format(os.path.basename(ref_fasta_path)), 'SEQUENCE_DICTIONARY={}'.format(os.path.basename(ref_fasta_dict_path)),
@@ -634,7 +632,7 @@ def run_split_jointcalled_vcf(job, context, joint_called_vcf_id, joint_called_vc
         output_file = os.path.join(work_dir, "{}_trio_{}.vcf.gz".format(proband_name, contig_id))
         
         # Open the file stream for writing
-        with open(output_file, "w") as contig_vcf_file:
+        with open(output_file, "wb") as contig_vcf_file:
             command = []
             if filter_parents == True and contig_id == "MT":
                 command = ['bcftools', 'view', '-O', 'z', '-r', contig_id, '-s', maternal_name, joint_vcf_name]
@@ -799,7 +797,7 @@ def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff
     command = ['snpEff', '-Xmx{}'.format(job.memory), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
                     '-dataDir', '$PWD/data',
                     'GRCh37.75', '{}.unrolled.vcf'.format(cohort_name)]
-    with open(os.path.join(work_dir, '{}.snpeff.unrolled.vcf'.format(cohort_name)), 'w') as output_snpeff_vcf:
+    with open(os.path.join(work_dir, '{}.snpeff.unrolled.vcf'.format(cohort_name)), 'wb') as output_snpeff_vcf:
         context.runner.call(job, command, work_dir = work_dir, tool_name='snpEff', outfile=output_snpeff_vcf)
     context.runner.call(job, ['bgzip', '{}.snpeff.unrolled.vcf'.format(cohort_name)], work_dir = work_dir, tool_name='vg')
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}.snpeff.unrolled.vcf.gz'.format(cohort_name)], work_dir=work_dir)
@@ -847,7 +845,7 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM',
                '{}.indel_realigned.bam'.format(sample_name)])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
-    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(sample_name)), 'w') as output_indel_realigned_bam:
+    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(sample_name)), 'wb') as output_indel_realigned_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_indel_realigned_bam)
     
     return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(sample_name)))
@@ -873,7 +871,7 @@ def run_cohort_indel_realign_pipeline(job, context, options, proband_name, mater
         sibling_merged_bam_job_dict = {}
         sibling_merge_bam_ids_list = []
         sibling_merge_bam_index_ids_list = []
-        for sibling_number in xrange(len(siblings_names)):
+        for sibling_number in range(len(siblings_names)):
             # Dynamically allocate sibling indel realignment jobs to overall workflow structure
             sibling_name = siblings_names[sibling_number]
             sibling_root_job_dict[sibling_name] = Job()
@@ -1118,7 +1116,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         sibling_merged_bam_index_ids = []
         sibling_call_gvcf_ids = []
         sibling_call_gvcf_index_ids = []
-        for sibling_number in xrange(len(siblings_names)):
+        for sibling_number in range(len(siblings_names)):
             
             # Dynamically allocate sibling map allignment jobs to overall workflow structure
             sibling_name = siblings_names[sibling_number]

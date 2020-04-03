@@ -16,7 +16,7 @@ version = '1.6.0a1'
 
 required_versions = {'pyyaml': '>=5.1',
                      'tsv': '==1.2',
-                     'scikit-learn': '==0.18.2',
+                     'scikit-learn': '==0.22.1',
                      'pyvcf': '==0.6.8',
                      'futures': '==3.1.1'}
 

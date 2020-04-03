@@ -453,7 +453,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     else:
         gam_chrom_ids = []
         gam_chunk_time = None
-        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, sample_name, bam_chunk_file_ids)
+        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, sample_name, context, bam_chunk_file_ids)
         bam_chrom_ids = [merge_bams_job.rv()]
 
     if surject:

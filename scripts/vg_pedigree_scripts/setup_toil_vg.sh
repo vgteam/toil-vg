@@ -64,7 +64,7 @@ while getopts "g:v:t:h" OPTION; do
     esac
 done
 
-module load git python/2.7
+module load git python/3.7
 
 ## Setup vg wdl python virtualenvironment
 if [ ! -d "${TOIL_VG_DIR}" ]; then
@@ -74,9 +74,9 @@ fi
 
 cd ${TOIL_VG_DIR}
 git clone --single-branch --branch vg_pedigree_workflow https://github.com/vgteam/toil-vg.git 
-virtualenv toilvg_venv
+python3 -m toilvg_venv
 source toilvg_venv/bin/activate
-pip install toil[aws,mesos,slurm]==3.20.0
+pip install toil[slurm]==3.24.0
 pip install ./toil-vg
 deactivate
 

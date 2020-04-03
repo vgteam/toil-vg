@@ -46,8 +46,8 @@ help:
 	@echo "$$help"
 
 
-python=python2.7
-pip=pip2.7
+python=python3
+pip=pip3
 tests=src
 container=Docker
 extras=
@@ -82,7 +82,7 @@ clean_sdist:
 test: check_venv check_build_reqs
 	TOIL_VG_TEST_CONTAINER=$(container) $(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
 
-pypi: check_venv check_clean_working_copy check_running_on_ci
+pypi: check_venv check_clean_working_copy
 	test "$$CI_COMMIT_REF_NAME" != "master" \
 	&& echo "We're building a PR, skipping PyPI." || ( \
 	set -x \
@@ -90,7 +90,7 @@ pypi: check_venv check_clean_working_copy check_running_on_ci
 		from version import version as v;\
 		from pkg_resources import parse_version as pv;\
 		import os;\
-		print "--tag-build=.dev" + os.getenv("CI_PIPELINE_IID") if pv(v).is_prerelease else ""'` \
+		print("--tag-build=.dev" + os.getenv("CI_PIPELINE_IID") if pv(v).is_prerelease else "")'` \
 	&& $(python) setup.py egg_info $$tag_build sdist bdist_egg upload )
 clean_pypi:
 	- rm -rf build/
@@ -105,11 +105,11 @@ check_build_reqs:
 
 prepare: check_venv
 	# TODO: numpy cannot build from source correctly on some systems, and installing in a virtualenv fails with --only-binary :all:
-	$(pip) install numpy
+	$(pip) install numpy==1.17.1
 	# TODO scikit-learn can't even begin to install unless numpy is already there, so numpy has to be first and by itself.
 	# See https://github.com/scikit-learn/scikit-learn/issues/4164
-	$(pip) install scipy scikit-learn==0.18.2
-	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.20.0' biopython==1.67 pyvcf==0.6.8
+	$(pip) install scipy scikit-learn==0.22.1
+	$(pip) install pytest==2.8.3 'toil[aws,mesos]==3.24.0' biopython==1.67 pyvcf==0.6.8
 	pip list
 clean_prepare: check_venv
 	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf
@@ -129,12 +129,6 @@ check_clean_working_copy:
 		|| ( echo "$(red)You have are untracked files:$(normal)" \
 			; git ls-files --other --exclude-standard --directory \
 			; false )
-
-
-check_running_on_ci:
-	@echo "$(green)Checking if running on CI ...$(normal)"
-	@test -n "$$CI" \
-		|| ( echo "$(red)This target should only be invoked on CI.$(normal)" ; false )
 
 clean_docker:
 	-cd docker && make clean
@@ -157,7 +151,6 @@ push_docker: docker
 		clean \
 		check_venv \
 		check_clean_working_copy \
-		check_running_on_ci \
 		docker \
 		push_docker \
 		clean_docker \

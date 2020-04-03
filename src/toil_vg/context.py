@@ -31,7 +31,7 @@ def run_write_info_to_outstore(job, context, argv):
     before doing all the compute if possible.  To do this, this job needs to be passed
     to the root of the workflow """
     
-    f = tempfile.NamedTemporaryFile(delete=True)
+    f = tempfile.NamedTemporaryFile(mode='w',delete=True)
     now = datetime.datetime.now()
     if argv:
         f.write('{}\n\n'.format(' '.join(argv)))
@@ -43,7 +43,7 @@ def run_write_info_to_outstore(job, context, argv):
     f.write('{}\ntoil-vg version {}\nConfiguration:\n'.format(now,
         version))
 
-    for key, val in context.config.__dict__.items():
+    for key, val in list(context.config.__dict__.items()):
         f.write('{}: {}\n'.format(key, val))
     f.flush()
     context.get_out_store().write_output_file(f.name, 'toil-vg-{}.txt'.format(
@@ -95,7 +95,7 @@ class Context(object):
         # Get the default Toil options
         toil_options = Job.Runner.getDefaultOptions(job_store)
         
-        for k, v in self.config.__dict__.iteritems():
+        for k, v in list(self.config.__dict__.items()):
             # Blit over all the overrides, some of which will be relevant
             toil_options.__dict__[k] = v
         
@@ -164,7 +164,7 @@ class Context(object):
         # Copy the options
         options = copy.deepcopy(options)
         
-        for key, val in self.config.__dict__.items():
+        for key, val in list(self.config.__dict__.items()):
             # Copy over everything from the config to the options namespace.
             # Anything in the config that needed to be overridden by command
             # line options already was overridden in the constructor.
