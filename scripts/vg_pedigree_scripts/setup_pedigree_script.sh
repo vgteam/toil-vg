@@ -128,7 +128,7 @@ fi
 
 rm -f ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo '#!/bin/bash' >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
-echo "module load singularity python/2.7" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
+echo "module load singularity python/3.7" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo "source ${TOIL_VG_DIR}/toilvg_venv/bin/activate" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo "export TOIL_SLURM_ARGS='-t 20:00:00'" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 echo "cd ${COHORT_WORKFLOW_DIR}" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh

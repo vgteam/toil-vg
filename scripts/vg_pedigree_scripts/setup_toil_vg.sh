@@ -74,7 +74,7 @@ fi
 
 cd ${TOIL_VG_DIR}
 git clone --single-branch --branch vg_pedigree_workflow https://github.com/vgteam/toil-vg.git 
-python3 -m toilvg_venv
+python3 -m venv toilvg_venv
 source toilvg_venv/bin/activate
 pip install toil[slurm]==3.24.0
 pip install ./toil-vg
