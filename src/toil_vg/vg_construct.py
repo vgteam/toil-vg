@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """
 vg_construct.py: construct a graph from a vcf and fasta
 
@@ -316,7 +316,7 @@ def run_scan_fasta_sequence_names(job, context, fasta_id, fasta_name, regions = 
 
     # just taking first whitespace-separated token.  that's what corresponds to hs37d5 vcf
     seq_names = [] if not regions else regions
-    for line in grep_output.split('\n'):
+    for line in grep_output.decode().split('\n'):
         if len(line) > 1:
             name = line.split()[0]
             if name.startswith('>') and (not regions or name[1:] not in regions) and \
