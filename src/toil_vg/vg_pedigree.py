@@ -171,8 +171,7 @@ def validate_pedigree_options(context, options):
             ' files must be passed with --fastq_maternal')
     require(options.fastq_paternal is None or len(options.fastq_paternal) in [1, 2], 'Exacty 1 or 2'\
             ' files must be passed with --fastq_paternal')
-    require(options.fastq_siblings is None or len(options.fastq_siblings) in [1, 2], 'Exacty 1 or 2'\
-            ' files must be passed with --fastq_siblings')
+    require(options.fastq_siblings is None or len(options.fastq_siblings) in [1*len(options.sibling_names), 2*len(options.sibling_names)], 'Exacty 1 or 2 files must be passed per sibling with --fastq_siblings')
     require(options.interleaved == False
             or (options.fastq_proband is None and options.fastq_maternal is None and options.fastq_paternal is None and options.fastq_siblings is None)
             or (len(options.fastq_proband) == 1 and len(options.fastq_maternal) == 1 and len(options.fastq_paternal) == 1 and len(options.fastq_siblings) == len(options.sibling_names)),
