@@ -50,7 +50,7 @@ RUN_SMALL_TEST=false
 RESTART=false
 
 ## Parse through arguments
-while getopts "m:f:s:c:w:g:v:t:h" OPTION; do
+while getopts "m:f:s:c:w:g:v:r:t:h" OPTION; do
     case $OPTION in
         m)
             MATERNAL_SAMPLE_NAME=$OPTARG
