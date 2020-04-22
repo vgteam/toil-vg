@@ -317,12 +317,12 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
     command = ['samtools', 'index', '{}_positionsorted.mdtag.bam'.format(sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
+    command = ['java', '-Xmx{}g'.format(int(re.findall(r'\d+',job.memory)[0])/2), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
-    command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
+    command = ['java', '-Xmx{}g'.format(int(re.findall(r'\d+',job.memory)[0])), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
                 'VALIDATION_STRINGENCY=LENIENT', 'REFERENCE_SEQUENCE={}'.format(os.path.basename(ref_fasta_path)), 'SEQUENCE_DICTIONARY={}'.format(os.path.basename(ref_fasta_dict_path)),
                 'INPUT={}.mdtag.dupmarked.bam'.format(sample_name), 'OUTPUT={}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='picard')
