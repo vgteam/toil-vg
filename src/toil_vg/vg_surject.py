@@ -113,7 +113,7 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
         bam_chunk_file_ids.append(chunk_surject_job.rv(0))
         bam_chunk_running_times.append(chunk_surject_job.rv(1))
 
-    return child_job.addFollowOnJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
+    return child_job.addFollowOnJobFn(run_merge_bams, context, output_name, bam_chunk_file_ids, paths,
                                       cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
@@ -183,47 +183,59 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
         
     return [context.write_intermediate_file(job, output_file)], run_time
 
-
-def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
+def run_merge_bams(job, context, sample_name, bam_chunk_file_ids, paths):
     """
-    Merge together bams.
-    
-    Takes a list of lists of BAM file IDs to merge.
-    
-    TODO: Context ought to always be the second argument, after job.
+    Merge together bams, doing each chromosome in parallel
+    Returns the merged GAMs as a list, one per chromosome
     """
     
-    # First flatten the list of lists
-    flat_ids = [x for l in bam_chunk_file_ids for x in l]
+    if id_ranges_file_id is not None:
+        # Get the real chromosome names
+        id_ranges = parse_id_ranges(job, id_ranges_file_id)
+        chroms = [x[0] for x in id_ranges]
+    else:
+        # Dump everything in a single default chromosome chunk with a default
+        # name
+        chroms = ["default"]
     
-    # How much disk do we think we will need to have the merged and unmerged copies of these BAMs?
-    # Make sure we have it
+    chr_bam_ids = []
     
-    requeue_promise = ensure_disk(job, run_merge_bams, [output_name, context, bam_chunk_file_ids], {},
-        flat_ids, factor=2)
-    if requeue_promise is not None:
-        # We requeued ourselves with more disk to accomodate our inputs
-        return requeue_promise
-    
-    # Otherwise, we have enough disk
+    for i, chr in enumerate(chroms):
+        shard_ids = [bam_chunk_file_ids[j][i] for j in range(len(bam_chunk_file_ids))]
+        assert(len(shard_ids) >= 1)
+        chr_bam_id = job.addChildJobFn(run_merge_chrom_bam, context, sample_name, chr, shard_ids,
+                                       cores=context.config.fq_split_cores,
+                                       memory=context.config.fq_split_mem,
+                                       disk=context.config.fq_split_disk).rv()
+        chr_bam_ids.append(chr_bam_id)
 
+    return chr_bam_ids
+
+def run_merge_chrom_bam(job, context, sample_name, chr_name, chunk_file_ids):
+    """
+    Make a chromosome bam by merging up a bunch of bam ids, one 
+    for each  shard.  
+    """
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
 
-    # Download our chunk files
-    chunk_paths = [os.path.join(work_dir, 'chunk_{}.bam'.format(i)) for i in range(len(flat_ids))]
-    for i, bam_chunk_file_id in enumerate(flat_ids):
-        job.fileStore.readGlobalFile(bam_chunk_file_id, chunk_paths[i])
+    output_file = os.path.join(work_dir, '{}_{}.bam'.format(sample_name, chr_name))
 
-    # todo: option to give name
-    surject_path = os.path.join(work_dir, '{}.bam'.format(output_name))
+    assert(len(chunk_file_ids) >= 1)
 
-    cmd = ['samtools', 'cat'] + [os.path.basename(chunk_path) for chunk_path in chunk_paths]
-    cmd += ['-o', os.path.basename(surject_path)]
+    if len(chunk_file_ids) > 1:
+        # Would be nice to be able to do this merge with fewer copies.. 
+        with open(output_file, 'ab') as merge_file:
+            for chunk_bam_id in chunk_file_ids:
+                tmp_bam_file = os.path.join(work_dir, 'tmp_{}.bam'.format(uuid4()))
+                job.fileStore.readGlobalFile(chunk_bam_id, tmp_bam_file)
+                with open(tmp_bam_file, 'rb') as tmp_f:
+                    shutil.copyfileobj(tmp_f, merge_file)
 
-    context.runner.call(job, cmd, work_dir = work_dir)
-
-    return context.write_output_file(job, surject_path)
+    # checkpoint to out store
+    if len(chunk_file_ids) == 1:
+        job.fileStore.readGlobalFile(chunk_file_ids[0], output_file)
+    return context.write_output_file(job, output_file)
 
 def surject_main(context, options):
     """
