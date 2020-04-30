@@ -654,12 +654,8 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
         job.fileStore.readGlobalFile(indexes['id_ranges'], id_ranges_file)
         
-        if bam_output is False:
-            # Chunk the gam up by chromosome
-            gam_chunks = split_gam_into_chroms(job, work_dir, context, index_files['xg'], id_ranges_file, output_file)
-        else:
-            # Output is in bam format. Chunk the bam up by chromosome
-            gam_chunks = split_bam_into_chroms(job, work_dir, context, id_ranges_file, output_file)
+        # Chunk the gam up by chromosome
+        gam_chunks = split_gam_into_chroms(job, work_dir, context, index_files['xg'], id_ranges_file, output_file)
         
         # Write gam_chunks to store
         gam_chunk_ids = []
@@ -671,42 +667,6 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         # We can just report one chunk of everything
         return [context.write_intermediate_file(job, output_file)], run_time
 
-def split_bam_into_chroms(job, work_dir, context, id_ranges_file, bam_file):
-    """
-    Create a sorted BAM index then use it to split up the given bam file
-    into a separate bam for each chromosome.  
-    Return a list of filenames.  the ith filename will correspond
-    to the ith path in the id_ranges_file list
-    """
-    
-    # extract contig names from id ranges file
-    contig_names = []
-    with open(id_ranges_file) as in_ranges:
-        for line in in_ranges:
-            contig_names.append(line.strip().split()[0])
-    
-    # Sort the BAM
-    output_sorted = bam_file + '.sorted.bam'
-    output_index = output_sorted + '.bai'
-    sort_cmd = ['samtools', 'sort', '--threads', str(context.config.alignment_cores), '-O', 'BAM',
-        os.path.basename(bam_file)]
-    with open(output_sorted, 'wb') as sorted_file:
-        context.runner.call(job, sort_cmd, work_dir = work_dir, tool_name='samtools', outfile = sorted_file)
-    index_cmd = ['samtools', 'index', os.path.basename(output_sorted)]
-    context.runner.call(job, sort_cmd, work_dir = work_dir, tool_name='samtools')
-    
-    # Chunk sorted BAMs by contigs as given in the order of the id ranges file
-    bam_chunks = []
-    for contig in contig_names:
-        chunk_cmd = ['samtools', 'view', '-@', str(context.config.alignment_cores),
-            '-h', '-O', 'BAM', os.path.basename(output_sorted), str(contig)]
-        bam_chunk = "{}_{}.bam".format(os.path.basename(output_sorted), str(contig))
-        with open(bam_chunk, 'wb') as bam_chunk_file:
-            context.runner.call(job, chunk_cmd, work_dir = work_dir, tool_name='samtools', outfile = bam_chunk_file)
-        bam_chunks.append(os.path.join(work_dir, os.path.basename(bam_chunk)))
-    
-    return bam_chunks
-    
 def split_gam_into_chroms(job, work_dir, context, xg_file, id_ranges_file, gam_file):
     """
     Create a sorted GAM index then use it to split up the given gam file
