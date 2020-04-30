@@ -113,7 +113,7 @@ def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, x
         bam_chunk_file_ids.append(chunk_surject_job.rv(0))
         bam_chunk_running_times.append(chunk_surject_job.rv(1))
 
-    return child_job.addFollowOnJobFn(run_merge_bams, output_name, context, bam_chunk_file_ids,
+    return child_job.addFollowOnJobFn(run_merge_bams, context, output_name, bam_chunk_file_ids,
                                       cores=context.config.misc_cores,
                                       memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
 
@@ -184,13 +184,11 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
     return [context.write_intermediate_file(job, output_file)], run_time
 
 
-def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
+def run_merge_bams(job, context, output_name, bam_chunk_file_ids):
     """
     Merge together bams.
     
     Takes a list of lists of BAM file IDs to merge.
-    
-    TODO: Context ought to always be the second argument, after job.
     """
     
     # First flatten the list of lists
@@ -199,7 +197,7 @@ def run_merge_bams(job, output_name, context, bam_chunk_file_ids):
     # How much disk do we think we will need to have the merged and unmerged copies of these BAMs?
     # Make sure we have it
     
-    requeue_promise = ensure_disk(job, run_merge_bams, [output_name, context, bam_chunk_file_ids], {},
+    requeue_promise = ensure_disk(job, run_merge_bams, [context, output_name, bam_chunk_file_ids], {},
         flat_ids, factor=2)
     if requeue_promise is not None:
         # We requeued ourselves with more disk to accomodate our inputs

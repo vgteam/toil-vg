@@ -865,8 +865,8 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
     #expect result of form node-id-range <tab> first:last
     command = ['vg', 'stats', '--node-id-range', os.path.basename(graph_filename)]
     stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
-    assert stats_out[0] == 'node-id-range'
-    first, last = stats_out[1].split(':')
+    assert stats_out[0].decode('ascii') == 'node-id-range'
+    first, last = stats_out[1].split(b':')
 
     return chrom, first, last
     
@@ -880,7 +880,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 
     with open(id_range_filename, 'wb') as f:
         for id_range in id_ranges:
-            f.write('{}\t{}\t{}\n'.format(*id_range))
+            f.write('{}\t{}\t{}\n'.format(*id_range).encode())
 
     # Checkpoint index to output store
     return context.write_output_file(job, id_range_filename)

@@ -545,8 +545,18 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
         command = ['gatk', 'GenotypeGVCFs',
                     '--reference', os.path.basename(ref_fasta_path),
                     '--variant', '{}_trio.combined.gvcf'.format(sample_name),
-                    '--output', '{}_trio.jointgenotyped.vcf'.format(sample_name)]
+                    '--output', '{}_trio.jointgenotyped.unnormalized.vcf'.format(sample_name)]
         context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
+        command = ['bcftools', 'norm', '-m-both', '--threads', job.cores,
+                        '-o', '{}_trio.jointgenotyped.bcftools_normalized.vcf'.format(sample_name), '{}_trio.jointgenotyped.unnormalized.vcf'.format(sample_name)]
+        context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools')
+        context.runner.call(job, ['gatk', 'SelectVariants',
+                                    '-R', os.path.basename(ref_fasta_path),
+                                    '--remove-unused-alternates',
+                                    '--exclude-non-variants',
+                                    '-V', '{}_trio.jointgenotyped.bcftools_normalized.vcf'.format(sample_name),
+                                    '-O', '{}_trio.jointgenotyped.vcf'.format(sample_name)],
+                            work_dir = work_dir, tool_name='gatk')
         context.runner.call(job, ['bgzip', '{}_trio.jointgenotyped.vcf'.format(sample_name)],
                             work_dir = work_dir, tool_name='vg')
         context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_trio.jointgenotyped.vcf.gz'.format(sample_name)], work_dir=work_dir)
@@ -774,7 +784,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                                     inputFastaNames, input_vcf_job.rv(),
                                                     max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=False, regions=contigs_list,
                                                     merge_graphs=False, sort_ids=True, join_ids=True,
-                                                    wanted_indexes=['xg','gcsa','gbwt'], gbwt_prune=True)
+                                                    wanted_indexes=['xg','gcsa','gbwt','id_ranges'], gbwt_prune=True)
     
     return construct_job.rv()
 

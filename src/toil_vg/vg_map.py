@@ -453,8 +453,9 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     else:
         gam_chrom_ids = []
         gam_chunk_time = None
-        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, sample_name, context, bam_chunk_file_ids)
-        bam_chrom_ids = [merge_bams_job.rv()]
+        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, sample_name, bam_chunk_file_ids)
+        split_bams_job = merge_bams_job.addFollowOnJobFn(split_bam_into_chroms, context, indexes.get('id_ranges'), merge_bams_job.rv())
+        bam_chrom_ids = split_bams_job.rv()
 
     if surject:
         interleaved_surject = interleaved or (fastq and len(fastq) == 2)
@@ -535,8 +536,11 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         reads_files.append(reads_file)
     
     # And a temp file for our aligner output
-    output_file = os.path.join(work_dir, "{}_{}.gam".format(sample_name, chunk_id))
-
+    if bam_output is False:
+        output_file = os.path.join(work_dir, "{}_{}.gam".format(sample_name, chunk_id))
+    else:
+        output_file = os.path.join(work_dir, "{}_{}.bam".format(sample_name, chunk_id))
+    
     # Open the file stream for writing
     with open(output_file, 'wb') as alignment_file:
 
@@ -644,7 +648,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
     RealtimeLogger.info("Aligned {}. Process took {} seconds with {} vg-{}".format(
         output_file, run_time, 'paired-end' if paired_end else 'single-end', mapper))
 
-    if 'id_ranges' in indexes:
+    if 'id_ranges' in indexes and bam_output is False:
         # Break GAM into multiple chunks at the end. So we need the file
         # defining those chunks.
         id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
@@ -659,7 +663,6 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             gam_chunk_ids.append(context.write_intermediate_file(job, gam_chunk))
 
         return gam_chunk_ids, run_time
-        
     else:
         # We can just report one chunk of everything
         return [context.write_intermediate_file(job, output_file)], run_time
@@ -783,6 +786,51 @@ def run_merge_chrom_gam(job, context, sample_name, chr_name, chunk_file_ids):
     if len(chunk_file_ids) == 1:
         job.fileStore.readGlobalFile(chunk_file_ids[0], output_file)
     return context.write_output_file(job, output_file)
+
+def split_bam_into_chroms(job, context, id_ranges_file_id, bam_file_id):
+    """ 
+    Create a sorted BAM index then use it to split up the given bam file
+    into a separate bam for each chromosome.  
+    Return a list of filenames.  the ith filename will correspond
+    to the ith path in the id_ranges_file list
+    """
+    
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # Download input files
+    id_ranges_file = os.path.join(work_dir, 'id_ranges.tsv')
+    bam_file = os.path.join(work_dir, 'merged.bam')
+    job.fileStore.readGlobalFile(id_ranges_file_id, id_ranges_file)
+    job.fileStore.readGlobalFile(bam_file_id, bam_file)
+    
+    # extract contig names from id ranges file
+    contig_names = []
+    with open(id_ranges_file) as in_ranges:
+        for line in in_ranges:
+            contig_names.append(line.strip().split()[0])
+    
+    # Sort the BAM
+    output_sorted = bam_file + '.sorted.bam'
+    output_index = output_sorted + '.bai'
+    sort_cmd = ['samtools', 'sort', '--threads', str(context.config.alignment_cores), '-O', 'BAM',
+        os.path.basename(bam_file)]
+    with open(output_sorted, 'wb') as sorted_file:
+        context.runner.call(job, sort_cmd, work_dir = work_dir, tool_name='samtools', outfile = sorted_file)
+    index_cmd = ['samtools', 'index', os.path.basename(output_sorted)]
+    context.runner.call(job, index_cmd, work_dir = work_dir, tool_name='samtools')
+    
+    # Chunk sorted BAMs by contigs as given in the order of the id ranges file
+    bam_chunk_ids = []
+    for contig in contig_names:
+        chunk_cmd = ['samtools', 'view', '-@', str(context.config.alignment_cores),
+            '-h', '-O', 'BAM', os.path.basename(output_sorted), str(contig)]
+        bam_chunk = os.path.join(work_dir, "{}_{}.bam".format(os.path.basename(output_sorted), str(contig)))
+        with open(bam_chunk, 'wb') as bam_chunk_file:
+            context.runner.call(job, chunk_cmd, work_dir = work_dir, tool_name='samtools', outfile = bam_chunk_file)
+        bam_chunk_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, os.path.basename(bam_chunk))))
+    
+    return bam_chunk_ids
 
 def map_main(context, options):
     """
