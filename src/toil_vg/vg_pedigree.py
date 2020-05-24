@@ -317,12 +317,13 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
     command = ['samtools', 'index', '{}_positionsorted.mdtag.bam'.format(sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    command = ['java', '-Xmx{}g'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
+    logger.debug("DEBUG MARKDUPLICATES RESOURCES. job.memory : {}".format(job.memory))
+    command = ['java', '-Xmx{}g'.format(int(float(job.memory)/2000000000)), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
-    command = ['java', '-Xmx{}g'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
+    command = ['java', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
                 'VALIDATION_STRINGENCY=LENIENT', 'REFERENCE_SEQUENCE={}'.format(os.path.basename(ref_fasta_path)), 'SEQUENCE_DICTIONARY={}'.format(os.path.basename(ref_fasta_dict_path)),
                 'INPUT={}.mdtag.dupmarked.bam'.format(sample_name), 'OUTPUT={}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='picard')
@@ -367,12 +368,12 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
                               'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
                               ' -b /staging/helix/{}/{}_surjected_bams/{}'.format(udp_data_dir_path, sample_name, bam_name) +
                               ' --verbose --bin_memory=50000000000 --enable-map-align false --enable-variant-caller true' +
-                              ' --pair-by-name=true --vc-emit-ref-confidence GVCF --vc-sample-name {}'.format(sample_name) +
+                              ' --pair-by-name=true --vc-emit-ref-confidence GVCF' +
                               ' --intermediate-results-dir {} --output-directory {} --output-file-prefix {}_dragen_genotyped'.format(tmp_dir_path, dragen_work_dir_path, sample_name) +
                               '\"'])
     cmd_list.append(['mkdir', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
     cmd_list.append(['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"cp -R {}/. /staging/helix/{}/{}_dragen_genotyper \"'.format(dragen_work_dir_path, udp_data_dir_path, sample_name)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"cp -R {} /staging/helix/{}/{}_dragen_genotyper \"'.format(dragen_work_dir_path, udp_data_dir_path, sample_name)])
     cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"rm -fr {}/\"'.format(dragen_work_dir_path)])
     cmd_list.append(['mv', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_genotyper'.format(sample_name)])
     cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_bam_path, bam_name)])
@@ -452,8 +453,10 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
             processed_bam_ids.append(call_job.rv(2))
     else:
         for chr_bam_id in chr_bam_ids:
+            logger.debug("DEBUG OUTSIDE MARKDUPLICATES RESOURCES. context.config.alignment_mem : {}".format(context.config.alignment_mem))
+            logger.debug("DEBUG OUTSIDE MARKDUPLICATES RESOURCES. processed job.memory : {}G".format(int(re.findall(r'\d+', context.config.alignment_mem)[0])*2))
             process_bam_job = child_job.addChildJobFn(run_process_chr_bam, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                            cores=context.config.alignment_cores, memory="{}".format(context.config.alignment_mem), disk="{}".format(context.config.alignment_disk))
+                                                            cores=context.config.alignment_cores, memory="{}G".format(int(re.findall(r'\d+', context.config.alignment_mem)[0])*2), disk="{}G".format(int(re.findall(r'\d+', context.config.alignment_disk)[0])*4)) 
             processed_bam_ids.append(process_bam_job.rv())
     
     # Run merging of crhomosomal bams
@@ -597,7 +600,7 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
                                   work_dir = work_dir)
         context.runner.call(job, ['mkdir', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)], work_dir = work_dir)
         context.runner.call(job, ['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"cp -R {}/. /staging/helix/{}/{}_dragen_joint_genotyper \"'.format(joint_genotype_dragen_work_dir_path, udp_data_dir_path, sample_name)], work_dir = work_dir)
+        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"cp -R {} /staging/helix/{}/{}_dragen_joint_genotyper \"'.format(joint_genotype_dragen_work_dir_path, udp_data_dir_path, sample_name)], work_dir = work_dir)
         context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"rm -fr {}/\"'.format(joint_genotype_dragen_work_dir_path)], work_dir = work_dir)
         context.runner.call(job, ['mv', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_joint_genotyper'.format(sample_name)], work_dir = work_dir)
         context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(maternal_gvcf_path))], work_dir = work_dir)
