@@ -1051,7 +1051,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 disk=context.config.misc_disk)
     # Dragen calling depends on previous call execution
     if options.run_dragen:
-        proband_calling_job.addChild(maternal_calling_job)
+        proband_calling_job.addFollowOn(maternal_calling_job)
     
     # Define the paternal alignment and variant calling jobs
     paternal_mapping_job = stage1_jobs.addChildJobFn(run_mapping, context, fastq_paternal,
@@ -1073,7 +1073,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 disk=context.config.misc_disk)
     # Dragen calling depends on previous call execution
     if options.run_dragen:
-        maternal_calling_job.addChild(paternal_calling_job)
+        maternal_calling_job.addFollowOn(paternal_calling_job)
     
     joint_calling_job = stage2_jobs.addChildJobFn(run_joint_genotyper, context, proband_name,
                                 proband_calling_job.rv(2), proband_calling_job.rv(3),
@@ -1171,10 +1171,10 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
             # Dragen calling depends on previous call execution
             if options.run_dragen:
                 if sibling_number == 0:
-                    proband_parental_calling_job.addChild(sibling_calling_job_dict[sibling_name])
+                    proband_parental_calling_job.addFollowOn(sibling_calling_job_dict[sibling_name])
                 else:
                     previous_sibling_name = siblings_names[sibling_number-1]
-                    sibling_calling_job_dict[previous_sibling_name].addChild(sibling_calling_job_dict[sibling_name])
+                    sibling_calling_job_dict[previous_sibling_name].addFollowOn(sibling_calling_job_dict[sibling_name])
             
             # Extract outputs
             sibling_mapping_chr_bam_ids.append(sibling_calling_job_dict[sibling_name].rv(4))
