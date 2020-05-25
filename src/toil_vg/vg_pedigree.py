@@ -361,9 +361,9 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
     cmd_list = []
     cmd_list.append(['mkdir', '-p', udp_data_bam_path])
     cmd_list.append(['cp', str(bam_path), udp_data_bam_path])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"mkdir -p {}\"'.format(dragen_work_dir_path)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"mkdir -p {}\"'.format(tmp_dir_path)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51',
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(dragen_work_dir_path)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(tmp_dir_path)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username),
                               '\"' +
                               'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
                               ' -b /staging/helix/{}/{}_surjected_bams/{}'.format(udp_data_dir_path, sample_name, bam_name) +
@@ -373,8 +373,8 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
                               '\"'])
     cmd_list.append(['mkdir', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
     cmd_list.append(['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"cp -R {} /staging/helix/{}/{}_dragen_genotyper \"'.format(dragen_work_dir_path, udp_data_dir_path, sample_name)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"rm -fr {}/\"'.format(dragen_work_dir_path)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_genotyper \"'.format(dragen_work_dir_path, udp_data_dir_path, sample_name)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(dragen_work_dir_path)])
     cmd_list.append(['mv', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_genotyper'.format(sample_name)])
     cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_bam_path, bam_name)])
     cmd_list.append(['rmdir', '{}'.format(udp_data_bam_path)])
@@ -585,9 +585,9 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
                 command += [os.path.basename(sibling_gvcf_path)]
         command += [udp_data_gvcf_path]
         context.runner.call(job, command, work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"mkdir -p {}\"'.format(joint_genotype_dragen_work_dir_path)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"mkdir -p {}\"'.format(tmp_dir_path)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51',
+        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(joint_genotype_dragen_work_dir_path)], work_dir = work_dir)
+        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(tmp_dir_path)], work_dir = work_dir)
+        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username),
                                   '\"' +
                                   'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
                                   ' --enable-joint-genotyping true --intermediate-results-dir {}'.format(tmp_dir_path) +
@@ -600,8 +600,8 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
                                   work_dir = work_dir)
         context.runner.call(job, ['mkdir', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)], work_dir = work_dir)
         context.runner.call(job, ['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"cp -R {} /staging/helix/{}/{}_dragen_joint_genotyper \"'.format(joint_genotype_dragen_work_dir_path, udp_data_dir_path, sample_name)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '165.112.174.51', '\"rm -fr {}/\"'.format(joint_genotype_dragen_work_dir_path)], work_dir = work_dir)
+        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_joint_genotyper \"'.format(joint_genotype_dragen_work_dir_path, udp_data_dir_path, sample_name)], work_dir = work_dir)
+        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(joint_genotype_dragen_work_dir_path)], work_dir = work_dir)
         context.runner.call(job, ['mv', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_joint_genotyper'.format(sample_name)], work_dir = work_dir)
         context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(maternal_gvcf_path))], work_dir = work_dir)
         context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(paternal_gvcf_path))], work_dir = work_dir)
