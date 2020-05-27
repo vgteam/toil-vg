@@ -383,7 +383,7 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
     context.runner.call(job, command, work_dir = work_dir)
     
     # Write output to intermediate store
-    out_gvcf_file = os.path.join(work_dir, '{}_dragen_genotyper/{}_dragen_genotyped.hard-filtered.gvcf.gz'.format(sample_name, sample_name))
+    out_gvcf_file = os.path.join(work_dir, '{}_dragen_genotyper/{}/{}_dragen_genotyped.hard-filtered.gvcf.gz'.format(sample_name, sample_name, sample_name))
     if write_to_outstore:
         processed_gvcf_file_id = context.write_output_file(job, out_gvcf_file)
         processed_gvcf_index_file_id = context.write_output_file(job, out_gvcf_file + '.tbi')
@@ -611,7 +611,7 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
                 sibling_gvcf_path = os.path.join(work_dir, os.path.basename(sibling_gvcf_id))
                 context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(sibling_gvcf_path))], work_dir = work_dir)
         context.runner.call(job, ['rmdir', '{}'.format(udp_data_gvcf_path)], work_dir = work_dir)
-        out_file = os.path.join(work_dir, '{}_dragen_joint_genotyper/cohort_joint_genotyped_{}.vcf.gz'.format(sample_name, sample_name))
+        out_file = os.path.join(work_dir, '{}_dragen_joint_genotyper/output_cohort_joint_call_{}/cohort_joint_genotyped_{}.vcf.gz'.format(sample_name, sample_name, sample_name))
     
     if snpeff_annotation:
         joint_vcf_file_id = context.write_intermediate_file(job, out_file)
