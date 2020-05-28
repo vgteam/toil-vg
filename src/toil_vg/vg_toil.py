@@ -199,9 +199,9 @@ def validate_pipeline_options(options):
     require(sum([1 if x else 0 for x in [options.fastq, options.gam_input_reads, options.bam_input_reads]]) == 1,
             'reads must be speficied with either --fastq or --gam_input_reads or --bam_input_reads')
             
-    # TODO: to support gaffe here we need to add code to load its indexes from
+    # TODO: to support giraffe here we need to add code to load its indexes from
     # the options and thread them through our indexing stage.
-    require(options.mapper != 'gaffe', 'gaffe mapper is not yet supported by toil-vg run')
+    require(options.mapper != 'giraffe', 'giraffe mapper is not yet supported by toil-vg run')
 
     
 # Below are the top level jobs of the toil_vg pipeline.  They
