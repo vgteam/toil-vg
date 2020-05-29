@@ -24,6 +24,7 @@ from toil_vg.vg_map import *
 from toil_vg.vg_surject import *
 from toil_vg.vg_config import *
 from toil_vg.vg_construct import *
+from toil_vg.vg_index import index_parse_args
 from toil_vg.context import Context, run_write_info_to_outstore
 
 logger = logging.getLogger(__name__)
@@ -107,14 +108,18 @@ def pedigree_subparser(parser):
                         help="Input reads of sibling(s) in BAM format. Must follow same order as input to\
                             --sibling_names argument.")
     
-    # Add common options shared with everybody
-    add_common_vg_parse_args(parser)
+
+    # Add common indexing options shared with vg_index
+    index_parse_args(parser)
 
     # Add mapping index options
     map_parse_index_args(parser)
 
     # Add pedigree options shared only with map
     pedigree_parse_args(parser)
+    
+    # Add common options shared with everybody
+    add_common_vg_parse_args(parser)
     
     # Add common docker options
     add_container_tool_parse_args(parser)
@@ -413,7 +418,7 @@ def run_merge_bams_ped_workflow(job, context, sample_name, bam_ids, indel_realig
         out_file = os.path.join(work_dir, '{}_merged.indel_realigned.bam'.format(sample_name))
     
     command = ['samtools', 'merge', '-f', '-p', '-c', '--threads', job.cores,
-                    os.path.basename(out_file), ' '.join(bam_paths)]
+                    os.path.basename(out_file)] + bam_paths
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['samtools', 'index', os.path.basename(out_file)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')

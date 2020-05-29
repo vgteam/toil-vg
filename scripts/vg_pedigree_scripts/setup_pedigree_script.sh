@@ -149,8 +149,8 @@ if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
 --batchSystem slurm \\
---statePollingWait 60 \\
---rescueJobsFrequency 60 \\
+--statePollingWait 30 \\
+--rescueJobsFrequency 30 \\
 --container Singularity \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
@@ -174,11 +174,13 @@ ${PATERNAL_SAMPLE_NAME} \\
 --xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.xg \\
 --gcsa_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gcsa \\
 --gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gbwt \\
+--id_ranges ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --ped_file ${TRIO_PEDIGREE_FILE} \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
+--force_phasing True \\
 --indel_realign_bams \\
 --snpeff_annotation \\
 --run_dragen \\
@@ -189,8 +191,8 @@ else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
 --batchSystem slurm \\
---statePollingWait 60 \\
---rescueJobsFrequency 60 \\
+--statePollingWait 30 \\
+--rescueJobsFrequency 30 \\
 --container Singularity \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
@@ -212,11 +214,13 @@ ${PATERNAL_SAMPLE_NAME} \\
 --xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_chr21.xg \\
 --gcsa_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_chr21.gcsa \\
 --gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_chr21.gbwt \\
+--id_ranges ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --ped_file ${TRIO_PEDIGREE_FILE} \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
+--force_phasing True \\
 --indel_realign_bams \\
 --snpeff_annotation \\
 --run_dragen \\

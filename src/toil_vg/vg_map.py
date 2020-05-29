@@ -453,8 +453,12 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
     else:
         gam_chrom_ids = []
         gam_chunk_time = None
-        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, sample_name, bam_chunk_file_ids)
-        split_bams_job = merge_bams_job.addFollowOnJobFn(split_bam_into_chroms, context, indexes.get('id_ranges'), merge_bams_job.rv())
+        merge_bams_job = child_job.addFollowOnJobFn(run_merge_bams, context, sample_name, bam_chunk_file_ids,
+                                                        cores=context.config.misc_cores,
+                                                        memory=context.config.misc_mem, disk=context.config.misc_disk)
+        split_bams_job = merge_bams_job.addFollowOnJobFn(split_bam_into_chroms, context, indexes.get('id_ranges'), merge_bams_job.rv(),
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem,
+                                                            disk=context.config.alignment_disk)
         bam_chrom_ids = split_bams_job.rv()
 
     if surject:

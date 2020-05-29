@@ -5,12 +5,14 @@ vg_index.py: index a graph so it can be mapped to
 """
 
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
-import doctest, re, json, collections, time, timeit, distutils
+import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
 import string
 import getpass
 import pdb
 import logging
+
+from distutils import util
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -120,7 +122,7 @@ def index_parse_args(parser):
                         help="Use given GBWT for GCSA2 pruning")
     parser.add_argument("--gbwt_prune", action='store_true',
                         help="Use gbwt for gcsa pruning")
-    parser.add_argument("--force_phasing", type=lambda x:bool(distutils.util.strtobool(x)), default=None,
+    parser.add_argument("--force_phasing", type=lambda x:bool(util.strtobool(x)), default=None,
                         help="If 'True', randomly phase unphased variants and discard unresolveable overlaps for GBWT")
                         
 def validate_index_options(options):
