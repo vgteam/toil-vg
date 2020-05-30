@@ -775,7 +775,10 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                                     maternal_bam_id, maternal_bam_index_id,
                                                     paternal_bam_id, paternal_bam_index_id,
                                                     ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                    ped_file_id, genetic_map_id)
+                                                    ped_file_id, genetic_map_id,
+                                                    cores=context.config.misc_cores,
+                                                    memory=context.config.alignment_mem,
+                                                    disk=context.config.alignment_disk)
         phased_vcf_ids.append(phasing_job.rv(0))
         phased_vcf_index_ids.append(phasing_job.rv(1))
     
