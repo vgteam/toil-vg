@@ -707,6 +707,13 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     ped_file_path = os.path.join(work_dir, os.path.basename(ped_file_id))
     job.fileStore.readGlobalFile(ped_file_id, ped_file_path)
     
+    # Run trio-based mendelian correction
+    context.runner.call(job, ['gatk', '--java-options', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), 'IndexFeatureFile', '-F', os.path.basename(contig_vcf_path)], work_dir = work_dir, tool_name='gatk')
+    context.runner.call(job, ['gatk', '--java-options', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), 'CalculateGenotypePosteriors', 
+                              '-V', os.path.basename(contig_vcf_path),
+                              '-O', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
+                              '-ped', os.path.basename(ped_file_path), '--skip-population-priors'], work_dir = work_dir, tool_name='gatk')
+    # Run phasing
     command = ['whatshap', 'phase', '--reference', os.path.basename(ref_fasta_path), '--indels', '--ped', os.path.basename(ped_file_path)]
     
     if bool(genetic_map_id) == True:
@@ -718,7 +725,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
         elif contig_name == 'X':
             command += ['--genmap', 'genetic_map_GRCh37/genetic_map_chrX_nonPAR_combined_b37.txt', '--chromosome', 'X']
 
-    command += ['-o', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name), os.path.basename(contig_vcf_path),
+    command += ['-o', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name), '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
                     proband_bam_name, maternal_bam_name, paternal_bam_name]
     context.runner.call(job, command, work_dir = work_dir, tool_name='whatshap')
     context.runner.call(job, ['bgzip', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name)], work_dir = work_dir, tool_name='whatshap')
@@ -820,7 +827,7 @@ def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff
     context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools')
     command = ['unzip', os.path.basename(snpeff_database_file_path)]
     context.runner.call(job, command, work_dir = work_dir)
-    command = ['snpEff', '-Xmx{}'.format(job.memory), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
+    command = ['snpEff', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
                     '-dataDir', '$PWD/data',
                     'GRCh37.75', '{}.unrolled.vcf'.format(cohort_name)]
     with open(os.path.join(work_dir, '{}.snpeff.unrolled.vcf'.format(cohort_name)), 'wb') as output_snpeff_vcf:
