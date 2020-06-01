@@ -964,7 +964,7 @@ def ensure_disk(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8,
         # Disk we have is OK
         return None
        
-def ensure_mem(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8, padding=1024 ** 3):
+def ensure_memory(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8, padding=1024 ** 3):
     """
     Ensure that the currently running job has enough memory to load all the given
     file IDs (passed as any number of lists of file IDs) into memory factor
@@ -984,26 +984,26 @@ def ensure_mem(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8, 
     
     # We need to compute the total size of our inputs, expected intermediates,
     # and outputs, and re-queue ourselves if we don't have enough mem.
-    required_mem = 0
+    required_memory = 0
     
     for file_id in file_id_list:
         # For each file in the collection
         # Say we need space for it
-        required_mem += file_id.size
+        required_memory += file_id.size
     
     
     # Multiply out for intermediates and results
     # TODO: Allow different factors for different file IDs
     # We only need to multiply e.g. BAM files, not indexes
-    required_mem *= factor
+    required_memory *= factor
    
     # Add some padding
-    required_mem += padding
+    required_memory += padding
         
-    if job.mem < required_mem:
-        # Re-queue with more mem
-        RealtimeLogger.info("Re-queueing job with {} bytes of mem; originally had {}".format(required_mem, job.mem))
-        requeued = job.addChildJobFn(job_fn, *job_fn_args, cores=job.cores, memory=job.memory, mem=required_mem, **job_fn_kwargs)
+    if job.memory < required_memory:
+        # Re-queue with more memory
+        RealtimeLogger.info("Re-queueing job with {} bytes of memory; originally had {}".format(required_memory, job.memory))
+        requeued = job.addChildJobFn(job_fn, *job_fn_args, cores=job.cores, memory=required_memory, disk=job.disk, **job_fn_kwargs)
         return requeued.rv()
     else:
         # Disk we have is OK

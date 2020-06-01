@@ -486,7 +486,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
    
     # This runs for single contigs with gbwt_index_mem which has been too low.
     # Hack it to be more
-    requeue_promise = ensure_mem(job, run_xg_indexing,
+    requeue_promise = ensure_memory(job, run_xg_indexing,
         [context, inputGraphFileIDs, graph_names, index_name],
         {"vcf_phasing_file_id":  vcf_phasing_file_id,
          "tbi_phasing_file_id": tbi_phasing_file_id,
