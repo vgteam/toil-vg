@@ -483,7 +483,24 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     If intermediate is set to true, do not save the produced files to the
     output store.
     """
-    
+   
+    # This runs for single contigs with gbwt_index_mem which has been too low.
+    # Hack it to be more
+    requeue_promise = ensure_mem(job, run_xg_indexing,
+        [context, inputGraphFileIDs, graph_names, index_name],
+        {"vcf_phasing_file_id":  vcf_phasing_file_id,
+         "tbi_phasing_file_id": tbi_phasing_file_id,
+         "make_gbwt": make_gbwt,
+         "gbwt_regions": gbwt_regions,
+         "intermediate": intermediate,
+         "include_alt_paths": include_alt_paths},
+        inputGraphFileIDs,
+        factor=1,
+        padding=max(context.config.gbwt_index_mem, 64 * 1024**3))
+    if requeue_promise is not None:
+        # We requeued ourselves with more memory to accomodate our inputs
+        return requeue_promise
+   
     RealtimeLogger.info("Starting xg indexing...")
     start_time = timeit.default_timer()
     

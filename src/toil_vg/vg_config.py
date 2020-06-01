@@ -333,7 +333,7 @@ xg-index-disk: '100G'
 
 # Resources allotted for xg indexing by chromosome (used for GBWT).
 gbwt-index-cores: 4
-gbwt-index-mem: '35G'
+gbwt-index-mem: '64G'
 gbwt-index-disk: '100G'
 gbwt-index-preemptable: True
 

@@ -963,7 +963,52 @@ def ensure_disk(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8,
     else:
         # Disk we have is OK
         return None
+       
+def ensure_mem(job, job_fn, job_fn_args, job_fn_kwargs, file_id_list, factor=8, padding=1024 ** 3):
+    """
+    Ensure that the currently running job has enough memory to load all the given
+    file IDs (passed as any number of lists of file IDs) into memory factor
+    times, plus padding.
+    
+    Takes the job, the function that is the job, the list of arguments passed
+    in (except the job object), the dict of keyword args passed in, and then
+    a file ID list or iterable.
+    
+    If there is not enough memory, re-queues the job with more memory, and returns
+    the promise for the result.
+    
+    If there is enough memory, returns None
+    
+    TODO: Convert to promised requirements if it is sufficiently expressive.
+    """
+    
+    # We need to compute the total size of our inputs, expected intermediates,
+    # and outputs, and re-queue ourselves if we don't have enough mem.
+    required_mem = 0
+    
+    for file_id in file_id_list:
+        # For each file in the collection
+        # Say we need space for it
+        required_mem += file_id.size
+    
+    
+    # Multiply out for intermediates and results
+    # TODO: Allow different factors for different file IDs
+    # We only need to multiply e.g. BAM files, not indexes
+    required_mem *= factor
+   
+    # Add some padding
+    required_mem += padding
         
+    if job.mem < required_mem:
+        # Re-queue with more mem
+        RealtimeLogger.info("Re-queueing job with {} bytes of mem; originally had {}".format(required_mem, job.mem))
+        requeued = job.addChildJobFn(job_fn, *job_fn_args, cores=job.cores, memory=job.memory, mem=required_mem, **job_fn_kwargs)
+        return requeued.rv()
+    else:
+        # Disk we have is OK
+        return None
+       
 def run_concat_files(job, context, file_ids, dest_name=None, header=None):
     """
     Utility job to concatenate some files. Returns the concatenated file ID.
