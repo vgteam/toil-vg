@@ -585,7 +585,10 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     
     # Concatenate the graph files.
     vg_concat_job = child_job.addChildJobFn(run_combine_graphs, context, inputGraphFileIDs,
-                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat))
+                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat),
+                                            cores=job.cores,
+                                            memory=job.memory,
+                                            disk=job.disk)
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
                                       context, [vg_concat_job.rv(0)],
