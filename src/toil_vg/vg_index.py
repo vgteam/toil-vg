@@ -874,13 +874,19 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
     graph_filename = os.path.join(work_dir, graph_name)
     job.fileStore.readGlobalFile(graph_id, graph_filename)
 
-    #run vg stats
-    #expect result of form node-id-range <tab> first:last
-    command = ['vg', 'stats', '--node-id-range', os.path.basename(graph_filename)]
-    stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
-    assert stats_out[0] == 'node-id-range'
-    first, last = stats_out[1].split(':')
-
+    try:
+        #run vg stats
+        #expect result of form node-id-range <tab> first:last
+        command = ['vg', 'stats', '--node-id-range', os.path.basename(graph_filename)]
+        stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
+        assert stats_out[0] == 'node-id-range', "Bad stats output: {}".format(stats_out)
+        first, last = stats_out[1].split(':')
+    except:
+        # Dump everything we need to replicate the indexing
+        logging.error("ID range determination failed. Dumping files.")
+        context.write_output_file(job, graph_filename)
+        raise
+    
     return chrom, first, last
     
 def run_merge_id_ranges(job, context, id_ranges, index_name):
