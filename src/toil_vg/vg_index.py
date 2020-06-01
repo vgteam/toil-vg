@@ -878,7 +878,7 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
         #run vg stats
         #expect result of form node-id-range <tab> first:last
         command = ['vg', 'stats', '--node-id-range', os.path.basename(graph_filename)]
-        stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
+        stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).decode('utf-8').strip().split()
         assert stats_out[0] == 'node-id-range', "Bad stats output: {}".format(stats_out)
         first, last = stats_out[1].split(':')
     except:
