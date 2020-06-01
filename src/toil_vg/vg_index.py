@@ -383,6 +383,14 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
     
     """
     
+    # Work out the file name we want to report
+    concatenated_basename = "{}.cat.vg".format(index_name)
+    
+    if intermediate and len(inputGraphFileIDs) == 1:
+        # No actual combining to do!
+        RealtimeLogger.info("Skipping VG graph merge for {}".format(concatenated_basename))
+        return (inputGraphFileIDs[0], concatenated_basename)
+    
     requeue_promise = ensure_disk(job, run_combine_graphs,
         [context, inputGraphFileIDs, graph_names, index_name],
         {"intermediate": intermediate}, inputGraphFileIDs, factor=2)
@@ -419,9 +427,6 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
         # Keep the filename
         filenames.append(filename)
         
-    # Work out the file name we want to report
-    concatenated_basename = "{}.cat.vg".format(index_name)
-    
     # Run vg to combine into that file
     cmd = ['vg', 'combine'] + filenames
     
