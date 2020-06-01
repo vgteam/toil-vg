@@ -383,6 +383,13 @@ def run_combine_graphs(job, context, inputGraphFileIDs, graph_names, index_name,
     
     """
     
+    requeue_promise = ensure_disk(job, run_combine_graphs,
+        [context, inputGraphFileIDs, graph_names, index_name],
+        {"intermediate": intermediate}, inputGraphFileIDs, factor=2)
+    if requeue_promise is not None:
+        # We requeued ourselves with more disk to accomodate our inputs
+        return requeue_promise
+    
     # Define work directory for local files
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -583,7 +590,8 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     
     # Concatenate the graph files.
     vg_concat_job = child_job.addChildJobFn(run_combine_graphs, context, inputGraphFileIDs,
-                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat))
+                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat),
+                                            memory=job.memory, disk=job.disk)
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
                                       context, [vg_concat_job.rv(0)],
