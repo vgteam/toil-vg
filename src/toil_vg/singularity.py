@@ -14,6 +14,7 @@ import base64
 import hashlib
 import logging
 import subprocess
+import pathlib
 import pipes
 import os
 import shutil
@@ -158,7 +159,9 @@ def _singularity(job,
     # and https://github.com/sylabs/singularity/issues/4555.
     
     # As a workaround, we have out own cache which we manage ourselves.
-    cache_dir = os.path.join(os.environ.get('SINGULARITY_CACHEDIR',  os.path.join(os.environ.get('HOME'), '.singularity')), 'toil')
+    home_dir = str(pathlib.Path.home())
+    default_singularity_dir = os.path.join(home_dir, '.singularity')
+    cache_dir = os.path.join(os.environ.get('SINGULARITY_CACHEDIR',  default_singularity_dir), 'toil')
     mkdir_p(cache_dir)
     
     # What Singularity url/spec do we want?
