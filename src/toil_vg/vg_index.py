@@ -916,7 +916,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 
     with open(id_range_filename, 'wb') as f:
         for id_range in id_ranges:
-            f.write('{}\t{}\t{}\n'.format(*id_range))
+            f.write('{}\t{}\t{}\n'.format(*id_range).encode('utf-8'))
 
     # Checkpoint index to output store
     return context.write_output_file(job, id_range_filename)
