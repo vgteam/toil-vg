@@ -322,7 +322,6 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
     command = ['samtools', 'index', '{}_positionsorted.mdtag.bam'.format(sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    logger.debug("DEBUG MARKDUPLICATES RESOURCES. job.memory : {}".format(job.memory))
     command = ['java', '-Xmx{}g'.format(int(float(job.memory)/2000000000)), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
@@ -408,8 +407,8 @@ def run_merge_bams_ped_workflow(job, context, sample_name, bam_ids, indel_realig
 
     # Download the input
     bam_paths = []
-    for bam_id in bam_ids:
-        bam_path = os.path.join(work_dir, os.path.basename(bam_id))
+    for id_num,bam_id in enumerate(bam_ids):
+        bam_path = os.path.join(work_dir, "{}.{}".format(os.path.basename(bam_id),id_num))
         job.fileStore.readGlobalFile(bam_id, bam_path)
         bam_paths.append(os.path.basename(bam_path))
     
@@ -458,8 +457,6 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
             processed_bam_ids.append(call_job.rv(2))
     else:
         for chr_bam_id in chr_bam_ids:
-            logger.debug("DEBUG OUTSIDE MARKDUPLICATES RESOURCES. context.config.alignment_mem : {}".format(context.config.alignment_mem))
-            logger.debug("DEBUG OUTSIDE MARKDUPLICATES RESOURCES. processed job.memory : {}G".format(int(re.findall(r'\d+', context.config.alignment_mem)[0])*2))
             process_bam_job = child_job.addChildJobFn(run_process_chr_bam, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
                                                             cores=context.config.alignment_cores, memory="{}G".format(int(re.findall(r'\d+', context.config.alignment_mem)[0])*2), disk="{}G".format(int(re.findall(r'\d+', context.config.alignment_disk)[0])*4)) 
             processed_bam_ids.append(process_bam_job.rv())
@@ -806,7 +803,6 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
     return construct_job.rv()
 
 def run_process_parental_graph_index(job, context, options, parental_indexes, old_indexes):
-    logger.debug("INSIDE run_process_parental_graph_index. parental_indexes : {}".format(parental_indexes))
     if 'id_ranges' not in parental_indexes.keys():
         parental_indexes['id_ranges'] = old_indexes['id_ranges']
     
@@ -878,10 +874,10 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM',
                '{}.indel_realigned.bam'.format(sample_name)])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
-    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(sample_name)), 'wb') as output_indel_realigned_bam:
+    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(os.path.basename(sample_bam_id))), 'wb') as output_indel_realigned_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_indel_realigned_bam)
     
-    return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(sample_name)))
+    return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(os.path.basename(sample_bam_id))))
     
 def run_cohort_indel_realign_pipeline(job, context, options, proband_name, maternal_name, paternal_name,
                                         proband_chr_bam_ids, maternal_chr_bam_ids, paternal_chr_bam_ids,
