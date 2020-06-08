@@ -484,8 +484,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     output store.
     """
    
-    # This runs for single contigs with gbwt_index_mem which has been too low.
-    # Hack it to be more
+    # This runs for single contigs with gbwt_index_mem.
     requeue_promise = ensure_memory(job, run_xg_indexing,
         [context, inputGraphFileIDs, graph_names, index_name],
         {"vcf_phasing_file_id":  vcf_phasing_file_id,
@@ -496,7 +495,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
          "include_alt_paths": include_alt_paths},
         inputGraphFileIDs,
         factor=1,
-        padding=64 * 1024**3)
+        padding=2 * 1024**3)
     if requeue_promise is not None:
         # We requeued ourselves with more memory to accomodate our inputs
         return requeue_promise
