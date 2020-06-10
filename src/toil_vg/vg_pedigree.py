@@ -732,6 +732,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     phased_vcf_file_id = context.write_intermediate_file(job, out_file)
     phased_vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
     
+    exit(1)
     return phased_vcf_file_id, phased_vcf_index_file_id
 
 def run_collect_concat_vcfs(job, context, vcf_file_id, vcf_index_file_id):
@@ -788,15 +789,25 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
     
     concat_job1 = phasing_jobs.addFollowOnJobFn(run_concat_vcfs, context, proband_name, phased_vcf_ids, phased_vcf_index_ids)
     concat_job2 = concat_job1.addFollowOnJobFn(run_collect_concat_vcfs, context, concat_job1.rv(0), concat_job1.rv(1))
-    input_vcf_job = concat_job2.addFollowOnJobFn(run_generate_input_vcfs, context,
+    get_fasta_seq_names_job = concat_job2.addFollowOnJobFn(run_scan_fasta_sequence_names, context,
+                                                               ref_fasta_id,
+                                                               os.path.basename(options.ref_fasta),
+                                                               contigs_list,
+                                                               regions_regex,
+                                                               memory=context.config.misc_mem,
+                                                               disk=context.config.construct_disk))
+    RealtimeLogger.debug("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
+    input_vcf_job = get_fasta_seq_names_job.addFollowOnJobFn(run_generate_input_vcfs, context,
                                                     concat_job2.rv(0), concat_job2.rv(1), concat_job2.rv(2),
-                                                    contigs_list, '{}.parental_graphs'.format(proband_name),
+                                                    get_fasta_seq_names_job.rv(), '{}.parental_graphs'.format(proband_name),
                                                     do_pan=True)
     inputFastaFileIDs = [ref_fasta_id]
     inputFastaNames = [os.path.basename(ref_fasta_id)]
+    # TODO
+    #   ADD run_scan_fasta_sequence_names job here to add alt and un contigs to the contigs_list
     construct_job = input_vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                                     inputFastaNames, input_vcf_job.rv(),
-                                                    max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=False, regions=contigs_list,
+                                                    max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=False, regions=get_fasta_seq_names_job.rv(),
                                                     merge_graphs=False, sort_ids=True, join_ids=True,
                                                     wanted_indexes=['xg','gcsa','gbwt','id_ranges'], gbwt_prune=True)
     
