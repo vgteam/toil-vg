@@ -732,7 +732,6 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     phased_vcf_file_id = context.write_intermediate_file(job, out_file)
     phased_vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
     
-    exit(1)
     return phased_vcf_file_id, phased_vcf_index_file_id
 
 def run_collect_concat_vcfs(job, context, vcf_file_id, vcf_index_file_id):
@@ -795,7 +794,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                                                contigs_list,
                                                                regions_regex,
                                                                memory=context.config.misc_mem,
-                                                               disk=context.config.construct_disk))
+                                                               disk=context.config.construct_disk)
     RealtimeLogger.debug("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
     input_vcf_job = get_fasta_seq_names_job.addFollowOnJobFn(run_generate_input_vcfs, context,
                                                     concat_job2.rv(0), concat_job2.rv(1), concat_job2.rv(2),
@@ -816,7 +815,8 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
 def run_process_parental_graph_index(job, context, options, parental_indexes, old_indexes):
     if 'id_ranges' not in parental_indexes.keys():
         parental_indexes['id_ranges'] = old_indexes['id_ranges']
-    
+    # TODO: DEBUGG
+    exit(1)
     return parental_indexes
 
 def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff_database_file_id):

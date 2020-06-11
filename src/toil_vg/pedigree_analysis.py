@@ -253,10 +253,77 @@ def run_merge_bams(job, context, output_name, bam_chunk_file_ids):
     context.runner.call(job, cmd, work_dir = work_dir)
 
     return context.write_output_file(job, surject_path)
+ 
+
+
+def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir):
+    """ run vcftoshebang on a cohort vcf.
     
+    Takes a joint-called cohort vcf from the vg_pedigree.py workflow along with the sample name of the proband,
+    the bypass boolean parameter for vcftoshebang, the number of lines to split the varsifter variant list that
+    will be passed to the CADD engine, the full path to the directory containing chromosome config files, and
+    the full path to the directory containing the master edit files.
+    
+    Returns a tuple containing varsifter formatted and annotated version of the cohort vcf as the first element, and
+    a list of file ids that will passed to the CADD engine if any exist.
+    
+    """
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    cohort_vcf_file = os.path.join(work_dir, os.path.basename(cohort_vcf_id))
+    job.fileStore.readGlobalFile(cohort_vcf_id, cohort_vcf_file)
+    
+    output_dir = "vcf2shebang_output"
+    context.runner.call(job, ['ln', '-s', '{}'.format(chrom_dir), '.'], work_dir = work_dir)
+    context.runner.call(job, ['ln', '-s', '{}'.format(edit_dir), '.'], work_dir = work_dir)
+    context.runner.call(job, ['mkdir', '{}/'.format(work_dir,output_dir), '.'], work_dir = work_dir)
+    cmd_list = []
+    cmd_list.append(['cp', '/vcftoshebang/VCFtoShebang_Config.txt', '.'])
+    cmd_list.append(['sed', '-i', '\"s|.*PROBAND_NAME.*|PROBAND_NAME\t{}|\"'.format(sample_name), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*OUTPUT_DIR.*|OUTPUT_DIR\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*UNROLLED_VCF_PATH.*|UNROLLED_VCF_PATH\t{}|\"'.format(os.path.basename(cohort_vcf_file)), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*BYPASS.*|BYPASS\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
+    
+
+def run_analysis(job, context, cohort_vcf_id,
+                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                       sample_name, maternal_name, paternal_name,
+                       sibling_names, sibling_genders, sibling_affected,
+                       bypass, cadd_lines,
+                       chrom_dir, edit_dir,
+                       split_lines, genome_build, cadd_data_dir):
+    """ run vcf to shebang varsifter file conversion, then do cadd scoring and annotation, finally run the blackmagiktoolbox workflow.
+        returns final candidate varsifter file, paired with total surject time
+    (excluding toil-vg overhead such as transferring and splitting files )"""
+
+    # to encapsulate everything under this job
+    child_job = Job()
+    job.addChild(child_job)
+    
+    vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir)
+    
+    if len(vcf_to_shebang_job.rv(1)) > 0:
+        RealtimeLogger.info("Some variants don't have CADD scores, running them through the CADD engine workflow.")
+        split_vcf_job = vcf_to_shebang_job.addChildJobFn(run_split_vcf, context, vcf_to_shebang_job.rv(1))
+        cadd_engine_output_ids = []
+        for vcf_chunk_id in split_vcf_job.rv():
+            cadd_job = split_vcf_job.addChildJobFn(run_cadd_engine, context, vcf_chunk_id)
+            cadd_engine_output_ids.append(cadd_job.rv())
+        
+        merge_annotated_vcf_job = split_vcf_job.addFollowOnJobFn(run_merge_annotated_vcf, context, cadd_engine_output_ids)
+        merge_annotated_vcf_job.addFollowOnJobFn(run_cadd_editor, context, merge_annotated_vcf_job.rv())
+    
+    return child_job.addFollowOnJobFn(run_whole_surject, context, reads_chunk_ids, output_name, 
+                                      interleaved, xg_file_id, paths, cores=context.config.misc_cores,
+                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
+
 def analysis_main(context, options):
     """
-    Wrapper for vg surject. 
+    Wrapper for the pedigree analysis pipeline. 
     """
 
     # How long did it take to run the entire pipeline, in seconds?
@@ -271,15 +338,36 @@ def analysis_main(context, options):
             importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
-            inputXGFileID = importer.load(options.xg_index)
-            inputGAMFileID = importer.load(options.gam_input_reads)
-
+            inputVCFFileID = importer.load(options.cohort_vcf)
+            inputMBAMFileID = importer.load(options.maternal_bam)
+            inputMBAMINDEXFileID = importer.load(options.maternal_bai)
+            inputFBAMFileID = importer.load(options.paternal_bam)
+            inputFBAMINDEXFileID = importer.load(options.paternal_bai)
+            inputSiblingBAMFileIDs = []
+            for sibling_bam in options.siblings_bam:
+                inputSiblingBAMFileIDs.append(importer.load(options.sibling_bam))
+            inputSiblingBAMINDEXFileIDs = []
+            for sibling_bai in options.siblings_bai:
+                inputSiblingBAMINDEXFileIDs.append(importer.load(options.sibling_bai))
+            
             importer.wait()
 
             # Make a root job
-            root_job = Job.wrapJobFn(run_surjecting, context, importer.resolve(inputGAMFileID), 'surject',
-                                     options.interleaved,
-                                     importer.resolve(inputXGFileID), options.paths,
+            root_job = Job.wrapJobFn(run_analysis, context,
+                                     importer.resolve(inputVCFFileID),
+                                     importer.resolve(inputMBAMFileID),
+                                     importer.resolve(inputMBAMINDEXFileID),
+                                     importer.resolve(inputFBAMFileID),
+                                     importer.resolve(inputFBAMINDEXFileID),
+                                     sibling_bam_ids=importer.resolve(inputSiblingBAMFileIDs),
+                                     sibling_bai_ids=importer.resolve(inputSiblingBAMINDEXFileIDs),
+                                     options.sample_name,
+                                     options.maternal_name,
+                                     options.paternal_name,
+                                     options.sibling_names, options.sibling_genders, options.sibling_affected,
+                                     options.bypass, options.cadd_lines,
+                                     options.chrom_dir, options.edit_dir,
+                                     options.split_lines, options.genome_build, options.cadd_data,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
