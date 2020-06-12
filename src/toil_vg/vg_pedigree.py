@@ -792,9 +792,9 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                                                ref_fasta_id,
                                                                os.path.basename(options.ref_fasta),
                                                                contigs_list,
-                                                               regions_regex,
                                                                memory=context.config.misc_mem,
                                                                disk=context.config.construct_disk)
+    logger.debug("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
     RealtimeLogger.debug("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
     input_vcf_job = get_fasta_seq_names_job.addFollowOnJobFn(run_generate_input_vcfs, context,
                                                     concat_job2.rv(0), concat_job2.rv(1), concat_job2.rv(2),
@@ -816,7 +816,6 @@ def run_process_parental_graph_index(job, context, options, parental_indexes, ol
     if 'id_ranges' not in parental_indexes.keys():
         parental_indexes['id_ranges'] = old_indexes['id_ranges']
     # TODO: DEBUGG
-    exit(1)
     return parental_indexes
 
 def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff_database_file_id):
