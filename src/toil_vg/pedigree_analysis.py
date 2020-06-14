@@ -89,173 +89,6 @@ def analysis_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
 
-    
-def run_surjecting(job, context, gam_input_reads_id, output_name, interleaved, xg_file_id, paths):
-    """ split the fastq, then surject each chunk.  returns outputgams, paired with total surject time
-    (excluding toil-vg overhead such as transferring and splitting files )"""
-
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)
-
-    if not context.config.single_reads_chunk:
-        reads_chunk_ids = child_job.addChildJobFn(run_split_reads, context, None, 'aln.gam', None,
-                                                  [gam_input_reads_id],
-                                                  cores=context.config.misc_cores, memory=context.config.misc_mem,
-                                                  disk=context.config.misc_disk).rv()
-    else:
-        RealtimeLogger.info("Bypassing reads splitting because --single_reads_chunk enabled")
-        reads_chunk_ids = [[r] for r in [gam_input_reads_id]]
-
-    return child_job.addFollowOnJobFn(run_whole_surject, context, reads_chunk_ids, output_name, 
-                                      interleaved, xg_file_id, paths, cores=context.config.misc_cores,
-                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
-    
-def run_whole_surject(job, context, reads_chunk_ids, output_name, interleaved, xg_file_id, paths):
-    """
-    Surject all gam chunks in parallel.
-    
-    surject all the GAM file IDs in read_chunk_ids, saving the merged BAM as output_name.
-    
-    If interleaved is true, expects paired-interleaved GAM input and writes paired BAM output.
-    
-    Surjects against the given collection of paths in the given XG file.
-    
-    """
-    
-    RealtimeLogger.info("Surjecting read chunks {} to BAM".format(reads_chunk_ids))
-    
-    # this will be a list of lists.
-    # bam_chunk_file_ids[i][j], will correspond to the jth path (from id_ranges)
-    # for the ith gam chunk (generated from fastq shard i)
-    bam_chunk_file_ids = []
-    bam_chunk_running_times = []
-
-    # to encapsulate everything under this job
-    child_job = Job()
-    job.addChild(child_job)
-
-    for chunk_id, chunk_filename_ids in enumerate(zip(*reads_chunk_ids)):
-        #Run graph surject on each gam chunk
-        chunk_surject_job = child_job.addChildJobFn(run_chunk_surject, context, interleaved, xg_file_id,
-                                                    paths, chunk_filename_ids, '{}_chunk{}'.format(output_name, chunk_id),
-                                                    cores=context.config.alignment_cores,
-                                                    memory=context.config.alignment_mem,
-                                                    disk=context.config.alignment_disk)
-        bam_chunk_file_ids.append(chunk_surject_job.rv(0))
-        bam_chunk_running_times.append(chunk_surject_job.rv(1))
-
-    return child_job.addFollowOnJobFn(run_merge_bams, context, output_name, bam_chunk_file_ids,
-                                      cores=context.config.misc_cores,
-                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
-
-
-def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filename_ids, chunk_id):
-    """ run surject on a chunk.  interface mostly copied from run_chunk_alignment.
-    
-    Takes an xg file and path colleciton to surject against, a list of chunk
-    file IDs (must be just one possibly-interleaved chunk for now), and an
-    identifying name/number/string (chunk_id) for the chunk.
-    
-    If interleaved is true, expects paired-interleaved GAM input and writes paired BAM output.
-    
-    Returns a single-element list of the resulting BAM file ID, and the run time in seconds.
-    
-    """
-
-    # we can toggle this off if dual gams ever get supported by surject (unlikely)
-    assert len(chunk_filename_ids) == 1
-    
-    # How long did the alignment take to run, in seconds?
-    run_time = None
-    
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    xg_file = os.path.join(work_dir, "index.xg")
-    job.fileStore.readGlobalFile(xg_file_id, xg_file)
-
-    gam_files = []
-    reads_ext = 'gam'
-    for j, chunk_filename_id in enumerate(chunk_filename_ids):
-        gam_file = os.path.join(work_dir, 'reads_chunk_{}_{}.{}'.format(chunk_id, j, reads_ext))
-        job.fileStore.readGlobalFile(chunk_filename_id, gam_file)
-        gam_files.append(gam_file)
-    
-    # And a temp file for our surject output
-    output_file = os.path.join(work_dir, "surject_{}.bam".format(chunk_id))
-
-    # Open the file stream for writing
-    with open(output_file, 'wb') as surject_file:
-
-        cmd = ['vg', 'surject', os.path.basename(gam_files[0]), '--bam-output']
-        if interleaved:
-            cmd += ['--interleaved']
-        cmd += ['-x', os.path.basename(xg_file)]
-        for surject_path in paths:
-            cmd += ['--into-path', surject_path]
-        cmd += ['-t', str(context.config.alignment_cores)]
-        
-        # Mark when we start the surjection
-        start_time = timeit.default_timer()
-        try:
-            context.runner.call(job, cmd, work_dir = work_dir, outfile=surject_file)
-        except:
-            # Dump everything we need to replicate the surjection
-            logging.error("Surjection failed. Dumping files.")
-            context.write_output_file(job, xg_file)
-            for gam_file in gam_files:
-                context.write_output_file(job, gam_file)
-            
-            raise
-        
-        # Mark when it's done
-        end_time = timeit.default_timer()
-        run_time = end_time - start_time
-        
-    return [context.write_intermediate_file(job, output_file)], run_time
-
-def run_merge_bams(job, context, output_name, bam_chunk_file_ids):
-    """
-    Merge together bams.
-    
-    Takes a list of lists of BAM file IDs to merge.
-    """
-    
-    # First flatten the list of lists
-    flat_ids = [x for l in bam_chunk_file_ids for x in l]
-    
-    # How much disk do we think we will need to have the merged and unmerged copies of these BAMs?
-    # Make sure we have it
-     
-    requeue_promise = ensure_disk(job, run_merge_bams, [context, output_name, bam_chunk_file_ids], {},
-        flat_ids, factor=2)
-    if requeue_promise is not None:
-        # We requeued ourselves with more disk to accomodate our inputs
-        return requeue_promise
-    
-        # Otherwise, we have enough disk
-
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # Download our chunk files
-    chunk_paths = [os.path.join(work_dir, 'chunk_{}.bam'.format(i)) for i in range(len(flat_ids))]
-    for i, bam_chunk_file_id in enumerate(flat_ids):
-        job.fileStore.readGlobalFile(bam_chunk_file_id, chunk_paths[i])
-
-    # todo: option to give name
-    surject_path = os.path.join(work_dir, '{}.bam'.format(output_name))
-
-    cmd = ['samtools', 'cat'] + [os.path.basename(chunk_path) for chunk_path in chunk_paths]
-    cmd += ['-o', os.path.basename(surject_path)]
-
-    context.runner.call(job, cmd, work_dir = work_dir)
-
-    return context.write_output_file(job, surject_path)
- 
-
-
 def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir):
     """ run vcftoshebang on a cohort vcf.
     
@@ -283,11 +116,187 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     cmd_list.append(['sed', '-i', '\"s|.*PROBAND_NAME.*|PROBAND_NAME\t{}|\"'.format(sample_name), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*OUTPUT_DIR.*|OUTPUT_DIR\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*UNROLLED_VCF_PATH.*|UNROLLED_VCF_PATH\t{}|\"'.format(os.path.basename(cohort_vcf_file)), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*BYPASS.*|BYPASS\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*BYPASS.*|BYPASS\t{}|\"'.format(lambda bypass: int(bypass == 'true')), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*CADD_LINES.*|CADD_LINES\t{}|\"'.format(cadd_lines), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*CHROM_DIR.*|CHROM_DIR\t\$PWD\t{}|\"'.format(os.path.basename(os.path.normpath(chrom_dir))), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*EDIT_DIR.*|EDIT_DIR\t$PWD\t{}|\"'.format(os.path.basename(os.path.normpath(edit_dir))), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['java', '-XX:+UnlockExperimentalVMOptions', '-XX:ActiveProcessorCount=32', '-cp', '/vcftoshebang/VCFtoShebang.jar:/vcftoshebang/json_simple.jar',
+                             'Runner', 'VCFtoShebang_Config.txt'])
+    chain_cmds = [' '.join(p) for p in cmd_list]
+    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vcf2shebang')
+    is_empty = True
+    with open('vcf2shebang_output/{}_unrolled_snpeff_fix_overlap_mono_CADD_Input_Files/{}_unrolled_snpeff_fix_overlap_mono_CADD_input_file.txt'.format(sample_name,sample_name), 'r') as cadd_input_file:
+        for line in cadd_input_file:
+            if "#" in line: continue
+            else:
+                is_empty = False
+                break
     
+    output_vs_path = os.path.join(work_dir, 'vcf2shebang_output/{}_unrolled_snpeff_fix_overlap_mono_shebang.vs'.format(sample_name))
+    output_cadd_vcf_path = None
+    if not is_empty:
+        output_cadd_vcf_path = os.path.join(work_dir, 'vcf2shebang_output/{}_unrolled_snpeff_fix_overlap_mono_CADD_Input_Files/{}_unrolled_snpeff_fix_overlap_mono_CADD_input_file.txt.gz'.format(sample_name,sample_name))
+    
+    return context.write_output_file(job, output_vs_path), context.write_output_file(job, output_cadd_vcf_path)
+    
+def run_split_vcf(job, context, vcf_file_id, split_lines):
+    """ split vcf into chunks for passing through to the CADD engine for CADD scoring.
+    """
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    vcf_file = os.path.join(work_dir, os.path.basename(vcf_file_id))
+    job.fileStore.readGlobalFile(vcf_file_id, vcf_file)
+    
+    tempname = "{}_tmp".format(os.path.basename(os.path.splitext(os.path.splitext(vcf_file)[0])[0]))
+    cmd = [['zcat', vcf_file]]
+    cmd.append(['grep', '-v', '\"^GL\\|^#\"'])
+    cmd.append(['cut', '-d$\'\\t\'', '-f', '1-5'])
+    cmd.append(['split', '-l', split_lines, '--additional-suffix=\".vcf\"', '-d', '-', tempname])
+    context.runner.call(job, cmd, work_dir = work_dir)
+    
+    vcf_chunk_ids = []
+    for chunk_name in sorted(os.listdir(work_dir)):
+        if chunk_name.endswith('.vcf') and 'tmp' in chunk_name:
+            vcf_chunk_ids.append(context.write_intermediate_file(job, os.path.join(work_dir, chunk_name)))
+    
+    return vcf_chunk_ids
+
+def run_cadd(job, context, chunk_vcf_id, genome_build, cadd_data_dir):
+    """ run the main CADD engine on vcf chunks.
+    """
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    vcf_file = os.path.join(work_dir, os.path.basename(chunk_vcf_id))
+    job.fileStore.readGlobalFile(vcf_file_id, vcf_file)
+    
+    base_vcf_name = os.path.basename(os.pathsplitext(vcf_file)[0])
+    context.runner.call(job, ['ln', '-s', '{}'.format(cadd_data_dir), '.'], work_dir = work_dir)
+    cadd_data_dir_basename = os.path.basename(cadd_data_dir)
+    cmd_list = []
+    cmd_list.append(['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\'', '\'', '-f2)'])
+    cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.5\"', '-g', genome_build, '-o', '$PWD/{}_out.tsv.gz'.format(base_vcf_name), '-d', '$PWD/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
+    chain_cmds = [' '.join(p) for p in cmd_list]
+    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='cadd')
+    
+    output_cadd_path = os.path.join(work_dir, '{}_out.tsv.gz'.format(base_vcf_name))
+    return context.write_output_file(job, output_cadd_path)
+
+def run_merge_annotated_vcf(job, context, cadd_output_chunk_ids):
+    """ run the merge task for the CADD engine output chunks.
+    """
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    # Decompress and concatenate cadd output chunks into a single file
+    cadd_chunk_merged_file = os.path.join(work_dir, 'merged_CADDv1.5_offline_unsorted')
+    for cadd_output_chunk_id in sorted(cadd_output_chunk_ids):
+        cadd_chunk_file = os.path.join(work_dir, os.path.basename(cadd_output_chunk_id))
+        job.fileStore.readGlobalFile(cadd_output_chunk_id, cadd_chunk_file)
+        command = ['zcat', cadd_chunk_file, '>>', 'merged_CADDv1.5_offline_unsorted']
+        context.runner.call(job, command, work_dir = work_dir)
+        
+    # Sort and process the merged file
+    cmd_list = [['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\'', '\'', '-f2)']]
+    cmd_list.append(['sort', '-k1,1', '-k2,2n', 'merged_CADDv1.5_offline_unsorted', '>', 'merged_CADDv1.5_offline.vcf'])
+    cmd_list.append(['rm', '-f', 'merged_CADDv1.5_offline_unsorted'])
+    cmd_list.append(['python', '/usr/src/app/CADD_offline_mito_postprocessing.py', '-c', '/usr/src/app/whole_mito_SNP_pp2_predictions_sorted.txt', '-i', 'merged_CADDv1.5_offline.vcf', '-o', 'merged_CADDv1.5_offline_proper_format.vcf'])
+    cmd_list.append(['rm', '-f', 'merged_CADDv1.5_offline.vcf'])
+    chain_cmds = [' '.join(p) for p in cmd_list]
+    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='cadd')
+    
+    merged_cadd_output_vcf_path = os.path.basename(work_dir, 'merged_CADDv1.5_offline_proper_format.vcf')
+    return context.write_output_file(job, merged_cadd_output_vcf_path)
+
+def run_cadd_editor(job, context, vcftoshebang_vs_file_id, merged_cadd_vcf_file_id):
+    """ run editor for merged CADD output postprocessing and merges annotations with vcftoshebang varsifter output.
+        Outputs the file in Varsifter format.
+    """
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    vcftoshebang_vs_file = os.path.join(work_dir, os.path.basename(vcftoshebang_vs_file_id))
+    job.fileStore.readGlobalFile(vcftoshebang_vs_file_id, vcftoshebang_vs_file)
+    
+    merged_cadd_vcf_file = os.path.join(work_dir, os.path.basename(merged_cadd_vcf_file_id))
+    job.fileStore.readGlobalFile(merged_cadd_vcf_file_id, merged_cadd_vcf_file)
+    
+    command = ['java', '-cp', '/cadd_edit/NewCaddEditor.jar:/cadd_edit/commons-cli-1.4.jar', 'NewCaddEditor',
+                '--input_vs', vcftoshebang_vs_file, '--output_cadd', merged_cadd_vcf_file, '--output_vs', 'cadd_editor_output.vs']
+    context.runner.call(job, command, work_dir = work_dir, tool_name='cadd_editor')
+    
+    cadd_editor_output_path = os.path.join(work_dir, 'cadd_editor_output.vs')
+    return context.write_output_file(job, cadd_editor_output_path)
+
+def run_bmtb(job, context, analysis_ready_vs_file_id,
+               maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+               maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected):
+    """ run the Black Magic Toolbox candidate analysis program on the input varsifter file, cohort bam files, and sibling gender
+        and sibling affected status.
+    """
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    vs_file_path = os.path.join(work_dir, os.path.basename(analysis_ready_vs_file_id))
+    job.fileStore.readGlobalFile(analysis_ready_vs_file_id, vs_file_path)
+    
+    m_bam_path = os.path.join(work_dir, os.path.basename(maternal_bam_id))
+    job.fileStore.readGlobalFile(maternal_bam_id, m_bam_path)
+    m_bai_path = os.path.join(work_dir, os.path.basename(maternal_bai_id))
+    job.fileStore.readGlobalFile(maternal_bai_id, m_bai_path)
+    
+    f_bam_path = os.path.join(work_dir, os.path.basename(paternal_bam_id))
+    job.fileStore.readGlobalFile(paternal_bam_id, f_bam_path)
+    f_bai_path = os.path.join(work_dir, os.path.basename(paternal_bai_id))
+    job.fileStore.readGlobalFile(paternal_bai_id, f_bai_path)
+    
+    s_bam_paths = []
+    for s_bam_id in sibling_bam_ids:
+        s_bam_path = os.path.join(work_dir, os.path.basename(s_bam_id))
+        job.fileStore.readGlobalFile(s_bam_id, s_bam_path)
+        s_bam_paths.append(s_bam_path)
+    s_bai_paths = []
+    for s_bai_id in sibling_bai_ids:
+        s_bai_path = os.path.join(work_dir, os.path.basename(s_bai_id))
+        job.fileStore.readGlobalFile(s_bai_id, s_bai_path)
+        s_bai_paths.append(s_bai_path)
+
+    cmd_list = [['cp', '-r', '/bmtb/Configs', '$PWD/Configs']]
+    cmd_list.append(['rm', '-f', '$PWD/Configs/BAM_Directory_Config.txt'])
+    cmd_list.append(['touch', '$PWD/Configs/BAM_Directory_Config.txt'])
+    cmd_list.append(['echo', '-e', '\"{}\\t$PWD/{}\"'.format(maternal_name,os.path.basename(m_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
+    cmd_list.append(['echo', '-e', '\"{}\\t$PWD/{}\"'.format(paternal_name,os.path.basename(f_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
+    sibling_id_string = "NA"
+    for i, (s_bam_path,s_bai_path,s_name,s_gender,s_affected) in enumerate(zip(s_bam_paths,s_bai_paths,sibling_names,sibling_genders,sibling_affected)):
+        cmd_list.append(['echo', '-e', '\"{}\\t$PWD/{}\"'.format(s_name,os.path.basename(s_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
+        # Add proband data to master config file
+        if i == 0:
+            cmd_list.append(['sed', '-i', '\"s|.*PB_ID.*|PB_ID\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+            cmd_list.append(['sed', '-i', '\"s|.*PB_GENDER.*|PB_GENDER\t{}|\"'.format(s_gender), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+            cmd_list.append(['sed', '-i', '\"s|.*OUT_FILE_NAME.*|OUT_FILE_NAME\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+        else:
+            if sibling_id_string == "NA":
+                sibling_id_string = "{},{},{};".format(s_name,s_gender,s_affected)
+            else:
+                sibling_id_string += "{},{},{};".format(s_name,s_gender,s_affected)
+    
+    cmd_list.append(['sed', '-i', '\"s|.*VS_FILE_PATH.*|VS_FILE_PATH\t$PWD/{}|\"'.format(os.path.basename(vs_file_path)), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*CONFIG_FILE_DIREC.*|CONFIG_FILE_DIREC\t$PWD/Configs|\"', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*FATHER_ID.*|FATHER_ID\t{}|\"'.format(paternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*MOTHER_ID.*|MOTHER_ID\t{}|\"'.format(maternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*SIB_IDS.*|SIB_IDS\t{}|\"'.format(sibling_id_string), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['java', '-cp', '/bmtb/BMTB.jar:/bmtb/htsjdk-2.19.0-47-gc5ed6b7-SNAPSHOT.jar', 'general.Runner', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['tar', 'czvf', '\"{}_BlackBox_Output.tar.gz\"'.format(sibling_names[0]), '\"{}_BlackBox_Output\"'.format(sibling_names[0])])
+    chain_cmds = [' '.join(p) for p in cmd_list]
+    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='bmtb')
+    
+    output_package_path = os.path.join(work_dir, '{}_BlackBox_Output.tar.gz'.format(sibling_names[0]))
+    return context.write_output_file(job, output_package_path)
 
 def run_analysis(job, context, cohort_vcf_id,
                        maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
@@ -306,21 +315,26 @@ def run_analysis(job, context, cohort_vcf_id,
     
     vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir)
     
-    if len(vcf_to_shebang_job.rv(1)) > 0:
+    analysis_ready_vs_file_id = vcf_to_shebang_job.rv(0)
+    if vcf_to_shebang_job.rv(1) is not None:
         RealtimeLogger.info("Some variants don't have CADD scores, running them through the CADD engine workflow.")
-        split_vcf_job = vcf_to_shebang_job.addChildJobFn(run_split_vcf, context, vcf_to_shebang_job.rv(1))
+        split_vcf_job = vcf_to_shebang_job.addChildJobFn(run_split_vcf, context, vcf_to_shebang_job.rv(1), cadd_lines)
         cadd_engine_output_ids = []
         for vcf_chunk_id in split_vcf_job.rv():
-            cadd_job = split_vcf_job.addChildJobFn(run_cadd_engine, context, vcf_chunk_id)
+            cadd_job = split_vcf_job.addChildJobFn(run_cadd, context, vcf_chunk_id)
             cadd_engine_output_ids.append(cadd_job.rv())
         
         merge_annotated_vcf_job = split_vcf_job.addFollowOnJobFn(run_merge_annotated_vcf, context, cadd_engine_output_ids)
-        merge_annotated_vcf_job.addFollowOnJobFn(run_cadd_editor, context, merge_annotated_vcf_job.rv())
+        cadd_edit_job = merge_annotated_vcf_job.addFollowOnJobFn(run_cadd_editor, context, vcf_to_shebang_job.rv(0), merge_annotated_vcf_job.rv())
+        
+        analysis_ready_vs_file_id = cadd_edit_job.rv()
     
-    return child_job.addFollowOnJobFn(run_whole_surject, context, reads_chunk_ids, output_name, 
-                                      interleaved, xg_file_id, paths, cores=context.config.misc_cores,
-                                      memory=context.config.misc_mem, disk=context.config.misc_disk).rv()
-
+    bmtb_job = vcf_to_shebang_job.addFollowOnJobFn(run_bmtb, context, analysis_ready_vs_file_id,
+                                                   maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                                                   maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected)
+    
+    return bmtb_job.rv()
+    
 def analysis_main(context, options):
     """
     Wrapper for the pedigree analysis pipeline. 
