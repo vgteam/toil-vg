@@ -756,7 +756,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
             cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf', '-d', 'none', '-f', 'human_g1k_v37.fasta'])
             context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
             context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf'], work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['/usr/src/app/eagle', '--geneticMapFile', 'genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
+            context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
                                 '--numThreads', job.cores, '--vcfRef', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf', '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
                                 '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
         else:
@@ -769,7 +769,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
             cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '-d', 'none', '-f', 'human_g1k_v37.fasta'])
             context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
             context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name)], work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['/usr/src/app/eagle', '--geneticMapFile', 'genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
+            context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
                                 '--numThreads', job.cores, '--vcfRef', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
                                 '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
         
