@@ -118,6 +118,7 @@ def get_container_tool_map(options):
     cmap[0]['snpEff'] = options.snpEff_docker
     cmap[0]['picard'] = options.picard_docker
     cmap[0]['whatshap'] = options.whatshap_docker
+    cmap[0]['eagle'] = options.eagle_docker
     
     # to do: could be a good place to do an existence check on these tools
 

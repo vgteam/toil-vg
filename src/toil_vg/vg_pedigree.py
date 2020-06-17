@@ -355,35 +355,16 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     
     return processed_bam_file_id
 
-@sleep(1800, retry=20)
-def run_dragen_commands(job, command, work_dir, udp_data_bam_path, bam_path, helix_username, dragen_work_dir_path, tmp_dir_path, dragen_ref_index_name, udp_data_dir_path,sample_name,bam_name):
+#@sleep(1800, retry=20)
+@sleep(300, retry=20)
+def run_dragen_commands(job, context, command, work_dir):
     """ 
     Helper function for running the Dragen gvcf caller asynchronously
     """
-    cmd_list = []
-    cmd_list.append(['mkdir', '-p', udp_data_bam_path])
-    cmd_list.append(['cp', str(bam_path), udp_data_bam_path])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(dragen_work_dir_path)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(tmp_dir_path)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username),
-                              '\"' +
-                              'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
-                              ' -b /staging/helix/{}/{}_surjected_bams/{}'.format(udp_data_dir_path, sample_name, bam_name) +
-                              ' --verbose --bin_memory=50000000000 --enable-map-align false --enable-variant-caller true' +
-                              ' --pair-by-name=true --vc-emit-ref-confidence GVCF' +
-                              ' --intermediate-results-dir {} --output-directory {} --output-file-prefix {}_dragen_genotyped'.format(tmp_dir_path, dragen_work_dir_path, sample_name) +
-                              '\"'])
-    cmd_list.append(['mkdir', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
-    cmd_list.append(['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_genotyper \"'.format(dragen_work_dir_path, udp_data_dir_path, sample_name)])
-    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(dragen_work_dir_path)])
-    cmd_list.append(['mv', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_genotyper'.format(sample_name)])
-    cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_bam_path, bam_name)])
-    cmd_list.append(['rmdir', '{}'.format(udp_data_bam_path)])
-    chain_cmds = [' '.join(p) for p in cmd_list]
-    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
-    context.runner.call(job, command, work_dir = work_dir)
-    
+    try:
+        context.runner.call(job, command, work_dir = work_dir)
+    except:
+        raise
 
 def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_name, udp_data_dir, helix_username, write_to_outstore=False):
     
@@ -408,8 +389,29 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
     assert ' ' not in dragen_work_dir_path
     assert ' ' not in tmp_dir_path
     assert ' ' not in udp_data_bam_path
-    
-    run_dragen_commands(job, command, work_dir, udp_data_bam_path, bam_path, helix_username, dragen_work_dir_path, tmp_dir_path, dragen_ref_index_name, udp_data_dir_path,sample_name,bam_name)
+    cmd_list = []
+    cmd_list.append(['mkdir', '-p', udp_data_bam_path])
+    cmd_list.append(['cp', str(bam_path), udp_data_bam_path])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(dragen_work_dir_path)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(tmp_dir_path)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username),
+                              '\"' +
+                              'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
+                              ' -b /staging/helix/{}/{}_surjected_bams/{}'.format(udp_data_dir_path, sample_name, bam_name) +
+                              ' --verbose --bin_memory=50000000000 --enable-map-align false --enable-variant-caller true' +
+                              ' --pair-by-name=true --vc-emit-ref-confidence GVCF' +
+                              ' --intermediate-results-dir {} --output-directory {} --output-file-prefix {}_dragen_genotyped'.format(tmp_dir_path, dragen_work_dir_path, sample_name) +
+                              '\"'])
+    cmd_list.append(['mkdir', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
+    cmd_list.append(['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_genotyper \"'.format(dragen_work_dir_path, udp_data_dir_path, sample_name)])
+    cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(dragen_work_dir_path)])
+    cmd_list.append(['mv', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_genotyper'.format(sample_name)])
+    cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_bam_path, bam_name)])
+    cmd_list.append(['rmdir', '{}'.format(udp_data_bam_path)])
+    chain_cmds = [' '.join(p) for p in cmd_list]
+    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
+    run_dragen_commands(job, context, command, work_dir)
     
     # Write output to intermediate store
     out_gvcf_file = os.path.join(work_dir, '{}_dragen_genotyper/{}/{}_dragen_genotyped.hard-filtered.gvcf.gz'.format(sample_name, sample_name, sample_name))
@@ -740,10 +742,9 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     if contig_name not in ['Y', 'MT', 'ABOlocus']:
         # Use eagle phasing
         whatshap_input_file = '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased.vcf.gz'.format(proband_name, contig_name)
-        cmd_list = []
-        cmd_list.append(['wget', '-O-', 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz'])
-        cmd_list.append(['gzip', '-d', '>', 'human_g1k_v37.fasta'])
-        context.runner.call(job, cmd_list, work_dir = work_dir)
+        context.runner.call(job, ['wget', 'ftp://ftp.ensembl.org/pub/grch37/current/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz'], work_dir = work_dir)
+        with open(os.path.join(work_dir, 'human_g1k_v37.fasta'), "wb") as ref_fasta_file:
+            context.runner.call(job, ['gzip', '-d', '-c', 'Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz'], work_dir = work_dir, outfile = ref_fasta_file)
         context.runner.call(job, ['samtools', 'faidx', 'human_g1k_v37.fasta'], work_dir = work_dir, tool_name='samtools')
         if contig_name in ['X']:
             # Run eagle phasing on X chromsome
@@ -755,7 +756,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
             cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf', '-d', 'none', '-f', 'human_g1k_v37.fasta'])
             context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
             context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf'], work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['eagle', '--geneticMapFile', 'genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
+            context.runner.call(job, ['/usr/src/app/eagle', '--geneticMapFile', 'genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
                                 '--numThreads', job.cores, '--vcfRef', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf', '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
                                 '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
         else:
@@ -767,8 +768,8 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
             cmd_list.append(['bcftools', 'norm', '--no-version', '-Ou', '-m', '-any'])
             cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '-d', 'none', '-f', 'human_g1k_v37.fasta'])
             context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name)], work_dir = work_dir, tool_name='bcftools'):
-            context.runner.call(job, ['eagle', '--geneticMapFile', 'genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
+            context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name)], work_dir = work_dir, tool_name='bcftools')
+            context.runner.call(job, ['/usr/src/app/eagle', '--geneticMapFile', 'genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
                                 '--numThreads', job.cores, '--vcfRef', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
                                 '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
         
@@ -790,13 +791,15 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     context.runner.call(job, command, work_dir = work_dir, tool_name='whatshap')
     
     # Filter for phased parental genotypes ONLY
+    context.runner.call(job, ['bgzip', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name)], work_dir = work_dir, tool_name='whatshap')
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
     command = []
-    command.append(['bcftools', 'view', '-O', 'v', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '-'])
-    command.append(['bcftools', 'view', '-p', '-O', 'v', '-'])
-    with open('{}_cohort_{}.phased.filtered.vcf'.format(proband_name, contig_name), "wb") as contig_vcf_file:
+    command.append(['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)])
+    command.append(['bcftools', 'view', '-p', '-Oz', '-'])
+    output_file = os.path.join(work_dir, '{}_cohort_{}.phased.filtered.vcf.gz'.format(proband_name, contig_name))
+    with open(output_file, "wb") as contig_vcf_file:
             context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools', outfile=contig_vcf_file)
     
-    context.runner.call(job, ['bgzip', '{}_cohort_{}.phased.filtered.vcf'.format(proband_name, contig_name)], work_dir = work_dir, tool_name='whatshap')
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.filtered.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
     # Write output to intermediate store
     out_file = os.path.join(work_dir, '{}_cohort_{}.phased.filtered.vcf.gz'.format(proband_name, contig_name))
@@ -1139,8 +1142,8 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 memory=context.config.misc_mem,
                                 disk=context.config.misc_disk)
     # Dragen calling depends on previous call execution
-    if options.run_dragen:
-        proband_calling_job.addFollowOn(maternal_calling_job)
+    #if options.run_dragen:
+    #    proband_calling_job.addFollowOn(maternal_calling_job)
     
     # Define the paternal alignment and variant calling jobs
     paternal_mapping_job = stage1_jobs.addChildJobFn(run_mapping, context, fastq_paternal,
@@ -1161,8 +1164,8 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 memory=context.config.misc_mem,
                                 disk=context.config.misc_disk)
     # Dragen calling depends on previous call execution
-    if options.run_dragen:
-        maternal_calling_job.addFollowOn(paternal_calling_job)
+    #if options.run_dragen:
+    #    maternal_calling_job.addFollowOn(paternal_calling_job)
     
     joint_calling_job = stage2_jobs.addChildJobFn(run_joint_genotyper, context, proband_name,
                                 proband_calling_job.rv(2), proband_calling_job.rv(3),
@@ -1258,12 +1261,12 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                             memory=context.config.misc_mem,
                                             disk=context.config.misc_disk)
             # Dragen calling depends on previous call execution
-            if options.run_dragen:
-                if sibling_number == 0:
-                    proband_parental_calling_job.addFollowOn(sibling_calling_job_dict[sibling_name])
-                else:
-                    previous_sibling_name = siblings_names[sibling_number-1]
-                    sibling_calling_job_dict[previous_sibling_name].addFollowOn(sibling_calling_job_dict[sibling_name])
+            #if options.run_dragen:
+            #    if sibling_number == 0:
+            #        proband_parental_calling_job.addFollowOn(sibling_calling_job_dict[sibling_name])
+            #    else:
+            #        previous_sibling_name = siblings_names[sibling_number-1]
+            #        sibling_calling_job_dict[previous_sibling_name].addFollowOn(sibling_calling_job_dict[sibling_name])
             
             # Extract outputs
             sibling_mapping_chr_bam_ids.append(sibling_calling_job_dict[sibling_name].rv(4))

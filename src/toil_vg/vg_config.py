@@ -221,6 +221,9 @@ picard-docker: 'broadinstitute/picard:2.21.9'
 # Docker image to use for whatshap
 whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 
+# Docker image to use for eagle
+eagle-docker: 'quay.io/cmarkello/eagle'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -509,6 +512,9 @@ picard-docker: 'broadinstitute/picard:2.21.9'
 
 # Docker image to use for whatshap
 whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
+
+# Docker image to use for eagle
+eagle-docker: 'quay.io/cmarkello/eagle'
 
 ##############################
 ### vg_construct Arguments ###
