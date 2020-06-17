@@ -614,9 +614,10 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
                 command += [os.path.basename(sibling_gvcf_path)]
         command += [udp_data_gvcf_path]
         context.runner.call(job, command, work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(joint_genotype_dragen_work_dir_path)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(tmp_dir_path)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username),
+        cmd_list = []
+        cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(joint_genotype_dragen_work_dir_path)])
+        cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"mkdir -p {}\"'.format(tmp_dir_path)])
+        cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username),
                                   '\"' +
                                   'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
                                   ' --enable-joint-genotyping true --intermediate-results-dir {}'.format(tmp_dir_path) +
@@ -625,21 +626,23 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
                                   ' --variant /staging/helix/{}/{}_cohort_gvcfs/{}'.format(udp_data_dir_path, sample_name, os.path.basename(paternal_gvcf_path)) +
                                   ' --variant /staging/helix/{}/{}_cohort_gvcfs/{}'.format(udp_data_dir_path, sample_name, os.path.basename(proband_gvcf_path)) +
                                   ' '.join(sibling_options_list) +
-                                  '\"'],
-                                  work_dir = work_dir)
-        context.runner.call(job, ['mkdir', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)], work_dir = work_dir)
-        context.runner.call(job, ['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_joint_genotyper \"'.format(joint_genotype_dragen_work_dir_path, udp_data_dir_path, sample_name)], work_dir = work_dir)
-        context.runner.call(job, ['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(joint_genotype_dragen_work_dir_path)], work_dir = work_dir)
-        context.runner.call(job, ['mv', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_joint_genotyper'.format(sample_name)], work_dir = work_dir)
-        context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(maternal_gvcf_path))], work_dir = work_dir)
-        context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(paternal_gvcf_path))], work_dir = work_dir)
-        context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(proband_gvcf_path))], work_dir = work_dir)
+                                  '\"'])
+        cmd_list.append(['mkdir', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)])
+        cmd_list.append(['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)])
+        cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_joint_genotyper \"'.format(joint_genotype_dragen_work_dir_path, udp_data_dir_path, sample_name)])
+        cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(joint_genotype_dragen_work_dir_path)])
+        cmd_list.append(['mv', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name), '{}_dragen_joint_genotyper'.format(sample_name)])
+        cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(maternal_gvcf_path))])
+        cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(paternal_gvcf_path))])
+        cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(proband_gvcf_path))])
         if sibling_call_gvcf_ids is not None and sibling_call_gvcf_index_ids is not None:
             for sibling_gvcf_id in sibling_call_gvcf_ids:
                 sibling_gvcf_path = os.path.join(work_dir, os.path.basename(sibling_gvcf_id))
-                context.runner.call(job, ['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(sibling_gvcf_path))], work_dir = work_dir)
-        context.runner.call(job, ['rmdir', '{}'.format(udp_data_gvcf_path)], work_dir = work_dir)
+                cmd_list.append(['rm', '-f', '{}{}'.format(udp_data_gvcf_path, os.path.basename(sibling_gvcf_path))])
+        cmd_list.append(['rmdir', '{}'.format(udp_data_gvcf_path)])
+        chain_cmds = [' '.join(p) for p in cmd_list]
+        command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
+        context.runner.call(job, command, work_dir = work_dir)
         out_file = os.path.join(work_dir, '{}_dragen_joint_genotyper/output_cohort_joint_call_{}/cohort_joint_genotyped_{}.vcf.gz'.format(sample_name, sample_name, sample_name))
     
     if snpeff_annotation:
@@ -874,10 +877,10 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                                     concat_job2.rv(0), concat_job2.rv(1), concat_job2.rv(2),
                                                     get_fasta_seq_names_job.rv(), '{}.parental_graphs'.format(proband_name),
                                                     do_pan=True)
-    inputFastaFileIDs = [ref_fasta_id]
-    inputFastaNames = [os.path.basename(ref_fasta_id)]
-    construct_job = input_vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
-                                                    inputFastaNames, input_vcf_job.rv(),
+    inputFastaFileIDs_job = input_vcf_job.addFollowOnJobFn(run_mask_ambiguous, context, ref_fasta_id, os.path.basename(ref_fasta_id),
+                                                       disk=context.config.construct_disk)
+    construct_job = inputFastaFileIDs_job.addFollowOnJobFn(run_construct_all, context, [inputFastaFileIDs_job.rv(0)],
+                                                    [inputFastaFileIDs_job.rv(1)], input_vcf_job.rv(),
                                                     max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=False, regions=get_fasta_seq_names_job.rv(),
                                                     merge_graphs=False, sort_ids=True, join_ids=True,
                                                     wanted_indexes=['xg','gcsa','gbwt','id_ranges'], gbwt_prune=True)
