@@ -356,7 +356,7 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     return processed_bam_file_id
 
 #@sleep(1800, retry=20)
-@sleep(300, retry=20)
+@sleep(900, retry=20)
 def run_dragen_commands(job, context, command, work_dir):
     """ 
     Helper function for running the Dragen gvcf caller asynchronously
@@ -642,7 +642,7 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
         cmd_list.append(['rmdir', '{}'.format(udp_data_gvcf_path)])
         chain_cmds = [' '.join(p) for p in cmd_list]
         command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
-        context.runner.call(job, command, work_dir = work_dir)
+        run_dragen_commands(job, context, command, work_dir)
         out_file = os.path.join(work_dir, '{}_dragen_joint_genotyper/output_cohort_joint_call_{}/cohort_joint_genotyped_{}.vcf.gz'.format(sample_name, sample_name, sample_name))
     
     if snpeff_annotation:

@@ -40,10 +40,10 @@ def analysis_subparser(parser):
         help="Path to cohort vcf processed by toil-vg pedigree")    
     parser.add_argument("--sample_name", type=str, required=True,
         help="Cohort proband sample name as present in the sample column of --cohort_vcf")
-    parser.add_argument("--bypass", action="store_true", default=False
+    parser.add_argument("--bypass", action="store_true", default=False,
         help="Parameter for vcftoshebang.")
     # TODO: what is the bypass parameter?
-    parser.add_argument("--cadd_lines", type=int, default=4985
+    parser.add_argument("--cadd_lines", type=int, default=4985,
         help="Parameter for vcftoshebang.")
     # TODO: what is the cadd lines parameter?
     parser.add_argument("--chrom_dir", type=str, required=True,
@@ -52,7 +52,7 @@ def analysis_subparser(parser):
         help="Path to directory containing master edit files used by vcftoshebang")
     
     # CADD options
-    parser.add_argument("--split_lines", type=int, default=30000
+    parser.add_argument("--split_lines", type=int, default=30000,
         help="Number of lines to chunk the input VCF for CADD processing.")
     parser.add_argument("--genome_build", type=str, default="GRCh37",
         help="Genome annotation version for the CADD engine")
@@ -107,19 +107,22 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     cohort_vcf_file = os.path.join(work_dir, os.path.basename(cohort_vcf_id))
     job.fileStore.readGlobalFile(cohort_vcf_id, cohort_vcf_file)
     
-    output_dir = "vcf2shebang_output"
+    output_dir = "vcf2shebang_output/"
+    bypass_conf = "NO"
+    if bypass == 'true': bypass_conf = "YES"
     context.runner.call(job, ['ln', '-s', '{}'.format(chrom_dir), '.'], work_dir = work_dir)
     context.runner.call(job, ['ln', '-s', '{}'.format(edit_dir), '.'], work_dir = work_dir)
-    context.runner.call(job, ['mkdir', '{}/'.format(work_dir,output_dir), '.'], work_dir = work_dir)
+    context.runner.call(job, ['mkdir', '{}'.format(output_dir)], work_dir = work_dir)
     cmd_list = []
     cmd_list.append(['cp', '/vcftoshebang/VCFtoShebang_Config.txt', '.'])
     cmd_list.append(['sed', '-i', '\"s|.*PROBAND_NAME.*|PROBAND_NAME\t{}|\"'.format(sample_name), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*OUTPUT_DIR.*|OUTPUT_DIR\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*UNROLLED_VCF_PATH.*|UNROLLED_VCF_PATH\t{}|\"'.format(os.path.basename(cohort_vcf_file)), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*BYPASS.*|BYPASS\t{}|\"'.format(lambda bypass: int(bypass == 'true')), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*BYPASS.*|BYPASS\t{}|\"'.format(bypass_conf), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*CADD_LINES.*|CADD_LINES\t{}|\"'.format(cadd_lines), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*CHROM_DIR.*|CHROM_DIR\t\$PWD\t{}|\"'.format(os.path.basename(os.path.normpath(chrom_dir))), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*EDIT_DIR.*|EDIT_DIR\t$PWD\t{}|\"'.format(os.path.basename(os.path.normpath(edit_dir))), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*CHROM_DIR.*|CHROM_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(chrom_dir))), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*EDIT_DIR.*|EDIT_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(edit_dir))), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*EDITOR_CONFIG.*|EDITOR_CONFIG\t/vcftoshebang/edit_config.txt|\"', 'VCFtoShebang_Config.txt'])
     cmd_list.append(['java', '-XX:+UnlockExperimentalVMOptions', '-XX:ActiveProcessorCount=32', '-cp', '/vcftoshebang/VCFtoShebang.jar:/vcftoshebang/json_simple.jar',
                              'Runner', 'VCFtoShebang_Config.txt'])
     chain_cmds = [' '.join(p) for p in cmd_list]
@@ -227,7 +230,7 @@ def run_cadd_editor(job, context, vcftoshebang_vs_file_id, merged_cadd_vcf_file_
     
     command = ['java', '-cp', '/cadd_edit/NewCaddEditor.jar:/cadd_edit/commons-cli-1.4.jar', 'NewCaddEditor',
                 '--input_vs', vcftoshebang_vs_file, '--output_cadd', merged_cadd_vcf_file, '--output_vs', 'cadd_editor_output.vs']
-    context.runner.call(job, command, work_dir = work_dir, tool_name='cadd_editor')
+    context.runner.call(job, command, work_dir = work_dir, tool_name='caddeditor')
     
     cadd_editor_output_path = os.path.join(work_dir, 'cadd_editor_output.vs')
     return context.write_output_file(job, cadd_editor_output_path)
@@ -298,6 +301,19 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
     output_package_path = os.path.join(work_dir, '{}_BlackBox_Output.tar.gz'.format(sibling_names[0]))
     return context.write_output_file(job, output_package_path)
 
+def run_cadd_jobs(job, context, vcf_chunk_ids):
+    """ helper function for running multiple cadd jobs per vcf chunk
+    """
+    cadd_engine_output_ids = []
+    for vcf_chunk_id in vcf_chunk_ids:
+        cadd_job = job.addChildJobFn(run_cadd, context, vcf_chunk_id,
+                                        cores=context.config.misc_cores,
+                                        memory=context.config.misc_mem,
+                                        disk=context.config.misc_disk)
+        cadd_engine_output_ids.append(cadd_job.rv())
+    
+    return cadd_engine_output_ids
+    
 def run_analysis(job, context, cohort_vcf_id,
                        maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
                        sample_name, maternal_name, paternal_name,
@@ -313,25 +329,33 @@ def run_analysis(job, context, cohort_vcf_id,
     child_job = Job()
     job.addChild(child_job)
     
-    vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir)
+    vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir,
+                                                    cores=context.config.alignment_cores,
+                                                    memory=context.config.alignment_mem,
+                                                    disk=context.config.alignment_disk)
     
     analysis_ready_vs_file_id = vcf_to_shebang_job.rv(0)
     if vcf_to_shebang_job.rv(1) is not None:
         RealtimeLogger.info("Some variants don't have CADD scores, running them through the CADD engine workflow.")
         split_vcf_job = vcf_to_shebang_job.addChildJobFn(run_split_vcf, context, vcf_to_shebang_job.rv(1), cadd_lines)
-        cadd_engine_output_ids = []
-        for vcf_chunk_id in split_vcf_job.rv():
-            cadd_job = split_vcf_job.addChildJobFn(run_cadd, context, vcf_chunk_id)
-            cadd_engine_output_ids.append(cadd_job.rv())
-        
-        merge_annotated_vcf_job = split_vcf_job.addFollowOnJobFn(run_merge_annotated_vcf, context, cadd_engine_output_ids)
-        cadd_edit_job = merge_annotated_vcf_job.addFollowOnJobFn(run_cadd_editor, context, vcf_to_shebang_job.rv(0), merge_annotated_vcf_job.rv())
+        cadd_jobs = split_vcf_job.addFollowOnJobFn(run_cadd_jobs, context, split_vcf_job.rv(),
+                                                cores=context.config.misc_cores,
+                                                memory=context.config.misc_mem,
+                                                disk=context.config.misc_disk)
+        merge_annotated_vcf_job = cadd_jobs.addFollowOnJobFn(run_merge_annotated_vcf, context, cadd_jobs.rv())
+        cadd_edit_job = merge_annotated_vcf_job.addFollowOnJobFn(run_cadd_editor, context, vcf_to_shebang_job.rv(0), merge_annotated_vcf_job.rv(),
+                                                                    cores=context.config.misc_cores,
+                                                                    memory=context.config.alignment_mem,
+                                                                    disk=context.config.alignment_disk)
         
         analysis_ready_vs_file_id = cadd_edit_job.rv()
     
     bmtb_job = vcf_to_shebang_job.addFollowOnJobFn(run_bmtb, context, analysis_ready_vs_file_id,
                                                    maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
-                                                   maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected)
+                                                   maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
+                                                   cores=context.config.misc_cores,
+                                                   memory=context.config.alignment_mem,
+                                                   disk=context.config.alignment_disk)
     
     return bmtb_job.rv()
     
@@ -359,10 +383,10 @@ def analysis_main(context, options):
             inputFBAMINDEXFileID = importer.load(options.paternal_bai)
             inputSiblingBAMFileIDs = []
             for sibling_bam in options.siblings_bam:
-                inputSiblingBAMFileIDs.append(importer.load(options.sibling_bam))
+                inputSiblingBAMFileIDs.append(importer.load(sibling_bam))
             inputSiblingBAMINDEXFileIDs = []
             for sibling_bai in options.siblings_bai:
-                inputSiblingBAMINDEXFileIDs.append(importer.load(options.sibling_bai))
+                inputSiblingBAMINDEXFileIDs.append(importer.load(sibling_bai))
             
             importer.wait()
 
@@ -373,8 +397,8 @@ def analysis_main(context, options):
                                      importer.resolve(inputMBAMINDEXFileID),
                                      importer.resolve(inputFBAMFileID),
                                      importer.resolve(inputFBAMINDEXFileID),
-                                     sibling_bam_ids=importer.resolve(inputSiblingBAMFileIDs),
-                                     sibling_bai_ids=importer.resolve(inputSiblingBAMINDEXFileIDs),
+                                     importer.resolve(inputSiblingBAMFileIDs),
+                                     importer.resolve(inputSiblingBAMINDEXFileIDs),
                                      options.sample_name,
                                      options.maternal_name,
                                      options.paternal_name,

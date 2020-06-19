@@ -46,6 +46,7 @@ from toil_vg.vg_msga import *
 from toil_vg.vg_chunk import *
 from toil_vg.vg_augment import *
 from toil_vg.vg_pedigree import *
+from toil_vg.pedigree_analysis import *
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,10 @@ def parse_args(args=None):
     # pedigree subparser
     parser_pedigree = subparsers.add_parser('pedigree', help='Runs only the Toil VG Pedigree DNA-seq pipeline')
     pedigree_subparser(parser_pedigree)
+    
+    # analysis subparser
+    parser_analysis = subparsers.add_parser('analysis', help='Runs only the DNA-seq pedigree candidate analysis pipeline')
+    analysis_subparser(parser_analysis)
 
     # chunk subparser
     parser_chunk = subparsers.add_parser('chunk', help='Split a graph into components')
@@ -475,6 +480,8 @@ def main():
         augment_main(context, args)
     elif args.command == 'pedigree':
         pedigree_main(context, args)
+    elif args.command == 'analysis':
+        analysis_main(context, args)
     else:
         raise RuntimeError('Unimplemented subcommand {}'.format(args.command))
         

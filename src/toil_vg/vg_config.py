@@ -224,6 +224,15 @@ whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 # Docker image to use for eagle
 eagle-docker: 'quay.io/cmarkello/eagle'
 
+# Docker image to use for vcf2shebang
+vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang'
+
+# Docker image to use for cadd
+cadd-docker: 'quay.io/cmarkello/cadd'
+
+# Docker image to use for cadd editor
+caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -515,6 +524,15 @@ whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 
 # Docker image to use for eagle
 eagle-docker: 'quay.io/cmarkello/eagle'
+
+# Docker image to use for vcf2shebang
+vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang'
+
+# Docker image to use for cadd
+cadd-docker: 'quay.io/cmarkello/cadd'
+
+# Docker image to use for cadd editor
+caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
 
 ##############################
 ### vg_construct Arguments ###
