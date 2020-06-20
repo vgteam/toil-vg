@@ -167,7 +167,7 @@ to do: Should go somewhere more central """
             return 'None'
 
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
-             check_output = False, tool_name=None):
+             check_output = False, tool_name=None, mount_list=None):
         """
         
         Run a command. Decide to use a container based on whether the tool
@@ -223,9 +223,10 @@ to do: Should go somewhere more central """
         container_type = self.container_for_tool(name)
                 
         if container_type == 'Docker':
+            # TODO: add mount_list functionality for docker calls
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
         elif container_type == 'Singularity':
-            return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name)
+            return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name, mount_list)
         else:
             return self.call_directly(args, work_dir, outfile, errfile, check_output)
         
@@ -564,7 +565,7 @@ to do: Should go somewhere more central """
         if check_output is True:
             return captured_stdout
     
-    def call_with_singularity(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
+    def call_with_singularity(self, job, args, work_dir, outfile, errfile, check_output, tool_name, mount_list): 
         """ Thin wrapper for singularity_call that will use internal lookup to
         figure out the location of the singularity file.  Only exposes singularity_call
         parameters used so far.  expect args as list of lists.  if (toplevel)
@@ -596,9 +597,9 @@ to do: Should go somewhere more central """
                 os.environ[env_name] = env_val
             
             if check_output is True:
-                ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
+                ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir, mount_list=mount_list)
             else:
-                ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
+                ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile, mount_list=mount_list)
             
             # Restore old locale and vg traceback
             for env_name, env_val in list(update_env.items()):

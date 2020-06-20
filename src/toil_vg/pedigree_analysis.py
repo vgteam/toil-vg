@@ -110,8 +110,6 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     output_dir = "vcf2shebang_output/"
     bypass_conf = "NO"
     if bypass == 'true': bypass_conf = "YES"
-    context.runner.call(job, ['ln', '-s', '{}'.format(chrom_dir), '.'], work_dir = work_dir)
-    context.runner.call(job, ['ln', '-s', '{}'.format(edit_dir), '.'], work_dir = work_dir)
     context.runner.call(job, ['mkdir', '{}'.format(output_dir)], work_dir = work_dir)
     cmd_list = []
     cmd_list.append(['cp', '/vcftoshebang/VCFtoShebang_Config.txt', '.'])
@@ -127,9 +125,9 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
                              'Runner', 'VCFtoShebang_Config.txt'])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='vcf2shebang')
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vcf2shebang', mount_list=[chrom_dir,edit_dir])
     is_empty = True
-    with open('vcf2shebang_output/{}_unrolled_snpeff_fix_overlap_mono_CADD_Input_Files/{}_unrolled_snpeff_fix_overlap_mono_CADD_input_file.txt'.format(sample_name,sample_name), 'r') as cadd_input_file:
+    with open(os.path.join(work_dir, 'vcf2shebang_output/{}_unrolled_snpeff_fix_overlap_mono_CADD_Input_Files/{}_unrolled_snpeff_fix_overlap_mono_CADD_input_file.txt'.format(sample_name,sample_name)), 'r') as cadd_input_file:
         for line in cadd_input_file:
             if "#" in line: continue
             else:
@@ -155,7 +153,7 @@ def run_split_vcf(job, context, vcf_file_id, split_lines):
     tempname = "{}_tmp".format(os.path.basename(os.path.splitext(os.path.splitext(vcf_file)[0])[0]))
     cmd = [['zcat', vcf_file]]
     cmd.append(['grep', '-v', '\"^GL\\|^#\"'])
-    cmd.append(['cut', '-d$\'\\t\'', '-f', '1-5'])
+    cmd.append(['cut', '-d$"\\t"', '-f', '1-5'])
     cmd.append(['split', '-l', split_lines, '--additional-suffix=\".vcf\"', '-d', '-', tempname])
     context.runner.call(job, cmd, work_dir = work_dir)
     
@@ -176,14 +174,13 @@ def run_cadd(job, context, chunk_vcf_id, genome_build, cadd_data_dir):
     job.fileStore.readGlobalFile(vcf_file_id, vcf_file)
     
     base_vcf_name = os.path.basename(os.pathsplitext(vcf_file)[0])
-    context.runner.call(job, ['ln', '-s', '{}'.format(cadd_data_dir), '.'], work_dir = work_dir)
     cadd_data_dir_basename = os.path.basename(cadd_data_dir)
     cmd_list = []
     cmd_list.append(['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\'', '\'', '-f2)'])
     cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.5\"', '-g', genome_build, '-o', '$PWD/{}_out.tsv.gz'.format(base_vcf_name), '-d', '$PWD/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='cadd')
+    context.runner.call(job, command, work_dir = work_dir, tool_name='cadd', mount_list=[cadd_data_dir])
     
     output_cadd_path = os.path.join(work_dir, '{}_out.tsv.gz'.format(base_vcf_name))
     return context.write_output_file(job, output_cadd_path)
