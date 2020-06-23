@@ -47,6 +47,10 @@ def sim_subparser(parser):
                         help="Ouput fastq file (in addition to GAM)")
     parser.add_argument("--annotate_xg", type=make_url,
                         help="xg index used for gam annotation (if different from input indexes)")
+    parser.add_argument("--gbwt_index", type=make_url,
+                        help="GBWT index file containing individual to simulate from")
+    parser.add_argument("--sample_name", type=str, default=None,
+                        help="Sample name of the individual in the GBWT to simulate from")
     parser.add_argument("--drop_contigs_matching", default=[], action='append',
                         help="drop reads with true positions on contigs (e.g. decoys) matching the given regex(es) from GAM")
     parser.add_argument("--tag_bed", default=[], action='append', type=make_url,
@@ -74,8 +78,9 @@ def sim_subparser(parser):
 
 def validate_sim_options(options):
     require(not options.sim_opts or all([i not in options.sim_opts for i in ['-x', '--xg-name',
-        '-n', '--num-reads', '-a', '--align-out', '-s', '--random-seed', '-P', '--path']]),
-        'sim-opts cannot contain -x, -n, -s, -a, or -P')
+        '-n', '--num-reads', '-a', '--align-out', '-s', '--random-seed', '-P', '--path',
+        '-m', '--sample-name', '-g', '--gbwt-name']]),
+        'sim-opts cannot contain -x, -n, -s, -a, -P, -m, or -g')
     require(options.sim_chunks > 0, '--sim_chunks must be >= 1')
     require(options.seed is None or options.seed > 0,
             'random seed must be greater than 0 (vg sim ignores seed 0)')
@@ -83,11 +88,17 @@ def validate_sim_options(options):
             'can only drop reads annotated as from particular contigs if producing GAM')
     require(options.gam or not options.validate,
             '--validate on applicable to --gam output')
+    require((options.gbwt_index is None) == (options.sample_name is None),
+            '--gbwt_index and --sample_name must be used together')
+    require(len(options.xg_indexes) == 1 or not options.gbwt_index,
+            'only a single XG can be used with a --gbwt_index')
+    require(not options.annotate_xg or not options.gbwt_index,
+            'a --gbwt_index cannot be used with a separate --annotate_xg')
     
 def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
-            xg_file_ids, xg_annot_file_id, tag_bed_ids = [], paths = [],
-            drop_contigs_matching = [], fastq_id = None, out_name = None,
-            validate = False):
+            xg_file_ids, xg_annot_file_id, gbwt_file_id = None, sample_name = None,
+            tag_bed_ids = [], paths = [], drop_contigs_matching = [],
+            fastq_id = None, out_name = None, validate = False):
     """  
     run a bunch of simulation child jobs, merge up their output as a follow on
     """
@@ -120,6 +131,7 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
                 chunk_reads += file_reads % sim_chunks
             sim_out_id_info = child_job.addChildJobFn(run_sim_chunk, context, gam, seed_base, xg_file_id,
                                                       xg_annot_file_id, chunk_reads, chunk_i, xg_i,
+                                                      gbwt_file_id=gbwt_file_id, sample_name=sample_name,
                                                       tag_bed_ids=tag_bed_ids, paths=paths,
                                                       drop_contigs_matching=drop_contigs_matching,
                                                       fastq_id=fastq_id, validate=validate,
@@ -148,10 +160,12 @@ def run_sim(job, context, num_reads, gam, fastq_out, seed, sim_chunks,
 
 
 def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, num_reads, chunk_i, xg_i,
+                  gbwt_file_id = None, sample_name = None,
                   tag_bed_ids = [], paths = [], drop_contigs_matching = [], fastq_id = None, validate = False):
     """
     simulate some reads (and optionally gam)
-    determine with true positions in xg_annot_file_id, into a true position TSV file
+    determine with true positions in xg_annot_file_id, into a true position TSV file.
+    xg_annot_file_id may be none in which case xg_file_id is used.
     tag reads by overlap with tag_bed_ids BED files in the true position file
     if producing gam, drop reads whose annotated truth contigs match any of the regular expressions in drop_contigs_matching
     return either reads_chunk_id or (gam_chunk_id, tsv_chunk_id) if gam is true 
@@ -164,7 +178,7 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
     xg_file = os.path.join(work_dir, 'index.xg')
     job.fileStore.readGlobalFile(xg_file_id, xg_file)
 
-    # read the fastq file
+    # read the fastq file for quality training
     if fastq_id:
         fastq_file = os.path.join(work_dir, 'error_template.fastq')
         job.fileStore.readGlobalFile(fastq_id, fastq_file)
@@ -172,11 +186,21 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         fastq_file = None
     
     # and the annotation xg file
-    if xg_annot_file_id:
+    if xg_annot_file_id and xg_annot_file_id != xg_file_id:
         xg_annot_file = os.path.join(work_dir, 'annot_index.xg')
-        xg_annot_file = job.fileStore.readGlobalFile(xg_annot_file_id, xg_annot_file)
+        job.fileStore.readGlobalFile(xg_annot_file_id, xg_annot_file)
     else:
+        # We always need to do annotation, because the path position
+        # annotations that come from vg sim are only initial path positions. vg
+        # annotate actually searches a distance.
         xg_annot_file = xg_file
+
+    # And the GCSA haplotypes
+    if gbwt_file_id:
+        gbwt_file = os.path.join(work_dir, 'haplotypes.gbwt')
+        job.fileStore.readGlobalFile(gbwt_file_id, gbwt_file)
+    else:
+        gbwt_file = None
 
     # and the tag region BED files
     tag_beds = []
@@ -191,6 +215,10 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         sim_cmd += ['-s', seed_base + chunk_i]
     if fastq_id:
         sim_cmd += ['-F', os.path.basename(fastq_file)]
+    if gbwt_file:
+        sim_cmd += ['-g', os.path.basename(gbwt_file)]
+    if sample_name:
+        sim_cmd += ['-m', sample_name]
     if paths:
         for path in paths:
             # Restrict to just this path
@@ -213,14 +241,25 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
         return context.write_intermediate_file(job, reads_file)
     else:
         # output gam
-        unannotated_gam_file = os.path.join(work_dir, 'sim_{}_{}_unannotated.gam'.format(xg_i, chunk_i))
         gam_file = os.path.join(work_dir, 'sim_{}_{}.gam'.format(xg_i, chunk_i))
         gam_json = os.path.join(work_dir, 'sim_{}_{}.json'.format(xg_i, chunk_i))
-
-        # run vg sim, write output gam, annotated gam, annotaged gam json
+        
+        # run vg sim, write output gam, annotated gam if needed, and tagged gam json
         # (from vg/scripts/map-sim)
         cmd = [sim_cmd + ['-a']]
+        
+        # Current versions of vg sim annotate GAM output, but not well enough.
+        # They only include initial path positions; they don't do a search like
+        # vg annotate does. So we always need to run vg annotate.
+        
+        # We need to annotate with a different XG, or we have tags to
+        # apply, or we're simulating with a GBWT and would get thread name
+        # annotations from vg sim instead of the primary path.
+        
+        # Keep around unannotated and unfiltered GAM 
+        unannotated_gam_file = os.path.join(work_dir, 'sim_{}_{}_unannotated.gam'.format(xg_i, chunk_i))
         cmd.append(['tee', os.path.basename(unannotated_gam_file)])
+        
         annotate_command = ['vg', 'annotate', '-p', '-x', os.path.basename(xg_annot_file), '-a', '-']
         for tag_bed in tag_beds:
             # Make sure to annotate with overlap to tag regions
@@ -246,7 +285,8 @@ def run_sim_chunk(job, context, gam, seed_base, xg_file_id, xg_annot_file_id, nu
             except:
                 # Dump everything we need to replicate the problem
                 context.write_output_file(job, xg_file)
-                context.write_output_file(job, xg_annot_file)
+                if xg_annot_file != xg_file:
+                    context.write_output_file(job, xg_annot_file)
                 context.write_output_file(job, unannotated_gam_file)
                 context.write_output_file(job, gam_file)
                 for tag_bed in tag_beds:
@@ -376,6 +416,10 @@ def sim_main(context, options):
                 inputAnnotXGFileID = importer.load(options.annotate_xg)
             else:
                 inputAnnotXGFileID = None
+            if options.gbwt_index:
+                inputGBWTIndexFileID = importer.load(options.gbwt_index)
+            else:
+                inputGBWTIndexFileID = None
             tagBEDIDs = []
             for url in options.tag_bed:
                 tagBEDIDs.append(importer.load(url))
@@ -403,6 +447,8 @@ def sim_main(context, options):
                                      options.seed, options.sim_chunks,
                                      importer.resolve(inputXGFileIDs),
                                      importer.resolve(inputAnnotXGFileID),
+                                     gbwt_file_id = importer.resolve(inputGBWTIndexFileID),
+                                     sample_name = options.sample_name,
                                      tag_bed_ids = importer.resolve(tagBEDIDs),
                                      paths = options.path,
                                      drop_contigs_matching = options.drop_contigs_matching,

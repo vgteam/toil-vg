@@ -80,7 +80,7 @@ clean_sdist:
 
 
 test: check_venv check_build_reqs
-	TOIL_VG_TEST_CONTAINER=$(container) $(python) setup.py test --pytest-args "-vv $(tests) --junitxml=test-report.xml"
+	TOIL_VG_TEST_CONTAINER=$(container) $(python) setup.py test --pytest-args "-s -vv $(tests) --junitxml=test-report.xml"
 
 pypi: check_venv check_clean_working_copy
 	test "$$CI_COMMIT_REF_NAME" != "master" \

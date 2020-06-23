@@ -16,6 +16,7 @@ import logging
 import subprocess
 import pipes
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -143,6 +144,15 @@ def _singularity(job,
             # mode, Singularity tries to do some confining that it can't do in
             # an un-privileged container, and fails.
             baseSingularityCall.append('-u')
+            
+        if not str(pathlib.Path.home()).startswith('/home'):
+            # Newer versions of Singularity will fail if they can't mount the
+            # home directory, which they can't do if the directory the home
+            # directory is in doesn't exist in the container. If it isn't just
+            # under /home, assume it might not be in the container and tell
+            # Singularity not to try to mount it. See
+            # https://github.com/hpcng/singularity/issues/4995
+            baseSingularityCall.append('--no-home')
 
         # Mount workdir as /mnt and work in there.
         # Hope the image actually has a /mnt available.
