@@ -148,7 +148,8 @@ fi
 if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---batchSystem slurm \\
+--setEnv PATH=\$PATH \\
+--batchSystem Slurm \\
 --statePollingWait 30 \\
 --rescueJobsFrequency 30 \\
 --container Singularity \\
@@ -190,7 +191,8 @@ ${PATERNAL_SAMPLE_NAME} \\
 else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---batchSystem slurm \\
+--setEnv PATH=\$PATH \\
+--batchSystem Slurm \\
 --statePollingWait 30 \\
 --rescueJobsFrequency 30 \\
 --container Singularity \\

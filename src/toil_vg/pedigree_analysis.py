@@ -151,10 +151,10 @@ def run_split_vcf(job, context, vcf_file_id, split_lines):
     job.fileStore.readGlobalFile(vcf_file_id, vcf_file)
     
     tempname = "{}_tmp".format(os.path.basename(os.path.splitext(os.path.splitext(vcf_file)[0])[0]))
-    cmd = [['zcat', vcf_file]]
-    cmd.append(['grep', '-v', '\"^GL\\|^#\"'])
-    cmd.append(['cut', '-d$"\\t"', '-f', '1-5'])
-    cmd.append(['split', '-l', split_lines, '--additional-suffix=\".vcf\"', '-d', '-', tempname])
+    cmd = [['zcat', os.path.basename(vcf_file)]]
+    cmd.append(['grep', '-v', '^GL|^#'])
+    cmd.append(['cut', '-f', '1-5'])
+    cmd.append(['split', '-l', str(split_lines), '--additional-suffix=.vcf', '-d', '-', tempname])
     context.runner.call(job, cmd, work_dir = work_dir)
     
     vcf_chunk_ids = []
@@ -171,9 +171,9 @@ def run_cadd(job, context, chunk_vcf_id, genome_build, cadd_data_dir):
     work_dir = job.fileStore.getLocalTempDir()
 
     vcf_file = os.path.join(work_dir, os.path.basename(chunk_vcf_id))
-    job.fileStore.readGlobalFile(vcf_file_id, vcf_file)
+    job.fileStore.readGlobalFile(chunk_vcf_id, vcf_file)
     
-    base_vcf_name = os.path.basename(os.pathsplitext(vcf_file)[0])
+    base_vcf_name = os.path.basename(os.path.splitext(vcf_file)[0])
     cadd_data_dir_basename = os.path.basename(cadd_data_dir)
     cmd_list = []
     cmd_list.append(['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\'', '\'', '-f2)'])
@@ -191,16 +191,15 @@ def run_merge_annotated_vcf(job, context, cadd_output_chunk_ids):
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
+    cmd_list = [['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\' \'', '-f2)']]
     # Decompress and concatenate cadd output chunks into a single file
     cadd_chunk_merged_file = os.path.join(work_dir, 'merged_CADDv1.5_offline_unsorted')
     for cadd_output_chunk_id in sorted(cadd_output_chunk_ids):
         cadd_chunk_file = os.path.join(work_dir, os.path.basename(cadd_output_chunk_id))
         job.fileStore.readGlobalFile(cadd_output_chunk_id, cadd_chunk_file)
-        command = ['zcat', cadd_chunk_file, '>>', 'merged_CADDv1.5_offline_unsorted']
-        context.runner.call(job, command, work_dir = work_dir)
+        cmd_list.append(['zcat', os.path.basename(cadd_chunk_file), '>>', 'merged_CADDv1.5_offline_unsorted'])
         
     # Sort and process the merged file
-    cmd_list = [['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\'', '\'', '-f2)']]
     cmd_list.append(['sort', '-k1,1', '-k2,2n', 'merged_CADDv1.5_offline_unsorted', '>', 'merged_CADDv1.5_offline.vcf'])
     cmd_list.append(['rm', '-f', 'merged_CADDv1.5_offline_unsorted'])
     cmd_list.append(['python', '/usr/src/app/CADD_offline_mito_postprocessing.py', '-c', '/usr/src/app/whole_mito_SNP_pp2_predictions_sorted.txt', '-i', 'merged_CADDv1.5_offline.vcf', '-o', 'merged_CADDv1.5_offline_proper_format.vcf'])
@@ -209,7 +208,7 @@ def run_merge_annotated_vcf(job, context, cadd_output_chunk_ids):
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='cadd')
     
-    merged_cadd_output_vcf_path = os.path.basename(work_dir, 'merged_CADDv1.5_offline_proper_format.vcf')
+    merged_cadd_output_vcf_path = os.path.join(work_dir, 'merged_CADDv1.5_offline_proper_format.vcf')
     return context.write_output_file(job, merged_cadd_output_vcf_path)
 
 def run_cadd_editor(job, context, vcftoshebang_vs_file_id, merged_cadd_vcf_file_id):
@@ -226,7 +225,7 @@ def run_cadd_editor(job, context, vcftoshebang_vs_file_id, merged_cadd_vcf_file_
     job.fileStore.readGlobalFile(merged_cadd_vcf_file_id, merged_cadd_vcf_file)
     
     command = ['java', '-cp', '/cadd_edit/NewCaddEditor.jar:/cadd_edit/commons-cli-1.4.jar', 'NewCaddEditor',
-                '--input_vs', vcftoshebang_vs_file, '--output_cadd', merged_cadd_vcf_file, '--output_vs', 'cadd_editor_output.vs']
+                '--input_vs', os.path.basename(vcftoshebang_vs_file), '--output_cadd', os.path.basename(merged_cadd_vcf_file), '--output_vs', 'cadd_editor_output.vs']
     context.runner.call(job, command, work_dir = work_dir, tool_name='caddeditor')
     
     cadd_editor_output_path = os.path.join(work_dir, 'cadd_editor_output.vs')
@@ -264,15 +263,16 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
         s_bai_path = os.path.join(work_dir, os.path.basename(s_bai_id))
         job.fileStore.readGlobalFile(s_bai_id, s_bai_path)
         s_bai_paths.append(s_bai_path)
-
+    
+    context.runner.call(job, ['ls', '-l', '/bmtb/'], work_dir = work_dir, tool_name='bmtb')
     cmd_list = [['cp', '-r', '/bmtb/Configs', '$PWD/Configs']]
     cmd_list.append(['rm', '-f', '$PWD/Configs/BAM_Directory_Config.txt'])
     cmd_list.append(['touch', '$PWD/Configs/BAM_Directory_Config.txt'])
-    cmd_list.append(['echo', '-e', '\"{}\\t$PWD/{}\"'.format(maternal_name,os.path.basename(m_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
-    cmd_list.append(['echo', '-e', '\"{}\\t$PWD/{}\"'.format(paternal_name,os.path.basename(f_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
+    cmd_list.append(['echo', '-e', '\"{}\t$PWD/{}\"'.format(maternal_name,os.path.basename(m_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
+    cmd_list.append(['echo', '-e', '\"{}\t$PWD/{}\"'.format(paternal_name,os.path.basename(f_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
     sibling_id_string = "NA"
     for i, (s_bam_path,s_bai_path,s_name,s_gender,s_affected) in enumerate(zip(s_bam_paths,s_bai_paths,sibling_names,sibling_genders,sibling_affected)):
-        cmd_list.append(['echo', '-e', '\"{}\\t$PWD/{}\"'.format(s_name,os.path.basename(s_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
+        cmd_list.append(['echo', '-e', '\"{}\t$PWD/{}\"'.format(s_name,os.path.basename(s_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
         # Add proband data to master config file
         if i == 0:
             cmd_list.append(['sed', '-i', '\"s|.*PB_ID.*|PB_ID\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
@@ -289,7 +289,7 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
     cmd_list.append(['sed', '-i', '\"s|.*FATHER_ID.*|FATHER_ID\t{}|\"'.format(paternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*MOTHER_ID.*|MOTHER_ID\t{}|\"'.format(maternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*SIB_IDS.*|SIB_IDS\t{}|\"'.format(sibling_id_string), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
-    cmd_list.append(['java', '-cp', '/bmtb/BMTB.jar:/bmtb/htsjdk-2.19.0-47-gc5ed6b7-SNAPSHOT.jar', 'general.Runner', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['java', '-cp', '/bmtb/bmtb.jar:/bmtb/htsjdk-2.19.0-47-gc5ed6b7-SNAPSHOT.jar', 'general.Runner', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
     cmd_list.append(['tar', 'czvf', '\"{}_BlackBox_Output.tar.gz\"'.format(sibling_names[0]), '\"{}_BlackBox_Output\"'.format(sibling_names[0])])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
@@ -298,12 +298,12 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
     output_package_path = os.path.join(work_dir, '{}_BlackBox_Output.tar.gz'.format(sibling_names[0]))
     return context.write_output_file(job, output_package_path)
 
-def run_cadd_jobs(job, context, vcf_chunk_ids):
+def run_cadd_jobs(job, context, vcf_chunk_ids, genome_build, cadd_data_dir):
     """ helper function for running multiple cadd jobs per vcf chunk
     """
     cadd_engine_output_ids = []
     for vcf_chunk_id in vcf_chunk_ids:
-        cadd_job = job.addChildJobFn(run_cadd, context, vcf_chunk_id,
+        cadd_job = job.addChildJobFn(run_cadd, context, vcf_chunk_id, genome_build, cadd_data_dir,
                                         cores=context.config.misc_cores,
                                         memory=context.config.misc_mem,
                                         disk=context.config.misc_disk)
@@ -335,7 +335,7 @@ def run_analysis(job, context, cohort_vcf_id,
     if vcf_to_shebang_job.rv(1) is not None:
         RealtimeLogger.info("Some variants don't have CADD scores, running them through the CADD engine workflow.")
         split_vcf_job = vcf_to_shebang_job.addChildJobFn(run_split_vcf, context, vcf_to_shebang_job.rv(1), cadd_lines)
-        cadd_jobs = split_vcf_job.addFollowOnJobFn(run_cadd_jobs, context, split_vcf_job.rv(),
+        cadd_jobs = split_vcf_job.addFollowOnJobFn(run_cadd_jobs, context, split_vcf_job.rv(), genome_build, cadd_data_dir,
                                                 cores=context.config.misc_cores,
                                                 memory=context.config.misc_mem,
                                                 disk=context.config.misc_disk)

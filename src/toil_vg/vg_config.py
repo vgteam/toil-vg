@@ -233,6 +233,9 @@ cadd-docker: 'quay.io/cmarkello/cadd'
 # Docker image to use for cadd editor
 caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
 
+# Docker image to use for bmtb
+bmtb-docker: 'quay.io/cmarkello/bmtb'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -533,6 +536,9 @@ cadd-docker: 'quay.io/cmarkello/cadd'
 
 # Docker image to use for cadd editor
 caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
+
+# Docker image to use for bmtb
+bmtb-docker: 'quay.io/cmarkello/bmtb'
 
 ##############################
 ### vg_construct Arguments ###

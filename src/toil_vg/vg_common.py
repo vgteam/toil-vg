@@ -122,9 +122,10 @@ def get_container_tool_map(options):
     cmap[0]['vcf2shebang'] = options.vcf2shebang_docker
     cmap[0]['cadd'] = options.cadd_docker
     cmap[0]['caddeditor'] = options.caddeditor_docker
+    cmap[0]['bmtb'] = options.bmtb_docker
     
     # to do: could be a good place to do an existence check on these tools
-
+    
     return cmap
 
 def toil_call(job, context, cmd, work_dir, out_path = None, out_append = False):
