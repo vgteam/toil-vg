@@ -26,6 +26,7 @@ from toil_vg.vg_config import *
 from toil_vg.vg_construct import *
 from toil_vg.vg_index import index_parse_args
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.pedigree_analysis import *
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,34 @@ def pedigree_parse_args(parser, stand_alone = False):
     parser.add_argument("--validate", action="store_true",
                         help="run vg validate on ouput GAMs")
 
+def pedigree_analysis_parse_args(parser, stand_alone = False):
+    """
+    Define pedigree arguments related to pedigree analysis
+    """
+    parser.add_argument("--run_analysis", action="store_true",
+                        help="additionally run the pedigree candidate analysis workflow after the vg pedigree workflow completes.")
+    # VCFtoShebang options
+    parser.add_argument("--bypass", action="store_true", default=False,
+        help="Parameter for vcftoshebang.")
+    parser.add_argument("--cadd_lines", type=int, default=4985,
+        help="Parameter for vcftoshebang.")
+    parser.add_argument("--chrom_dir", type=str,
+        help="Path to chromosome annotation directory used by vcftoshebang")
+    parser.add_argument("--edit_dir", type=str,
+        help="Path to directory containing master edit files used by vcftoshebang")
+    # CADD options
+    parser.add_argument("--split_lines", type=int, default=30000,
+        help="Number of lines to chunk the input VCF for CADD processing.")
+    parser.add_argument("--genome_build", type=str, default="GRCh37",
+        help="Genome annotation version for the CADD engine")
+    parser.add_argument("--cadd_data", type=str,
+        help="Path to cadd engine data directory")
+    # BMTB options
+    parser.add_argument("--sibling_genders", nargs='+', type=int,
+        help="Gender of each sibling sample. 0 = male, 1 = female. Same sample order as --siblings_bam.")
+    parser.add_argument("--sibling_affected", nargs='+', type=int,
+        help="Affected status of each sibling sample. 0 = unaffected, 1 = affected. Same sample order as --siblings_bam.")
+
 def validate_pedigree_options(context, options):
     """
     Throw an error if an invalid combination of options has been selected.
@@ -202,7 +231,14 @@ def validate_pedigree_options(context, options):
              '--snpeff_annotation must be accompanied with --snpeff_database')
     require (options.run_dragen or (options.dragen_ref_index_name is None and options.udp_data_dir is None and options.helix_username is None),
              '--run_dragen must be accompanied with --dragen_ref_index_name, --udp_data_dir, and --helix_username {},{},{},{}'.format(options.run_dragen,options.dragen_ref_index_name,options.udp_data_dir,options.helix_username))
-
+    # Requirements for analysis workflow
+    if options.run_analysis:
+        require(options.chrom_dir, '--chrom_dir is required for analysis workflow')
+        require(options.edit_dir, '--edit_dir is required for analysis workflow')
+        require(options.cadd_data, '--cadd_data is required for analysis workflow')
+        require(options.sibling_genders >= 1, '--sibling_genders needs at least one value for the proband')
+        require(options.sibling_affected >= 1, '--sibling_affected needs at least one value for the proband')
+    
 # Decorator for python process timed retries (https://realpython.com/python-sleep/#adding-a-python-sleep-call-with-decorators)
 def sleep(timeout, retry=3):
     def the_real_decorator(function):
@@ -353,6 +389,9 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name))
     processed_bam_file_id = context.write_intermediate_file(job, out_bam_file)
     
+    # Delete input files
+    job.fileStore.deleteGlobalFile(chr_bam_id)
+    
     return processed_bam_file_id
 
 #@sleep(1800, retry=20)
@@ -452,9 +491,13 @@ def run_merge_bams_ped_workflow(job, context, sample_name, bam_ids, indel_realig
     if write_to_outstore:
         merged_bam_file_id = context.write_output_file(job, out_file)
         merged_bam_index_file_id = context.write_output_file(job, out_file + '.bai')
+        # Delete input files
+        for bam_id in bam_ids:
+            job.fileStore.deleteGlobalFile(bam_id)
     else:
         merged_bam_file_id = context.write_intermediate_file(job, out_file)
         merged_bam_index_file_id = context.write_intermediate_file(job, out_file + '.bai')
+    
     
     return merged_bam_file_id, merged_bam_index_file_id
     
@@ -809,6 +852,9 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     phased_vcf_file_id = context.write_intermediate_file(job, out_file)
     phased_vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
     
+    # Delete input files
+    job.fileStore.deleteGlobalFile(contig_vcf_id)
+    
     return phased_vcf_file_id, phased_vcf_index_file_id
 
 def run_collect_concat_vcfs(job, context, vcf_file_id, vcf_index_file_id):
@@ -960,6 +1006,9 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
     with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(os.path.basename(sample_bam_id))), 'wb') as output_indel_realigned_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_indel_realigned_bam)
+    
+    # Delete input files
+    job.fileStore.deleteGlobalFile(sample_bam_id)
     
     return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(os.path.basename(sample_bam_id))))
     
@@ -1298,7 +1347,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                                                 misc_file_ids['path_list'], ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
                                                                 siblings_names=siblings_names, sibling_mapping_chr_bam_ids_list=sibling_mapping_chr_bam_ids)
     if snpeff_annotation:
-        snpeff_job = stage4_jobs.addFollowOnJobFn(run_snpEff_annotation, context,
+        snpeff_job = stage4_jobs.addChildJobFn(run_snpEff_annotation, context,
                                                         proband_name, pedigree_joint_call_job.rv(0),
                                                         misc_file_ids['snpeff_data'],
                                                         cores=context.config.calling_cores,
@@ -1349,7 +1398,23 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         final_sibling_bam_list = indel_realign_job.rv(3)
         final_sibling_bam_index_list = indel_realign_job.rv(4)
     
-    return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list, final_sibling_bam_index_list, final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index
+    # Run analysis workflow
+    if options.run_analysis:
+        stage5_jobs = Job()
+        stage4_jobs.addFollowOn(stage5_jobs)
+        joined_sibling_names = [proband_name] + siblings_names
+        analysis_workflow_job = stage5_jobs.addChildJobFn(run_analysis, context, final_pedigree_joint_called_vcf,
+                                                           final_maternal_bam, final_maternal_bam_index, 
+                                                           final_paternal_bam, final_paternal_bam_index,
+                                                           final_sibling_bam_list, final_sibling_bam_index_list,
+                                                           proband_name, maternal_name, paternal_name,
+                                                           joined_sibling_names, options.sibling_genders, options.sibling_affected,
+                                                           options.bypass, options.cadd_lines,
+                                                           options.chrom_dir, options.edit_dir,
+                                                           options.split_lines, options.genome_build, options.cadd_data_dir)
+        return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list, final_sibling_bam_index_list, final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index, analysis_workflow_job.rv()
+    else:
+        return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list, final_sibling_bam_index_list, final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index
 
 def pedigree_main(context, options):
     """
