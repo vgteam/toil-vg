@@ -123,6 +123,7 @@ def get_container_tool_map(options):
     cmap[0]['cadd'] = options.cadd_docker
     cmap[0]['caddeditor'] = options.caddeditor_docker
     cmap[0]['bmtb'] = options.bmtb_docker
+    cmap[0]['vcftools'] = options.vcftools_docker
     
     # to do: could be a good place to do an existence check on these tools
     

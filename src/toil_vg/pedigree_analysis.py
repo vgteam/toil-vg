@@ -107,6 +107,15 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     cohort_vcf_file = os.path.join(work_dir, os.path.basename(cohort_vcf_id))
     job.fileStore.readGlobalFile(cohort_vcf_id, cohort_vcf_file)
     
+    # Decompress cohort vcf if already compressed
+    if os.path.basename(cohort_vcf_file).endswith('.gz'):
+        context.runner.call(job, ['bgzip', '-d', os.path.basename(cohort_vcf_file)], work_dir = work_dir, tool_name='vg')
+        cohort_vcf_file = os.path.splitext(cohort_vcf_file)[0]
+    
+    # Remove the hs37d5 contig
+    context.runner.call(job, ['vcftools', '--vcf', os.path.basename(cohort_vcf_file), '--not-chr', 'hs37d5', '--recode-INFO-all', '--recode', '--out', '{}.filtered'.format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))], work_dir = work_dir, tool_name='vcftools')
+    input_vcf_file = "{}.filtered.recode.vcf".format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))
+    
     output_dir = "vcf2shebang_output/"
     bypass_conf = "NO"
     if bypass == 'true': bypass_conf = "YES"
@@ -115,7 +124,7 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     cmd_list.append(['cp', '/vcftoshebang/VCFtoShebang_Config.txt', '.'])
     cmd_list.append(['sed', '-i', '\"s|.*PROBAND_NAME.*|PROBAND_NAME\t{}|\"'.format(sample_name), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*OUTPUT_DIR.*|OUTPUT_DIR\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*UNROLLED_VCF_PATH.*|UNROLLED_VCF_PATH\t{}|\"'.format(os.path.basename(cohort_vcf_file)), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|.*UNROLLED_VCF_PATH.*|UNROLLED_VCF_PATH\t{}|\"'.format(input_vcf_file), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*BYPASS.*|BYPASS\t{}|\"'.format(bypass_conf), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*CADD_LINES.*|CADD_LINES\t{}|\"'.format(cadd_lines), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*CHROM_DIR.*|CHROM_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(chrom_dir))), 'VCFtoShebang_Config.txt'])

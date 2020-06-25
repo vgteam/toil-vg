@@ -236,6 +236,9 @@ caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
 # Docker image to use for bmtb
 bmtb-docker: 'quay.io/cmarkello/bmtb'
 
+# Docker image to use for vcftools
+vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -539,6 +542,9 @@ caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
 
 # Docker image to use for bmtb
 bmtb-docker: 'quay.io/cmarkello/bmtb'
+
+# Docker image to use for vcftools
+vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 
 ##############################
 ### vg_construct Arguments ###
