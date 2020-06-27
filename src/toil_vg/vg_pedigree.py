@@ -124,6 +124,9 @@ def pedigree_subparser(parser):
     
     # Add common docker options
     add_container_tool_parse_args(parser)
+    
+    # Add common analysis options
+    pedigree_analysis_parse_args(parser)
 
 def pedigree_parse_args(parser, stand_alone = False):
     """
@@ -236,8 +239,8 @@ def validate_pedigree_options(context, options):
         require(options.chrom_dir, '--chrom_dir is required for analysis workflow')
         require(options.edit_dir, '--edit_dir is required for analysis workflow')
         require(options.cadd_data, '--cadd_data is required for analysis workflow')
-        require(options.sibling_genders >= 1, '--sibling_genders needs at least one value for the proband')
-        require(options.sibling_affected >= 1, '--sibling_affected needs at least one value for the proband')
+        require(len(options.sibling_genders) >= 1, '--sibling_genders needs at least one value for the proband')
+        require(len(options.sibling_affected) >= 1, '--sibling_affected needs at least one value for the proband')
     
 # Decorator for python process timed retries (https://realpython.com/python-sleep/#adding-a-python-sleep-call-with-decorators)
 def sleep(timeout, retry=3):
@@ -848,14 +851,15 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.filtered.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
     # Write output to intermediate store
-    out_file = os.path.join(work_dir, '{}_cohort_{}.phased.filtered.vcf.gz'.format(proband_name, contig_name))
-    phased_vcf_file_id = context.write_intermediate_file(job, out_file)
-    phased_vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
+    out_file = os.path.join(work_dir, '{}.vcf.gz'.format(contig_name))
+    phased_vcf_file_id = context.write_output_file(job, out_file)
+    phased_vcf_index_file_id = context.write_output_file(job, out_file + '.tbi')
+    phased_vcf_file_name = os.path.basename(out_file)
     
     # Delete input files
     job.fileStore.deleteGlobalFile(contig_vcf_id)
     
-    return phased_vcf_file_id, phased_vcf_index_file_id
+    return phased_vcf_file_id, phased_vcf_index_file_id, phased_vcf_file_name
 
 def run_collect_concat_vcfs(job, context, vcf_file_id, vcf_index_file_id):
     inputVCFFileIDs = []
@@ -895,7 +899,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
     
     phased_vcf_ids = []
     phased_vcf_index_ids = []
-    batch_input = split_jointcalled_vcf_job.rv()
+    phased_vcf_names = []
     for contig_id in contigs_list:
         phasing_job = phasing_jobs.addChildJobFn(run_whatshap_phasing, context, split_jointcalled_vcf_job.rv(contig_id), contig_id, proband_name, maternal_name, paternal_name,
                                                     proband_bam_id, proband_bam_index_id,
@@ -908,30 +912,288 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                                     disk=context.config.alignment_disk)
         phased_vcf_ids.append(phasing_job.rv(0))
         phased_vcf_index_ids.append(phasing_job.rv(1))
+        phased_vcf_names.append(phasing_job.rv(2))
     
-    concat_job1 = phasing_jobs.addFollowOnJobFn(run_concat_vcfs, context, proband_name, phased_vcf_ids, phased_vcf_index_ids)
-    concat_job2 = concat_job1.addFollowOnJobFn(run_collect_concat_vcfs, context, concat_job1.rv(0), concat_job1.rv(1))
-    get_fasta_seq_names_job = concat_job2.addFollowOnJobFn(run_scan_fasta_sequence_names, context,
-                                                               ref_fasta_id,
-                                                               os.path.basename(options.ref_fasta),
-                                                               contigs_list,
-                                                               memory=context.config.misc_mem,
-                                                               disk=context.config.construct_disk)
-    logger.debug("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
-    RealtimeLogger.debug("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
-    input_vcf_job = get_fasta_seq_names_job.addFollowOnJobFn(run_generate_input_vcfs, context,
-                                                    concat_job2.rv(0), concat_job2.rv(1), concat_job2.rv(2),
-                                                    get_fasta_seq_names_job.rv(), '{}.parental_graphs'.format(proband_name),
-                                                    do_pan=True)
-    inputFastaFileIDs_job = input_vcf_job.addFollowOnJobFn(run_mask_ambiguous, context, ref_fasta_id, os.path.basename(ref_fasta_id),
-                                                       disk=context.config.construct_disk)
-    construct_job = inputFastaFileIDs_job.addFollowOnJobFn(run_construct_all, context, [inputFastaFileIDs_job.rv(0)],
-                                                    [inputFastaFileIDs_job.rv(1)], input_vcf_job.rv(),
-                                                    max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=False, regions=get_fasta_seq_names_job.rv(),
-                                                    merge_graphs=False, sort_ids=True, join_ids=True,
-                                                    wanted_indexes=['xg','gcsa','gbwt','id_ranges'], gbwt_prune=True)
+    #concat_job1 = phasing_jobs.addFollowOnJobFn(run_concat_vcfs, context, proband_name, phased_vcf_ids, phased_vcf_index_ids)
+    #concat_job2 = concat_job1.addFollowOnJobFn(run_collect_concat_vcfs, context, concat_job1.rv(0), concat_job1.rv(1))
+    #get_fasta_seq_names_job = concat_job2.addFollowOnJobFn(run_scan_fasta_sequence_names, context,
+    #                                                           ref_fasta_id,
+    #                                                           os.path.basename(options.ref_fasta),
+    #                                                           contigs_list,
+    #                                                           memory=context.config.misc_mem,
+    #                                                           disk=context.config.construct_disk)
+    #logger.info("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
+    #RealtimeLogger.info("Parsed contigs list: {}".format(get_fasta_seq_names_job.rv()))
+    #input_vcf_job = get_fasta_seq_names_job.addFollowOnJobFn(run_generate_input_vcfs, context,
+    #                                                concat_job2.rv(0), concat_job2.rv(1), concat_job2.rv(2),
+    #                                                get_fasta_seq_names_job.rv(), '{}.parental_graphs'.format(proband_name),
+    #                                                do_pan=True)
+    #input_vcf_job = get_fasta_seq_names_job.addFollowOnJobFn(run_generate_input_vcfs, context,
+    #                                                phased_vcf_ids, phased_vcf_names, phased_vcf_index_ids,
+    #                                                get_fasta_seq_names_job.rv(), '{}.parental_graphs'.format(proband_name),
+    #                                                do_pan=True)
+    #inputFastaFileIDs_job = input_vcf_job.addFollowOnJobFn(run_mask_ambiguous, context, ref_fasta_id, os.path.basename(ref_fasta_id),
+    #                                                   disk=context.config.construct_disk)
+    #construct_job = inputFastaFileIDs_job.addFollowOnJobFn(run_construct_all, context, [inputFastaFileIDs_job.rv(0)],
+    #                                                [inputFastaFileIDs_job.rv(1)], input_vcf_job.rv(),
+    #                                                max_node_size=32, alt_paths=False, flat_alts=False, handle_svs=True, regions=get_fasta_seq_names_job.rv(),
+    #                                                merge_graphs=False, sort_ids=True, join_ids=True,
+    #                                                wanted_indexes=['xg','gcsa','gbwt','id_ranges'], gbwt_prune=True)
     
+    construct_job = phasing_jobs.addFollowOnJobFn(run_construct_index_workflow, context, options, '{}.parental.graphs'.format(proband_name), ref_fasta_id,
+                                                    phased_vcf_ids, use_haplotypes=True, use_decoys=True)
     return construct_job.rv()
+
+##################################################
+########## VG_WDL CONSTRUCT PORT #################
+def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id, contig_vcf_gz_id_list,
+                                    use_haplotypes=False, use_decoys=False, 
+                                    contigs_list=["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y","MT"],
+                                    decoy_regex=">GL\|>NC_007605\|>hs37d5"):
+    # we make a sub job tree so that all graph construction and indexing is encapsulated in a top-level job
+    construct_jobs = Job()
+    indexing_jobs = Job()
+    job.addChild(construct_jobs)
+    
+    construct_chromosome_graph_vg_ids = []
+    for contig, vcf_gz_id in zip(contigs_list,contig_vcf_gz_id_list):
+        construct_chromosome_graph_vg_ids.append(construct_jobs.addChildJobFn(run_construct_graph_pedigree, context, options,
+                                        ref_fasta_id, contig, vcf_gz_id=vcf_gz_id, use_haplotypes=use_haplotypes).rv())
+    
+    construct_decoy_graph_vg_ids = []
+    if use_decoys:
+        extract_decoys_job = construct_jobs.addChildJobFn(run_extract_decoys, context, options, ref_fasta_id)
+        for decoy_contig in extract_decoys_job.rv():
+            construct_decoy_graph_vg_ids.append(extract_decoys_job.addChildJobFn(run_construct_graph_pedigree, context, options,
+                                        ref_fasta_id, decoy_contig, use_haplotypes=False).rv())
+    
+    combine_graphs_job = construct_jobs.addFollowOnJobFn(run_combine_graphs, context, options, graph_name, construct_chromosome_graph_vg_ids+construct_decoy_graph_vg_ids)
+    xg_index_job = combine_graphs_job.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0))
+    
+    if use_haplotypes:
+        contig_gbwt_ids = []
+        gbwt_jobs = Job()
+        combine_graphs_job.addChildJob(gbwt_jobs)
+        for vg_id, vcf_gz_id in zip(combine_graphs_job.rv(2), contig_vcf_gz_id_list):
+            contig_gbwt_ids.append(gbwt_jobs.addChildJobFn(run_gbwt_index, context, options, vg_id, vcf_gz_id).rv())
+        
+        gbwt_merge_job = gbwt_jobs.addFollowOnJobFn(run_gbwt_merge, context, options, contig_gbwt_ids, graph_name))
+        prune_graph_with_haplotypes_job = gbwt_merge_job.addChildJobFn(run_prune_graph_with_haplotypes, context, options, combine_graphs_job.rv(2), contig_gbwt_ids, combine_graphs_job.rv(1))
+        
+        prune_decoy_graph_ids = []
+        if use_decoys:
+            prune_decoy_graph_jobs = Job()
+            gbwt_merge_job.addChildJob(prune_decoy_graph_jobs)
+            for decoy_contig_vg_id in combine_graphs_job.rv(4):
+                prune_decoy_graph_ids.append(prune_decoy_graph_jobs.addChildJobFn(run_prune_graph, context, options, decoy_contig_vg_id).rv())
+            
+        gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0)+prune_decoy_graph_ids, prune_graph_with_haplotypes_job.rv(1))
+        return combine_graphs_job.rv(0), xg_index_job.rv(), gcsa_index_job.rv(0), gcsa_index_job.rv(1), gbwt_merge_job.rv()
+    else:
+        prune_graph_ids = []
+        prune_graph_jobs = Job()
+        combine_graphs_job.addChildJob(prune_graph_jobs)
+        for contig_vg_id in combine_graphs_job.(3):
+            prune_graph_ids.append(prune_graph_jobs.addChildJobFn(run_prune_graph, context, options, contig_vg_id).rv())
+        
+        gcsa_index_job = combine_graphs_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_ids, combine_graphs_job.rv(1))
+        return combine_graphs_job.rv(0), xg_index_job.rv(), gcsa_index_job.rv(0), gcsa_index_job.rv(1)
+
+def run_extract_decoys(job, context, options, ref_fasta_id, decoy_regex=">GL\|>NC_007605\|>hs37d5"):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    ref_fasta_path =  os.path.join(work_dir, os.path.basename(ref_fasta_id))
+    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
+    
+    cmd = [['cat', os.path.basename(ref_fasta_path)]]
+    cmd.append(['grep', '-E', decoy_regex])
+    cmd.append(['cut', '-f', '1', '-d', ' '])
+    cmd.append(['cut', '-f', '2', '-d', '>', 'decoy_contig_ids.txt'])
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    decoy_contigs_list = []
+    with open(os.path.join(work_dir, 'decoy_contig_ids.txt'), 'rb') as output_contigs_list:
+        for line in output_contigs_list:
+            decoy_contigs_list.append(line)
+    
+    context.write_output_file(job, os.path.join(work_dir, 'decoy_contig_ids.txt'))
+    
+    return decoy_contigs_list
+
+def run_construct_graph_pedigree(job, context, options, ref_fasta_id, contig_name, vcf_gz_id=None, use_haplotypes=False, vg_construct_options="--node-max 32 --handle-sv"):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    ref_fasta_path = os.path.join(work_dir, os.path.basename(ref_fasta_id))
+    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
+    
+    command = ['vg', 'construct', '--threads', job.cores, '-R', contig_name, '-C', '-r', os.path.basename(ref_fasta_path)]
+    if vcf_gz_id is not None:
+        vcf_gz_path = os.path.join(work_dir, os.path.basename(vcf_gz_id))
+        job.fileStore.readGlobalFile(vcf_gz_id, vcf_gz_path)
+        context.runner.call(job, ['tabix', os.path.basename(vcf_gz_path)], work_dir = work_dir, tool_name='vg')
+        command += ['-v', os.path.basename(vcf_gz_path), '--region-is-chrom']
+        
+    vg_construct_options_list = vg_construct_options.split()
+    command += vg_construct_options.split()
+    if use_haplotypes:
+        command += ['-a']
+    command += ['>', '{}.vg'.format(contig_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    context.runner.call(job, ['rm', '-f', os.path.basename(ref_fasta_path)], work_dir = work_dir, tool_name='vg')
+    
+    # Write output to the outstore
+    contig_vg_id = context.write_output_file(job, os.path.join(work_dir, '{}.vg'.format(contig_name)))
+    return contig_vg_id
+
+def run_combine_graphs(job, context, options, graph_name, contigs_vg_id_list):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    decoy_contigs_uid_vg = []
+    contigs_uid_vg = []
+    all_contigs_uid_vg = []
+    all_contigs_uid_vg_ids = []
+    for contig_vg_id in contigs_vg_id_list:
+        contig_vg_path = os.path.join(work_dir, os.path.basename(contig_vg_id))
+        job.fileStore.readGlobalFile(contig_vg_id, contig_vg_path)
+        contig_name = os.path.splitext(os.path.basename(contig_vg_path))[0]
+        if ("GL" in contig_name) or ("NC_007605" in contig_name) or ("hs37d5" in contig_name):
+            decoy_contigs_uid_vg.append(contig_vg_id)
+        else:
+            contigs_uid_vg.append(contig_vg_id)
+        all_contigs_uid_vg.append(contig_vg_path)
+        all_contigs_uid_vg_ids.append(contig_vg_id)
+    
+    command = ['vg', 'ids', '-j', '-m', 'empty.id_map']
+    command += all_contigs_uid_vg
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    command = ['cat']
+    command += all_contigs_uid_vg
+    command += ['>', '{}.vg'.format(graph_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    combined_vg_id = context.write_output_file(job, os.path.join(work_dir, '{}.vg'.format(graph_name)))
+    empty_id_map_id = context.write_output_file(job, os.path.join(work_dir, 'empty.id_map'))
+    
+    if len(decoy_contigs_uid_vg) > 0:
+        return combined_vg_id, empty_id_map_id, contigs_uid_vg, all_contigs_uid_vg_ids, decoy_contigs_uid_vg
+    else:
+        return combined_vg_id, empty_id_map_id, contigs_uid_vg, all_contigs_uid_vg_ids
+    
+def run_gbwt_index(job, context, options, vg_id, vcf_gz_id):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    vg_file_path = os.path.join(work_dir, os.path.basename(vg_id))
+    job.fileStore.readGlobalFile(vg_id, vg_file_path)
+    
+    vcf_gz_path = os.path.join(work_dir, os.path.basename(vcf_gz_id))
+    job.fileStore.readGlobalFile(vcf_gz_id, vcf_gz_path)
+    
+    contig_name = os.path.splitext(os.path.basename(vg_file_path))[0]
+    context.runner.call(job, ['tabix', os.path.basename(vcf_gz_path)], work_dir = work_dir, tool_name='vg')
+    context.runner.call(job, ['vg', 'index', '--threads', job.cores, '--force-phasing', '--discard-overlaps', '-G', '{}.gbwt'.format(contig_name), '-v', os.path.basename(vcf_gz_path), os.path.basename(vg_file_path)], work_dir = work_dir, tool_name='vg')
+    
+    gbwt_id = context.write_intermediate_file(job, os.path.join(work_dir, '{}.gbwt'.format(contig_name)))
+    
+    return gbwt_id
+
+def run_gbwt_merge(job, context, options, gbwt_id_list, graph_name):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    gbwt_list = []
+    for gbwt_id in gbwt_id_list:
+        gbwt_file_path = os.path.join(work_dir, os.path.basename(gbwt_id))
+        job.fileStore.readGlobalFile(gbwt_id, gbwt_file_path)
+        gbwt_list.append(os.path.basename(gbwt_file_path))
+    
+    command = ['vg', 'gbwt', '-m', '-f', 'o', '{}.gbwt'.format(graph_name)]
+    command += gbwt_list
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    merged_gbwt_id = context.write_output_file(job, os.path.join(work_dir, '{}.gbwt'.format(graph_name)))
+    
+    return merged_gbwt_id
+
+def run_xg_index(job, context, options, graph_name, vg_id, xg_options=""):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    vg_file_path = os.path.join(work_dir, os.path.basename(vg_id))
+    job.fileStore.readGlobalFile(vg_id, vg_file_path)
+    
+    command = ['vg', 'index', '--threads', job.cores, '-x', '{}.xg'.format(graph_name), xg_options, os.path.basename(vg_file_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    xg_id = context.write_output_file(job, os.path.join(work_dir, '{}.xg'.format(graph_name)))
+    
+    return xg_id
+    
+def run_prune_graph(job, context, options, contig_vg_id, prune_options=""):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    vg_file_path = os.path.join(work_dir, os.path.basename(contig_vg_id))
+    job.fileStore.readGlobalFile(contig_vg_id, vg_file_path)
+    contig_name = os.path.splitext(os.path.basename(vg_file_path))[0]
+    
+    command = ['vg', 'prune', '--threads', job.cores, '-r', os.path.basename(vg_file_path), prune_options, '>', '{}.pruned.vg'.format(contig_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    pruned_vg_id = context.write_output_file(job, os.path.join(work_dir, '{}.pruned.vg'.format(contig_name)))
+    
+    return pruned_vg_id
+    
+def run_prune_graph_with_haplotypes(job, context, options, contig_vg_ids_list, contig_gbwt_ids_list, empty_id_map_id, prune_options=""):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    empty_id_map_path = os.path.join(work_dir, os.path.basename(empty_id_map_id))
+    job.fileStore.readGlobalFile(empty_id_map_id, empty_id_map_path)
+    
+    pruned_vg_id_list = []
+    for vg_id, gbwt_id in zip(contig_vg_ids_list, contig_gbwt_ids_list)
+        vg_file_path = os.path.join(work_dir, os.path.basename(vg_id))
+        job.fileStore.readGlobalFile(vg_id, vg_file_path)
+        contig_name = os.path.splitext(os.path.basename(vg_file_path))[0]
+        gbwt_file_path = os.path.join(work_dir, os.path.basename(gbwt_id))
+        job.fileStore.readGlobalFile(gbwt_id,  gbwt_file_path)
+        command = ['vg', 'prune', '--threads', job.cores, '-u', '-g', os.path.basename(gbwt_file_path), '-a', '-m', os.path.basename(empty_id_map_path), os.path.basename(vg_file_path), prune_options, '>', '{}.pruned.vg'.format(contig_name)]
+        context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+        pruned_vg_id_list.append(context.write_output_file(job, os.path.join(work_dir, '{}.pruned.vg'.format(contig_name))))
+    
+    pruned_id_map_id = context.write_output_file(job, os.path.join(work_dir, os.path.basename(empty_id_map_path)))
+    
+    return pruned_vg_id_list, pruned_id_map_id
+
+def run_gcsa_index(job, context, options, graph_name, pruned_vg_ids_list, id_map_id, gcsa_options=""):
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    id_map_path = os.path.join(work_dir, os.path.basename(id_map_id))
+    job.fileStore.readGlobalFile(id_map_id, id_map_path)
+    
+    pruned_vg_list = []
+    for pruned_vg_id in pruned_vg_ids_list:
+        pruned_vg_path = os.path.join(work_dir, os.path.basename(pruned_vg_id))
+        job.fileStore.readGlobalFile(pruned_vg_id, pruned_vg_path)
+        pruned_vg_path_list.append(os.path.basename(pruned_vg_path_list))
+    
+    command = ['vg', 'index', '--threads', job.cores, '-p', '-g', '{}.gcsa'.format(graph_name), '-f'. os.path.basename(id_map_path), gcsa_options]
+    command += pruned_vg_list
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    gcsa_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gcsa'.format(graph_name)))
+    gcsa_lcp_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gcsa.lcp'.format(graph_name)))
+    
+    return gcsa_file_id, gcsa_lcp_file_id
+
+##################################################
+##################################################
+##################################################
 
 def run_process_parental_graph_index(job, context, options, parental_indexes, old_indexes):
     if 'id_ranges' not in parental_indexes.keys():
@@ -1347,7 +1609,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                                                 misc_file_ids['path_list'], ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
                                                                 siblings_names=siblings_names, sibling_mapping_chr_bam_ids_list=sibling_mapping_chr_bam_ids)
     if snpeff_annotation:
-        snpeff_job = stage4_jobs.addChildJobFn(run_snpEff_annotation, context,
+        snpeff_job = pedigree_joint_call_job.addChildJobFn(run_snpEff_annotation, context,
                                                         proband_name, pedigree_joint_call_job.rv(0),
                                                         misc_file_ids['snpeff_data'],
                                                         cores=context.config.calling_cores,
@@ -1400,10 +1662,8 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     
     # Run analysis workflow
     if options.run_analysis:
-        stage5_jobs = Job()
-        stage4_jobs.addFollowOn(stage5_jobs)
         joined_sibling_names = [proband_name] + siblings_names
-        analysis_workflow_job = stage5_jobs.addChildJobFn(run_analysis, context, final_pedigree_joint_called_vcf,
+        analysis_workflow_job = stage4_jobs.addFollowOnJobFn(run_analysis, context, final_pedigree_joint_called_vcf,
                                                            final_maternal_bam, final_maternal_bam_index, 
                                                            final_paternal_bam, final_paternal_bam_index,
                                                            final_sibling_bam_list, final_sibling_bam_index_list,
@@ -1411,7 +1671,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                                            joined_sibling_names, options.sibling_genders, options.sibling_affected,
                                                            options.bypass, options.cadd_lines,
                                                            options.chrom_dir, options.edit_dir,
-                                                           options.split_lines, options.genome_build, options.cadd_data_dir)
+                                                           options.split_lines, options.genome_build, options.cadd_data)
         return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list, final_sibling_bam_index_list, final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index, analysis_workflow_job.rv()
     else:
         return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list, final_sibling_bam_index_list, final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index
