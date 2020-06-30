@@ -10,6 +10,7 @@ import string
 import getpass
 import gzip
 import pipes
+import shlex
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -845,11 +846,11 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     command = []
     command.append(['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)])
     command.append(['bcftools', 'view', '-p', '-Oz', '-'])
-    output_file = os.path.join(work_dir, '{}_cohort_{}.phased.filtered.vcf.gz'.format(proband_name, contig_name))
+    output_file = os.path.join(work_dir, '{}.vcf.gz'.format(contig_name))
     with open(output_file, "wb") as contig_vcf_file:
             context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools', outfile=contig_vcf_file)
     
-    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.filtered.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}.vcf.gz'.format(contig_name)], work_dir=work_dir)
     # Write output to intermediate store
     out_file = os.path.join(work_dir, '{}.vcf.gz'.format(contig_name))
     phased_vcf_file_id = context.write_output_file(job, out_file)
@@ -877,7 +878,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                             paternal_bam_id, paternal_bam_index_id,
                                             ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
                                             path_list_id, ped_file_id, genetic_map_id):
-
+    
     # we make a sub job tree so that all phasing and graph construction is encapsulated in a top-level job
     split_job = Job()
     phasing_jobs = Job()
@@ -940,76 +941,135 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
     #                                                merge_graphs=False, sort_ids=True, join_ids=True,
     #                                                wanted_indexes=['xg','gcsa','gbwt','id_ranges'], gbwt_prune=True)
     
+    RealtimeLogger.info("DEBUG FLAG 0")
     construct_job = phasing_jobs.addFollowOnJobFn(run_construct_index_workflow, context, options, '{}.parental.graphs'.format(proband_name), ref_fasta_id,
                                                     phased_vcf_ids, use_haplotypes=True, use_decoys=True)
-    return construct_job.rv()
+    RealtimeLogger.info("DEBUG FLAG 6")
+    collect_parental_indexes_job = construct_job.addFollowOnJobFn(run_collect_indexes, context, options, [construct_job.rv(0),construct_job.rv(1),construct_job.rv(2),construct_job.rv(3),construct_job.rv(4)])
+    return collect_parental_indexes_job.rv()
 
 ##################################################
 ########## VG_WDL CONSTRUCT PORT #################
+def run_collect_indexes(job, context, options, index_construction_list):
+    RealtimeLogger.info("DEBUG FLAG 7")
+    construct_indexes = {}
+    construct_indexes['vg'] = index_construction_list[0]
+    construct_indexes['xg'] = index_construction_list[1]
+    construct_indexes['gcsa'] = index_construction_list[2]
+    construct_indexes['lcp'] = index_construction_list[3]
+    if len(index_construction_list) == 5:
+        construct_indexes['gbwt'] = index_construction_list[4]
+    
+    return construct_indexes
+
 def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id, contig_vcf_gz_id_list,
                                     use_haplotypes=False, use_decoys=False, 
                                     contigs_list=["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y","MT"],
                                     decoy_regex=">GL\|>NC_007605\|>hs37d5"):
     # we make a sub job tree so that all graph construction and indexing is encapsulated in a top-level job
+    logger.info("Running run_construct_index_workflow")
+    RealtimeLogger.info("Running run_construct_index_workflow")
     construct_jobs = Job()
     indexing_jobs = Job()
     job.addChild(construct_jobs)
+    construct_indexes = {}
     
+    RealtimeLogger.info("DEBUG FLAG 1")
     construct_chromosome_graph_vg_ids = []
     for contig, vcf_gz_id in zip(contigs_list,contig_vcf_gz_id_list):
         construct_chromosome_graph_vg_ids.append(construct_jobs.addChildJobFn(run_construct_graph_pedigree, context, options,
                                         ref_fasta_id, contig, vcf_gz_id=vcf_gz_id, use_haplotypes=use_haplotypes).rv())
     
+    RealtimeLogger.info("DEBUG FLAG 2")
     construct_decoy_graph_vg_ids = []
     if use_decoys:
         extract_decoys_job = construct_jobs.addChildJobFn(run_extract_decoys, context, options, ref_fasta_id)
-        for decoy_contig in extract_decoys_job.rv():
-            construct_decoy_graph_vg_ids.append(extract_decoys_job.addChildJobFn(run_construct_graph_pedigree, context, options,
-                                        ref_fasta_id, decoy_contig, use_haplotypes=False).rv())
+        decoy_contigs_list = extract_decoys_job.rv()
+        RealtimeLogger.info("DEBUG, decoy_contigs: {}".format(str(decoy_contigs)))
+        construct_decoy_graph_vg_ids_job = extract_decoys_job.addFollowOnJobFn(run_construct_decoy_contigs_subworkflow, context, options, ref_fasta_id, decoy_contigs_list)
     
-    combine_graphs_job = construct_jobs.addFollowOnJobFn(run_combine_graphs, context, options, graph_name, construct_chromosome_graph_vg_ids+construct_decoy_graph_vg_ids)
-    xg_index_job = combine_graphs_job.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0))
+    RealtimeLogger.info("DEBUG FLAG 3")
+    combine_graphs_job = construct_jobs.addFollowOnJobFn(run_combine_graphs, context, options, graph_name, construct_chromosome_graph_vg_ids, decoy_contigs_vg_id_list=construct_decoy_graph_vg_ids_job.rv())
+    combine_graphs_job.addFollowOn(indexing_jobs)
+    xg_index_job = indexing_jobs.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0))
     
+    #index_output = []
+    #index_output.append(combine_graphs_job.rv(0))
+    #index_output.append(xg_index_job.rv())
+    RealtimeLogger.info("DEBUG FLAG 4")
     if use_haplotypes:
         contig_gbwt_ids = []
-        gbwt_jobs = Job()
-        combine_graphs_job.addChildJob(gbwt_jobs)
-        for vg_id, vcf_gz_id in zip(combine_graphs_job.rv(2), contig_vcf_gz_id_list):
-            contig_gbwt_ids.append(gbwt_jobs.addChildJobFn(run_gbwt_index, context, options, vg_id, vcf_gz_id).rv())
-        
-        gbwt_merge_job = gbwt_jobs.addFollowOnJobFn(run_gbwt_merge, context, options, contig_gbwt_ids, graph_name))
-        prune_graph_with_haplotypes_job = gbwt_merge_job.addChildJobFn(run_prune_graph_with_haplotypes, context, options, combine_graphs_job.rv(2), contig_gbwt_ids, combine_graphs_job.rv(1))
-        
+        contig_gbwt_ids_job = indexing_jobs.addChildJobFn(run_gbwt_index_subworkflow, context, options, combine_graphs_job.rv(2), contig_vcf_gz_id_list)
+        gbwt_merge_job = contig_gbwt_ids_job.addFollowOnJobFn(run_gbwt_merge, context, options, contig_gbwt_ids_job.rv(), graph_name)
+        prune_graph_with_haplotypes_job = gbwt_merge_job.addChildJobFn(run_prune_graph_with_haplotypes, context, options, combine_graphs_job.rv(2), contig_gbwt_ids_job.rv(), combine_graphs_job.rv(1))
         prune_decoy_graph_ids = []
         if use_decoys:
-            prune_decoy_graph_jobs = Job()
-            gbwt_merge_job.addChildJob(prune_decoy_graph_jobs)
-            for decoy_contig_vg_id in combine_graphs_job.rv(4):
-                prune_decoy_graph_ids.append(prune_decoy_graph_jobs.addChildJobFn(run_prune_graph, context, options, decoy_contig_vg_id).rv())
-            
-        gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0)+prune_decoy_graph_ids, prune_graph_with_haplotypes_job.rv(1))
-        return combine_graphs_job.rv(0), xg_index_job.rv(), gcsa_index_job.rv(0), gcsa_index_job.rv(1), gbwt_merge_job.rv()
+            prune_decoy_graph_ids = gbwt_merge_job.addChildJobFn(run_prune_graph_subworkflow, context, options, combine_graphs_job.rv(4)).rv()
+        
+        gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0), prune_graph_with_haplotypes_job.rv(1), prune_decoy_graph_ids=prune_decoy_graph_ids)
+        #index_output.append(gcsa_index_job.rv(0))
+        #index_output.append(gcsa_index_job.rv(1))
+        #index_output.append(gbwt_merge_job.rv())
     else:
         prune_graph_ids = []
-        prune_graph_jobs = Job()
-        combine_graphs_job.addChildJob(prune_graph_jobs)
-        for contig_vg_id in combine_graphs_job.(3):
-            prune_graph_ids.append(prune_graph_jobs.addChildJobFn(run_prune_graph, context, options, contig_vg_id).rv())
-        
-        gcsa_index_job = combine_graphs_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_ids, combine_graphs_job.rv(1))
-        return combine_graphs_job.rv(0), xg_index_job.rv(), gcsa_index_job.rv(0), gcsa_index_job.rv(1)
+        prune_graph_ids_job = indexing_jobs.addChildJobFn(run_prune_graph_subworkflow, context, options, combine_graphs_job.rv(3))
+        gcsa_index_job = prune_graph_ids_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_ids_job.rv(), combine_graphs_job.rv(1))
+        #index_output.append(gcsa_index_job.rv(0))
+        #index_output.append(gcsa_index_job.rv(1))
+    RealtimeLogger.info("DEBUG FLAG 5")
+    return combine_graphs_job.rv(0), xg_index_job.rv(), gcsa_index_job.rv(0), gcsa_index_job.rv(1), gbwt_merge_job.rv()
+    #return index_output
+    #return combine_graphs_job.rv(0), xg_index_job.rv(), gcsa_index_job.rv(0), gcsa_index_job.rv(1), gbwt_merge_job.rv()
 
-def run_extract_decoys(job, context, options, ref_fasta_id, decoy_regex=">GL\|>NC_007605\|>hs37d5"):
+def run_construct_decoy_contigs_subworkflow(job, context, options, ref_fasta_id, decoy_contigs):
+    child_jobs = Job()
+    job.addChild(child_jobs)
+    logger.info("Running run_construct_decoy_contigs_subworkflow")
+    RealtimeLogger.info("Running run_construct_decoy_contigs_subworkflow, decoy_contigs: {}".format(str(decoy_contigs)))
+    construct_decoy_graph_vg_ids = []
+    for decoy_contig in decoy_contigs:
+        construct_decoy_graph_vg_ids.append(child_jobs.addChildJobFn(run_construct_graph_pedigree, context, options, 
+                                            ref_fasta_id, decoy_contig, use_haplotypes=False).rv())
+    
+    return construct_decoy_graph_vg_ids
+
+def run_gbwt_index_subworkflow(job, context, vg_ids, contig_vcf_gz_id_list):
+    child_jobs = Job()
+    job.addChild(child_jobs)
+    logger.info("Running run_gbwt_index_subworkflow")
+    RealtimeLogger.info("Running run_gbwt_index_subworkflow")
+    contig_gbwt_ids = []
+    for vg_id, vcf_gz_id in zip(vg_ids, contig_vcf_gz_id_list):
+        contig_gbwt_ids.append(child_jobs.addChildJobFn(run_gbwt_index, context, options, vg_id, vcf_gz_id).rv())
+    
+    return contig_gbwt_ids
+
+def run_prune_graph_subworkflow(job, context, options, contig_vg_ids):
+    child_jobs = Job()
+    job.addChild(child_jobs)
+    logger.info("Running run_prune_graph_subworkflow")
+    RealtimeLogger.info("Running run_prune_graph_subworkflow")
+    prune_graph_ids = []
+    for contig_vg_id in contig_vg_ids:
+        prune_graph_ids.append(child_jobs.addChildJobFn(run_prune_graph, context, options, contig_vg_id).rv())
+    
+    return prune_graph_ids
+
+def run_extract_decoys(job, context, options, ref_fasta_id, decoy_regex='\'>GL|>NC_007605|>hs37d5\''):
+    logger.info("Running run_extract_decoys")
+    RealtimeLogger.info("Running run_extract_decoys")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
-
+    
     ref_fasta_path =  os.path.join(work_dir, os.path.basename(ref_fasta_id))
     job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
     
     cmd = [['cat', os.path.basename(ref_fasta_path)]]
     cmd.append(['grep', '-E', decoy_regex])
-    cmd.append(['cut', '-f', '1', '-d', ' '])
-    cmd.append(['cut', '-f', '2', '-d', '>', 'decoy_contig_ids.txt'])
+    cmd.append(['cut', '-f', '1', '-d', '\' \''])
+    cmd.append(['cut', '-f', '2', '-d', '\'>\'', '>>', 'decoy_contig_ids.txt'])
+    chain_cmds = [' '.join(p) for p in cmd]
+    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' | '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
     
     decoy_contigs_list = []
@@ -1022,6 +1082,8 @@ def run_extract_decoys(job, context, options, ref_fasta_id, decoy_regex=">GL\|>N
     return decoy_contigs_list
 
 def run_construct_graph_pedigree(job, context, options, ref_fasta_id, contig_name, vcf_gz_id=None, use_haplotypes=False, vg_construct_options="--node-max 32 --handle-sv"):
+    logger.info("Running run_construct_graph_pedigree")
+    RealtimeLogger.info("Running run_construct_graph_pedigree")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1047,10 +1109,13 @@ def run_construct_graph_pedigree(job, context, options, ref_fasta_id, contig_nam
     contig_vg_id = context.write_output_file(job, os.path.join(work_dir, '{}.vg'.format(contig_name)))
     return contig_vg_id
 
-def run_combine_graphs(job, context, options, graph_name, contigs_vg_id_list):
+def run_combine_graphs(job, context, options, graph_name, contigs_vg_id_list, decoy_contigs_vg_id_list=[]):
+    logger.info("Running run_combine_graphs")
+    RealtimeLogger.info("Running run_combine_graphs")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
+    contigs_vg_id_list+=decoy_contigs_vg_id_list
     decoy_contigs_uid_vg = []
     contigs_uid_vg = []
     all_contigs_uid_vg = []
@@ -1063,7 +1128,7 @@ def run_combine_graphs(job, context, options, graph_name, contigs_vg_id_list):
             decoy_contigs_uid_vg.append(contig_vg_id)
         else:
             contigs_uid_vg.append(contig_vg_id)
-        all_contigs_uid_vg.append(contig_vg_path)
+        all_contigs_uid_vg.append(os.path.basename(contig_vg_path))
         all_contigs_uid_vg_ids.append(contig_vg_id)
     
     command = ['vg', 'ids', '-j', '-m', 'empty.id_map']
@@ -1077,12 +1142,11 @@ def run_combine_graphs(job, context, options, graph_name, contigs_vg_id_list):
     combined_vg_id = context.write_output_file(job, os.path.join(work_dir, '{}.vg'.format(graph_name)))
     empty_id_map_id = context.write_output_file(job, os.path.join(work_dir, 'empty.id_map'))
     
-    if len(decoy_contigs_uid_vg) > 0:
-        return combined_vg_id, empty_id_map_id, contigs_uid_vg, all_contigs_uid_vg_ids, decoy_contigs_uid_vg
-    else:
-        return combined_vg_id, empty_id_map_id, contigs_uid_vg, all_contigs_uid_vg_ids
-    
+    return combined_vg_id, empty_id_map_id, contigs_uid_vg, all_contigs_uid_vg_ids, decoy_contigs_uid_vg
+
 def run_gbwt_index(job, context, options, vg_id, vcf_gz_id):
+    logger.info("Running run_gbwt_index")
+    RealtimeLogger.info("Running run_gbwt_index")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1101,6 +1165,8 @@ def run_gbwt_index(job, context, options, vg_id, vcf_gz_id):
     return gbwt_id
 
 def run_gbwt_merge(job, context, options, gbwt_id_list, graph_name):
+    logger.info("Running run_gbwt_merge")
+    RealtimeLogger.info("Running run_gbwt_merge")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1119,6 +1185,8 @@ def run_gbwt_merge(job, context, options, gbwt_id_list, graph_name):
     return merged_gbwt_id
 
 def run_xg_index(job, context, options, graph_name, vg_id, xg_options=""):
+    logger.info("Running run_xg_index")
+    RealtimeLogger.info("Running run_xg_index")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1131,8 +1199,10 @@ def run_xg_index(job, context, options, graph_name, vg_id, xg_options=""):
     xg_id = context.write_output_file(job, os.path.join(work_dir, '{}.xg'.format(graph_name)))
     
     return xg_id
-    
+
 def run_prune_graph(job, context, options, contig_vg_id, prune_options=""):
+    logger.info("Running run_prune_graph")
+    RealtimeLogger.info("Running run_prune_graph")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1146,8 +1216,10 @@ def run_prune_graph(job, context, options, contig_vg_id, prune_options=""):
     pruned_vg_id = context.write_output_file(job, os.path.join(work_dir, '{}.pruned.vg'.format(contig_name)))
     
     return pruned_vg_id
-    
+
 def run_prune_graph_with_haplotypes(job, context, options, contig_vg_ids_list, contig_gbwt_ids_list, empty_id_map_id, prune_options=""):
+    logger.info("Running run_prune_graph_with_haplotypes")
+    RealtimeLogger.info("Running run_prune_graph_with_haplotypes")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1155,7 +1227,7 @@ def run_prune_graph_with_haplotypes(job, context, options, contig_vg_ids_list, c
     job.fileStore.readGlobalFile(empty_id_map_id, empty_id_map_path)
     
     pruned_vg_id_list = []
-    for vg_id, gbwt_id in zip(contig_vg_ids_list, contig_gbwt_ids_list)
+    for vg_id, gbwt_id in zip(contig_vg_ids_list, contig_gbwt_ids_list):
         vg_file_path = os.path.join(work_dir, os.path.basename(vg_id))
         job.fileStore.readGlobalFile(vg_id, vg_file_path)
         contig_name = os.path.splitext(os.path.basename(vg_file_path))[0]
@@ -1169,7 +1241,9 @@ def run_prune_graph_with_haplotypes(job, context, options, contig_vg_ids_list, c
     
     return pruned_vg_id_list, pruned_id_map_id
 
-def run_gcsa_index(job, context, options, graph_name, pruned_vg_ids_list, id_map_id, gcsa_options=""):
+def run_gcsa_index(job, context, options, graph_name, pruned_vg_ids_list, id_map_id, prune_decoy_vg_ids_list=[], gcsa_options=""):
+    logger.info("Running run_gcsa_index")
+    RealtimeLogger.info("Running run_gcsa_index")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1177,6 +1251,7 @@ def run_gcsa_index(job, context, options, graph_name, pruned_vg_ids_list, id_map
     job.fileStore.readGlobalFile(id_map_id, id_map_path)
     
     pruned_vg_list = []
+    pruned_vg_ids_list+=prune_decoy_vg_ids_list
     for pruned_vg_id in pruned_vg_ids_list:
         pruned_vg_path = os.path.join(work_dir, os.path.basename(pruned_vg_id))
         job.fileStore.readGlobalFile(pruned_vg_id, pruned_vg_path)
@@ -1203,7 +1278,7 @@ def run_process_parental_graph_index(job, context, options, parental_indexes, ol
 def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff_database_file_id):
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
-
+    
     joint_called_vcf_path =  os.path.join(work_dir, os.path.basename(joint_called_vcf_id))
     job.fileStore.readGlobalFile(joint_called_vcf_id, joint_called_vcf_path)
     
@@ -1234,7 +1309,7 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
-
+    
     sample_bam_path = os.path.join(work_dir, os.path.basename(sample_bam_id))
     job.fileStore.readGlobalFile(sample_bam_id, sample_bam_path)
     
@@ -1273,7 +1348,7 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     job.fileStore.deleteGlobalFile(sample_bam_id)
     
     return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(os.path.basename(sample_bam_id))))
-    
+
 def run_cohort_indel_realign_pipeline(job, context, options, proband_name, maternal_name, paternal_name,
                                         proband_chr_bam_ids, maternal_chr_bam_ids, paternal_chr_bam_ids,
                                         path_list, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
@@ -1351,7 +1426,7 @@ def run_cohort_indel_realign_pipeline(job, context, options, proband_name, mater
                                                                                         cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
     
     return proband_merged_bam_job.rv(), maternal_merged_bam_job.rv(), paternal_merged_bam_job.rv(), sibling_merge_bam_ids_list, sibling_merge_bam_index_ids_list
-    
+
 def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, bam_input_reads_proband,
                 fastq_maternal, gam_input_reads_maternal, bam_input_reads_maternal,
                 fastq_paternal, gam_input_reads_paternal, bam_input_reads_paternal,
@@ -1507,7 +1582,8 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 misc_file_ids['path_list'], misc_file_ids['ped_file'], gen_map_id)
     
     # Make a parental graph index collection
-    process_parental_graph_indexes_job = graph_construction_job.addFollowOnJobFn(run_process_parental_graph_index, context, options, graph_construction_job.rv(0,2), indexes)
+    #process_parental_graph_indexes_job = graph_construction_job.addFollowOnJobFn(run_process_parental_graph_index, context, options, graph_construction_job.rv(0,2), indexes)
+    process_parental_graph_indexes_job = graph_construction_job.addFollowOnJobFn(run_process_parental_graph_index, context, options, graph_construction_job.rv(), indexes)
     
     # Run stage3 asynchronously for each sample
     # Define the probands 2nd alignment and variant calling jobs
@@ -1609,7 +1685,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                                                 misc_file_ids['path_list'], ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
                                                                 siblings_names=siblings_names, sibling_mapping_chr_bam_ids_list=sibling_mapping_chr_bam_ids)
     if snpeff_annotation:
-        snpeff_job = pedigree_joint_call_job.addChildJobFn(run_snpEff_annotation, context,
+        snpeff_job = pedigree_joint_call_job.addFollowOnJobFn(run_snpEff_annotation, context,
                                                         proband_name, pedigree_joint_call_job.rv(0),
                                                         misc_file_ids['snpeff_data'],
                                                         cores=context.config.calling_cores,
