@@ -98,8 +98,11 @@ def construct_subparser(parser):
                         help="Make a sample graph (only contains sample haplotypes) using this sample.  Only "
                         " phased variants will be included.  Will also make a _withref version that includes reference")
     parser.add_argument("--haplo_sample", type=str,
-                        help="Make two haplotype thread graphs (for simulating from) for this sample.  Phasing"
-                        " information required in the input vcf.")    
+                        help="Make two haplotype thread graphs (for simulating from) for this sample, extracted "
+                        " from the sample graph. Phasing information required in the input vcf.")
+    parser.add_argument("--haplo_pangenome", type=str,
+                        help="Make two haplotype thread graphs (for simulating from) for this sample, extracted "
+                        " from the pangenome graph. Phasing information required in the input vcf.")
     parser.add_argument("--filter_ceph", action="store_true",
                         help="Make a graph where all variants private to the CEPH pedigree, which includes "
                         "NA12878 are excluded")
@@ -163,21 +166,21 @@ def validate_construct_options(options):
     # in parallel, but the indexing code always indexes them together.
     require('gbwt' not in options.indexes or (not options.pangenome and not options.pos_control and
         not options.neg_control and not options.sample_graph and not options.haplo_sample and
-        not options.min_af) or len(options.vcf) >= 1,
+        not options.haplo_pangenome and not options.min_af) or len(options.vcf) >= 1,
             '--gbwt_index with any graph other than --primary requires --vcf')
     require(not options.sample_graph or (options.regions or options.fasta_regions),
             '--regions or --fasta_regions required with --sample_graph')
     require(options.primary or options.pangenome or options.pos_control or options.neg_control or
-            options.sample_graph or options.haplo_sample or options.filter_ceph or options.filter_samples or
-            options.min_af or options.bwa_reference,
+            options.sample_graph or options.haplo_sample or options.haplo_pangenome or options.filter_ceph or
+            options.filter_samples or options.min_af or options.bwa_reference,
             'At least one kind of graph or reference must be specified for construction')
     require(not options.vcf or options.pangenome or options.pos_control or options.neg_control or
-            options.sample_graph or options.haplo_sample or options.filter_ceph or options.filter_samples or
-            options.min_af,
+            options.sample_graph or options.haplo_sample or options.haplo_pangenome or options.filter_ceph or
+            options.filter_samples or options.min_af,
             'At least one kind of non-primary graph must be specified for construction with --vcf')
     require(options.vcf or not (options.pangenome or options.pos_control or options.neg_control or
-                                options.sample_graph or options.haplo_sample or options.filter_ceph or
-                                options.filter_samples or options.min_af),
+                                options.sample_graph or options.haplo_sample or options.haplo_pangenome or
+                                options.filter_ceph or options.filter_samples or options.min_af),
             '--vcf required for construction of non-primary graph')
     # TODO: support new, more general CLI properly
     require(options.pos_control is None or options.neg_control is None or
@@ -186,6 +189,13 @@ def validate_construct_options(options):
     require(not options.haplo_sample or not options.sample_graph or
             (options.haplo_sample == options.sample_graph),
             '--haplo_sample and --sample_graph must be the same')
+    require(not options.haplo_pangenome or not options.sample_graph or
+            (options.haplo_pangenome == options.sample_graph),
+            '--haplo_pangenome and --sample_graph must be the same')
+    require(not (options.haplo_sample and options.haplo_pangenome),
+            '--haplo_sample and --haplo_pangenome cannot be used together')
+    require(options.pangenome or not options.haplo_pangenome,
+            '--pangenome is required with --haplo_pangenome')
 
     validate_shared_index_options(options)
 
@@ -688,9 +698,10 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
     
 def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs, 
                       max_node_size, alt_paths, flat_alts, handle_svs, regions,
+                      pangenome_name,
                       merge_graphs = False, sort_ids = False, join_ids = False,
                       wanted_indexes = set(), 
-                      haplo_extraction_sample = None, haplotypes = [0,1], gbwt_prune = False,
+                      haplo_extraction_sample = None, haplotypes_from_pangenome = False, haplotypes = [0,1], gbwt_prune = False,
                       normalize = False, validate = False, alt_regions_id = None,
                       alt_regions = []):
     """ 
@@ -708,7 +719,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         merge_output_name = output_name if merge_graphs or not regions or len(regions) < 2 else None
         output_name_base = remove_ext(output_name, '.vg')
         # special case that need thread indexes no matter what
-        haplo_extraction = name in ['haplo', 'sample-graph']
+        haplo_extraction = name in ['haplo', 'sample-graph'] or (haplotypes_from_pangenome and name == pangenome_name)
         construct_job = job.addChildJobFn(run_construct_genome_graph, context, fasta_ids,
                                           fasta_names, vcf_ids, vcf_names, tbi_ids,
                                           max_node_size, ('gbwt' in wanted_indexes) or haplo_extraction or alt_paths,
@@ -764,6 +775,12 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
 
         index_prev_job = construct_job
         if haplo_extraction:
+        
+            # TODO: this is going to make duplicate GBWTs for the
+            # haplotypes-from-pangenome case! I don't think we can really fix
+            # it unless we get rid of the notion of having different named
+            # graph types with different source VCFs and different sets of
+            # indexes
             haplo_index_job = construct_job.addFollowOnJobFn(run_make_haplo_indexes, context,
                                                              input_vcf_ids, input_tbi_ids,
                                                              vcf_names, joined_vg_ids, joined_vg_names,
@@ -818,11 +835,15 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 
                 output_name_base = sample_name_base
             
-            elif name == 'haplo':
-                assert haplo_extraction_sample is not None            
+            else:
+                assert haplo_extraction_sample is not None
+                
+                # Make sure to definitely not clobber any pangenome output files
+                haplo_output_name_base = output_name_base if name == 'hapolo' else output_name_base + '_haplo'
+                
                 haplo_job = haplo_index_job.addFollowOnJobFn(run_make_haplo_graphs, context,
                                                              joined_vg_ids, joined_vg_names, haplo_xg_ids,
-                                                             output_name_base, regions,
+                                                             haplo_output_name_base, regions,
                                                              haplo_extraction_sample, haplotypes, gbwt_ids,
                                                              intermediate = merge_graphs)
 
@@ -830,7 +851,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                 for haplotype in haplotypes:
                     haplo_xg_job = haplo_job.addFollowOnJobFn(run_xg_indexing, context, haplo_job.rv(haplotype),
                                                               joined_vg_names,
-                                                              output_name_base + '_thread_{}'.format(haplotype),
+                                                              haplo_output_name_base + '_thread_{}'.format(haplotype),
                                                               include_alt_paths = 'xg_alts' in wanted_indexes,
                                                               cores=context.config.xg_index_cores,
                                                               memory=context.config.xg_index_mem,
@@ -841,7 +862,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         wanted = set(wanted_indexes)
         if name == 'haplo':
             wanted.discard('gcsa')
-        if haplo_extraction:
+        if name in ['haplo', 'sample-graph']:
             wanted.discard('snarls')
             wanted.discard('trivial_snarls')
             wanted.discard('gbwt')
@@ -1688,7 +1709,12 @@ def construct_main(context, options):
             alt_regions_id = importer.resolve(alt_regions_id)
 
             # We only support one haplotype extraction sample (enforced by validate) despire what CLI implies
-            haplo_extraction_sample = options.haplo_sample if options.haplo_sample else options.sample_graph       
+            if options.sample_graph:
+                haplo_extraction_sample = options.sample_graph
+            elif options.haplo_sample:
+                haplo_extraction_sample = options.haplo_sample
+            else:
+                haplo_extraction_sample = options.haplo_pangenome
                    
             # Init the outstore
             init_job = Job.wrapJobFn(run_write_info_to_outstore, context, sys.argv,
@@ -1813,11 +1839,12 @@ def construct_main(context, options):
             vcf_job.addFollowOnJobFn(run_construct_all, context, inputFastaFileIDs,
                                      inputFastaNames, vcf_job.rv(),
                                      options.max_node_size, options.alt_paths or 'alt-gam' in options.indexes,
-                                     options.flat_alts, options.handle_svs, regions,
+                                     options.flat_alts, options.handle_svs, regions, options.out_name,
                                      merge_graphs = options.merge_graphs,
                                      sort_ids = True, join_ids = True,
                                      wanted_indexes = options.indexes, 
                                      haplo_extraction_sample = haplo_extraction_sample,
+                                     haplotypes_from_pangenome = options.haplo_pangenome != '',
                                      gbwt_prune = options.gbwt_prune,
                                      normalize = options.normalize,
                                      validate = options.validate,
