@@ -2182,6 +2182,7 @@ def run_max_f1(job, context, name, compare_id):
     
     # Sort on score (see <https://stackoverflow.com/a/2828121/402891>) in
     # descending order. So reads we want to take first come first.
+    RealtimeLogger.info("DEBUG: data: {}".format(data))
     data = data[data[:,1].argsort()[::-1]]
     
     # What's the last MAPQ we did?

@@ -693,8 +693,8 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
         out_file = os.path.join(work_dir, '{}_dragen_joint_genotyper/output_cohort_joint_call_{}/cohort_joint_genotyped_{}.vcf.gz'.format(sample_name, sample_name, sample_name))
     
     if snpeff_annotation:
-        joint_vcf_file_id = context.write_intermediate_file(job, out_file)
-        joint_vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
+        joint_vcf_file_id = context.write_output_file(job, out_file)
+        joint_vcf_index_file_id = context.write_output_file(job, out_file + '.tbi')
     else:
         joint_vcf_file_id = context.write_output_file(job, out_file)
         joint_vcf_index_file_id = context.write_output_file(job, out_file + '.tbi')
@@ -843,9 +843,10 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     # Filter for phased parental genotypes ONLY
     context.runner.call(job, ['bgzip', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name)], work_dir = work_dir, tool_name='whatshap')
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
-    command = []
-    command.append(['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)])
-    command.append(['bcftools', 'view', '-p', '-Oz', '-'])
+    #command = []
+    #command.append(['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)])
+    #command.append(['bcftools', 'view', '-p', '-Oz', '-'])
+    command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
     output_file = os.path.join(work_dir, '{}.vcf.gz'.format(contig_name))
     with open(output_file, "wb") as contig_vcf_file:
             context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools', outfile=contig_vcf_file)
@@ -936,27 +937,27 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     for contig, vcf_gz_id in zip(contigs_list,contig_vcf_gz_id_list):
         construct_chromosome_graph_vg_ids.append(construct_jobs.addChildJobFn(run_construct_graph_pedigree, context, options,
                                         ref_fasta_id, contig, vcf_gz_id=vcf_gz_id, use_haplotypes=use_haplotypes,
-                                        cores=context.config.construct-cores,
-                                        memory=context.config.fq-split-mem,
-                                        disk=context.config.calling-disk).rv())
+                                        cores=context.config.construct_cores,
+                                        memory=context.config.fq_split_mem,
+                                        disk=context.config.calling_disk).rv())
     
     construct_decoy_graph_vg_ids = []
     if use_decoys:
         extract_decoys_job = construct_jobs.addChildJobFn(run_extract_decoys, context, options, ref_fasta_id)
         construct_decoy_graph_vg_ids_job = extract_decoys_job.addFollowOnJobFn(run_construct_decoy_contigs_subworkflow, context, options, ref_fasta_id, extract_decoys_job.rv(),
-                                                                                 cores=context.config.construct-cores,
-                                                                                 memory=context.config.fq-split-mem,
-                                                                                 disk=context.config.calling-disk)
+                                                                                 cores=context.config.construct_cores,
+                                                                                 memory=context.config.fq_split_mem,
+                                                                                 disk=context.config.calling_disk)
     
     combine_graphs_job = construct_jobs.addFollowOnJobFn(run_combine_graphs, context, options, graph_name, construct_chromosome_graph_vg_ids, decoy_contigs_vg_id_list=construct_decoy_graph_vg_ids_job.rv(),
-                                                            cores=context.config.construct-cores,
-                                                            memory=context.config.construct-mem,
-                                                            disk=context.config.construct-disk)
+                                                            cores=context.config.construct_cores,
+                                                            memory=context.config.construct_mem,
+                                                            disk=context.config.construct_disk)
     combine_graphs_job.addFollowOn(indexing_jobs)
     xg_index_job = indexing_jobs.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0),
-                                                    cores=context.config.alignment-cores,
-                                                    memory=context.config.construct-mem,
-                                                    disk=context.config.construct-disk)
+                                                    cores=context.config.alignment_cores,
+                                                    memory=context.config.construct_mem,
+                                                    disk=context.config.construct_disk)
     
     index_output = {}
     construct_indexes = {}
@@ -966,27 +967,30 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
         contig_gbwt_ids = []
         contig_gbwt_ids_job = indexing_jobs.addChildJobFn(run_gbwt_index_subworkflow, context, options, combine_graphs_job.rv(2), contig_vcf_gz_id_list)
         gbwt_merge_job = contig_gbwt_ids_job.addFollowOnJobFn(run_gbwt_merge, context, options, contig_gbwt_ids_job.rv(), graph_name,
-                                                                cores=context.config.construct-cores,
-                                                                memory=context.config.alignment-mem,
-                                                                disk=context.config.construct-disk)
+                                                                cores=context.config.construct_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.construct_disk)
         prune_graph_with_haplotypes_job = gbwt_merge_job.addChildJobFn(run_prune_graph_with_haplotypes, context, options, combine_graphs_job.rv(2), contig_gbwt_ids_job.rv(), combine_graphs_job.rv(1),
-                                                                cores=context.config.prune-cores,
-                                                                memory=context.config.prune-mem,
-                                                                disk=context.config.prune-disk)
+                                                                cores=context.config.prune_cores,
+                                                                memory=context.config.prune_mem,
+                                                                disk=context.config.prune_disk)
         if use_decoys:
             prune_decoy_graph_jobs = gbwt_merge_job.addChildJobFn(run_prune_graph_subworkflow, context, options, combine_graphs_job.rv(4))
         
         gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0), prune_graph_with_haplotypes_job.rv(1), prune_decoy_graph_jobs.rv(),
-                                                            cores=context.config.alignment-cores,
-                                                            memory=context.config.gcsa-index-mem,
-                                                            disk=context.config.gcsa-index-disk)
+                                                            cores=context.config.alignment_cores,
+                                                            memory=context.config.gcsa_index_mem,
+                                                            disk=context.config.gcsa_index_disk)
         construct_indexes['gcsa'] = gcsa_index_job.rv(0)
         construct_indexes['lcp'] = gcsa_index_job.rv(1)
         construct_indexes['gbwt'] = gbwt_merge_job.rv()
     else:
         prune_graph_ids = []
         prune_graph_ids_job = indexing_jobs.addChildJobFn(run_prune_graph_subworkflow, context, options, combine_graphs_job.rv(3))
-        gcsa_index_job = prune_graph_ids_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_ids_job.rv(), combine_graphs_job.rv(1))
+        gcsa_index_job = prune_graph_ids_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_ids_job.rv(), combine_graphs_job.rv(1),
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.gcsa_index_mem,
+                                                                disk=context.config.gcsa_index_disk)
         construct_indexes['gcsa'] = gcsa_index_job.rv(0)
         construct_indexes['lcp'] = gcsa_index_job.rv(1)
     return construct_indexes
@@ -1001,9 +1005,9 @@ def run_construct_decoy_contigs_subworkflow(job, context, options, ref_fasta_id,
     for decoy_contig in decoy_contigs_list:
         construct_decoy_graph_vg_ids.append(child_jobs.addChildJobFn(run_construct_graph_pedigree, context, options, 
                                             ref_fasta_id, decoy_contig, use_haplotypes=False,
-                                            cores=context.config.construct-cores,
-                                            memory=context.config.fq-split-mem,
-                                            disk=context.config.calling-disk).rv())
+                                            cores=context.config.construct_cores,
+                                            memory=context.config.fq_split_mem,
+                                            disk=context.config.calling_disk).rv())
     
     return construct_decoy_graph_vg_ids
 
@@ -1013,10 +1017,10 @@ def run_gbwt_index_subworkflow(job, context, options, vg_ids, contig_vcf_gz_id_l
     RealtimeLogger.info("Running run_gbwt_index_subworkflow")
     contig_gbwt_ids = []
     for vg_id, vcf_gz_id in zip(vg_ids, contig_vcf_gz_id_list):
-        contig_gbwt_ids.append(child_jobs.addChildJobFn(run_gbwt_index, context, options, vg_id, vcf_gz_id).rv(),
-                                                                cores=context.config.gbwt-index-cores,
-                                                                memory=context.config.gbwt-index-mem,
-                                                                disk=context.config.gbwt-index-disk)
+        contig_gbwt_ids.append(child_jobs.addChildJobFn(run_gbwt_index, context, options, vg_id, vcf_gz_id,
+                                                                cores=context.config.gbwt_index_cores,
+                                                                memory=context.config.gbwt_index_mem,
+                                                                disk=context.config.gbwt_index_disk).rv())
     
     return contig_gbwt_ids
 
@@ -1026,10 +1030,10 @@ def run_prune_graph_subworkflow(job, context, options, contig_vg_ids):
     RealtimeLogger.info("Running run_prune_graph_subworkflow")
     prune_graph_ids = []
     for contig_vg_id in contig_vg_ids:
-        prune_graph_ids.append(child_jobs.addChildJobFn(run_prune_graph, context, options, contig_vg_id).rv(),
-                                                                cores=context.config.prune-cores,
-                                                                memory=context.config.prune-mem,
-                                                                disk=context.config.prune-disk)
+        prune_graph_ids.append(child_jobs.addChildJobFn(run_prune_graph, context, options, contig_vg_id,
+                                                                cores=context.config.prune_cores,
+                                                                memory=context.config.prune_mem,
+                                                                disk=context.config.prune_disk).rv())
     
     return prune_graph_ids
 
