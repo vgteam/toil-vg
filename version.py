@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-version = '1.6.0a1'
+version = '1.6.2a1'
 
 required_versions = {'pyyaml': '>=5.1',
                      'tsv': '==1.2',

@@ -136,8 +136,8 @@ def add_mapeval_options(parser):
                         help='never use quality adjusted alignment. ' 
                         'necessary if using mpmap on reads not from trained simulator')
     
-    parser.add_argument('--mappers', nargs='+', default=['map'], choices=['map', 'mpmap', 'gaffe'],
-                        help='run the specified mappers, from "map", "mpmap", and "gaffe"')
+    parser.add_argument('--mappers', nargs='+', default=['map'], choices=['map', 'mpmap', 'giraffe'],
+                        help='run the specified mappers, from "map", "mpmap", and "giraffe"')
                         
     parser.add_argument('--multipath', action='store_const', dest='mappers', const=['map', 'mpmap'],
                         help='run mpmap and map')
@@ -250,8 +250,8 @@ def validate_options(options):
     if options.vg_graphs:
         require(not options.gams and not options.index_bases,
                 'if --vg-graphs specified, --gams and --index-bases must not be used')
-        require('gaffe' not in options.mappers,
-                '--vg-graphs cannot be used with gaffe because gaffe needs a GBWT')
+        require('giraffe' not in options.mappers,
+                '--vg-graphs cannot be used with giraffe because giraffe needs a GBWT')
 
     # must have a name for each graph/index/gam
     if options.gams:
@@ -1153,7 +1153,7 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
     
     "aligner": ["vg", "bwa", "minimap2"]
     
-    "mapper": ["map", "mpmap", "gaffe"]
+    "mapper": ["map", "mpmap", "giraffe"]
     
     "paired": [True, False]
     
@@ -1399,9 +1399,9 @@ def run_map_eval_align(job, context, index_ids, xg_comparison_ids, gam_names, ga
                 mapping_context.config.mpmap_opts = mpmap_opts_list[condition["opt_num"]]
             else:
             
-                if condition["mapper"] == "gaffe":
-                    # Mark gaffe conditions
-                    tag_string += "-gaffe"
+                if condition["mapper"] == "giraffe":
+                    # Mark giraffe conditions
+                    tag_string += "-giraffe"
             
                 # Just use the normal context we have
                 mapping_context = context
@@ -3068,14 +3068,14 @@ def make_mapeval_plan(toil, options):
                     # If the file exists/imports successfully, we import it
                     plan.gbwt_file_ids.append(toil.importFile(ib + '.gbwt'))
                 except:
-                    if 'gaffe' not in options.mappers:
+                    if 'giraffe' not in options.mappers:
                         # We don't absolutely need it
                         plan.gbwt_file_ids.append(None)
                     else:
                         # We do need the GBWT to run
                         raise
                         
-                if 'gaffe' in options.mappers:
+                if 'giraffe' in options.mappers:
                     # We need the minimizer index
                     plan.minimizer_file_ids.append(importer.load(ib + '.min'))
                     # We need the distance index

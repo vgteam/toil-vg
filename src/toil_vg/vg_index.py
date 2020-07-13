@@ -5,7 +5,7 @@ vg_index.py: index a graph so it can be mapped to
 """
 
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
-import doctest, re, json, collections, time, timeit
+import doctest, re, json, collections, time, timeit, distutils.util
 import logging, logging.handlers, struct, socket, threading
 import string
 import getpass
