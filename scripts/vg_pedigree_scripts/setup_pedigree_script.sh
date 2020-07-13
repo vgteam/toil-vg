@@ -27,6 +27,11 @@ Inputs:
     -c PATH to .ped file containing only the mother-father-proband trio samples
     -w PATH to where the UDP cohort will be processed and where the input reads will be stored
     -g PATH to the workflow input directory
+    -i List of Sibling Gender IDs. 0=male, 1=female. Must be same order as the input to -s argument.
+    -b List of Sibling affected status. 0=unaffected, 1=affected. Must be same order as the input to -s argument.
+    -a PATH to chromosome annotation directory used by vcftoshebang.
+    -e PATH to directory containing master edit files used by vcftoshebang.
+    -d PATH to cadd engine data directory.
     -v PATH to the toil_vg repository
     -r (OPTIONAL, default=false) Set to 'true' to restart an incompletely ran workflow
     -t (OPTIONAL, default=false) Set to 'true' if running workflow on small HG002 chr21 test data
@@ -50,7 +55,7 @@ RUN_SMALL_TEST=false
 RESTART=false
 
 ## Parse through arguments
-while getopts "m:f:s:c:w:g:v:r:t:h" OPTION; do
+while getopts "m:f:s:c:w:g:i:b:a:e:d:v:r:t:h" OPTION; do
     case $OPTION in
         m)
             MATERNAL_SAMPLE_NAME=$OPTARG
@@ -69,6 +74,21 @@ while getopts "m:f:s:c:w:g:v:r:t:h" OPTION; do
         ;;
         g)
             WORKFLOW_INPUT_DIR=$OPTARG
+        ;;
+        i)
+            SIBLING_GENDERS+=($OPTARG)
+        ;;
+        b)
+            SIBLING_AFFECTED+=($OPTARG)
+        ;;
+        a)
+            CHROM_ANNOT_DIR=$OPTARG
+        ;;
+        e)
+            EDIT_ANNOT_DIR=$OPTARG
+        ;;
+        d)
+            CADD_DATA_DIR=$OPTARG
         ;;
         v)
             TOIL_VG_DIR=$OPTARG
@@ -94,6 +114,8 @@ PROBAND_SAMPLE_NAME="${SIBLING_SAMPLE_NAMES[0]}"
 READ_DATA_DIR="${COHORT_WORKFLOW_DIR}/input_reads"
 SIB_READ_PAIR_LIST=""
 SIB_ID_LIST=""
+SIB_GENDER_LIST=""
+SIB_AFFECT_LIST=""
 SIBLING_SAMPLE_NAMES_LEN=${#SIBLING_SAMPLE_NAMES[@]}
 if [ ${#SIBLING_SAMPLE_NAMES[@]} -gt 1 ]; then
     for SIBLING_ID in ${SIBLING_SAMPLE_NAMES[@]:1}
@@ -102,6 +124,12 @@ if [ ${#SIBLING_SAMPLE_NAMES[@]} -gt 1 ]; then
       SIB_ID_LIST+="'${SIBLING_ID}' "
     done
 fi
+
+for (( n=1; n<=${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
+do
+    SIB_GENDER_LIST+="'${SIBLING_GENDERS[$n]}' "
+    SIB_AFFECT_LIST+="'${SIBLING_AFFECTED[$n]}' "
+done
 
 if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]]; then
     echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace"
@@ -164,6 +192,8 @@ ${PROBAND_SAMPLE_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
 --sibling_names ${SIB_ID_LIST[@]} \\
+--sibling_genders ${SIB_GENDER_LIST[@]} \\
+--sibling_affected ${SIB_AFFECT_LIST[@]} \\
 --fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
@@ -187,6 +217,10 @@ ${PATERNAL_SAMPLE_NAME} \\
 --run_dragen \\
 --dragen_ref_index_name 'hs37d5_v7' \\
 --udp_data_dir 'Udpbinfo' \\
+--run_analysis \\
+--chrom_dir ${CHROM_ANNOT_DIR} \\
+--edit_dir ${EDIT_ANNOT_DIR} \\
+--cadd_data ${CADD_DATA_DIR} \\
 --helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 else
     echo "toil-vg pedigree \\
@@ -206,6 +240,8 @@ ${PROBAND_SAMPLE_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
 --sibling_names ${SIB_ID_LIST[@]} \\
+--sibling_genders ${SIB_GENDER_LIST[@]} \\
+--sibling_affected ${SIB_AFFECT_LIST[@]} \\
 --fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
@@ -228,6 +264,10 @@ ${PATERNAL_SAMPLE_NAME} \\
 --run_dragen \\
 --dragen_ref_index_name 'hs37d5_v7' \\
 --udp_data_dir 'Udpbinfo' \\
+--run_analysis \\
+--chrom_dir ${CHROM_ANNOT_DIR} \\
+--edit_dir ${EDIT_ANNOT_DIR} \\
+--cadd_data ${CADD_DATA_DIR} \\
 --helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
 fi
 

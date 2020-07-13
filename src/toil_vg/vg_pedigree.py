@@ -1259,6 +1259,8 @@ def run_gcsa_index(job, context, options, graph_name, pruned_vg_ids_list, id_map
 def run_process_parental_graph_index(job, context, options, parental_indexes, old_indexes):
     if 'id_ranges' not in parental_indexes.keys():
         parental_indexes['id_ranges'] = old_indexes['id_ranges']
+    # Remove the gbwt index for now as it's still causing some mapping performance issues
+    parental_indexes.pop('gbwt', None)
     return parental_indexes
 
 def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff_database_file_id):
