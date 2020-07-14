@@ -12,6 +12,8 @@ import getpass
 import pdb
 import logging
 
+from distutils import util
+
 from math import ceil
 from subprocess import Popen, PIPE
 
@@ -120,7 +122,7 @@ def index_parse_args(parser):
                         help="Use given GBWT for GCSA2 pruning")
     parser.add_argument("--gbwt_prune", action='store_true',
                         help="Use gbwt for gcsa pruning")
-    parser.add_argument("--force_phasing", type=lambda x:bool(distutils.util.strtobool(x)), default=None,
+    parser.add_argument("--force_phasing", type=lambda x:bool(util.strtobool(x)), default=None,
                         help="If 'True', randomly phase unphased variants and discard unresolveable overlaps for GBWT")
                         
 def validate_index_options(options):
@@ -583,7 +585,10 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
     
     # Concatenate the graph files.
     vg_concat_job = child_job.addChildJobFn(run_combine_graphs, context, inputGraphFileIDs,
-                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat))
+                                            graph_names, index_name, intermediate=(intermediate or intermediate_cat),
+                                            cores=job.cores,
+                                            memory=job.memory,
+                                            disk=job.disk)
     
     return child_job.addFollowOnJobFn(run_xg_indexing,
                                       context, [vg_concat_job.rv(0)],
@@ -865,8 +870,8 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
     #expect result of form node-id-range <tab> first:last
     command = ['vg', 'stats', '--node-id-range', os.path.basename(graph_filename)]
     stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
-    assert stats_out[0] == 'node-id-range'
-    first, last = stats_out[1].split(':')
+    assert stats_out[0].decode('ascii') == 'node-id-range'
+    first, last = stats_out[1].split(b':')
 
     return chrom, first, last
     
@@ -880,7 +885,7 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
 
     with open(id_range_filename, 'wb') as f:
         for id_range in id_ranges:
-            f.write('{}\t{}\t{}\n'.format(*id_range))
+            f.write('{}\t{}\t{}\n'.format(*id_range).encode())
 
     # Checkpoint index to output store
     return context.write_output_file(job, id_range_filename)

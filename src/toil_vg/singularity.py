@@ -57,7 +57,8 @@ def singularityCall(job,
                parameters=None,
                workDir=None,
                singularityParameters=None,
-               outfile=None):
+               outfile=None,
+               mount_list=None):
     """
     Throws CalledProcessorError if the Singularity invocation returns a non-zero exit code
     This function blocks until the subprocess call to Singularity returns
@@ -65,23 +66,27 @@ def singularityCall(job,
     :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
-    :param str workDir: Directory to mount into the container via `-v`.
-           Destination convention is /mnti, which almost certainly exists in the
+    :param str workDir: Directory to mount into the container via `-B`.
+           Destination convention is /mnt, which almost certainly exists in the
            container.
     :param list[str] singularityParameters: Parameters to pass to Singularity.
            Overrides defaults which mount the workDir and configure user mode and
            writability.
     :param file outfile: Pipe output of Singularity call to file handle
+    :param list[str] mount_list: List of directories from which to mount into the
+           container via `-B`. Destination convention is /mnt, which almost certainly
+           exists in the container.
     """
     return _singularity(job, tool=tool, parameters=parameters, workDir=workDir, singularityParameters=singularityParameters,
-                        outfile=outfile, checkOutput=False)
+                        outfile=outfile, checkOutput=False, mount_list=mount_list)
 
 
 def singularityCheckOutput(job,
                       tool,
                       parameters=None,
                       workDir=None,
-                      singularityParameters=None):
+                      singularityParameters=None,
+                      mount_list=None):
     """
     Returns the stdout from the Singularity invocation (via subprocess.check_output)
     Throws CalledProcessorError if the Singularity invocation returns a non-zero exit code
@@ -90,17 +95,20 @@ def singularityCheckOutput(job,
     :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools:latest).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
-    :param str workDir: Directory to mount into the container via `-v`.
-           Destination convention is /mnti, which almost certainly exists in the
+    :param str workDir: Directory to mount into the container via `-B`.
+           Destination convention is /mnt, which almost certainly exists in the
            container.
     :param list[str] singularityParameters: Parameters to pass to Singularity.
            Overrides defaults which mount the workDir and configure user mode and
            writability.
+    :param list[str] mount_list: List of directories from which to mount into the
+           container via `-B`. Destination convention is /mnt, which almost certainly
+           exists in the container.
     :returns: Stdout from the singularity call
     :rtype: str
     """
     return _singularity(job, tool=tool, parameters=parameters, workDir=workDir,
-                   singularityParameters=singularityParameters, checkOutput=True)
+                   singularityParameters=singularityParameters, checkOutput=True, mount_list=mount_list)
 
 
 def _singularity(job,
@@ -109,20 +117,24 @@ def _singularity(job,
             workDir=None,
             singularityParameters=None,
             outfile=None,
-            checkOutput=False):
+            checkOutput=False,
+            mount_list=None):
     """
     :param toil.Job.job job: The Job instance for the calling function.
     :param str tool: Name of the Docker image to be used (e.g. quay.io/ucsc_cgl/samtools).
     :param list[str] parameters: Command line arguments to be passed to the tool.
            If list of lists: list[list[str]], then treat as successive commands chained with pipe.
-    :param str workDir: Directory to mount into the container via `-v`.
-           Destination convention is /mnti, which almost certainly exists in the
+    :param str workDir: Directory to mount into the container via `-B`.
+           Destination convention is /mnt, which almost certainly exists in the
            container.
     :param list[str] singularityParameters: Parameters to pass to Singularity.
            Overrides defaults which mount the workDir and configure user mode and
            writability.
     :param file outfile: Pipe output of Singularity call to file handle
     :param bool checkOutput: When True, this function returns singularity's output.
+    :param list[str] mount_list: List of directories from which to mount into the
+           container via `-B`. Destination convention is /mnt, which almost certainly
+           exists in the container.
     """
     if parameters is None:
         parameters = []
@@ -161,7 +173,12 @@ def _singularity(job,
         # home at anything other than our real home (like something under /var
         # where Toil puts things).
         # Note that we target Singularity 3+.
-        baseSingularityCall += ['-B', '{}:{}'.format(os.path.abspath(workDir), '/mnt'), '--pwd', '/mnt']
+        mount_string =  '{}:{}'.format(os.path.abspath(workDir), '/mnt')
+        if mount_list:
+            for mount_dir in mount_list:
+                mount_string = '{},{}:{}'.format(mount_string, os.path.abspath(mount_dir), '/mnt/{}'.format(os.path.basename(mount_dir)))
+        
+        baseSingularityCall += ['-B', mount_string, '--pwd', '/mnt']
         
     # Problem: Multiple Singularity downloads sharing the same cache directory will
     # not work correctly. See https://github.com/sylabs/singularity/issues/3634

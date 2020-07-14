@@ -113,9 +113,20 @@ def get_container_tool_map(options):
     cmap[0]['bedtools'] = options.bedtools_docker
     cmap[0]['R'] = options.sveval_docker
     cmap[0]['bedops'] = options.bedops_docker
-     
+    cmap[0]['gatk'] = options.gatk_docker
+    cmap[0]['gatk3'] = options.gatk3_docker
+    cmap[0]['snpEff'] = options.snpEff_docker
+    cmap[0]['picard'] = options.picard_docker
+    cmap[0]['whatshap'] = options.whatshap_docker
+    cmap[0]['eagle'] = options.eagle_docker
+    cmap[0]['vcf2shebang'] = options.vcf2shebang_docker
+    cmap[0]['cadd'] = options.cadd_docker
+    cmap[0]['caddeditor'] = options.caddeditor_docker
+    cmap[0]['bmtb'] = options.bmtb_docker
+    cmap[0]['vcftools'] = options.vcftools_docker
+    
     # to do: could be a good place to do an existence check on these tools
-
+    
     return cmap
 
 def toil_call(job, context, cmd, work_dir, out_path = None, out_append = False):
@@ -158,7 +169,7 @@ to do: Should go somewhere more central """
             return 'None'
 
     def call(self, job, args, work_dir = '.' , outfile = None, errfile = None,
-             check_output = False, tool_name=None):
+             check_output = False, tool_name=None, mount_list=None):
         """
         
         Run a command. Decide to use a container based on whether the tool
@@ -214,9 +225,10 @@ to do: Should go somewhere more central """
         container_type = self.container_for_tool(name)
                 
         if container_type == 'Docker':
+            # TODO: add mount_list functionality for docker calls
             return self.call_with_docker(job, args, work_dir, outfile, errfile, check_output, tool_name)
         elif container_type == 'Singularity':
-            return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name)
+            return self.call_with_singularity(job, args, work_dir, outfile, errfile, check_output, tool_name, mount_list)
         else:
             return self.call_directly(args, work_dir, outfile, errfile, check_output)
         
@@ -555,7 +567,7 @@ to do: Should go somewhere more central """
         if check_output is True:
             return captured_stdout
     
-    def call_with_singularity(self, job, args, work_dir, outfile, errfile, check_output, tool_name): 
+    def call_with_singularity(self, job, args, work_dir, outfile, errfile, check_output, tool_name, mount_list): 
         """ Thin wrapper for singularity_call that will use internal lookup to
         figure out the location of the singularity file.  Only exposes singularity_call
         parameters used so far.  expect args as list of lists.  if (toplevel)
@@ -587,9 +599,9 @@ to do: Should go somewhere more central """
                 os.environ[env_name] = env_val
             
             if check_output is True:
-                ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir)
+                ret = singularityCheckOutput(job, tool, parameters=parameters, workDir=work_dir, mount_list=mount_list)
             else:
-                ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile)
+                ret = singularityCall(job, tool, parameters=parameters, workDir=work_dir, outfile = outfile, mount_list=mount_list)
             
             # Restore old locale and vg traceback
             for env_name, env_val in list(update_env.items()):

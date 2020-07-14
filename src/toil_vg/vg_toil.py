@@ -10,7 +10,6 @@ chr_length_list obtained from Mike Lin's vg dnanexus pipeline configuration
     chr_label_list = ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y"]
     chr_length_list = [249250621,243199373,198022430,191154276,180915260,171115067,159138663,146364022,141213431,135534747,135006516,133851895,115169878,107349540,102531392,90354753,81195210,78077248,59128983,63025520,48129895,51304566,155270560,59373566]
 """
-
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
 import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
@@ -46,6 +45,8 @@ from toil_vg.vg_surject import *
 from toil_vg.vg_msga import *
 from toil_vg.vg_chunk import *
 from toil_vg.vg_augment import *
+from toil_vg.vg_pedigree import *
+from toil_vg.pedigree_analysis import *
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,17 @@ def parse_args(args=None):
     parser_plot = subparsers.add_parser('plot', help='Plot the results of mapping and calling experiments')
     plot_subparser(parser_plot)
 
+    # msga subparser
     parser_msga = subparsers.add_parser('msga', help='Align fasta sequences to a graph')
     msga_subparser(parser_msga)
+    
+    # pedigree subparser
+    parser_pedigree = subparsers.add_parser('pedigree', help='Runs only the Toil VG Pedigree DNA-seq pipeline')
+    pedigree_subparser(parser_pedigree)
+    
+    # analysis subparser
+    parser_analysis = subparsers.add_parser('analysis', help='Runs only the DNA-seq pedigree candidate analysis pipeline')
+    analysis_subparser(parser_analysis)
 
     # chunk subparser
     parser_chunk = subparsers.add_parser('chunk', help='Split a graph into components')
@@ -468,6 +478,10 @@ def main():
         chunk_main(context, args)
     elif args.command == 'augment':
         augment_main(context, args)
+    elif args.command == 'pedigree':
+        pedigree_main(context, args)
+    elif args.command == 'analysis':
+        analysis_main(context, args)
     else:
         raise RuntimeError('Unimplemented subcommand {}'.format(args.command))
         
