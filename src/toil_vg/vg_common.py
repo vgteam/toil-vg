@@ -533,8 +533,8 @@ to do: Should go somewhere more central """
             RealtimeLogger.error("Docker container for command {} failed with code {}".format(command, return_code))
             RealtimeLogger.error("Dumping stderr...")
             for line in container.logs(stderr=True, stdout=False, stream=True):
-                # Trim trailing \n
-                RealtimeLogger.error(line[:-1])
+                # Convert to string and trim trailing \n
+                RealtimeLogger.error(line.decode('utf-8', errors='replace')[:-1])
                 
             if not check_output and outfile is None:
                 # Dump stdout as well, since it's not something the caller wanted as data

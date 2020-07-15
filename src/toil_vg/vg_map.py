@@ -65,15 +65,15 @@ def map_parse_index_args(parser):
     parser.add_argument("--gcsa_index", type=make_url,
                         help="Path to GCSA index (for map and mpmap)")
     parser.add_argument("--minimizer_index", type=make_url,
-                        help="Path to minimizer index (for gaffe)")
+                        help="Path to minimizer index (for giraffe)")
     parser.add_argument("--distance_index", type=make_url,
-                        help="Path to distance index (for gaffe)")
+                        help="Path to distance index (for giraffe)")
     parser.add_argument("--gbwt_index", type=make_url,
                         help="Path to GBWT haplotype index")
     parser.add_argument("--snarls_index", type=make_url,
                         help="Path to snarls file")
                         
-    parser.add_argument("--mapper", default="map", choices=["map", "mpmap", "gaffe"],
+    parser.add_argument("--mapper", default="map", choices=["map", "mpmap", "giraffe"],
                         help="vg mapper to use")
 
 def map_parse_args(parser, stand_alone = False):
@@ -101,8 +101,8 @@ def map_parse_args(parser, stand_alone = False):
                         help="arguments for vg map (wrapped in \"\")")
     parser.add_argument("--mpmap_opts", type=str,
                         help="arguments for vg mpmap (wrapped in \"\")")
-    parser.add_argument("--gaffe_opts", type=str,
-                        help="arguments for vg gaffe (wrapped in \"\")")
+    parser.add_argument("--giraffe_opts", type=str,
+                        help="arguments for vg giraffe (wrapped in \"\")")
     parser.add_argument("--bam_output", action="store_true",
                         help="write BAM output directly")
     parser.add_argument("--surject", action="store_true",
@@ -122,13 +122,13 @@ def validate_map_options(context, options):
     if options.mapper == 'map' or options.mapper == 'mpmap':
         require(options.gcsa_index, '--gcsa_index is required for map and mpmap')
     
-    if options.mapper == 'gaffe':
-        require(options.minimizer_index, '--minimizer_index is required for gaffe')
-        require(options.distance_index, '--distance_index is required for gaffe')
-        require(options.gbwt_index, '--gbwt_index is required for gaffe')
-        require(not options.bam_input_reads, '--bam_input_reads is not supported with gaffe')
-        require(not options.interleaved, '--interleaved is not supported with gaffe')
-        require(options.fastq is None or len(options.fastq) < 2, 'Multiple --fastq files are not supported with gaffe')
+    if options.mapper == 'giraffe':
+        require(options.minimizer_index, '--minimizer_index is required for giraffe')
+        require(options.distance_index, '--distance_index is required for giraffe')
+        require(options.gbwt_index, '--gbwt_index is required for giraffe')
+        require(not options.bam_input_reads, '--bam_input_reads is not supported with giraffe')
+        require(not options.interleaved, '--interleaved is not supported with giraffe')
+        require(options.fastq is None or len(options.fastq) < 2, 'Multiple --fastq files are not supported with giraffe')
     
     require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
@@ -192,8 +192,8 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
     are extra and specifying them will change mapping behavior. Some indexes
     are required for certain values of mapper.
     
-    mapper can be 'map', 'mpmap', or 'gaffe'. For 'map' and 'mpmap', the 'gcsa'
-    and 'lcp' indexes are required. For 'gaffe', the 'gbwt', 'minimizer' and
+    mapper can be 'map', 'mpmap', or 'giraffe'. For 'map' and 'mpmap', the 'gcsa'
+    and 'lcp' indexes are required. For 'giraffe', the 'gbwt', 'minimizer' and
     'distance' indexes are required. All the mappers require the 'xg' index.
     
     If bam_output is set, produce BAMs. If surject is set, surject reads down
@@ -521,7 +521,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             # tracebacks aren't used, mpmap will ignore the snarls.
             index_files['snarls'] = graph_file + ".snarls"
         
-    if mapper == 'gaffe':
+    if mapper == 'giraffe':
         index_files['minimizer'] = graph_file + ".min"
         index_files['distance'] = graph_file + ".dist"
         index_files['gbwt'] = graph_file + ".gbwt"
@@ -562,9 +562,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         elif mapper == 'map':
             vg_parts += ['vg', 'map'] 
             vg_parts += context.config.map_opts
-        elif mapper == 'gaffe':
-            vg_parts += ['vg', 'gaffe'] 
-            vg_parts += context.config.gaffe_opts
+        elif mapper == 'giraffe':
+            vg_parts += ['vg', 'giraffe'] 
+            vg_parts += context.config.giraffe_opts
         else:
             raise RuntimeError('Unimplemented mapper "{}"'.format(mapper))
             
