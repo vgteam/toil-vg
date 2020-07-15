@@ -211,6 +211,7 @@ ${PATERNAL_SAMPLE_NAME} \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
+--use_decoys \\
 --force_phasing True \\
 --indel_realign_bams \\
 --snpeff_annotation \\
