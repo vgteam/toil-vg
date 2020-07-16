@@ -125,7 +125,7 @@ if [ ${#SIBLING_SAMPLE_NAMES[@]} -gt 1 ]; then
     done
 fi
 
-for (( n=1; n<=${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
+for (( n=0; n<=${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
 do
     SIB_GENDER_LIST+="'${SIBLING_GENDERS[$n]}' "
     SIB_AFFECT_LIST+="'${SIBLING_AFFECTED[$n]}' "
