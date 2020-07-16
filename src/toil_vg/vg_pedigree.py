@@ -288,6 +288,9 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     ref_fasta_dict_path = os.path.join(work_dir, '{}.dict'.format(os.path.splitext(ref_fasta_name)[0]))
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
+    # Extract contig name
+    contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT)', bam_name).group(1)
+    
     # Run variant calling commands
     cmd_list = []
     cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-n', '-O', 'BAM', os.path.basename(bam_path)])
@@ -321,6 +324,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     command = ['gatk', 'HaplotypeCaller',
                 '--native-pair-hmm-threads', job.cores,
                 '-ERC', 'GVCF',
+                '-L', contig_name,
                 '--pcr-indel-model', pcr_indel_model,
                 '--reference', os.path.basename(ref_fasta_path),
                 '--input', '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name),
@@ -401,8 +405,8 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     
     return processed_bam_file_id
 
-#@sleep(900, retry=20)
-@sleep(30, retry=20)
+#@sleep(30, retry=20)
+@sleep(900, retry=20)
 def run_dragen_commands(job, context, command, work_dir):
     """ 
     Helper function for running the Dragen gvcf caller asynchronously
