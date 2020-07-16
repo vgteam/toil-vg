@@ -125,7 +125,7 @@ if [ ${#SIBLING_SAMPLE_NAMES[@]} -gt 1 ]; then
     done
 fi
 
-for (( n=1; n<=${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
+for (( n=0; n<${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
 do
     SIB_GENDER_LIST+="'${SIBLING_GENDERS[$n]}' "
     SIB_AFFECT_LIST+="'${SIBLING_AFFECTED[$n]}' "
@@ -211,6 +211,7 @@ ${PATERNAL_SAMPLE_NAME} \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
+--use_decoys \\
 --force_phasing True \\
 --indel_realign_bams \\
 --snpeff_annotation \\
