@@ -111,21 +111,21 @@ SIB_GENDER_LIST=""
 SIB_AFFECT_LIST=""
 SIB_BAM_LIST=""
 SIB_BAI_LIST=""
-for (( n=1; n<=${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
+for (( n=0; n<${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
 do
-    SIB_ID_LIST+="'${SIBLING_SAMPLE_NAMES[$n]}' "
-    SIB_GENDER_LIST+="'${SIBLING_GENDERS[$n]}' "
-    SIB_AFFECT_LIST+="'${SIBLING_AFFECTED[$n]}' "
+    SIB_ID_LIST+="${SIBLING_SAMPLE_NAMES[$n]} "
+    SIB_GENDER_LIST+="${SIBLING_GENDERS[$n]} "
+    SIB_AFFECT_LIST+="${SIBLING_AFFECTED[$n]} "
     SIB_BAM_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.indel_realigned.bam' "
     SIB_BAI_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.indel_realigned.bai' "
 done
 
-if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]]; then
-    echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace"
+if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]] || [ -z ${COHORT_WORKFLOW_DIR} ]; then
+    echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace or is empty"
     exit 1
 fi
-if [[ ${PROBAND_SAMPLE_NAME} = *[[:space:]]* ]]; then
-    echo "ERROR: ${PROBAND_SAMPLE_NAME} argument value contains whitespace"
+if [[ ${PROBAND_SAMPLE_NAME} = *[[:space:]]* ]] || [ -z ${PROBAND_SAMPLE_NAME} ]; then
+    echo "ERROR: ${PROBAND_SAMPLE_NAME} argument value contains whitespace or is empty"
     exit 1
 fi
 
