@@ -176,6 +176,8 @@ fi
 if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
+--linkImports \\
+--retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
 --statePollingWait 30 \\
@@ -226,6 +228,8 @@ ${PATERNAL_SAMPLE_NAME} \\
 else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
+--linkImports \\
+--retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
 --statePollingWait 30 \\
