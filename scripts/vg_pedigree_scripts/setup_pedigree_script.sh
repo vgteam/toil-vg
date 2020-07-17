@@ -142,11 +142,6 @@ if [[ ${PROBAND_SAMPLE_NAME} = *[[:space:]]* ]] || [ -z ${PROBAND_SAMPLE_NAME} ]
     exit 1
 fi
 
-if [ $RESTART == false ]; then
-    rm -fr ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore
-    rm -fr ${COHORT_WORKFLOW_DIR}/tmp
-fi
-
 if [ ! -d "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore" ]; then
     mkdir -p "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore"
     chmod 2770 "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore"
