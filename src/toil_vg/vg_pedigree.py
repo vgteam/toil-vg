@@ -1750,7 +1750,9 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     
     # Run analysis workflow
     if options.run_analysis:
-        joined_sibling_names = [proband_name] + siblings_names
+        joined_sibling_names = [proband_name]
+        if siblings_names is not None: 
+            joined_sibling_names += siblings_names
         analysis_workflow_job = stage4_jobs.addFollowOnJobFn(run_analysis, context, final_pedigree_joint_called_vcf,
                                                            final_maternal_bam, final_maternal_bam_index, 
                                                            final_paternal_bam, final_paternal_bam_index,

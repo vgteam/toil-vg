@@ -173,7 +173,6 @@ fi
 if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---linkImports \\
 --retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
@@ -225,7 +224,6 @@ ${SIB_READ_PAIR_LIST} \\
 else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---linkImports \\
 --retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
