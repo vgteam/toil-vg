@@ -114,35 +114,32 @@ PROBAND_SAMPLE_NAME="${SIBLING_SAMPLE_NAMES[0]}"
 READ_DATA_DIR="${COHORT_WORKFLOW_DIR}/input_reads"
 SIB_READ_PAIR_LIST=""
 SIB_ID_LIST=""
-SIB_GENDER_LIST=""
-SIB_AFFECT_LIST=""
+SIB_GENDER_LIST="--sibling_genders "
+SIB_AFFECT_LIST="--sibling_affected "
 SIBLING_SAMPLE_NAMES_LEN=${#SIBLING_SAMPLE_NAMES[@]}
 if [ ${#SIBLING_SAMPLE_NAMES[@]} -gt 1 ]; then
+    SIB_READ_PAIR_LIST="--fastq_siblings "
+    SIB_ID_LIST="--sibling_names "
     for SIBLING_ID in ${SIBLING_SAMPLE_NAMES[@]:1}
     do
       SIB_READ_PAIR_LIST+="${READ_DATA_DIR}/${SIBLING_ID}_read_pair_1.fq.gz ${READ_DATA_DIR}/${SIBLING_ID}_read_pair_2.fq.gz "
-      SIB_ID_LIST+="'${SIBLING_ID}' "
+      SIB_ID_LIST+="${SIBLING_ID} "
     done
 fi
 
 for (( n=0; n<${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
 do
-    SIB_GENDER_LIST+="'${SIBLING_GENDERS[$n]}' "
-    SIB_AFFECT_LIST+="'${SIBLING_AFFECTED[$n]}' "
+    SIB_GENDER_LIST+="${SIBLING_GENDERS[$n]} "
+    SIB_AFFECT_LIST+="${SIBLING_AFFECTED[$n]} "
 done
 
-if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]]; then
-    echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace"
+if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]] || [ -z ${COHORT_WORKFLOW_DIR} ]; then
+    echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace or is empty"
     exit 1
 fi
-if [[ ${PROBAND_SAMPLE_NAME} = *[[:space:]]* ]]; then
-    echo "ERROR: ${PROBAND_SAMPLE_NAME} argument value contains whitespace"
+if [[ ${PROBAND_SAMPLE_NAME} = *[[:space:]]* ]] || [ -z ${PROBAND_SAMPLE_NAME} ]; then
+    echo "ERROR: ${PROBAND_SAMPLE_NAME} argument value contains whitespace or is empty"
     exit 1
-fi
-
-if [ $RESTART == false ]; then
-    rm -fr ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore
-    rm -fr ${COHORT_WORKFLOW_DIR}/tmp
 fi
 
 if [ ! -d "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore" ]; then
@@ -176,6 +173,7 @@ fi
 if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
+--retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
 --statePollingWait 30 \\
@@ -191,13 +189,13 @@ ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
 ${PROBAND_SAMPLE_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
---sibling_names ${SIB_ID_LIST[@]} \\
---sibling_genders ${SIB_GENDER_LIST[@]} \\
---sibling_affected ${SIB_AFFECT_LIST[@]} \\
+${SIB_ID_LIST} \\
+${SIB_GENDER_LIST} \\
+${SIB_AFFECT_LIST} \\
 --fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
---fastq_siblings ${SIB_READ_PAIR_LIST[@]} \\
+${SIB_READ_PAIR_LIST} \\
 --reads_per_chunk 20000000 \\
 --ref_fasta ${WORKFLOW_INPUT_DIR}/hs37d5.fa \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/hs37d5.fa.fai \\
@@ -226,6 +224,7 @@ ${PATERNAL_SAMPLE_NAME} \\
 else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
+--retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
 --statePollingWait 30 \\
@@ -240,13 +239,11 @@ ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
 ${PROBAND_SAMPLE_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
---sibling_names ${SIB_ID_LIST[@]} \\
---sibling_genders ${SIB_GENDER_LIST[@]} \\
---sibling_affected ${SIB_AFFECT_LIST[@]} \\
+${SIB_GENDER_LIST} \\
+${SIB_AFFECT_LIST} \\
 --fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
---fastq_siblings ${SIB_READ_PAIR_LIST[@]} \\
 --ref_fasta ${WORKFLOW_INPUT_DIR}/hs37d5.fa \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/hs37d5.fa.fai \\
 --ref_fasta_dict ${WORKFLOW_INPUT_DIR}/hs37d5.dict \\
