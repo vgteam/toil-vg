@@ -807,7 +807,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
         if contig_name in ['X']:
             # Run eagle phasing on X chromsome
             context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz'], work_dir = work_dir)
-            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release//20130502/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz.tbi'], work_dir = work_dir)
+            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz.tbi'], work_dir = work_dir)
             cmd_list = []
             cmd_list.append(['bcftools', 'view', '--no-version', '-Ou', '-c', '2', 'ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz'])
             cmd_list.append(['bcftools', 'norm', '--no-version', '-Ou', '-m', '-any'])
@@ -819,7 +819,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
                                 '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
         else:
             # Run eagle phasing on autosomal chromosome
-            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/release/20130502/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_name)], work_dir = work_dir)
+            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_name)], work_dir = work_dir)
             context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz.tbi'.format(contig_name)], work_dir = work_dir)
             cmd_list = []
             cmd_list.append(['bcftools', 'view', '--no-version', '-Ou', '-c', '2', 'ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_name)])
