@@ -289,7 +289,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
     # Extract contig name
-    contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT)', bam_name).group(1)
+    contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
     
     # Run variant calling commands
     cmd_list = []
@@ -1639,8 +1639,8 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
             bam_input_reads_siblings_collection = None
             reads_file_ids_siblings_list = []
             if fastq_siblings:
-                fastq_siblings_collection = fastq_siblings[sibling_number]
-                reads_file_ids_siblings_list.append(reads_file_ids_siblings[sibling_number*2:(sibling_number*2)+2])
+                fastq_siblings_collection = fastq_siblings[sibling_number*2:(sibling_number*2)+2]
+                reads_file_ids_siblings_list = reads_file_ids_siblings[sibling_number*2:(sibling_number*2)+2]
             elif gam_input_reads_siblings or bam_input_reads_siblings:
                 if gam_input_reads_siblings: gam_input_reads_siblings_collection = gam_input_reads_siblings[sibling_number]
                 if bam_input_reads_siblings: bam_input_reads_siblings_collection = bam_input_reads_siblings[sibling_number]
