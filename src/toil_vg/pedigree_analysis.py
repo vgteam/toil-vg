@@ -314,8 +314,8 @@ def run_cadd_jobs(job, context, vcf_chunk_ids, genome_build, cadd_data_dir):
     for vcf_chunk_id in vcf_chunk_ids:
         cadd_job = job.addChildJobFn(run_cadd, context, vcf_chunk_id, genome_build, cadd_data_dir,
                                         cores=context.config.misc_cores,
-                                        memory=context.config.misc_mem,
-                                        disk=context.config.misc_disk)
+                                        memory=context.config.alignment_mem,
+                                        disk=context.config.alignment_disk)
         cadd_engine_output_ids.append(cadd_job.rv())
     
     return cadd_engine_output_ids
