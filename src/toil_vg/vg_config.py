@@ -239,6 +239,9 @@ bmtb-docker: 'quay.io/cmarkello/bmtb'
 # Docker image to use for vcftools
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 
+# Docker image to use for vt
+vt-docker: 'quay.io/biocontainers/vt'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -545,6 +548,9 @@ bmtb-docker: 'quay.io/cmarkello/bmtb'
 
 # Docker image to use for vcftools
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
+
+# Docker image to use for vt
+vt-docker: 'quay.io/biocontainers/vt'
 
 ##############################
 ### vg_construct Arguments ###
