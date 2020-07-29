@@ -240,7 +240,7 @@ bmtb-docker: 'quay.io/cmarkello/bmtb'
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 
 # Docker image to use for vt
-vt-docker: 'quay.io/biocontainers/vt'
+vt-docker: 'quay.io/biocontainers/vt:2015.11.10--h5ef6573_4'
 
 ##############################
 ### vg_construct Arguments ###
@@ -550,7 +550,7 @@ bmtb-docker: 'quay.io/cmarkello/bmtb'
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 
 # Docker image to use for vt
-vt-docker: 'quay.io/biocontainers/vt'
+vt-docker: 'quay.io/biocontainers/vt:2015.11.10--h5ef6573_4'
 
 ##############################
 ### vg_construct Arguments ###

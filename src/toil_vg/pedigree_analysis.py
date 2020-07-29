@@ -148,6 +148,10 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     if not is_empty:
         output_cadd_vcf_path = os.path.join(work_dir, 'vcf2shebang_output/{}_unrolled_snpeff_fix_overlap_mono_CADD_Input_Files/{}_unrolled_snpeff_fix_overlap_mono_CADD_input_file.txt.gz'.format(sample_name,sample_name))
     
+    # Write VCFtoShebang_Config.txt to the outstore for debugging purposes
+    context.write_output_file(job, os.path.join(work_dir, 'VCFtoShebang_Config.txt'))
+    context.write_output_file(job, os.path.join(work_dir, input_vcf_file))
+    
     return context.write_output_file(job, output_vs_path), context.write_output_file(job, output_cadd_vcf_path)
     
 def run_split_vcf(job, context, vcf_file_id, split_lines):
@@ -303,6 +307,9 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='bmtb')
+    
+    # Write config file to the outstore for debugging purposes:
+    context.write_output_file(job, os.path.join(work_dir, 'Configs/BMTB_Genome_Input_Config.txt'))
     
     output_package_path = os.path.join(work_dir, '{}_BlackBox_Output.tar.gz'.format(sibling_names[0]))
     return context.write_output_file(job, output_package_path)
