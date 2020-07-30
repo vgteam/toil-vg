@@ -1091,7 +1091,7 @@ def run_construct_graph_pedigree(job, context, options, ref_fasta_id, contig_nam
         vcf_gz_path = os.path.join(work_dir, os.path.basename(vcf_gz_id))
         job.fileStore.readGlobalFile(vcf_gz_id, vcf_gz_path)
         context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_gz_path)], work_dir = work_dir, tool_name='vg')
-        context.runner.call(job, ['vt', 'view', '-f', "\'ALT~~\"\\*\"\'", os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
+        context.runner.call(job, ['vt', 'view', '-f', 'ALT~~\'\*\'', os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
         context.runner.call(job, ['tabix', '-p', 'vcf', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vg')
         command += ['-v', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path)), '--region-is-chrom']
         
@@ -1154,7 +1154,7 @@ def run_gbwt_index(job, context, options, vg_id, vcf_gz_id):
     
     contig_name = os.path.splitext(os.path.basename(vg_file_path))[0]
     context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_gz_path)], work_dir = work_dir, tool_name='vg')
-    context.runner.call(job, ['vt', 'view', '-f', "\'ALT~~\"\\*\"\'", os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
+    context.runner.call(job, ['vt', 'view', '-f', 'ALT~~\'\*\'', os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
     context.runner.call(job, ['tabix', '-p', 'vcf', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vg')
     context.runner.call(job, ['vg', 'index', '--threads', job.cores, '--force-phasing', '--discard-overlaps', '-G', '{}.gbwt'.format(contig_name), '-v', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path)), os.path.basename(vg_file_path)], work_dir = work_dir, tool_name='vg')
     
