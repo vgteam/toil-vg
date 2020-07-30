@@ -225,16 +225,16 @@ whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 eagle-docker: 'quay.io/cmarkello/eagle'
 
 # Docker image to use for vcf2shebang
-vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang'
+vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang:latest'
 
 # Docker image to use for cadd
-cadd-docker: 'quay.io/cmarkello/cadd'
+cadd-docker: 'quay.io/cmarkello/cadd:latest'
 
 # Docker image to use for cadd editor
-caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
+caddeditor-docker: 'quay.io/cmarkello/cadd_editor:latest'
 
 # Docker image to use for bmtb
-bmtb-docker: 'quay.io/cmarkello/bmtb'
+bmtb-docker: 'quay.io/cmarkello/bmtb:latest'
 
 # Docker image to use for vcftools
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'

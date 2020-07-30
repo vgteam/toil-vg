@@ -130,7 +130,7 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     cmd_list.append(['sed', '-i', '\"s|.*CHROM_DIR.*|CHROM_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(chrom_dir))), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*EDIT_DIR.*|EDIT_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(edit_dir))), 'VCFtoShebang_Config.txt'])
     cmd_list.append(['sed', '-i', '\"s|.*EDITOR_CONFIG.*|EDITOR_CONFIG\t/vcftoshebang/edit_config.txt|\"', 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['java', '-XX:+UnlockExperimentalVMOptions', '-XX:ActiveProcessorCount=26', '-cp', '/vcftoshebang/VCFtoShebang.jar:/vcftoshebang/json_simple.jar',
+    cmd_list.append(['java', '-XX:+UnlockExperimentalVMOptions', '-XX:ActiveProcessorCount=32', '-cp', '/vcftoshebang/VCFtoShebang.jar:/vcftoshebang/json_simple.jar',
                              'Runner', 'VCFtoShebang_Config.txt'])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
@@ -149,7 +149,6 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
         output_cadd_vcf_path = os.path.join(work_dir, 'vcf2shebang_output/{}_unrolled_snpeff_fix_overlap_mono_CADD_Input_Files/{}_unrolled_snpeff_fix_overlap_mono_CADD_input_file.txt.gz'.format(sample_name,sample_name))
     
     # Write VCFtoShebang_Config.txt to the outstore for debugging purposes
-    context.write_output_file(job, os.path.join(work_dir, 'stderr.txt'))
     context.write_output_file(job, os.path.join(work_dir, 'VCFtoShebang_Config.txt'))
     context.write_output_file(job, os.path.join(work_dir, input_vcf_file))
     
