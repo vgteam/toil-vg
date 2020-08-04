@@ -245,6 +245,7 @@ def validate_pedigree_options(context, options):
         require(options.cadd_data, '--cadd_data is required for analysis workflow')
         require(len(options.sibling_genders) >= 1, '--sibling_genders needs at least one value for the proband')
         require(len(options.sibling_affected) >= 1, '--sibling_affected needs at least one value for the proband')
+        require(len(options.sibling_genders) == len(options.sibling_affected), 'number of --sibling_genders needs to equal the number of --sibling_affected')
     
 # Decorator for python process timed retries (https://realpython.com/python-sleep/#adding-a-python-sleep-call-with-decorators)
 def sleep(timeout, retry=3):

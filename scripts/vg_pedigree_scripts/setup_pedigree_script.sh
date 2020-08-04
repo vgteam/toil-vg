@@ -21,14 +21,11 @@ This script setups up a bash script to run a UDP cohort through all stages of th
 pedigree pipeline on the NIH Biowulf Cluster.
 
 Inputs:
-    -m Mother UDP ID (in format UDP####)
-    -f Father UDP ID (in format UDP####)
-    -s List of Sibling UDP ID, Proband ID must be first in the list (in format UDP#### UDP#### UDP#### ...)
-    -c PATH to .ped file containing only the mother-father-proband trio samples
+Inputs:
+    -f Cohort name. Should be the same as the proband sample name.
+    -c PATH to .ped file containing all samples in the family.
     -w PATH to where the UDP cohort will be processed and where the input reads will be stored
     -g PATH to the workflow input directory
-    -i List of Sibling Gender IDs. 0=male, 1=female. Must be same order as the input to -s argument.
-    -b List of Sibling affected status. 0=unaffected, 1=affected. Must be same order as the input to -s argument.
     -a PATH to chromosome annotation directory used by vcftoshebang.
     -e PATH to directory containing master edit files used by vcftoshebang.
     -d PATH to cadd engine data directory.
@@ -45,7 +42,7 @@ EOF
 }
 
 ## Check number of arguments
-if [ $# -lt 7 ] || [[ $@ != -* ]]; then
+if [ $# -lt 8 ] || [[ $@ != -* ]]; then
     usage
     exit 1
 fi
@@ -55,31 +52,19 @@ RUN_SMALL_TEST=false
 RESTART=false
 
 ## Parse through arguments
-while getopts "m:f:s:c:w:g:i:b:a:e:d:v:r:t:h" OPTION; do
+while getopts "f:c:w:g:a:e:d:v:r:t:h" OPTION; do
     case $OPTION in
-        m)
-            MATERNAL_SAMPLE_NAME=$OPTARG
-        ;;
         f)
-            PATERNAL_SAMPLE_NAME=$OPTARG
-        ;;
-        s)
-            SIBLING_SAMPLE_NAMES+=($OPTARG)
+            COHORT_NAME=$OPTARG
         ;;
         c)
-            TRIO_PEDIGREE_FILE=$OPTARG
+            COHORT_PED_FILE=$OPTARG
         ;;
         w)
             COHORT_WORKFLOW_DIR=$OPTARG
         ;;
         g)
             WORKFLOW_INPUT_DIR=$OPTARG
-        ;;
-        i)
-            SIBLING_GENDERS+=($OPTARG)
-        ;;
-        b)
-            SIBLING_AFFECTED+=($OPTARG)
         ;;
         a)
             CHROM_ANNOT_DIR=$OPTARG
@@ -110,41 +95,81 @@ while getopts "m:f:s:c:w:g:i:b:a:e:d:v:r:t:h" OPTION; do
     esac
 done
 
-PROBAND_SAMPLE_NAME="${SIBLING_SAMPLE_NAMES[0]}"
+# Extract sample information from input family .ped file
+source ${TOIL_VG_DIR}/toilvg_venv/bin/activate
+pip install ped_parser
+TRIO_PED_FILE="${COHORT_NAME}.trio.ped"
+
 READ_DATA_DIR="${COHORT_WORKFLOW_DIR}/input_reads"
+SAMPLES_LIST=($(python3 -c "import ped_parser; print(list(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals.keys()))" | tr -d '[],' | tr -d \'))
+PROBAND_NAME=""
+OFFSPRING_GENDER_LIST=()
+OFFSPRING_AFFECTED_LIST=()
 SIB_READ_PAIR_LIST=""
 SIB_ID_LIST=""
-SIB_GENDER_LIST="--sibling_genders "
-SIB_AFFECT_LIST="--sibling_affected "
-SIBLING_SAMPLE_NAMES_LEN=${#SIBLING_SAMPLE_NAMES[@]}
-if [ ${#SIBLING_SAMPLE_NAMES[@]} -gt 1 ]; then
+SIB_ID_LIST_SET=()
+SIB_GENDER_LIST_SET=()
+SIB_AFFECTED_LIST_SET=()
+
+for SAMPLE_ID in ${SAMPLES_LIST[@]}
+do
+    SAMPLE_MOM=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].mother)"))
+    SAMPLE_DAD=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].father)"))
+    SAMPLE_GENDER=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].sex)"))
+    SAMPLE_AFFECTED=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].phenotype)"))
+    if [[ "$SAMPLE_ID" == "$COHORT_NAME" ]]; then
+        PROBAND_NAME=${SAMPLE_ID}
+        OFFSPRING_GENDER_LIST+=($((${SAMPLE_GENDER} - 1)))
+        OFFSPRING_AFFECTED_LIST+=($((${SAMPLE_AFFECTED} - 1)))
+        MATERNAL_SAMPLE_NAME="${SAMPLE_MOM}"
+        PATERNAL_SAMPLE_NAME="${SAMPLE_DAD}"
+    elif [[ ${SAMPLE_MOM} != '0' ]]; then
+        SIB_ID_LIST_SET+=(${SAMPLE_ID})
+        SIB_READ_PAIR_LIST+="${READ_DATA_DIR}/${SAMPLE_ID}_read_pair_1.fq.gz ${READ_DATA_DIR}/${SAMPLE_ID}_read_pair_2.fq.gz "
+        SIB_GENDER_LIST+=(${SAMPLE_GENDER})
+        SIB_AFFECTED_LIST+=(${SAMPLE_AFFECTED})
+    fi
+done
+
+for (( n=0; n<${#SIB_ID_LIST_SET[@]}; n++ ))
+do
+    OFFSPRING_GENDER_LIST+=($((${SIB_GENDER_LIST[$n]} - 1)))
+    OFFSPRING_AFFECTED_LIST+=($((${SIB_AFFECTED_LIST[$n]} - 1)))
+done
+
+if [ ${#SIB_ID_LIST_SET[@]} -gt 0 ]; then
     SIB_READ_PAIR_LIST="--fastq_siblings "
     SIB_ID_LIST="--sibling_names "
-    for SIBLING_ID in ${SIBLING_SAMPLE_NAMES[@]:1}
+    for SIBLING_ID in ${SIB_ID_LIST_SET[@]}
     do
       SIB_READ_PAIR_LIST+="${READ_DATA_DIR}/${SIBLING_ID}_read_pair_1.fq.gz ${READ_DATA_DIR}/${SIBLING_ID}_read_pair_2.fq.gz "
       SIB_ID_LIST+="${SIBLING_ID} "
     done
 fi
 
-for (( n=0; n<${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
-do
-    SIB_GENDER_LIST+="${SIBLING_GENDERS[$n]} "
-    SIB_AFFECT_LIST+="${SIBLING_AFFECTED[$n]} "
-done
-
-if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]] || [ -z ${COHORT_WORKFLOW_DIR} ]; then
-    echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace or is empty"
+# Make sure directory paths contain no white-space
+if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]]; then
+    echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace"
     exit 1
 fi
-if [[ ${PROBAND_SAMPLE_NAME} = *[[:space:]]* ]] || [ -z ${PROBAND_SAMPLE_NAME} ]; then
-    echo "ERROR: ${PROBAND_SAMPLE_NAME} argument value contains whitespace or is empty"
+if [[ ${COHORT_NAME} = *[[:space:]]* ]]; then
+    echo "ERROR: ${COHORT_NAME} argument value contains whitespace"
     exit 1
 fi
 
-if [ ! -d "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore" ]; then
-    mkdir -p "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore"
-    chmod 2770 "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore"
+# Build trio .ped file for parental graph construction
+rm -f ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "#Family\tID\tFather\tMother\tSex[1=M]\tAffected[2=A]" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "${PROBAND_NAME}\t${PROBAND_NAME}\t${PATERNAL_SAMPLE_NAME}\t${MATERNAL_SAMPLE_NAME}\t$((${OFFSPRING_GENDER_LIST[0]} + 1))\t$((${OFFSPRING_AFFECTED_LIST[0]} + 1))" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "${PROBAND_NAME}\t${PATERNAL_SAMPLE_NAME}\t0\t0\t1\t1" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "${PROBAND_NAME}\t${MATERNAL_SAMPLE_NAME}\t0\t0\t2\t1" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+chmod 2770 "${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}"
+deactivate
+
+# Make outstore, jobstore, and container cache directories
+if [ ! -d "${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore" ]; then
+    mkdir -p "${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore"
+    chmod 2770 "${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore"
 fi
 if [ ! -d "${COHORT_WORKFLOW_DIR}/tmp" ]; then
     mkdir -p "${COHORT_WORKFLOW_DIR}/tmp"
@@ -156,43 +181,44 @@ if [ ! -d "/data/$USER/singularity_cache" ]; then
     chmod 2770 "/data/$USER/singularity_cache"
 fi
 
-rm -f ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
-echo '#!/bin/bash' >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
-echo "module load singularity python/3.7" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
-echo "source ${TOIL_VG_DIR}/toilvg_venv/bin/activate" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
-echo "export TOIL_SLURM_ARGS='-t 20:00:00'" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
-echo "export SINGULARITY_CACHEDIR=/data/$USER/singularity_cache" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
-echo "cd ${COHORT_WORKFLOW_DIR}" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
+# Build the workflow script
+rm -f ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+echo '#!/bin/bash' >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+echo "module load singularity python/3.7" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+echo "source ${TOIL_VG_DIR}/toilvg_venv/bin/activate" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+echo "export TOIL_SLURM_ARGS='-t 20:00:00'" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+echo "export SINGULARITY_CACHEDIR=/data/$USER/singularity_cache" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+echo "cd ${COHORT_WORKFLOW_DIR}" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 if [ $RESTART == false ]; then
-    echo "toil clean ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_jobstore" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
+    echo "toil clean ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_jobstore" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 fi
 RESTART_ARG=""
 if [ $RESTART == true ]; then
     RESTART_ARG="--restart"
 fi
+
 if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
 --statePollingWait 30 \\
 --rescueJobsFrequency 30 \\
 --container Singularity \\
 --logInfo \\
---logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
+--logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir onSuccess \\
 --whole_genome_config \\
-${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_jobstore \\
-${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
-${PROBAND_SAMPLE_NAME} \\
+${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_jobstore \\
+${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore \\
+${PROBAND_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
 ${SIB_ID_LIST} \\
-${SIB_GENDER_LIST} \\
-${SIB_AFFECT_LIST} \\
---fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
+--sibling_genders ${OFFSPRING_GENDER_LIST[@]} \\
+--sibling_affected ${OFFSPRING_AFFECTED_LIST[@]} \\
+--fastq_proband ${READ_DATA_DIR}/${PROBAND_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 ${SIB_READ_PAIR_LIST} \\
@@ -205,7 +231,7 @@ ${SIB_READ_PAIR_LIST} \\
 --gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gbwt \\
 --id_ranges ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
---ped_file ${TRIO_PEDIGREE_FILE} \\
+--ped_file ${TRIO_PED_FILE} \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
@@ -220,30 +246,31 @@ ${SIB_READ_PAIR_LIST} \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
 --cadd_data ${CADD_DATA_DIR} \\
---helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
+--helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
---retryCount 3 \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
 --statePollingWait 30 \\
 --rescueJobsFrequency 30 \\
 --container Singularity \\
 --logInfo \\
---logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.log \\
+--logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir always \\
-${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_jobstore \\
-${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore \\
-${PROBAND_SAMPLE_NAME} \\
+${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_jobstore \\
+${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore \\
+${PROBAND_NAME} \\
 ${MATERNAL_SAMPLE_NAME} \\
 ${PATERNAL_SAMPLE_NAME} \\
-${SIB_GENDER_LIST} \\
-${SIB_AFFECT_LIST} \\
---fastq_proband ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_SAMPLE_NAME}_read_pair_2.fq.gz \\
+${SIB_ID_LIST} \\
+--sibling_genders ${OFFSPRING_GENDER_LIST[@]} \\
+--sibling_affected ${OFFSPRING_AFFECTED_LIST[@]} \\
+--fastq_proband ${READ_DATA_DIR}/${PROBAND_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_NAME}_read_pair_2.fq.gz \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
+${SIB_READ_PAIR_LIST} \\
 --ref_fasta ${WORKFLOW_INPUT_DIR}/hs37d5.fa \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/hs37d5.fa.fai \\
 --ref_fasta_dict ${WORKFLOW_INPUT_DIR}/hs37d5.dict \\
@@ -252,7 +279,7 @@ ${SIB_AFFECT_LIST} \\
 --gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_chr21.gbwt \\
 --id_ranges ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
---ped_file ${TRIO_PEDIGREE_FILE} \\
+--ped_file ${TRIO_PED_FILE} \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
@@ -266,7 +293,7 @@ ${SIB_AFFECT_LIST} \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
 --cadd_data ${CADD_DATA_DIR} \\
---helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_workflow.sh
+--helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 fi
 
 exit
