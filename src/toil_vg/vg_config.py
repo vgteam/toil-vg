@@ -380,8 +380,8 @@ prune-mem: '60G'
 prune-disk: '60G'
 
 # Resources allotted gcsa indexing
-gcsa-index-cores: 16
-gcsa-index-mem: '110G'
+gcsa-index-cores: 32
+gcsa-index-mem: '300G'
 gcsa-index-disk: '2200G'
 gcsa-index-preemptable: True
 
