@@ -453,7 +453,7 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
                               ' --pair-by-name=true --vc-emit-ref-confidence GVCF' +
                               ' --intermediate-results-dir {} --output-directory {} --output-file-prefix {}_dragen_genotyped'.format(tmp_dir_path, dragen_work_dir_path, sample_name) +
                               '\"'])
-    cmd_list.append(['mkdir', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
+    cmd_list.append(['mkdir', '-p', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
     cmd_list.append(['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_genotyper'.format(udp_data_dir_path, sample_name)])
     cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_genotyper \"'.format(dragen_work_dir_path, udp_data_dir_path, sample_name)])
     cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(dragen_work_dir_path)])
@@ -683,7 +683,7 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
                                   ' --variant /staging/helix/{}/{}_cohort_gvcfs/{}'.format(udp_data_dir_path, sample_name, os.path.basename(proband_gvcf_path)) +
                                   ' '.join(sibling_options_list) +
                                   '\"'])
-        cmd_list.append(['mkdir', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)])
+        cmd_list.append(['mkdir', '-p', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)])
         cmd_list.append(['chmod', 'ug+rw', '-R', '/data/{}/{}_dragen_joint_genotyper'.format(udp_data_dir_path, sample_name)])
         cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"cp -R {} /staging/helix/{}/{}_dragen_joint_genotyper \"'.format(joint_genotype_dragen_work_dir_path, udp_data_dir_path, sample_name)])
         cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username), '\"rm -fr {}/\"'.format(joint_genotype_dragen_work_dir_path)])
