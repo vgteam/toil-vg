@@ -865,6 +865,8 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
     Chrom is a contig name or set of contig names we expect to be in the graph.
     
     If multiple contigs are in the graph, we comma-separate them.
+    
+    Returns a tuple of 3 strings: chromosome name, first base number, last base number.
     """
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -875,8 +877,8 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
     #run vg stats
     #expect result of form node-id-range <tab> first:last
     command = ['vg', 'stats', '--node-id-range', os.path.basename(graph_filename)]
-    stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
-    assert stats_out[0].decode('ascii') == 'node-id-range'
+    stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).decode('utf-8').strip().split()
+    assert stats_out[0] == 'node-id-range'
     first, last = stats_out[1].split(b':')
     
     if isinstance(chrom, set):
@@ -892,9 +894,9 @@ def run_merge_id_ranges(job, context, id_ranges, index_name):
     # Where do we put the id ranges tsv?
     id_range_filename = os.path.join(work_dir, '{}_id_ranges.tsv'.format(index_name))
 
-    with open(id_range_filename, 'wb') as f:
+    with open(id_range_filename, 'w') as f:
         for id_range in id_ranges:
-            f.write('{}\t{}\t{}\n'.format(*id_range).encode())
+            f.write('{}\t{}\t{}\n'.format(*id_range))
 
     # Checkpoint index to output store
     return context.write_output_file(job, id_range_filename)
