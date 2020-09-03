@@ -107,6 +107,7 @@ wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/hs37d5.dict -O ${WORKFLO
 wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/hs37d5.fa.gz -O ${WORKFLOW_INPUT_DIR}/hs37d5.fa.gz
 wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/snpEff_v4_3_GRCh37.75.zip -O ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip
 wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/genetic_map_GRCh37.tar -O ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar
+wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/eagle_data.tar -O ${WORKFLOW_INPUT_DIR}/eagle_data.tar
 
 exit
 

@@ -232,6 +232,7 @@ ${SIB_READ_PAIR_LIST} \\
 --id_ranges ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --ped_file ${TRIO_PED_FILE} \\
+--eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
@@ -280,6 +281,7 @@ ${SIB_READ_PAIR_LIST} \\
 --id_ranges ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --ped_file ${TRIO_PED_FILE} \\
+--eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\

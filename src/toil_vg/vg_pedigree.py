@@ -67,6 +67,8 @@ def pedigree_subparser(parser):
                         help="Path to file with node id ranges for each chromosome in BED format.")
     parser.add_argument("--genetic_map", type=make_url, default=None,
                         help="Path to .tar file containing genetic crossover map files for whatshap phasing.")
+    parser.add_argument("--eagle_data", type=make_url, default=None,
+                        help="Path to .tar file containing misc files for eagle imputation.")
     parser.add_argument("--indel_realign_bams", action="store_true", default=False,
                         help="run gatk indel realign on final cohort bams.")
     parser.add_argument("--snpeff_annotation", action="store_true", default=False,
@@ -701,12 +703,8 @@ def run_joint_genotyper(job, context, sample_name, proband_gvcf_id, proband_gvcf
         run_dragen_commands(job, context, command, work_dir)
         out_file = os.path.join(work_dir, '{}_dragen_joint_genotyper/output_cohort_joint_call_{}/cohort_joint_genotyped_{}.vcf.gz'.format(sample_name, sample_name, sample_name))
     
-    if snpeff_annotation:
-        joint_vcf_file_id = context.write_output_file(job, out_file)
-        joint_vcf_index_file_id = context.write_output_file(job, out_file + '.tbi')
-    else:
-        joint_vcf_file_id = context.write_output_file(job, out_file)
-        joint_vcf_index_file_id = context.write_output_file(job, out_file + '.tbi')
+    joint_vcf_file_id = context.write_output_file(job, out_file)
+    joint_vcf_index_file_id = context.write_output_file(job, out_file + '.tbi')
     
     return (joint_vcf_file_id, joint_vcf_index_file_id)
 
@@ -751,7 +749,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
                             maternal_bam_id, maternal_bam_index_id,
                             paternal_bam_id, paternal_bam_index_id,
                             ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                            ped_file_id, genetic_map_id):
+                            ped_file_id, eagle_ref_assembly_file_id, eagle_vcf_id, eagle_vcf_index_id, genetic_map_id):
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -798,40 +796,29 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
                               '-ped', os.path.basename(ped_file_path), '--skip-population-priors'], work_dir = work_dir, tool_name='gatk')
     # Run eagle phasing
     whatshap_input_file = '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name)
-    if contig_name not in ['Y', 'MT', 'ABOlocus']:
-        # Use eagle phasing
-        whatshap_input_file = '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased.vcf.gz'.format(proband_name, contig_name)
-        context.runner.call(job, ['wget', 'ftp://ftp.ensembl.org/pub/grch37/current/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz'], work_dir = work_dir)
+    if bool(eagle_vcf_id) and bool(eagle_vcf_index_id) == True:
+        # Import input files from jobstore
+        eagle_vcf_path = os.path.join(work_dir, os.path.basename(eagle_vcf_id))
+        job.fileStore.readGlobalFile(eagle_vcf_id, eagle_vcf_path)
+        eagle_vcf_index_path = os.path.join(work_dir, os.path.basename(eagle_vcf_index_id))
+        job.fileStore.readGlobalFile(eagle_vcf_index_id, eagle_vcf_index_path)
+        eagle_ref_assembly_file_path = os.path.join(work_dir, os.path.basename(eagle_ref_assembly_file_id))
+        job.fileStore.readGlobalFile(eagle_ref_assembly_file_id, eagle_ref_assembly_file_path)
         with open(os.path.join(work_dir, 'human_g1k_v37.fasta'), "wb") as ref_fasta_file:
-            context.runner.call(job, ['gzip', '-d', '-c', 'Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz'], work_dir = work_dir, outfile = ref_fasta_file)
+            context.runner.call(job, ['gzip', '-d', '-c', eagle_ref_assembly_file_path], work_dir = work_dir, outfile = ref_fasta_file)
         context.runner.call(job, ['samtools', 'faidx', 'human_g1k_v37.fasta'], work_dir = work_dir, tool_name='samtools')
-        if contig_name in ['X']:
-            # Run eagle phasing on X chromsome
-            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz'], work_dir = work_dir)
-            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz.tbi'], work_dir = work_dir)
-            cmd_list = []
-            cmd_list.append(['bcftools', 'view', '--no-version', '-Ou', '-c', '2', 'ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz'])
-            cmd_list.append(['bcftools', 'norm', '--no-version', '-Ou', '-m', '-any'])
-            cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf', '-d', 'none', '-f', 'human_g1k_v37.fasta'])
-            context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf'], work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
-                                '--numThreads', job.cores, '--vcfRef', 'ALL.chrX.phase3_integrated.20130502.genotypes.bcf', '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
-                                '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
-        else:
-            # Run eagle phasing on autosomal chromosome
-            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_name)], work_dir = work_dir)
-            context.runner.call(job, ['wget', 'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz.tbi'.format(contig_name)], work_dir = work_dir)
-            cmd_list = []
-            cmd_list.append(['bcftools', 'view', '--no-version', '-Ou', '-c', '2', 'ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_name)])
-            cmd_list.append(['bcftools', 'norm', '--no-version', '-Ou', '-m', '-any'])
-            cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '-d', 'none', '-f', 'human_g1k_v37.fasta'])
-            context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name)], work_dir = work_dir, tool_name='bcftools')
-            context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
-                                '--numThreads', job.cores, '--vcfRef', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
-                                '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
         
+        whatshap_input_file = '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased.vcf.gz'.format(proband_name, contig_name)
+        # Run eagle phasing on autosomal and X chromsomes
+        cmd_list = []
+        cmd_list.append(['bcftools', 'view', '--no-version', '-Ou', '-c', '2', os.path.basename(eagle_vcf_path)])
+        cmd_list.append(['bcftools', 'norm', '--no-version', '-Ou', '-m', '-any'])
+        cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '-d', 'none', '-f', 'human_g1k_v37.fasta'])
+        context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
+        context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name)], work_dir = work_dir, tool_name='bcftools')
+        context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
+                            '--numThreads', job.cores, '--vcfRef', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
+                            '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
     
     # Run whatshap phasing
     command = ['whatshap', 'phase', '--reference', os.path.basename(ref_fasta_path), '--indels', '--ped', os.path.basename(ped_file_path)]
@@ -852,9 +839,6 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     # Filter for phased parental genotypes ONLY
     context.runner.call(job, ['bgzip', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name)], work_dir = work_dir, tool_name='whatshap')
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
-    #command = []
-    #command.append(['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)])
-    #command.append(['bcftools', 'view', '-p', '-Oz', '-'])
     command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
     output_file = os.path.join(work_dir, '{}.vcf.gz'.format(contig_name))
     with open(output_file, "wb") as contig_vcf_file:
@@ -887,7 +871,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                             maternal_bam_id, maternal_bam_index_id,
                                             paternal_bam_id, paternal_bam_index_id,
                                             ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                            path_list_id, ped_file_id, genetic_map_id):
+                                            path_list_id, ped_file_id, eagle_data_id, genetic_map_id):
     
     # we make a sub job tree so that all phasing and graph construction is encapsulated in a top-level job
     split_job = Job()
@@ -908,16 +892,30 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
     
     split_jointcalled_vcf_job = split_job.addChildJobFn(run_split_jointcalled_vcf, context, joint_called_vcf_id, joint_called_vcf_index_id, proband_name, maternal_name, paternal_name, contigs_list, filter_parents=False)
     
+    eagle_data_path = os.path.join(work_dir, os.path.basename(eagle_data_id))
+    job.fileStore.readGlobalFile(eagle_data_id, eagle_data_path)
+    context.runner.call(job, ['tar', '-xvf', os.path.basename(eagle_data_path)], work_dir = work_dir, tool_name='whatshap')
+    eagle_fasta_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz'))
+    
     phased_vcf_ids = []
     phased_vcf_index_ids = []
     phased_vcf_names = []
     for contig_id in contigs_list:
+        eagle_file_id = None
+        eagle_file_index_id = None
+        if contig_id not in ['Y', 'MT', 'ABOlocus']:
+            if contig_id == 'X':
+                eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz'))
+                eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz.tbi'))
+            else:
+                eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_id)))
+                eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz.tbi'.format(contig_id)))
         phasing_job = phasing_jobs.addChildJobFn(run_whatshap_phasing, context, split_jointcalled_vcf_job.rv(contig_id), contig_id, proband_name, maternal_name, paternal_name,
                                                     proband_bam_id, proband_bam_index_id,
                                                     maternal_bam_id, maternal_bam_index_id,
                                                     paternal_bam_id, paternal_bam_index_id,
                                                     ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                    ped_file_id, genetic_map_id,
+                                                    ped_file_id, eagle_fasta_id, eagle_file_id, eagle_file_index_id, genetic_map_id,
                                                     cores=context.config.misc_cores,
                                                     memory=context.config.alignment_mem,
                                                     disk=context.config.alignment_disk)
@@ -1597,7 +1595,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 maternal_calling_job.rv(0), maternal_calling_job.rv(1),
                                 paternal_calling_job.rv(0), paternal_calling_job.rv(1),
                                 ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
-                                misc_file_ids['path_list'], misc_file_ids['ped_file'], gen_map_id)
+                                misc_file_ids['path_list'], misc_file_ids['ped_file'], misc_file_ids['eagle_data'], gen_map_id)
     
     # Make a parental graph index collection
     #process_parental_graph_indexes_job = graph_construction_job.addFollowOnJobFn(run_process_parental_graph_index, context, options, graph_construction_job.rv(0,2), indexes)
@@ -1818,7 +1816,7 @@ def pedigree_main(context, options):
             inputRefFastaFileIDs.append(importer.load(options.ref_fasta_dict))
             
             # Upload miscelaneous file required by pedigree workflow to the remote IO Store
-            # path_list_id, ped_file, snpeff_annotation_database, genetic_map
+            # path_list_id, ped_file, snpeff_annotation_database, genetic_map, eagle_data
             inputMiscFileIDs = {}
             if options.path_list is not None:
                 inputMiscFileIDs['path_list'] = importer.load(options.path_list)
@@ -1828,6 +1826,8 @@ def pedigree_main(context, options):
                 inputMiscFileIDs['snpeff_data'] = importer.load(options.snpeff_database)
             if options.genetic_map is not None:
                 inputMiscFileIDs['genetic_map'] = importer.load(options.genetic_map)
+            if options.eagle_data is not None:
+                inputMiscFileIDs['eagle_data'] = importer.load(options.eagle_data)
             
             # Upload other local files to the remote IO Store
             inputReadsFileIDsProband = []
