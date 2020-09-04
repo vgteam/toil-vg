@@ -30,6 +30,7 @@ Inputs:
     -e PATH to directory containing master edit files used by vcftoshebang.
     -d PATH to cadd engine data directory.
     -v PATH to the toil_vg repository
+    -i (OPTIONAL, default=false) Set to 'true' to run workflow using the udp nih illumina dragen module for variant calling
     -r (OPTIONAL, default=false) Set to 'true' to restart an incompletely ran workflow
     -t (OPTIONAL, default=false) Set to 'true' if running workflow on small HG002 chr21 test data
     
@@ -48,11 +49,12 @@ if [ $# -lt 8 ] || [[ $@ != -* ]]; then
 fi
 
 ## DEFAULT PARAMETERS
+USE_DRAGEN=false
 RUN_SMALL_TEST=false
 RESTART=false
 
 ## Parse through arguments
-while getopts "f:c:w:g:a:e:d:v:r:t:h" OPTION; do
+while getopts "f:c:w:g:a:e:d:v:i:r:t:h" OPTION; do
     case $OPTION in
         f)
             COHORT_NAME=$OPTARG
@@ -77,6 +79,9 @@ while getopts "f:c:w:g:a:e:d:v:r:t:h" OPTION; do
         ;;
         v)
             TOIL_VG_DIR=$OPTARG
+        ;;
+        i)
+            USE_DRAGEN=$OPTARG
         ;;
         r)
             RESTART=$OPTARG
@@ -197,6 +202,11 @@ if [ $RESTART == true ]; then
     RESTART_ARG="--restart"
 fi
 
+DRAGEN_ARGS=""
+if [ $USE_DRAGEN == true ]; then
+    DRAGEN_ARGS="--run_dragen --dragen_ref_index_name 'hs37d5_v7' --udp_data_dir 'Udpbinfo'"
+fi
+
 if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
@@ -240,9 +250,7 @@ ${SIB_READ_PAIR_LIST} \\
 --force_phasing True \\
 --indel_realign_bams \\
 --snpeff_annotation \\
---run_dragen \\
---dragen_ref_index_name 'hs37d5_v7' \\
---udp_data_dir 'Udpbinfo' \\
+${DRAGEN_ARGS} \\
 --run_analysis \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
@@ -288,9 +296,7 @@ ${SIB_READ_PAIR_LIST} \\
 --force_phasing True \\
 --indel_realign_bams \\
 --snpeff_annotation \\
---run_dragen \\
---dragen_ref_index_name 'hs37d5_v7' \\
---udp_data_dir 'Udpbinfo' \\
+${DRAGEN_ARGS} \\
 --run_analysis \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
