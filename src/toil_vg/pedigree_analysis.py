@@ -189,7 +189,7 @@ def run_cadd(job, context, chunk_vcf_id, genome_build, cadd_data_dir):
     base_vcf_name = os.path.basename(os.path.splitext(vcf_file)[0])
     cadd_data_dir_basename = os.path.basename(cadd_data_dir)
     cmd_list = []
-    cmd_list.append(['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\'', '\'', '-f2)'])
+    cmd_list.append(['source', 'activate', '/opt/conda/envs/cadd-env'])
     cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.5\"', '-g', genome_build, '-o', '$PWD/{}_out.tsv.gz'.format(base_vcf_name), '-d', '$PWD/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
@@ -204,7 +204,7 @@ def run_merge_annotated_vcf(job, context, cadd_output_chunk_ids):
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
-    cmd_list = [['source', 'activate', '$(head', '-1', '/usr/src/app/environment.yml', '|', 'cut', '-d\' \'', '-f2)']]
+    cmd_list = [['source', 'activate', '/opt/conda/envs/cadd-env']]
     # Decompress and concatenate cadd output chunks into a single file
     cadd_chunk_merged_file = os.path.join(work_dir, 'merged_CADDv1.5_offline_unsorted')
     for cadd_output_chunk_id in sorted(cadd_output_chunk_ids):
