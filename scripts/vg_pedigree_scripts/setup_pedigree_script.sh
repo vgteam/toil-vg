@@ -125,7 +125,11 @@ do
     if [[ "$SAMPLE_ID" == "$COHORT_NAME" ]]; then
         PROBAND_NAME=${SAMPLE_ID}
         OFFSPRING_GENDER_LIST+=($((${SAMPLE_GENDER} - 1)))
-        OFFSPRING_AFFECTED_LIST+=($((${SAMPLE_AFFECTED} - 1)))
+        if [[ ${SAMPLE_AFFECTED} -eq 1 ]]; then
+            OFFSPRING_AFFECTED_LIST+=(1)
+        else
+            OFFSPRING_AFFECTED_LIST+=(0)
+        fi
         MATERNAL_SAMPLE_NAME="${SAMPLE_MOM}"
         PATERNAL_SAMPLE_NAME="${SAMPLE_DAD}"
     elif [[ ${SAMPLE_MOM} != '0' ]]; then
@@ -139,7 +143,11 @@ done
 for (( n=0; n<${#SIB_ID_LIST_SET[@]}; n++ ))
 do
     OFFSPRING_GENDER_LIST+=($((${SIB_GENDER_LIST[$n]} - 1)))
-    OFFSPRING_AFFECTED_LIST+=($((${SIB_AFFECTED_LIST[$n]} - 1)))
+    if [[ ${SIB_AFFECTED_LIST[$n]} -eq 1 ]]; then
+        OFFSPRING_AFFECTED_LIST+=(1)
+    else
+        OFFSPRING_AFFECTED_LIST+=(0)
+    fi
 done
 
 if [ ${#SIB_ID_LIST_SET[@]} -gt 0 ]; then

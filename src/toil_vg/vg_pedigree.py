@@ -187,7 +187,7 @@ def pedigree_analysis_parse_args(parser, stand_alone = False):
     parser.add_argument("--sibling_genders", nargs='+', type=int,
         help="Gender of each sibling sample. 0 = male, 1 = female. Same sample order as --siblings_bam.")
     parser.add_argument("--sibling_affected", nargs='+', type=int,
-        help="Affected status of each sibling sample. 0 = unaffected, 1 = affected. Same sample order as --siblings_bam.")
+        help="Affected status of each sibling sample. 1 = unaffected, 0 = affected. Same sample order as --siblings_bam.")
 
 def validate_pedigree_options(context, options):
     """

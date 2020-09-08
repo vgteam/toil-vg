@@ -122,14 +122,14 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     context.runner.call(job, ['mkdir', '{}'.format(output_dir)], work_dir = work_dir)
     cmd_list = []
     cmd_list.append(['cp', '/vcftoshebang/VCFtoShebang_Config.txt', '.'])
-    cmd_list.append(['sed', '-i', '\"s|.*PROBAND_NAME.*|PROBAND_NAME\t{}|\"'.format(sample_name), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*OUTPUT_DIR.*|OUTPUT_DIR\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*UNROLLED_VCF_PATH.*|UNROLLED_VCF_PATH\t{}|\"'.format(input_vcf_file), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*BYPASS.*|BYPASS\t{}|\"'.format(bypass_conf), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*CADD_LINES.*|CADD_LINES\t{}|\"'.format(cadd_lines), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*CHROM_DIR.*|CHROM_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(chrom_dir))), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*EDIT_DIR.*|EDIT_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(edit_dir))), 'VCFtoShebang_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*EDITOR_CONFIG.*|EDITOR_CONFIG\t/vcftoshebang/edit_config.txt|\"', 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^PROBAND_NAME.*|PROBAND_NAME\t{}|\"'.format(sample_name), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^OUTPUT_DIR.*|OUTPUT_DIR\t{}|\"'.format(output_dir), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^UNROLLED_VCF_PATH.*|UNROLLED_VCF_PATH\t{}|\"'.format(input_vcf_file), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^BYPASS.*|BYPASS\t{}|\"'.format(bypass_conf), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^CADD_LINES.*|CADD_LINES\t{}|\"'.format(cadd_lines), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^CHROM_DIR.*|CHROM_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(chrom_dir))), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^EDIT_DIR.*|EDIT_DIR\t$PWD/{}|\"'.format(os.path.basename(os.path.normpath(edit_dir))), 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^EDITOR_CONFIG.*|EDITOR_CONFIG\t/vcftoshebang/edit_config.txt|\"', 'VCFtoShebang_Config.txt'])
     cmd_list.append(['java', '-XX:+UnlockExperimentalVMOptions', '-XX:ActiveProcessorCount=32', '-cp', '/vcftoshebang/VCFtoShebang.jar:/vcftoshebang/json_simple.jar',
                              'Runner', 'VCFtoShebang_Config.txt'])
     chain_cmds = [' '.join(p) for p in cmd_list]
@@ -288,20 +288,20 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
         cmd_list.append(['echo', '-e', '\"{}\t$PWD/{}\"'.format(s_name,os.path.basename(s_bam_path)), '>>', '$PWD/Configs/BAM_Directory_Config.txt'])
         # Add proband data to master config file
         if i == 0:
-            cmd_list.append(['sed', '-i', '\"s|.*PB_ID.*|PB_ID\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
-            cmd_list.append(['sed', '-i', '\"s|.*PB_GENDER.*|PB_GENDER\t{}|\"'.format(s_gender), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
-            cmd_list.append(['sed', '-i', '\"s|.*OUT_FILE_NAME.*|OUT_FILE_NAME\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+            cmd_list.append(['sed', '-i', '\"s|^PB_ID.*|PB_ID\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+            cmd_list.append(['sed', '-i', '\"s|^PB_GENDER.*|PB_GENDER\t{}|\"'.format(s_gender), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+            cmd_list.append(['sed', '-i', '\"s|^OUT_FILE_NAME.*|OUT_FILE_NAME\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
         else:
             if sibling_id_string == "NA":
                 sibling_id_string = "{},{},{};".format(s_name,s_gender,s_affected)
             else:
                 sibling_id_string += "{},{},{};".format(s_name,s_gender,s_affected)
     
-    cmd_list.append(['sed', '-i', '\"s|.*VS_FILE_PATH.*|VS_FILE_PATH\t$PWD/{}|\"'.format(os.path.basename(vs_file_path)), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*CONFIG_FILE_DIREC.*|CONFIG_FILE_DIREC\t$PWD/Configs|\"', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*FATHER_ID.*|FATHER_ID\t{}|\"'.format(paternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*MOTHER_ID.*|MOTHER_ID\t{}|\"'.format(maternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
-    cmd_list.append(['sed', '-i', '\"s|.*SIB_IDS.*|SIB_IDS\t{}|\"'.format(sibling_id_string), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^VS_FILE_PATH.*|VS_FILE_PATH\t$PWD/{}|\"'.format(os.path.basename(vs_file_path)), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^CONFIG_FILE_DIREC.*|CONFIG_FILE_DIREC\t$PWD/Configs|\"', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^FATHER_ID.*|FATHER_ID\t{}|\"'.format(paternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^MOTHER_ID.*|MOTHER_ID\t{}|\"'.format(maternal_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^SIB_IDS.*|SIB_IDS\t{}|\"'.format(sibling_id_string), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
     cmd_list.append(['java', '-cp', '/bmtb/bmtb.jar:/bmtb/htsjdk-2.19.0-47-gc5ed6b7-SNAPSHOT.jar', 'general.Runner', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
     cmd_list.append(['tar', 'czvf', '\"{}_BlackBox_Output.tar.gz\"'.format(sibling_names[0]), '\"{}_BlackBox_Output\"'.format(sibling_names[0])])
     chain_cmds = [' '.join(p) for p in cmd_list]
@@ -362,13 +362,20 @@ def run_analysis(job, context, cohort_vcf_id,
                                                                     disk=context.config.alignment_disk)
         
         analysis_ready_vs_file_id = cadd_edit_job.rv()
+        bmtb_job = cadd_edit_job.addFollowOnJobFn(run_bmtb, context, analysis_ready_vs_file_id,
+                                                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                                                       maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
+                                                       cores=context.config.misc_cores,
+                                                       memory=context.config.alignment_mem,
+                                                       disk=context.config.alignment_disk)
+    else:
+        bmtb_job = vcf_to_shebang_job.addFollowOnJobFn(run_bmtb, context, analysis_ready_vs_file_id,
+                                                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                                                       maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
+                                                       cores=context.config.misc_cores,
+                                                       memory=context.config.alignment_mem,
+                                                       disk=context.config.alignment_disk)
     
-    bmtb_job = vcf_to_shebang_job.addFollowOnJobFn(run_bmtb, context, analysis_ready_vs_file_id,
-                                                   maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
-                                                   maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
-                                                   cores=context.config.misc_cores,
-                                                   memory=context.config.alignment_mem,
-                                                   disk=context.config.alignment_disk)
     
     return bmtb_job.rv()
     
