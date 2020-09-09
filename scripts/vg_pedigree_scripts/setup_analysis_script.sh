@@ -161,8 +161,8 @@ echo "toil-vg analysis \\
 ${RESTART_ARG} \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
---statePollingWait 30 \\
---rescueJobsFrequency 30 \\
+--statePollingWait 60 \\
+--rescueJobsFrequency 60 \\
 --container Singularity \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.log \\

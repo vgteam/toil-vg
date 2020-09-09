@@ -220,8 +220,8 @@ if [ $RUN_SMALL_TEST == false ]; then
 ${RESTART_ARG} \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
---statePollingWait 30 \\
---rescueJobsFrequency 30 \\
+--statePollingWait 60 \\
+--rescueJobsFrequency 60 \\
 --container Singularity \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
@@ -269,8 +269,8 @@ else
 ${RESTART_ARG} \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
---statePollingWait 30 \\
---rescueJobsFrequency 30 \\
+--statePollingWait 60 \\
+--rescueJobsFrequency 60 \\
 --container Singularity \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
