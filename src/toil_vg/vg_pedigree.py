@@ -1432,10 +1432,9 @@ def run_cohort_indel_realign_pipeline(job, context, options, proband_name, mater
     
     return (proband_merged_bam_job.rv(0), proband_merged_bam_job.rv(1), maternal_merged_bam_job.rv(0), maternal_merged_bam_job.rv(1), paternal_merged_bam_job.rv(0), paternal_merged_bam_job.rv(1), sibling_merge_bam_ids_list)
 
-def run_collect_sibling_indel_realigned_bams(job, context, options, sibling_merge_bam_bamindex_id_pairs):
-    RealtimeLogger.debug("Collecting sibling bams: {}".format(sibling_merge_bam_bamindex_id_pairs))
-    sibling_bam_ids_list = []
-    sibling_bam_index_ids_list = []
+def run_collect_sibling_indel_realigned_bams(job, context, options, proband_bam_id, proband_bam_index_id, sibling_merge_bam_bamindex_id_pairs):
+    sibling_bam_ids_list = [proband_bam_id]
+    sibling_bam_index_ids_list = [proband_bam_index_id]
     for bam_bam_index_pair in sibling_merge_bam_bamindex_id_pairs:
         sibling_bam_ids_list.append(bam_bam_index_pair[0])
         sibling_bam_index_ids_list.append(bam_bam_index_pair[1])
@@ -1546,9 +1545,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 cores=context.config.misc_cores,
                                 memory=context.config.misc_mem,
                                 disk=context.config.misc_disk)
-    # Dragen calling depends on previous call execution
-    #if options.run_dragen:
-    #    proband_calling_job.addFollowOn(maternal_calling_job)
     
     # Define the paternal alignment and variant calling jobs
     paternal_mapping_job = stage1_jobs.addChildJobFn(run_mapping, context, fastq_paternal,
@@ -1568,9 +1564,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 cores=context.config.misc_cores,
                                 memory=context.config.misc_mem,
                                 disk=context.config.misc_disk)
-    # Dragen calling depends on previous call execution
-    #if options.run_dragen:
-    #    maternal_calling_job.addFollowOn(paternal_calling_job)
     
     joint_calling_job = stage2_jobs.addChildJobFn(run_joint_genotyper, context, proband_name,
                                 proband_calling_job.rv(2), proband_calling_job.rv(3),
@@ -1598,7 +1591,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 misc_file_ids['path_list'], misc_file_ids['ped_file'], misc_file_ids['eagle_data'], gen_map_id)
     
     # Make a parental graph index collection
-    #process_parental_graph_indexes_job = graph_construction_job.addFollowOnJobFn(run_process_parental_graph_index, context, options, graph_construction_job.rv(0,2), indexes)
     process_parental_graph_indexes_job = graph_construction_job.addFollowOnJobFn(run_process_parental_graph_index, context, options, graph_construction_job.rv(), indexes)
     
     # Run stage3 asynchronously for each sample
@@ -1666,13 +1658,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                             cores=context.config.misc_cores,
                                             memory=context.config.misc_mem,
                                             disk=context.config.misc_disk)
-            # Dragen calling depends on previous call execution
-            #if options.run_dragen:
-            #    if sibling_number == 0:
-            #        proband_parental_calling_job.addFollowOn(sibling_calling_job_dict[sibling_name])
-            #    else:
-            #        previous_sibling_name = siblings_names[sibling_number-1]
-            #        sibling_calling_job_dict[previous_sibling_name].addFollowOn(sibling_calling_job_dict[sibling_name])
             
             # Extract outputs
             sibling_mapping_chr_bam_ids_dict[sibling_name] = sibling_calling_job_dict[sibling_name].rv(4)
@@ -1750,6 +1735,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         final_paternal_bam = indel_realign_job.rv(4)
         final_paternal_bam_index = indel_realign_job.rv(5)
         final_sibling_bam_list_job = indel_realign_job.addFollowOnJobFn(run_collect_sibling_indel_realigned_bams, context, options,
+                                                                        final_proband_bam, final_proband_bam_index,
                                                                         indel_realign_job.rv(6))
     
     # Run analysis workflow

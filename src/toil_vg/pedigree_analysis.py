@@ -89,7 +89,13 @@ def analysis_subparser(parser):
     # Add common docker options
     add_container_tool_parse_args(parser)
 
-def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir):
+def run_vcftoshebang(job, context, cohort_vcf_id,
+                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                       sample_name, maternal_name, paternal_name,
+                       sibling_names, sibling_genders, sibling_affected,
+                       bypass, cadd_lines,
+                       chrom_dir, edit_dir,
+                       split_lines, genome_build, cadd_data_dir):
     """ run vcftoshebang on a cohort vcf.
     
     Takes a joint-called cohort vcf from the vg_pedigree.py workflow along with the sample name of the proband,
@@ -152,7 +158,35 @@ def run_vcftoshebang(job, context, sample_name, cohort_vcf_id, bypass, cadd_line
     context.write_output_file(job, os.path.join(work_dir, 'VCFtoShebang_Config.txt'))
     context.write_output_file(job, os.path.join(work_dir, input_vcf_file))
     
-    return context.write_output_file(job, output_vs_path), context.write_output_file(job, output_cadd_vcf_path)
+    baseline_vs_file_id = context.write_output_file(job, output_vs_path)
+    if output_cadd_vcf_path is not None:
+        RealtimeLogger.info("Some variants don't have CADD scores, running them through the CADD engine workflow.")
+        split_vcf_job = job.addChildJobFn(run_split_vcf, context, context.write_output_file(job, output_cadd_vcf_path), cadd_lines)
+        cadd_jobs = split_vcf_job.addFollowOnJobFn(run_cadd_jobs, context, split_vcf_job.rv(), genome_build, cadd_data_dir,
+                                                cores=context.config.misc_cores,
+                                                memory=context.config.misc_mem,
+                                                disk=context.config.misc_disk)
+        merge_annotated_vcf_job = cadd_jobs.addFollowOnJobFn(run_merge_annotated_vcf, context, cadd_jobs.rv())
+        cadd_edit_job = merge_annotated_vcf_job.addFollowOnJobFn(run_cadd_editor, context, baseline_vs_file_id, merge_annotated_vcf_job.rv(),
+                                                                    cores=context.config.misc_cores,
+                                                                    memory=context.config.alignment_mem,
+                                                                    disk=context.config.alignment_disk)
+        
+        bmtb_job = cadd_edit_job.addFollowOnJobFn(run_bmtb, context, cadd_edit_job.rv(),
+                                                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                                                       maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
+                                                       cores=context.config.misc_cores,
+                                                       memory=context.config.alignment_mem,
+                                                       disk=context.config.alignment_disk)
+    else:
+        bmtb_job = job.addFollowOnJobFn(run_bmtb, context, baseline_vs_file_id,
+                                                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                                                       maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
+                                                       cores=context.config.misc_cores,
+                                                       memory=context.config.alignment_mem,
+                                                       disk=context.config.alignment_disk)
+    
+    return bmtb_job.rv()
     
 def run_split_vcf(job, context, vcf_file_id, split_lines):
     """ split vcf into chunks for passing through to the CADD engine for CADD scoring.
@@ -190,7 +224,7 @@ def run_cadd(job, context, chunk_vcf_id, genome_build, cadd_data_dir):
     cadd_data_dir_basename = os.path.basename(cadd_data_dir)
     cmd_list = []
     cmd_list.append(['source', 'activate', '/opt/conda/envs/cadd-env'])
-    cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.5\"', '-g', genome_build, '-o', '$PWD/{}_out.tsv.gz'.format(base_vcf_name), '-d', '$PWD/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
+    cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.5\"', '-g', genome_build, '-o', '/mnt/{}_out.tsv.gz'.format(base_vcf_name), '-d', '/mnt/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='cadd', mount_list=[cadd_data_dir])
@@ -342,42 +376,16 @@ def run_analysis(job, context, cohort_vcf_id,
     child_job = Job()
     job.addChild(child_job)
     
-    vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, sample_name, cohort_vcf_id, bypass, cadd_lines, chrom_dir, edit_dir,
-                                                    cores=context.config.alignment_cores,
-                                                    memory=context.config.alignment_mem,
-                                                    disk=context.config.alignment_disk)
+    vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, cohort_vcf_id,
+                                                   maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
+                                                   sample_name, maternal_name, paternal_name,
+                                                   sibling_names, sibling_genders, sibling_affected,
+                                                   bypass, cadd_lines, chrom_dir, edit_dir, split_lines, genome_build, cadd_data_dir,
+                                                   cores=context.config.alignment_cores,
+                                                   memory=context.config.alignment_mem,
+                                                   disk=context.config.alignment_disk)
     
-    analysis_ready_vs_file_id = vcf_to_shebang_job.rv(0)
-    if vcf_to_shebang_job.rv(1) is not None:
-        RealtimeLogger.info("Some variants don't have CADD scores, running them through the CADD engine workflow.")
-        split_vcf_job = vcf_to_shebang_job.addChildJobFn(run_split_vcf, context, vcf_to_shebang_job.rv(1), cadd_lines)
-        cadd_jobs = split_vcf_job.addFollowOnJobFn(run_cadd_jobs, context, split_vcf_job.rv(), genome_build, cadd_data_dir,
-                                                cores=context.config.misc_cores,
-                                                memory=context.config.misc_mem,
-                                                disk=context.config.misc_disk)
-        merge_annotated_vcf_job = cadd_jobs.addFollowOnJobFn(run_merge_annotated_vcf, context, cadd_jobs.rv())
-        cadd_edit_job = merge_annotated_vcf_job.addFollowOnJobFn(run_cadd_editor, context, vcf_to_shebang_job.rv(0), merge_annotated_vcf_job.rv(),
-                                                                    cores=context.config.misc_cores,
-                                                                    memory=context.config.alignment_mem,
-                                                                    disk=context.config.alignment_disk)
-        
-        analysis_ready_vs_file_id = cadd_edit_job.rv()
-        bmtb_job = cadd_edit_job.addFollowOnJobFn(run_bmtb, context, analysis_ready_vs_file_id,
-                                                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
-                                                       maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
-                                                       cores=context.config.misc_cores,
-                                                       memory=context.config.alignment_mem,
-                                                       disk=context.config.alignment_disk)
-    else:
-        bmtb_job = vcf_to_shebang_job.addFollowOnJobFn(run_bmtb, context, analysis_ready_vs_file_id,
-                                                       maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
-                                                       maternal_name, paternal_name, sibling_names, sibling_genders, sibling_affected,
-                                                       cores=context.config.misc_cores,
-                                                       memory=context.config.alignment_mem,
-                                                       disk=context.config.alignment_disk)
-    
-    
-    return bmtb_job.rv()
+    return vcf_to_shebang_job.rv()
     
 def analysis_main(context, options):
     """

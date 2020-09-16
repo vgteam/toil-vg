@@ -220,8 +220,8 @@ if [ $RUN_SMALL_TEST == false ]; then
 ${RESTART_ARG} \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
---statePollingWait 60 \\
---rescueJobsFrequency 60 \\
+--statePollingWait 120 \\
+--rescueJobsFrequency 120 \\
 --container Singularity \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
@@ -260,6 +260,8 @@ ${SIB_READ_PAIR_LIST} \\
 --snpeff_annotation \\
 ${DRAGEN_ARGS} \\
 --run_analysis \\
+--cadd_lines 100000 \\
+--split_lines 100000 \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
 --cadd_data ${CADD_DATA_DIR} \\
@@ -269,8 +271,8 @@ else
 ${RESTART_ARG} \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
---statePollingWait 60 \\
---rescueJobsFrequency 60 \\
+--statePollingWait 120 \\
+--rescueJobsFrequency 120 \\
 --container Singularity \\
 --logInfo \\
 --logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
