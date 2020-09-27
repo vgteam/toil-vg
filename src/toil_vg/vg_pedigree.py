@@ -296,9 +296,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     
     # Run variant calling commands
     cmd_list = []
-    cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-n', '-O', 'BAM', os.path.basename(bam_path)])
-    cmd_list.append(['samtools', 'fixmate', '-O', 'BAM', '-', '-'])
-    cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM', '-'])
+    cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM', os.path.basename(bam_path)])
     cmd_list.append(['samtools', 'addreplacerg', '-O', 'BAM',
                         '-r', 'ID:1', 
                         '-r', 'LB:lib1',
@@ -306,7 +304,6 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
                         '-r', 'PL:illumina',
                         '-r', 'PU:unit1',
                         '-'])
-    cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'SAM', '-'])
     cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'BAM', '-'])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
     with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
@@ -372,9 +369,7 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     
     # Run variant calling commands
     cmd_list = []
-    cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-n', '-O', 'BAM', os.path.basename(bam_path)])
-    cmd_list.append(['samtools', 'fixmate', '-O', 'BAM', '-', '-'])
-    cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM', '-'])
+    cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM', os.path.basename(bam_path)])
     cmd_list.append(['samtools', 'addreplacerg', '-O', 'BAM',
                         '-r', 'ID:1', 
                         '-r', 'LB:lib1',
@@ -382,7 +377,6 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
                         '-r', 'PL:illumina',
                         '-r', 'PU:unit1',
                         '-'])
-    cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'SAM', '-'])
     cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'BAM', '-'])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
     with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
