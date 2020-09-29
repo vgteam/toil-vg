@@ -1430,9 +1430,10 @@ def run_cohort_indel_realign_pipeline(job, context, options, proband_name, mater
 def run_collect_sibling_indel_realigned_bams(job, context, options, proband_bam_id, proband_bam_index_id, sibling_merge_bam_bamindex_id_pairs):
     sibling_bam_ids_list = [proband_bam_id]
     sibling_bam_index_ids_list = [proband_bam_index_id]
-    for bam_bam_index_pair in sibling_merge_bam_bamindex_id_pairs:
-        sibling_bam_ids_list.append(bam_bam_index_pair[0])
-        sibling_bam_index_ids_list.append(bam_bam_index_pair[1])
+    if sibling_merge_bam_bamindex_id_pairs is not None:
+        for bam_bam_index_pair in sibling_merge_bam_bamindex_id_pairs:
+            sibling_bam_ids_list.append(bam_bam_index_pair[0])
+            sibling_bam_index_ids_list.append(bam_bam_index_pair[1])
 
     return (sibling_bam_ids_list, sibling_bam_index_ids_list)
     
