@@ -242,6 +242,7 @@ def validate_pedigree_options(context, options):
              '--run_dragen must be accompanied with --dragen_ref_index_name, --udp_data_dir, and --helix_username {},{},{},{}'.format(options.run_dragen,options.dragen_ref_index_name,options.udp_data_dir,options.helix_username))
     # Requirements for analysis workflow
     if options.run_analysis:
+        require(options.indel_realign_bams, '--indel_realign_bams is required for analysis workflow')
         require(options.chrom_dir, '--chrom_dir is required for analysis workflow')
         require(options.edit_dir, '--edit_dir is required for analysis workflow')
         require(options.cadd_data, '--cadd_data is required for analysis workflow')
@@ -1747,8 +1748,10 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                                            options.chrom_dir, options.edit_dir,
                                                            options.split_lines, options.genome_build, options.cadd_data)
         return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list_job.rv(0), final_sibling_bam_list_job.rv(1), final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index, analysis_workflow_job.rv()
-    else:
+    elif indel_realign_bams:
         return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list_job.rv(0), final_sibling_bam_list_job.rv(1), final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index
+    else:
+        return final_pedigree_joint_called_vcf, final_pedigree_joint_called_vcf_index, final_proband_bam, final_proband_bam_index, final_proband_gvcf, final_proband_gvcf_index, final_maternal_bam, final_maternal_bam_index, final_maternal_gvcf, final_maternal_gvcf_index, final_paternal_bam, final_paternal_bam_index, final_paternal_gvcf, final_paternal_gvcf_index, final_sibling_bam_list, final_sibling_bam_index_list, final_sibling_gvcf_list, final_sibling_gvcf_index_list, trio_joint_called_vcf, trio_joint_called_vcf_index
 
 def pedigree_main(context, options):
     """
