@@ -69,6 +69,8 @@ def pedigree_subparser(parser):
                         help="Path to .tar file containing genetic crossover map files for whatshap phasing.")
     parser.add_argument("--eagle_data", type=make_url, default=None,
                         help="Path to .tar file containing misc files for eagle imputation.")
+    parser.add_argument("--use_haplotypes", action="store_true", default=False,
+                        help="run parental graph construction using trio-backed phased variants.")
     parser.add_argument("--indel_realign_bams", action="store_true", default=False,
                         help="run gatk indel realign on final cohort bams.")
     parser.add_argument("--snpeff_annotation", action="store_true", default=False,
@@ -198,13 +200,12 @@ def validate_pedigree_options(context, options):
     if options.mapper == 'map' or options.mapper == 'mpmap':
         require(options.gcsa_index, '--gcsa_index is required for map and mpmap')
     
-    if options.mapper == 'gaffe':
-        require(options.minimizer_index, '--minimizer_index is required for gaffe')
-        require(options.distance_index, '--distance_index is required for gaffe')
-        require(options.gbwt_index, '--gbwt_index is required for gaffe')
-        require(not options.bam_input_reads, '--bam_input_reads is not supported with gaffe')
-        require(not options.interleaved, '--interleaved is not supported with gaffe')
-        require(options.fastq is None or len(options.fastq) < 2, 'Multiple --fastq files are not supported with gaffe')
+    if options.mapper == 'giraffe':
+        require(options.minimizer_index, '--minimizer_index is required for giraffe')
+        require(options.distance_index, '--distance_index is required for giraffe')
+        require(options.gbwt_index, '--gbwt_index is required for giraffe')
+        require(options.graph_gbwt_index, '--graph_gbwt_index is required for giraffe')
+        require(not options.bam_input_reads, '--bam_input_reads is not supported with giraffe')
     
     
     require(options.fastq_proband is None or len(options.fastq_proband) in [1, 2], 'Exacty 1 or 2'\
@@ -783,14 +784,9 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     ped_file_path = os.path.join(work_dir, os.path.basename(ped_file_id))
     job.fileStore.readGlobalFile(ped_file_id, ped_file_path)
     
-    # Run trio-based mendelian correction
-    context.runner.call(job, ['gatk', '--java-options', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), 'IndexFeatureFile', '-F', os.path.basename(contig_vcf_path)], work_dir = work_dir, tool_name='gatk')
-    context.runner.call(job, ['gatk', '--java-options', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), 'CalculateGenotypePosteriors', 
-                              '-V', os.path.basename(contig_vcf_path),
-                              '-O', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
-                              '-ped', os.path.basename(ped_file_path), '--skip-population-priors'], work_dir = work_dir, tool_name='gatk')
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', os.path.basename(contig_vcf_path)], work_dir=work_dir)
     # Run eagle phasing
-    whatshap_input_file = '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name)
+    whatshap_input_file = os.path.basename(contig_vcf_path)
     if bool(eagle_vcf_id) and bool(eagle_vcf_index_id) == True:
         # Import input files from jobstore
         eagle_vcf_path = os.path.join(work_dir, os.path.basename(eagle_vcf_id))
@@ -803,7 +799,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
             context.runner.call(job, ['gzip', '-d', '-c', eagle_ref_assembly_file_path], work_dir = work_dir, outfile = ref_fasta_file)
         context.runner.call(job, ['samtools', 'faidx', 'human_g1k_v37.fasta'], work_dir = work_dir, tool_name='samtools')
         
-        whatshap_input_file = '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased.vcf.gz'.format(proband_name, contig_name)
+        whatshap_input_file = '{}_cohort_{}.eagle_phased.vcf.gz'.format(proband_name, contig_name)
         # Run eagle phasing on autosomal and X chromsomes
         cmd_list = []
         cmd_list.append(['bcftools', 'view', '--no-version', '-Ou', '-c', '2', os.path.basename(eagle_vcf_path)])
@@ -811,8 +807,8 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
         cmd_list.append(['bcftools', 'norm', '--no-version', '-Ob', '-o', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '-d', 'none', '-f', 'human_g1k_v37.fasta'])
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='bcftools')
         context.runner.call(job, ['bcftools', 'index', '-f', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name)], work_dir = work_dir, tool_name='bcftools')
-        context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.gatk_mendelian_corrected.eagle_phased'.format(proband_name, contig_name),
-                            '--numThreads', job.cores, '--vcfRef', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '--vcfTarget', '{}_cohort_{}.gatk_mendelian_corrected.vcf.gz'.format(proband_name, contig_name),
+        context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.eagle_phased'.format(proband_name, contig_name),
+                            '--numThreads', job.cores, '--vcfRef', 'ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_name), '--vcfTarget', os.path.basename(contig_vcf_path),
                             '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
     
     # Run whatshap phasing
@@ -834,7 +830,12 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     # Filter for phased parental genotypes ONLY
     context.runner.call(job, ['bgzip', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name)], work_dir = work_dir, tool_name='whatshap')
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
-    command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
+    if contig_name == "MT":
+        command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', maternal_name, '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
+    elif contig_name == "Y":
+        command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', paternal_name, '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
+    else:
+        command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
     output_file = os.path.join(work_dir, '{}.vcf.gz'.format(contig_name))
     with open(output_file, "wb") as contig_vcf_file:
             context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools', outfile=contig_vcf_file)
@@ -849,7 +850,7 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     # Delete input files
     job.fileStore.deleteGlobalFile(contig_vcf_id)
     
-    return (phased_vcf_file_id, phased_vcf_index_file_id, phased_vcf_file_name)
+    return phased_vcf_file_id
 
 def run_collect_concat_vcfs(job, context, vcf_file_id, vcf_index_file_id):
     inputVCFFileIDs = []
@@ -885,41 +886,47 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
             contig_id = toks[0]
             contigs_list.append(contig_id)
     
-    split_jointcalled_vcf_job = split_job.addChildJobFn(run_split_jointcalled_vcf, context, joint_called_vcf_id, joint_called_vcf_index_id, proband_name, maternal_name, paternal_name, contigs_list, filter_parents=False)
+    filter_parents = True
+    if options.use_haplotypes:
+        filter_parents = False
+    split_jointcalled_vcf_job = split_job.addChildJobFn(run_split_jointcalled_vcf, context, joint_called_vcf_id, joint_called_vcf_index_id, proband_name, maternal_name, paternal_name, contigs_list, filter_parents=filter_parents)
     
-    eagle_data_path = os.path.join(work_dir, os.path.basename(eagle_data_id))
-    job.fileStore.readGlobalFile(eagle_data_id, eagle_data_path)
-    context.runner.call(job, ['tar', '-xvf', os.path.basename(eagle_data_path)], work_dir = work_dir, tool_name='whatshap')
-    eagle_fasta_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz'))
-    
-    phased_vcf_ids = []
-    phased_vcf_index_ids = []
-    phased_vcf_names = []
-    for contig_id in contigs_list:
-        eagle_file_id = None
-        eagle_file_index_id = None
-        if contig_id not in ['Y', 'MT', 'ABOlocus']:
-            if contig_id == 'X':
-                eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz'))
-                eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz.tbi'))
-            else:
-                eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_id)))
-                eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz.tbi'.format(contig_id)))
-        phasing_job = phasing_jobs.addChildJobFn(run_whatshap_phasing, context, split_jointcalled_vcf_job.rv(contig_id), contig_id, proband_name, maternal_name, paternal_name,
-                                                    proband_bam_id, proband_bam_index_id,
-                                                    maternal_bam_id, maternal_bam_index_id,
-                                                    paternal_bam_id, paternal_bam_index_id,
-                                                    ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                    ped_file_id, eagle_fasta_id, eagle_file_id, eagle_file_index_id, genetic_map_id,
-                                                    cores=context.config.misc_cores,
-                                                    memory=context.config.alignment_mem,
-                                                    disk=context.config.alignment_disk)
-        phased_vcf_ids.append(phasing_job.rv(0))
-        phased_vcf_index_ids.append(phasing_job.rv(1))
-        phased_vcf_names.append(phasing_job.rv(2))
-    
-    construct_job = phasing_jobs.addFollowOnJobFn(run_construct_index_workflow, context, options, '{}.parental.graphs'.format(proband_name), ref_fasta_id,
-                                                    phased_vcf_ids, use_haplotypes=True, use_decoys=options.use_decoys, contigs_list=contigs_list)
+    if options.use_haplotypes:
+        eagle_data_path = os.path.join(work_dir, os.path.basename(eagle_data_id))
+        job.fileStore.readGlobalFile(eagle_data_id, eagle_data_path)
+        context.runner.call(job, ['tar', '-xvf', os.path.basename(eagle_data_path)], work_dir = work_dir, tool_name='whatshap')
+        eagle_fasta_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz'))
+        
+        phased_vcf_ids = []
+        for contig_id in contigs_list:
+            eagle_file_id = None
+            eagle_file_index_id = None
+            if contig_id not in ['Y', 'MT', 'ABOlocus']:
+                if contig_id == 'X':
+                    eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz'))
+                    eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz.tbi'))
+                else:
+                    eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(contig_id)))
+                    eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz.tbi'.format(contig_id)))
+            phasing_job = phasing_jobs.addChildJobFn(run_whatshap_phasing, context, split_jointcalled_vcf_job.rv(contig_id), contig_id, proband_name, maternal_name, paternal_name,
+                                                        proband_bam_id, proband_bam_index_id,
+                                                        maternal_bam_id, maternal_bam_index_id,
+                                                        paternal_bam_id, paternal_bam_index_id,
+                                                        ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                        ped_file_id, eagle_fasta_id, eagle_file_id, eagle_file_index_id, genetic_map_id,
+                                                        cores=context.config.misc_cores,
+                                                        memory=context.config.alignment_mem,
+                                                        disk=context.config.alignment_disk)
+            phased_vcf_ids.append(phasing_job.rv())
+        construct_job = phasing_jobs.addFollowOnJobFn(run_construct_index_workflow, context, options, '{}.parental.graphs'.format(proband_name), ref_fasta_id,
+                                                    phased_vcf_ids, use_haplotypes=options.use_haplotypes, use_decoys=options.use_decoys, contigs_list=contigs_list)
+    else:
+        vcf_ids = []
+        for contig_id in contigs_list:
+            vcf_ids.append(split_jointcalled_vcf_job.rv(contig_id))
+        construct_job = phasing_jobs.addChildJobFn(run_construct_index_workflow, context, options, '{}.parental.graphs'.format(proband_name), ref_fasta_id,
+                                                    vcf_ids, use_haplotypes=options.use_haplotypes, use_decoys=options.use_decoys, contigs_list=contigs_list)
+        
     return construct_job.rv()
 
 ##################################################
@@ -1594,7 +1601,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     proband_second_mapping_job = stage3_jobs.addChildJobFn(run_mapping, context, fastq_proband,
                                      gam_input_reads_proband, bam_input_reads_proband,
                                      proband_name,
-                                     interleaved, mapper, process_parental_graph_indexes_job.rv(),
+                                     interleaved, 'map', process_parental_graph_indexes_job.rv(),
                                      reads_file_ids_proband,
                                      bam_output=options.bam_output, surject=options.surject,
                                      cores=context.config.misc_cores,
@@ -1640,7 +1647,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
             sibling_mapping_job_dict[sibling_name] = stage3_jobs.addChildJobFn(run_mapping, context, fastq_siblings_collection,
                                              gam_input_reads_siblings_collection, bam_input_reads_siblings_collection,
                                              siblings_names[sibling_number],
-                                             options.interleaved, options.mapper, process_parental_graph_indexes_job.rv(),
+                                             options.interleaved, 'map', process_parental_graph_indexes_job.rv(),
                                              reads_file_ids_siblings_list,
                                              bam_output=options.bam_output, surject=options.surject,
                                              cores=context.config.misc_cores,
@@ -1783,6 +1790,8 @@ def pedigree_main(context, options):
                 indexes['lcp'] = importer.load(options.gcsa_index + ".lcp")
             if options.gbwt_index is not None:
                 indexes['gbwt'] = importer.load(options.gbwt_index)
+            if options.graph_gbwt_index is not None:
+                indexes['ggbwt'] = importer.load(options.graph_gbwt_index)
             if options.distance_index is not None:
                 indexes['distance'] = importer.load(options.distance_index)
             if options.minimizer_index is not None:

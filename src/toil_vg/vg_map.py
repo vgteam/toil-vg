@@ -70,6 +70,8 @@ def map_parse_index_args(parser):
                         help="Path to distance index (for giraffe)")
     parser.add_argument("--gbwt_index", type=make_url,
                         help="Path to GBWT haplotype index")
+    parser.add_argument("--graph_gbwt_index", type=make_url,
+                        help="Path to graph GBWT haplotype index (for giraffe)")
     parser.add_argument("--snarls_index", type=make_url,
                         help="Path to snarls file")
                         
@@ -126,9 +128,8 @@ def validate_map_options(context, options):
         require(options.minimizer_index, '--minimizer_index is required for giraffe')
         require(options.distance_index, '--distance_index is required for giraffe')
         require(options.gbwt_index, '--gbwt_index is required for giraffe')
+        require(options.graph_gbwt_index, '--graph_gbwt_index is required for giraffe')
         require(not options.bam_input_reads, '--bam_input_reads is not supported with giraffe')
-        require(not options.interleaved, '--interleaved is not supported with giraffe')
-        require(options.fastq is None or len(options.fastq) < 2, 'Multiple --fastq files are not supported with giraffe')
     
     require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
@@ -525,7 +526,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         index_files['minimizer'] = graph_file + ".min"
         index_files['distance'] = graph_file + ".dist"
         index_files['gbwt'] = graph_file + ".gbwt"
-     
+        index_files['ggbwt'] = graph_file + ".gg"
         
     for index_type in list(index_files.keys()):
         # Download each index file
@@ -571,7 +572,11 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         for reads_file in reads_files:
             input_flag = '-G' if gam_input_reads else '-b' if bam_input_reads else '-f'
             vg_parts += [input_flag, os.path.basename(reads_file)]
-        vg_parts += ['-t', str(context.config.alignment_cores)]
+        
+        if mapper == 'giraffe':
+            vg_parts += ['-t', str(int(int(context.config.alignment_cores)/2))]
+        else:
+            vg_parts += ['-t', str(context.config.alignment_cores)]
 
         # Override the -i flag in args with the --interleaved command-line flag
         if interleaved is True and '-i' not in vg_parts and '--interleaved' not in vg_parts:
@@ -582,7 +587,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             del vg_parts[vg_parts.index('--interleaved')]
 
         # Override the --surject-to option
-        if bam_output is True and '--surject-to' not in vg_parts:
+        if bam_output is True and '--surject-to' not in vg_parts and mapper != 'giraffe':
             vg_parts += ['--surject-to', 'bam']
         elif bam_output is False and '--surject-to' in vg_parts:
             sidx = vg_parts.index('--surject-to')
@@ -597,6 +602,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             'lcp': None,
             'distance': '-d',
             'minimizer': '-m',
+            'ggwbt': '--graph-name',
             'snarls': '--snarls'
         }
         for index_type, index_file in list(index_files.items()):
@@ -628,6 +634,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         # Mark when we start the alignment
         start_time = timeit.default_timer()
         command = vg_parts
+        # Add direct surjection pipe if using the giraffe mapper
+        if mapper == 'giraffe' and bam_output is True:
+            command = [command, ['vg', 'surject', '-', '-x', os.path.basename(index_files['xg']), '-b', '-i', '-t', str(int(int(context.config.alignment_cores)/2))]]
         try:
             context.runner.call(job, command, work_dir = work_dir, outfile=alignment_file)
             end_time = timeit.default_timer()
