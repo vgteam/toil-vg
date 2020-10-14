@@ -139,8 +139,8 @@ def validate_map_options(context, options):
     require(options.mapper == 'mpmap' or options.snarls_index is None,
             '--snarls_index can only be used with --mapper mpmap') 
     if options.mapper == 'mpmap':
-        require('-S' in context.config.mpmap_opts or '--single-path-mode' in context.config.mpmap_opts,
-                '-S must be used with mpmap mapper to produce GAM output')
+        require('-F GAM' in context.config.mpmap_opts or '--output-fmt GAM' in context.config.mpmap_opts,
+                '-F GAM must be used with mpmap mapper to produce GAM output')
         require(not options.bam_output,
                 '--bam_output not currently supported with mpmap mapper')
     require (not options.bam_output or not options.surject,
@@ -556,9 +556,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         if mapper == 'mpmap':
             vg_parts += ['vg', 'mpmap']
             vg_parts += context.config.mpmap_opts
-            if '-S' not in vg_parts and '--single-path-mode' not in vg_parts:
-                RealtimeLogger.warning('Adding --single-path-mode to mpmap options as only GAM output supported')
-                vg_parts += ['--single-path-mode']
+            if '-F GAM' not in vg_parts and '--output-fmt GAM' not in vg_parts:
+                RealtimeLogger.warning('Adding --output-fmt GAM to mpmap options as only GAM output supported')
+                vg_parts += ['--output-fmt GAM']
         elif mapper == 'map':
             vg_parts += ['vg', 'map'] 
             vg_parts += context.config.map_opts

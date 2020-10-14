@@ -279,7 +279,7 @@ reads-per-chunk: 10000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []
@@ -586,7 +586,7 @@ reads-per-chunk: 50000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []
