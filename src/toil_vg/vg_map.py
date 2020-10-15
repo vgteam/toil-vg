@@ -556,9 +556,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         if mapper == 'mpmap':
             vg_parts += ['vg', 'mpmap']
             vg_parts += context.config.mpmap_opts
-            if '-F GAM' not in vg_parts and '--output-fmt GAM' not in vg_parts:
+            if ('-F' not in vg_parts and '--output-fmt' not in vg_parts) or 'GAM' not in vg_parts:
                 RealtimeLogger.warning('Adding --output-fmt GAM to mpmap options as only GAM output supported')
-                vg_parts += ['--output-fmt GAM']
+                vg_parts += ['--output-fmt', 'GAM']
         elif mapper == 'map':
             vg_parts += ['vg', 'map'] 
             vg_parts += context.config.map_opts
