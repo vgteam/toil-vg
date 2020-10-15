@@ -574,7 +574,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             vg_parts += [input_flag, os.path.basename(reads_file)]
         
         if mapper == 'giraffe':
-            vg_parts += ['-t', str(int(int(context.config.alignment_cores)/2))]
+            vg_parts += ['-t', str(int(int(context.config.alignment_cores)/2)+1)]
         else:
             vg_parts += ['-t', str(context.config.alignment_cores)]
 
@@ -602,7 +602,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             'lcp': None,
             'distance': '-d',
             'minimizer': '-m',
-            'ggwbt': '--graph-name',
+            'ggbwt': '--graph-name',
             'snarls': '--snarls'
         }
         for index_type, index_file in list(index_files.items()):
@@ -636,7 +636,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         command = vg_parts
         # Add direct surjection pipe if using the giraffe mapper
         if mapper == 'giraffe' and bam_output is True:
-            command = [command, ['vg', 'surject', '-', '-x', os.path.basename(index_files['xg']), '-b', '-i', '-t', str(int(int(context.config.alignment_cores)/2))]]
+            command = [command, ['vg', 'surject', '-', '-x', os.path.basename(index_files['xg']), '-b', '-i', '-t', str(int(int(context.config.alignment_cores)/2)+1)]]
         try:
             context.runner.call(job, command, work_dir = work_dir, outfile=alignment_file)
             end_time = timeit.default_timer()

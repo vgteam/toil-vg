@@ -205,7 +205,9 @@ def validate_pedigree_options(context, options):
         require(options.distance_index, '--distance_index is required for giraffe')
         require(options.gbwt_index, '--gbwt_index is required for giraffe')
         require(options.graph_gbwt_index, '--graph_gbwt_index is required for giraffe')
-        require(not options.bam_input_reads, '--bam_input_reads is not supported with giraffe')
+        require(not options.bam_input_reads_proband, '--bam_input_reads_proband is not supported with giraffe')
+        require(not options.bam_input_reads_maternal, '--bam_input_reads_maternal is not supported with giraffe')
+        require(not options.bam_input_reads_paternal, '--bam_input_reads_paternal is not supported with giraffe')
     
     
     require(options.fastq_proband is None or len(options.fastq_proband) in [1, 2], 'Exacty 1 or 2'\
