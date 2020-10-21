@@ -156,7 +156,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:ci-2351-a64b70c1f9345f0821e3f3a600eb8bbf4fe44bf2'
+vg-docker: 'quay.io/vgteam/vg:ci-2437-5e02f81c58147c5692a25b08484a0ba314eee205'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -387,7 +387,7 @@ prune-disk: '60G'
 
 # Resources allotted gcsa indexing
 gcsa-index-cores: 32
-gcsa-index-mem: '300G'
+gcsa-index-mem: '220G'
 gcsa-index-disk: '2200G'
 gcsa-index-preemptable: True
 
@@ -472,7 +472,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:ci-2351-a64b70c1f9345f0821e3f3a600eb8bbf4fe44bf2'
+vg-docker: 'quay.io/vgteam/vg:ci-2437-5e02f81c58147c5692a25b08484a0ba314eee205'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
