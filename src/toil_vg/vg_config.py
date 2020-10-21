@@ -242,6 +242,12 @@ vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 # Docker image to use for vt
 vt-docker: 'quay.io/biocontainers/vt:0.57721--heae7c10_3'
 
+# Docker image to use for deepvariant
+deepvariant-docker: 'google/deepvariant:1.0.0'
+
+# Docker image to use for glnexus
+glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -551,6 +557,12 @@ vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 
 # Docker image to use for vt
 vt-docker: 'quay.io/biocontainers/vt:0.57721--heae7c10_3'
+
+# Docker image to use for deepvariant
+deepvariant-docker: 'google/deepvariant:1.0.0'
+
+# Docker image to use for glnexus
+glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
 
 ##############################
 ### vg_construct Arguments ###
