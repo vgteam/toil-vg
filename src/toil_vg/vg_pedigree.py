@@ -77,7 +77,7 @@ def pedigree_subparser(parser):
                         help="run snpeff annotation on the final cohort vcf.")
     parser.add_argument("--snpeff_database", type=make_url, default=None,
                         help="Path to .gz file containing snpeff database files for snpeff annotation.")
-    parser.add_argument("--caller", default="deepvariant", choices=["deepvariant", "gatk", "dragen"],
+    parser.add_argument("--caller", default="gatk", choices=["deepvariant", "gatk", "dragen"],
                         help="variant caller to use. 'dragen' is for running the Illumina Dragen module on NIH Biowulf systems (NIH Biowulf only).")
     parser.add_argument("--dragen_ref_index_name", type=str, default=None,
                         help="basename of a dragen reference index directory (ex hs37d5_v7) (NIH Biowulf only)")
@@ -385,6 +385,7 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
                         '-r', 'PL:illumina',
                         '-r', 'PU:unit1',
                         '-'])
+    cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'BAM', '-'])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
     with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
@@ -1042,6 +1043,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     indexing_jobs = Job()
     job.addChild(construct_jobs)
     construct_indexes = {}
+    wanted_indexes = set()
     wanted_indexes.add('xg')
     wanted_indexes.add('gcsa')
     if options.caller == 'giraffe' and use_haplotypes:
@@ -1079,31 +1081,29 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
                                                                 memory=context.config.construct_mem,
                                                                 disk=context.config.construct_disk)
         
+    construct_indexes['vg'] = combine_graphs_job.rv(0)
     combine_graphs_job.addFollowOn(indexing_jobs)
     if 'xg' in wanted_indexes:
         xg_index_job = indexing_jobs.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0),
                                                     cores=context.config.alignment_cores,
                                                     memory=context.config.construct_mem,
                                                     disk=context.config.construct_disk)
+        construct_indexes['xg'] = xg_index_job.rv()
     if 'trivial_snarls' in wanted_indexes:
         trivial_snarls_job = indexing_jobs.addChildJobFn(run_snarl_indexing, context, combine_graphs_job.rv(0),
                                                      graph_name, graph_name, include_trivial=True,
                                                      cores=context.config.snarl_index_cores,
                                                      memory=context.config.snarl_index_mem,
                                                      disk=context.config.snarl_index_disk)
+        construct_indexes['snarls'] = trivial_snarls_job.rv()
     if 'dist' in wanted_indexes:
-        xg_index_job.addFollowOn(trivial_snarls_job)
         dist_index_job = trivial_snarls_job.addFollowOnJobFn(run_dist_indexing, context, graph_name, xg_index_job.rv(), trivial_snarls_job.rv(),
                                                              cores=context.config.snarl_index_cores,
                                                              memory=context.config.snarl_index_mem,
                                                              disk=context.config.snarl_index_disk)
+        xg_index_job.addFollowOn(dist_index_job)
         construct_indexes['distance'] = dist_index_job.rv()
     
-    index_output = {}
-    construct_indexes = {}
-    construct_indexes['vg'] = combine_graphs_job.rv(0)
-    construct_indexes['xg'] = xg_index_job.rv()
-    construct_indexes['snarls'] = trivial_snarls_job.rv()
     if 'gbwt' in wanted_indexes:
         contig_gbwt_ids = []
         contig_gbwt_ids_job = indexing_jobs.addChildJobFn(run_gbwt_index_subworkflow, context, options, combine_graphs_job.rv(2), contig_vcf_gz_id_list)
