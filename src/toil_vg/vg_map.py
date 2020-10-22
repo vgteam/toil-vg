@@ -573,10 +573,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             input_flag = '-G' if gam_input_reads else '-b' if bam_input_reads else '-f'
             vg_parts += [input_flag, os.path.basename(reads_file)]
         
-        if mapper == 'giraffe':
-            vg_parts += ['-t', str(int(int(context.config.alignment_cores)/2)+1)]
-        else:
-            vg_parts += ['-t', str(context.config.alignment_cores)]
+        vg_parts += ['-t', str(context.config.alignment_cores)]
 
         # Override the -i flag in args with the --interleaved command-line flag
         if interleaved is True and '-i' not in vg_parts and '--interleaved' not in vg_parts:
@@ -589,6 +586,8 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         # Override the --surject-to option
         if bam_output is True and '--surject-to' not in vg_parts and mapper != 'giraffe':
             vg_parts += ['--surject-to', 'bam']
+        elif bam_output is True and '--output-format' not in vg_parts and mapper == 'giraffe':
+            vg_parts += ['--output-format', 'BAM']
         elif bam_output is False and '--surject-to' in vg_parts:
             sidx = vg_parts.index('--surject-to')
             del vg_parts[sidx]
@@ -634,9 +633,6 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         # Mark when we start the alignment
         start_time = timeit.default_timer()
         command = vg_parts
-        # Add direct surjection pipe if using the giraffe mapper
-        if mapper == 'giraffe' and bam_output is True:
-            command = [command, ['vg', 'surject', '-', '-x', os.path.basename(index_files['xg']), '-b', '-i', '-t', str(int(int(context.config.alignment_cores)/2)+1)]]
         try:
             context.runner.call(job, command, work_dir = work_dir, outfile=alignment_file)
             end_time = timeit.default_timer()

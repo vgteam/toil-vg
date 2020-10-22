@@ -25,7 +25,7 @@ from toil_vg.vg_map import *
 from toil_vg.vg_surject import *
 from toil_vg.vg_config import *
 from toil_vg.vg_construct import *
-from toil_vg.vg_index import index_parse_args
+from toil_vg.vg_index import index_parse_args, run_snarl_indexing
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.pedigree_analysis import *
 
@@ -1042,6 +1042,17 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     indexing_jobs = Job()
     job.addChild(construct_jobs)
     construct_indexes = {}
+    wanted_indexes.add('xg')
+    wanted_indexes.add('gcsa')
+    if options.caller == 'giraffe' and use_haplotypes:
+        wanted_indexes.add('gbwt')
+        wanted_indexes.add('ggbwt')
+        wanted_indexes.add('trivial_snarls')
+        wanted_indexes.add('min')
+        wanted_indexes.add('dist')
+        wanted_indexes.discard('gcsa')
+    elif use_haplotypes:
+        wanted_indexes.add('gbwt')
     
     construct_chromosome_graph_vg_ids = []
     for contig, vcf_gz_id in zip(contigs_list,contig_vcf_gz_id_list):
@@ -1069,41 +1080,76 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
                                                                 disk=context.config.construct_disk)
         
     combine_graphs_job.addFollowOn(indexing_jobs)
-    xg_index_job = indexing_jobs.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0),
+    if 'xg' in wanted_indexes:
+        xg_index_job = indexing_jobs.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0),
                                                     cores=context.config.alignment_cores,
                                                     memory=context.config.construct_mem,
                                                     disk=context.config.construct_disk)
+    if 'trivial_snarls' in wanted_indexes:
+        trivial_snarls_job = indexing_jobs.addChildJobFn(run_snarl_indexing, context, combine_graphs_job.rv(0),
+                                                     graph_name, graph_name, include_trivial=True,
+                                                     cores=context.config.snarl_index_cores,
+                                                     memory=context.config.snarl_index_mem,
+                                                     disk=context.config.snarl_index_disk)
+    if 'dist' in wanted_indexes:
+        xg_index_job.addFollowOn(trivial_snarls_job)
+        dist_index_job = trivial_snarls_job.addFollowOnJobFn(run_dist_indexing, context, graph_name, xg_index_job.rv(), trivial_snarls_job.rv(),
+                                                             cores=context.config.snarl_index_cores,
+                                                             memory=context.config.snarl_index_mem,
+                                                             disk=context.config.snarl_index_disk)
+        construct_indexes['distance'] = dist_index_job.rv()
     
     index_output = {}
     construct_indexes = {}
     construct_indexes['vg'] = combine_graphs_job.rv(0)
     construct_indexes['xg'] = xg_index_job.rv()
-    if use_haplotypes:
+    construct_indexes['snarls'] = trivial_snarls_job.rv()
+    if 'gbwt' in wanted_indexes:
         contig_gbwt_ids = []
         contig_gbwt_ids_job = indexing_jobs.addChildJobFn(run_gbwt_index_subworkflow, context, options, combine_graphs_job.rv(2), contig_vcf_gz_id_list)
         gbwt_merge_job = contig_gbwt_ids_job.addFollowOnJobFn(run_gbwt_merge, context, options, contig_gbwt_ids_job.rv(), graph_name,
                                                                 cores=context.config.construct_cores,
                                                                 memory=context.config.alignment_mem,
                                                                 disk=context.config.construct_disk)
-        prune_graph_with_haplotypes_job = gbwt_merge_job.addChildJobFn(run_prune_graph_with_haplotypes, context, options, combine_graphs_job.rv(2), contig_gbwt_ids_job.rv(), combine_graphs_job.rv(1),
+        if 'ggbwt' not in wanted_indexes:
+            construct_indexes['gbwt'] = gbwt_merge_job.rv()
+            
+        if 'gcsa' in wanted_indexes:
+            prune_graph_with_haplotypes_job = gbwt_merge_job.addChildJobFn(run_prune_graph_with_haplotypes, context, options, combine_graphs_job.rv(2), contig_gbwt_ids_job.rv(), combine_graphs_job.rv(1),
                                                                 cores=context.config.prune_cores,
                                                                 memory=context.config.prune_mem,
                                                                 disk=context.config.prune_disk)
-        if use_decoys:
-            prune_decoy_graph_jobs = gbwt_merge_job.addChildJobFn(run_prune_graph_subworkflow, context, options, combine_graphs_job.rv(4))
-            gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0), prune_graph_with_haplotypes_job.rv(1), prune_decoy_graph_jobs.rv(),
-                                                                cores=context.config.alignment_cores,
-                                                                memory=context.config.gcsa_index_mem,
-                                                                disk=context.config.gcsa_index_disk)
-        else:
-            gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0), prune_graph_with_haplotypes_job.rv(1),
-                                                                cores=context.config.alignment_cores,
-                                                                memory=context.config.gcsa_index_mem,
-                                                                disk=context.config.gcsa_index_disk)
-        construct_indexes['gcsa'] = gcsa_index_job.rv(0)
-        construct_indexes['lcp'] = gcsa_index_job.rv(1)
-        construct_indexes['gbwt'] = gbwt_merge_job.rv()
-    else:
+            if use_decoys:
+                prune_decoy_graph_jobs = gbwt_merge_job.addChildJobFn(run_prune_graph_subworkflow, context, options, combine_graphs_job.rv(4))
+                gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0), prune_graph_with_haplotypes_job.rv(1), prune_decoy_graph_jobs.rv(),
+                                                                    cores=context.config.alignment_cores,
+                                                                    memory=context.config.gcsa_index_mem,
+                                                                    disk=context.config.gcsa_index_disk)
+            else:
+                gcsa_index_job = gbwt_merge_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_with_haplotypes_job.rv(0), prune_graph_with_haplotypes_job.rv(1),
+                                                                    cores=context.config.alignment_cores,
+                                                                    memory=context.config.gcsa_index_mem,
+                                                                    disk=context.config.gcsa_index_disk)
+            construct_indexes['gcsa'] = gcsa_index_job.rv(0)
+            construct_indexes['lcp'] = gcsa_index_job.rv(1)
+        
+        if 'ggbwt' in wanted_indexes:
+            sampled_gbwt_and_gbwt_graph_job = gbwt_merge_job.addChildJobFn(run_sampled_gbwt, context, options, graph_name, gbwt_merge_job.rv(), xg_index_job.rv(),
+                                                                            cores=context.config.construct_cores,
+                                                                            memory=context.config.alignment_mem,
+                                                                            disk=context.config.construct_disk)
+            construct_indexes['gbwt'] = sampled_gbwt_and_gbwt_graph_job.rv(0)
+            construct_indexes['ggbwt'] = sampled_gbwt_and_gbwt_graph_job.rv(1)
+        
+        if 'min' in wanted_indexes:
+            min_index_job = sampled_gbwt_and_gbwt_graph_job.addFollowOnJobFn(run_min_index, context, options, graph_name,
+                                                                                sampled_gbwt_and_gbwt_graph_job.rv(0), sampled_gbwt_and_gbwt_graph_job.rv(1), dist_index_job.rv(),
+                                                                                cores=context.config.construct_cores,
+                                                                                memory=context.config.alignment_mem,
+                                                                                disk=context.config.construct_disk)
+            construct_indexes['minimizer'] = min_index_job.rv()
+             
+    elif 'gcsa' in wanted_indexes:
         prune_graph_ids = []
         prune_graph_ids_job = indexing_jobs.addChildJobFn(run_prune_graph_subworkflow, context, options, combine_graphs_job.rv(3))
         gcsa_index_job = prune_graph_ids_job.addFollowOnJobFn(run_gcsa_index, context, options, graph_name, prune_graph_ids_job.rv(), combine_graphs_job.rv(1),
@@ -1112,9 +1158,10 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
                                                                 disk=context.config.gcsa_index_disk)
         construct_indexes['gcsa'] = gcsa_index_job.rv(0)
         construct_indexes['lcp'] = gcsa_index_job.rv(1)
+    
     return construct_indexes
 
-#def run_construct_decoy_contigs_subworkflow(job, context, options, ref_fasta_id, decoy_contigs_file_id):
+
 def run_construct_decoy_contigs_subworkflow(job, context, options, ref_fasta_id, decoy_contigs_list):
     child_jobs = Job()
     job.addChild(child_jobs)
@@ -1306,6 +1353,59 @@ def run_xg_index(job, context, options, graph_name, vg_id, xg_options=None):
     
     return xg_id
 
+def run_dist_indexing(job, context, graph_name, xg_id, trivial_snarls_id):
+    RealtimeLogger.info("Running run_dist_indexing")
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    xg_file_path = os.path.join(work_dir, os.path.basename(xg_id))
+    job.fileStore.readGlobalFile(xg_id, xg_file_path)
+    trivial_snarls_file_path = os.path.join(work_dir, os.path.basename(trivial_snarls_id))
+    job.fileStore.readGlobalFile(trivial_snarls_id, trivial_snarls_file_path)
+    
+    command = ['vg', 'index', '--threads', job.cores, '-x', '{}.xg'.format(graph_name), '-s', '{}.trivial.snarls'.format(graph_name), '-j', '{}.trivial.snarls.dist'.format(graph_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    dist_id = context.write_output_file(job, os.path.join(work_dir, '{}.trivial.snarls.dist'.format(graph_name)))
+    
+    return dist_id
+
+def run_sampled_gbwt(job, context, options, graph_name, gbwt_id, xg_id):    
+    RealtimeLogger.info("Running run_sampled_gbwt_indexing")
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    xg_file_path = os.path.join(work_dir, os.path.basename(xg_id))
+    job.fileStore.readGlobalFile(xg_id, xg_file_path)
+    gbwt_file_path = os.path.join(work_dir, os.path.basename(gbwt_id))
+    job.fileStore.readGlobalFile(gbwt_id, gbwt_file_path)
+    
+    command = ['vg', 'gbwt', '--threads', job.cores, '{}.gbwt'.format(graph_name), '-x', '{}.xg'.format(graph_name), '-o', '{}.sampled.gbwt'.format(graph_name), '-g', '{}.sampled.gg'.format(graph_name), '-l', '-n', 4]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
+    
+    sampled_gbwt_id = context.write_output_file(job, os.path.join(work_dir, '{}.sampled.gbwt'.format(graph_name)))
+    sampled_ggbwt_id = context.write_output_file(job, os.path.join(work_dir, '{}.sampled.gg'.format(graph_name)))
+    
+    return (sampled_gbwt_id, sampled_ggbwt_id)
+
+def run_min_index(job, context, options, graph_name, sampled_gbwt_id, sampled_ggbwt_id, dist_id):
+    RealtimeLogger.info("Running run_min_indexing")
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+    
+    sampled_gbwt_file_path = os.path.join(work_dir, os.path.basename(sampled_gbwt_id))
+    job.fileStore.readGlobalFile(sampled_gbwt_id, sampled_gbwt_file_path)
+    sampled_ggbwt_file_path = os.path.join(work_dir, os.path.basename(sampled_ggbwt_id))
+    job.fileStore.readGlobalFile(sampled_ggbwt_id, sampled_ggbwt_file_path)
+    dist_file_path = os.path.join(work_dir, os.path.basename(dist_id))
+    job.fileStore.readGlobalFile(dist_id, dist_file_path)
+    
+    command = ['vg', 'minimizer', '--threads', job.cores, '-g', '{}.sampled.gbwt'.format(graph_name), '-G', '{}.sampled.ggbwt'.format(graph_name), '-d', '{}.trivial.snarls.dist'.format(graph_name), '-i', '{}.sampled.min'.format(graph_name)]
+    
+    sampled_min_id = context.write_output_file(job, os.path.join(work_dir, '{}.sampled.min'.format(graph_name)))
+    
+    return sampled_min_id
+    
 def run_prune_graph(job, context, options, contig_vg_id, prune_options=None):
     RealtimeLogger.info("Running run_prune_graph")
     # Define work directory for docker calls
@@ -1694,11 +1794,14 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     process_parental_graph_indexes_job = graph_construction_job.addFollowOnJobFn(run_process_parental_graph_index, context, options, graph_construction_job.rv(), indexes)
     
     # Run stage3 asynchronously for each sample
+    mapper_2nd_iteration = 'map'
+    if options.caller == 'giraffe' and use_haplotypes:
+        mapper_2nd_iteration = 'giraffe'
     # Define the probands 2nd alignment and variant calling jobs
     proband_second_mapping_job = stage3_jobs.addChildJobFn(run_mapping, context, fastq_proband,
                                      gam_input_reads_proband, bam_input_reads_proband,
                                      proband_name,
-                                     interleaved, 'map', process_parental_graph_indexes_job.rv(),
+                                     interleaved, mapper_2nd_iteration, process_parental_graph_indexes_job.rv(),
                                      reads_file_ids_proband,
                                      bam_output=options.bam_output, surject=options.surject,
                                      cores=context.config.misc_cores,
@@ -1743,7 +1846,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
             sibling_mapping_job_dict[sibling_name] = stage3_jobs.addChildJobFn(run_mapping, context, fastq_siblings_collection,
                                              gam_input_reads_siblings_collection, bam_input_reads_siblings_collection,
                                              siblings_names[sibling_number],
-                                             options.interleaved, 'map', process_parental_graph_indexes_job.rv(),
+                                             options.interleaved, mapper_2nd_iteration, process_parental_graph_indexes_job.rv(),
                                              reads_file_ids_siblings_list,
                                              bam_output=options.bam_output, surject=options.surject,
                                              cores=context.config.misc_cores,
