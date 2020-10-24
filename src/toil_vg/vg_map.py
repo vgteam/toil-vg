@@ -175,7 +175,7 @@ def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_re
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                 indexes, reads_file_ids=None, reads_chunk_ids=None,
                 bam_output=False, surject=False, 
-                gbwt_penalty=None, validate=False):
+                gbwt_penalty=None, validate=False, fasta_dict_id=None):
     """
     Split the fastq, then align each chunk.
     
@@ -230,6 +230,7 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
                               bam_output=bam_output, surject=surject,
                               gbwt_penalty=gbwt_penalty,
                               validate=validate,
+                              fasta_dict_id=fasta_dict_id,
                               cores=context.config.misc_cores,
                               memory=context.config.misc_mem, disk=context.config.misc_disk)
                  
@@ -401,7 +402,7 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
     
 def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                         indexes, reads_chunk_ids,
-                        bam_output=False, surject=False, gbwt_penalty=None, validate=False):
+                        bam_output=False, surject=False, gbwt_penalty=None, validate=False, fasta_dict_id=None):
     """
     align all fastq chunks in parallel
     
@@ -434,6 +435,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
                                                       bam_output=bam_output,
                                                       gbwt_penalty=gbwt_penalty,
                                                       validate=validate,
+                                                      fasta_dict_id=fasta_dict_id,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
         if not bam_output:
@@ -481,7 +483,7 @@ def run_zip_surject_input(job, context, gam_chunk_file_ids):
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                         chunk_filename_ids, chunk_id, indexes,
-                        bam_output=False, gbwt_penalty=None, always_check_population=True, validate=False):
+                        bam_output=False, gbwt_penalty=None, always_check_population=True, validate=False, fasta_dict_id=None):
                         
     """
     Align a chunk of reads.
@@ -625,7 +627,13 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
                 # Always try to population-score even unambiguous reads
                 # mpmap can do this
                 vg_parts += ['--always-check-population']
-
+        
+        if fasta_dict_id is not None and bam_output is True:
+            fasta_dict_file = os.path.join(work_dir, 'fasta.dict')
+            job.fileStore.readGlobalFile(fasta_dict_id, fasta_dict_file)
+            vg_parts += ['--ref-paths', os.path.basename(fasta_dict_file)]
+            
+        
         RealtimeLogger.info(
             "Running VG for {} against {}: {}".format(sample_name, graph_file,
             " ".join(vg_parts)))
@@ -889,7 +897,11 @@ def map_main(context, options):
             else:
                 assert options.bam_input_reads
                 inputReadsFileIDs.append(importer.load(options.bam_input_reads))
-
+            
+            fasta_dict_id=None
+            if options.fasta_dict is not None:
+                fasta_dict_id = importer.load(options.fasta_dict)
+            
             importer.wait()
 
             # Make a root job
@@ -900,6 +912,7 @@ def map_main(context, options):
                                      reads_file_ids=importer.resolve(inputReadsFileIDs),
                                      bam_output=options.bam_output, surject=options.surject,
                                      validate=options.validate,
+                                     fasta_dict_id=fasta_dict_id,
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
