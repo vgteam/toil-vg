@@ -84,17 +84,17 @@ if [ $RUN_SMALL_TEST == false ]; then
     for SAMPLE_NAME in ${COHORT_NAMES_LIST[@]}
     do
       INDIVIDUAL_DATA_DIR="${INDIVIDUALS_DATA_DIR}/${SAMPLE_NAME}"
-      if [ $(find ${INDIVIDUAL_DATA_DIR}/ -name '*_R1*.fastq.gz' | wc -l) -eq 1 ]; then
-        ln -s $(find ${INDIVIDUAL_DATA_DIR}/ -name '*_R1*.fastq.gz') ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_1.fq.gz
-        ln -s $(find ${INDIVIDUAL_DATA_DIR}/ -name '*_R2*.fastq.gz') ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_2.fq.gz
-      elif [ $(find ${INDIVIDUAL_DATA_DIR}/ -name '*_R1*.fastq.gz' | wc -l) -gt 1 ]; then
+      if [ $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*_R1*.fastq.gz' | wc -l) -eq 1 ]; then
+        ln -s $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*_R1*.fastq.gz') ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_1.fq.gz
+        ln -s $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*_R2*.fastq.gz') ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_2.fq.gz
+      elif [ $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*_R1*.fastq.gz' | wc -l) -gt 1 ]; then
         PAIR_1_READS=()
         PAIR_2_READS=()
-        LANE_NUMS=($(find ${INDIVIDUAL_DATA_DIR}/ -name '*.fastq.gz' | awk -F'_R' '{print $1}' | sort | uniq | xargs))
+        LANE_NUMS=($(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*.fastq.gz' | awk -F'_R' '{print $1}' | sort | uniq | xargs))
         for LANE_NUM in ${LANE_NUMS[@]}
         do
-          PAIR_1_READS+=("$(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*.fastq.gz' | grep "${LANE_NUM}.*_R1")")
-          PAIR_2_READS+=("$(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*.fastq.gz' | grep "${LANE_NUM}.*_R2")")
+          PAIR_1_READS+=("$(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*.fastq.gz' | grep "${LANE_NUM}.*_R1")")
+          PAIR_2_READS+=("$(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*.fastq.gz' | grep "${LANE_NUM}.*_R2")")
         done
         echo "INDIVIDUAL_DATA_DIR: ${INDIVIDUAL_DATA_DIR}"
         echo "LANE_NUMS: ${LANE_NUMS[@]}"
