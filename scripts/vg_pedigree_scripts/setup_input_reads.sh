@@ -84,7 +84,7 @@ if [ $RUN_SMALL_TEST == false ]; then
     for SAMPLE_NAME in ${COHORT_NAMES_LIST[@]}
     do
       INDIVIDUAL_DATA_DIR="${INDIVIDUALS_DATA_DIR}/${SAMPLE_NAME}"
-      if [ $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*_R1*.fastq.gz' | wc -l) -eq 1 ]; then
+      if [ $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*_R1*.fastq.gz' | wc -l) -eq 1 ]; then
         ln -s $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*_R1*.fastq.gz') ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_1.fq.gz
         ln -s $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*_R2*.fastq.gz') ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_2.fq.gz
       elif [ $(find ${INDIVIDUAL_DATA_DIR}/ -wholename '*WGS*Baylor*_R1*.fastq.gz' | wc -l) -gt 1 ]; then
