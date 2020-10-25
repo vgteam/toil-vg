@@ -308,6 +308,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
                         '-r', 'PL:illumina',
                         '-r', 'PU:unit1',
                         '-'])
+    cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'BAM', '-'])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
     with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
@@ -318,7 +319,11 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
-    command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name)]
+    command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
+                'VALIDATION_STRINGENCY=LENIENT', 'REFERENCE_SEQUENCE={}'.format(os.path.basename(ref_fasta_path)), 'SEQUENCE_DICTIONARY={}'.format(os.path.basename(ref_fasta_dict_path)),
+                'INPUT={}.mdtag.dupmarked.bam'.format(sample_name), 'OUTPUT={}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='picard')
+    command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['gatk', 'HaplotypeCaller',
                 '--native-pair-hmm-threads', job.cores,
@@ -326,7 +331,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
                 '-L', contig_name,
                 '--pcr-indel-model', pcr_indel_model,
                 '--reference', os.path.basename(ref_fasta_path),
-                '--input', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name),
+                '--input', '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name),
                 '--output', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='gatk')
     context.runner.call(job, ['bgzip', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
@@ -337,7 +342,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     out_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name))
     vcf_file_id = context.write_intermediate_file(job, out_file)
     vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
-    out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name))
+    out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name))
     processed_bam_file_id = context.write_intermediate_file(job, out_bam_file)
     
     return (vcf_file_id, vcf_index_file_id, processed_bam_file_id)
@@ -380,6 +385,7 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
                         '-r', 'PL:illumina',
                         '-r', 'PU:unit1',
                         '-'])
+    cmd_list.append(['samtools', 'view', '-@', str(job.cores), '-h', '-O', 'BAM', '-'])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
     with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
@@ -390,14 +396,18 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
-    command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name)]
+    command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
+                'VALIDATION_STRINGENCY=LENIENT', 'REFERENCE_SEQUENCE={}'.format(os.path.basename(ref_fasta_path)), 'SEQUENCE_DICTIONARY={}'.format(os.path.basename(ref_fasta_dict_path)),
+                'INPUT={}.mdtag.dupmarked.bam'.format(sample_name), 'OUTPUT={}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='picard')
+    command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['/opt/deepvariant/bin/run_deepvariant',
                 '--num_shards', job.cores,
                 '--model_type', 'WGS',
                 '--regions', contig_name,
                 '--ref', os.path.basename(ref_fasta_path),
-                '--reads', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name),
+                '--reads', '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name),
                 '--output_gvcf', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='deepvariant')
     context.runner.call(job, ['bgzip', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
@@ -408,7 +418,7 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
     out_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name))
     vcf_file_id = context.write_intermediate_file(job, out_file)
     vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
-    out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name))
+    out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name))
     processed_bam_file_id = context.write_intermediate_file(job, out_bam_file)
     
     return (vcf_file_id, vcf_index_file_id, processed_bam_file_id)
@@ -457,9 +467,13 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
                 'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
+    command = ['java', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'ReorderSam',
+                'VALIDATION_STRINGENCY=LENIENT', 'REFERENCE_SEQUENCE={}'.format(os.path.basename(ref_fasta_path)), 'SEQUENCE_DICTIONARY={}'.format(os.path.basename(ref_fasta_dict_path)),
+                'INPUT={}.mdtag.dupmarked.bam'.format(sample_name), 'OUTPUT={}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='picard')
     
     # Write output to intermediate store
-    out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name))
+    out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.reordered.bam'.format(bam_name, sample_name))
     processed_bam_file_id = context.write_intermediate_file(job, out_bam_file)
     
     # Delete input files
@@ -1032,7 +1046,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     wanted_indexes = set()
     wanted_indexes.add('xg')
     wanted_indexes.add('gcsa')
-    if options.mapper == 'giraffe' and use_haplotypes:
+    if options.caller == 'giraffe' and use_haplotypes:
         wanted_indexes.add('gbwt')
         wanted_indexes.add('ggbwt')
         wanted_indexes.add('trivial_snarls')
@@ -1705,7 +1719,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      interleaved, mapper, indexes,
                                      reads_file_ids_proband,
                                      bam_output=bam_output, surject=surject,
-                                     fasta_dict_id=ref_fasta_ids[2],
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1724,7 +1737,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      interleaved, mapper, indexes,
                                      reads_file_ids_maternal,
                                      bam_output=options.bam_output, surject=options.surject,
-                                     fasta_dict_id=ref_fasta_ids[2],
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1743,7 +1755,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      interleaved, mapper, indexes,
                                      reads_file_ids_paternal,
                                      bam_output=options.bam_output, surject=options.surject,
-                                     fasta_dict_id=ref_fasta_ids[2],
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1784,7 +1795,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     
     # Run stage3 asynchronously for each sample
     mapper_2nd_iteration = 'map'
-    if options.mapper == 'giraffe' and use_haplotypes:
+    if options.caller == 'giraffe' and use_haplotypes:
         mapper_2nd_iteration = 'giraffe'
     # Define the probands 2nd alignment and variant calling jobs
     proband_second_mapping_job = stage3_jobs.addChildJobFn(run_mapping, context, fastq_proband,
@@ -1793,7 +1804,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      interleaved, mapper_2nd_iteration, process_parental_graph_indexes_job.rv(),
                                      reads_file_ids_proband,
                                      bam_output=options.bam_output, surject=options.surject,
-                                     fasta_dict_id=ref_fasta_ids[2],
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
@@ -1839,7 +1849,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                              options.interleaved, mapper_2nd_iteration, process_parental_graph_indexes_job.rv(),
                                              reads_file_ids_siblings_list,
                                              bam_output=options.bam_output, surject=options.surject,
-                                             fasta_dict_id=ref_fasta_ids[2],
                                              cores=context.config.misc_cores,
                                              memory=context.config.misc_mem,
                                              disk=context.config.misc_disk)
