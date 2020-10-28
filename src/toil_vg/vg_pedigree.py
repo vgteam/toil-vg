@@ -315,7 +315,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
-                'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
+                'O={}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
     command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name)]
@@ -387,7 +387,7 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
-                'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
+                'O={}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
     command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name)]
@@ -454,7 +454,7 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['java', '-Xmx{}g'.format(int(float(job.memory)/2000000000)), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
                 'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
-                'O={}.mdtag.dupmarked.bam'.format(sample_name), 'M=marked_dup_metrics.txt']
+                'O={}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name), 'M=marked_dup_metrics.txt']
     with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
         context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
     
@@ -1032,7 +1032,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     wanted_indexes = set()
     wanted_indexes.add('xg')
     wanted_indexes.add('gcsa')
-    if options.mapper == 'giraffe' and use_haplotypes:
+    if options.mapper == 'giraffe' and options.use_haplotypes:
         wanted_indexes.add('gbwt')
         wanted_indexes.add('ggbwt')
         wanted_indexes.add('trivial_snarls')
@@ -1076,16 +1076,16 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
                                                     disk=context.config.construct_disk)
         construct_indexes['xg'] = xg_index_job.rv()
     if 'trivial_snarls' in wanted_indexes:
-        trivial_snarls_job = indexing_jobs.addChildJobFn(run_snarl_indexing, context, combine_graphs_job.rv(0),
-                                                     graph_name, graph_name, include_trivial=True,
-                                                     cores=context.config.snarl_index_cores,
+        trivial_snarls_job = indexing_jobs.addChildJobFn(run_snarl_indexing, context, [combine_graphs_job.rv(0)],
+                                                     [graph_name], index_name=graph_name, include_trivial=True,
+                                                     cores=context.config.alignment_cores,
                                                      memory=context.config.snarl_index_mem,
                                                      disk=context.config.snarl_index_disk)
         construct_indexes['snarls'] = trivial_snarls_job.rv()
     if 'dist' in wanted_indexes:
         dist_index_job = trivial_snarls_job.addFollowOnJobFn(run_dist_indexing, context, graph_name, xg_index_job.rv(), trivial_snarls_job.rv(),
-                                                             cores=context.config.snarl_index_cores,
-                                                             memory=context.config.snarl_index_mem,
+                                                             cores=context.config.alignment_cores,
+                                                             memory=context.config.alignment_mem,
                                                              disk=context.config.snarl_index_disk)
         xg_index_job.addFollowOn(dist_index_job)
         construct_indexes['distance'] = dist_index_job.rv()
@@ -1120,19 +1120,21 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
             construct_indexes['lcp'] = gcsa_index_job.rv(1)
         
         if 'ggbwt' in wanted_indexes:
-            sampled_gbwt_and_gbwt_graph_job = gbwt_merge_job.addChildJobFn(run_sampled_gbwt, context, options, graph_name, gbwt_merge_job.rv(), xg_index_job.rv(),
-                                                                            cores=context.config.construct_cores,
+            sampled_gbwt_and_gbwt_graph_job = gbwt_merge_job.addFollowOnJobFn(run_sampled_gbwt, context, options, graph_name, gbwt_merge_job.rv(), xg_index_job.rv(),
+                                                                            cores=context.config.alignment_cores,
                                                                             memory=context.config.alignment_mem,
                                                                             disk=context.config.construct_disk)
+            xg_index_job.addFollowOn(sampled_gbwt_and_gbwt_graph_job)
             construct_indexes['gbwt'] = sampled_gbwt_and_gbwt_graph_job.rv(0)
             construct_indexes['ggbwt'] = sampled_gbwt_and_gbwt_graph_job.rv(1)
         
         if 'min' in wanted_indexes:
             min_index_job = sampled_gbwt_and_gbwt_graph_job.addFollowOnJobFn(run_min_index, context, options, graph_name,
                                                                                 sampled_gbwt_and_gbwt_graph_job.rv(0), sampled_gbwt_and_gbwt_graph_job.rv(1), dist_index_job.rv(),
-                                                                                cores=context.config.construct_cores,
+                                                                                cores=context.config.alignment_cores,
                                                                                 memory=context.config.alignment_mem,
                                                                                 disk=context.config.construct_disk)
+            dist_index_job.addFollowOn(min_index_job)
             construct_indexes['minimizer'] = min_index_job.rv()
              
     elif 'gcsa' in wanted_indexes:
@@ -1784,7 +1786,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     
     # Run stage3 asynchronously for each sample
     mapper_2nd_iteration = 'map'
-    if options.mapper == 'giraffe' and use_haplotypes:
+    if options.mapper == 'giraffe' and options.use_haplotypes:
         mapper_2nd_iteration = 'giraffe'
     # Define the probands 2nd alignment and variant calling jobs
     proband_second_mapping_job = stage3_jobs.addChildJobFn(run_mapping, context, fastq_proband,

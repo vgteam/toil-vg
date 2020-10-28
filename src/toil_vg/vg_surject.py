@@ -220,7 +220,7 @@ def run_merge_bams(job, context, output_name, bam_chunk_file_ids):
 
     context.runner.call(job, cmd, work_dir = work_dir)
 
-    return context.write_output_file(job, surject_path)
+    return context.write_intermediate_file(job, surject_path)
     
 def surject_main(context, options):
     """

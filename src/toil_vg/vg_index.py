@@ -670,7 +670,7 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
         # Now run the indexer.
         RealtimeLogger.info("Computing snarls for {}".format(graph_filename))
 
-        cmd = ['vg', 'snarls', graph_filename]
+        cmd = ['vg', 'snarls', '-t', max(1, int(job.cores)), graph_filename]
         if include_trivial:
             cmd += ['--include-trivial']
         with open(snarl_filename, "wb") as snarl_file:
