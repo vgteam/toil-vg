@@ -73,7 +73,7 @@ if [ ! -d "${TOIL_VG_DIR}" ]; then
 fi
 
 cd ${TOIL_VG_DIR}
-git clone --single-branch --branch vg_pedigree_workflow_dev https://github.com/vgteam/toil-vg.git 
+git clone --single-branch --branch vg_pedigree_workflow_giraffe https://github.com/vgteam/toil-vg.git 
 git clone https://github.com/cmarkello/toil.git
 python3 -m venv toilvg_venv
 source toilvg_venv/bin/activate
@@ -89,10 +89,11 @@ fi
 
 if [ $RUN_SMALL_TEST == false ]; then
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/path_list_whole_genome.txt -O ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f_minaf_0.01.xg -O ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.xg
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f_minaf_0.01.gcsa -O ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gcsa
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f_minaf_0.01.gcsa.lcp -O ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gcsa.lcp
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f_minaf_0.01.gbwt -O ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gbwt
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f.xg -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f.sampled.gbwt -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gbwt
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f.sampled.gg -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gg
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f.sampled.trivial_snarls_dist.min -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.min
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_v1.27.0_graph_references/baseline_v1.27.0_90_ga64b70c1f.trivial_snarls.dist -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.dist
 else
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/path_list_21.txt -O ${WORKFLOW_INPUT_DIR}/path_list_21.txt
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/vg_t289_graph_references/snp1kg_maf0.01_chr21_t289.xg -O ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_chr21.xg
@@ -107,7 +108,7 @@ wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/hs37d5.dict -O ${WORKFLO
 wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/hs37d5.fa.gz -O ${WORKFLOW_INPUT_DIR}/hs37d5.fa.gz
 wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/snpEff_v4_3_GRCh37.75.zip -O ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip
 wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/genetic_map_GRCh37.tar -O ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar
-wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/eagle_data.tar -O ${WORKFLOW_INPUT_DIR}/eagle_data.tar
+wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/eagle_data.tar.gz -O ${WORKFLOW_INPUT_DIR}/eagle_data.tar.gz
 
 exit
 

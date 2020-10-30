@@ -210,9 +210,11 @@ if [ $RESTART == true ]; then
     RESTART_ARG="--restart"
 fi
 
+CALLER="gatk"
 DRAGEN_ARGS=""
 if [ $USE_DRAGEN == true ]; then
-    DRAGEN_ARGS="--run_dragen --dragen_ref_index_name 'hs37d5_v7' --udp_data_dir 'Udpbinfo'"
+    CALLER="dragen"
+    DRAGEN_ARGS="--dragen_ref_index_name 'hs37d5_v7' --udp_data_dir 'Udpbinfo'"
 fi
 
 if [ $RUN_SMALL_TEST == false ]; then
@@ -240,17 +242,22 @@ ${SIB_ID_LIST} \\
 --fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 --fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
 ${SIB_READ_PAIR_LIST} \\
---reads_per_chunk 20000000 \\
+--reads_per_chunk 200000000 \\
 --ref_fasta ${WORKFLOW_INPUT_DIR}/hs37d5.fa \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/hs37d5.fa.fai \\
 --ref_fasta_dict ${WORKFLOW_INPUT_DIR}/hs37d5.dict \\
---xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.xg \\
---gcsa_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gcsa \\
---gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_maf0.01_decoys.gbwt \\
+--caller ${CALLER} \\
+--mapper giraffe \\
+--use_haplotypes \\
+--xg_index ${GRAPH_REF_DIR}/snp1kg_decoys.xg \\
+--gbwt_index ${GRAPH_REF_DIR}/snp1kg_decoys.gbwt \\
+--graph_gbwt_index ${GRAPH_REF_DIR}/snp1kg_decoys.gg \\
+--minimizer_index ${GRAPH_REF_DIR}/snp1kg_decoys.min \\
+--distance_index ${GRAPH_REF_DIR}/snp1kg_decoys.dist \\
 --id_ranges ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --ped_file ${TRIO_PED_FILE} \\
---eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar \\
+--eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar.gz \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
@@ -299,7 +306,7 @@ ${SIB_READ_PAIR_LIST} \\
 --id_ranges ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --ped_file ${TRIO_PED_FILE} \\
---eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar \\
+--eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar.gz \\
 --snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
