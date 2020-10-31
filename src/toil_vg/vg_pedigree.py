@@ -438,6 +438,7 @@ def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
     # Run variant calling commands
+    #TODO: remove samtools sort command. Chromosomal BAMs are already position sorted.
     cmd_list = []
     cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM', os.path.basename(bam_path)])
     cmd_list.append(['samtools', 'addreplacerg', '-O', 'BAM',

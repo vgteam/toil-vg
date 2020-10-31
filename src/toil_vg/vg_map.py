@@ -42,6 +42,8 @@ def map_subparser(parser):
                         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--kmer_size", type=int,
                         help="size of kmers to use in gcsa-kmer mapping mode")
+    parser.add_argument("--fasta_dict", type=make_url, default=None,
+                        help="Path to file with reference fasta dict index.")
         
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -74,7 +76,6 @@ def map_parse_index_args(parser):
                         help="Path to graph GBWT haplotype index (for giraffe)")
     parser.add_argument("--snarls_index", type=make_url,
                         help="Path to snarls file")
-                        
     parser.add_argument("--mapper", default="map", choices=["map", "mpmap", "giraffe"],
                         help="vg mapper to use")
 
@@ -912,7 +913,7 @@ def map_main(context, options):
                                      reads_file_ids=importer.resolve(inputReadsFileIDs),
                                      bam_output=options.bam_output, surject=options.surject,
                                      validate=options.validate,
-                                     fasta_dict_id=fasta_dict_id,
+                                     fasta_dict_id=importer.resolve(fasta_dict_id),
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
