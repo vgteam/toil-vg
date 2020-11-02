@@ -225,8 +225,8 @@ def validate_pedigree_options(context, options):
     require(options.mapper == 'mpmap' or options.snarls_index is None,
             '--snarls_index can only be used with --mapper mpmap') 
     if options.mapper == 'mpmap':
-        require('-S' in context.config.mpmap_opts or '--single-path-mode' in context.config.mpmap_opts,
-                '-S must be used with mpmap mapper to produce GAM output')
+        require(('-F' in context.config.mpmap_opts or '--output-fmt' in context.config.mpmap_opts) and 'GAM' in context.config.mpmap_opts,
+                '-F GAM must be used with mpmap mapper to produce GAM output')
         require(not options.bam_output,
                 '--bam_output not currently supported with mpmap mapper')
     require (not options.bam_output or not options.surject,

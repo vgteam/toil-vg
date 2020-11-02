@@ -156,7 +156,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.24.0'
+vg-docker: 'quay.io/vgteam/vg:v1.28.0'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -279,7 +279,7 @@ reads-per-chunk: 10000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt', 'GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []
@@ -586,7 +586,7 @@ reads-per-chunk: 50000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt', 'GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []
