@@ -173,7 +173,7 @@ fi
 # Build trio .ped file for parental graph construction
 rm -f ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
 echo -e "#Family\tID\tFather\tMother\tSex[1=M]\tAffected[2=A]" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
-echo -e "${PROBAND_NAME}\t${PROBAND_NAME}\t${PATERNAL_SAMPLE_NAME}\t${MATERNAL_SAMPLE_NAME}\t$((${OFFSPRING_GENDER_LIST[0]} + 1))\t$((${OFFSPRING_AFFECTED_LIST[0]} + 1))" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "${PROBAND_NAME}\t${PROBAND_NAME}\t${PATERNAL_SAMPLE_NAME}\t${MATERNAL_SAMPLE_NAME}\t$((${OFFSPRING_GENDER_LIST[0]} + 1))\t2" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
 echo -e "${PROBAND_NAME}\t${PATERNAL_SAMPLE_NAME}\t0\t0\t1\t1" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
 echo -e "${PROBAND_NAME}\t${MATERNAL_SAMPLE_NAME}\t0\t0\t2\t1" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
 chmod 2770 "${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}"
@@ -249,11 +249,11 @@ ${SIB_READ_PAIR_LIST} \\
 --caller ${CALLER} \\
 --mapper giraffe \\
 --use_haplotypes \\
---xg_index ${GRAPH_REF_DIR}/snp1kg_decoys.xg \\
---gbwt_index ${GRAPH_REF_DIR}/snp1kg_decoys.gbwt \\
---graph_gbwt_index ${GRAPH_REF_DIR}/snp1kg_decoys.gg \\
---minimizer_index ${GRAPH_REF_DIR}/snp1kg_decoys.min \\
---distance_index ${GRAPH_REF_DIR}/snp1kg_decoys.dist \\
+--xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg \\
+--gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gbwt \\
+--graph_gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gg \\
+--minimizer_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.min \\
+--distance_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.dist \\
 --id_ranges ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --ped_file ${TRIO_PED_FILE} \\
