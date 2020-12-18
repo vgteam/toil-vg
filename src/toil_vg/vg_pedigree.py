@@ -687,7 +687,7 @@ def run_joint_genotyper(job, context, options, sample_name, proband_gvcf_id, pro
             elif options.caller == 'deepvariant':
                 sibling_options_list += [os.path.basename(sibling_gvcf_path)]
             elif options.caller == 'dragen':
-                sibling_options_list += [' --variant /staging/helix/{}/usr/{}/{}_cohort_gvcfs/{}'.format(udp_data_dir, helix_username, sample_name, os.path.basename(sibling_gvcf_path))]
+                sibling_options_list += [' --variant ~/{}/usr/{}/{}_cohort_gvcfs/{}'.format(udp_data_dir, helix_username, sample_name, os.path.basename(sibling_gvcf_path))]
     
     out_file = None
     if options.caller == 'gatk':     
