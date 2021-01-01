@@ -511,7 +511,7 @@ def run_dragen_gvcf(job, context, sample_name, merge_bam_id, dragen_ref_index_na
                               '\"' +
                               'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
                               ' -b ~/{}/{}_surjected_bams/{}'.format(udp_data_dir_path, sample_name, bam_name) +
-                              ' --verbose --bin_memory=50000000000 --enable-map-align false --enable-variant-caller true' +
+                              ' --sample-sex female --verbose --bin_memory=50000000000 --enable-map-align false --enable-variant-caller true' +
                               ' --pair-by-name=true --vc-emit-ref-confidence GVCF' +
                               ' --intermediate-results-dir {} --output-directory {} --output-file-prefix {}_dragen_genotyped'.format(tmp_dir_path, dragen_work_dir_path, sample_name) +
                               '\"'])
@@ -763,7 +763,7 @@ def run_joint_genotyper(job, context, options, sample_name, proband_gvcf_id, pro
         cmd_list.append(['ssh', '{}@helix.nih.gov'.format(helix_username), 'ssh', '{}@udpdragen01.nhgri.nih.gov'.format(helix_username),
                                   '\"' +
                                   'dragen -f -r /staging/{}'.format(dragen_ref_index_name) +
-                                  ' --enable-joint-genotyping true --intermediate-results-dir {}'.format(tmp_dir_path) +
+                                  ' --enable-joint-genotyping true --sample-sex female --intermediate-results-dir {}'.format(tmp_dir_path) +
                                   ' --output-directory {} --output-file-prefix cohort_joint_genotyped_{}'.format(joint_genotype_dragen_work_dir_path, sample_name) +
                                   ' --variant ~/{}/{}_cohort_gvcfs/{}'.format(udp_data_dir_path, sample_name, os.path.basename(maternal_gvcf_path)) +
                                   ' --variant ~/{}/{}_cohort_gvcfs/{}'.format(udp_data_dir_path, sample_name, os.path.basename(paternal_gvcf_path)) +
