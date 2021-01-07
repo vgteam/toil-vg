@@ -15,7 +15,13 @@ before_script:
   - make > /dev/null
   - sudo make install > /dev/null
   - popd
-  - rm -rf singularity-2.6.1.tar.gz singularity-2.6.1 
+  - rm -rf singularity-2.6.1.tar.gz singularity-2.6.1
+  # Configure Docker to use a mirror for Docker Hub and restart the daemon
+  # Set the registry as insecure because it is probably cluster-internal over plain HTTP.
+  - |
+    if [[ ! -z "${DOCKER_HUB_MIRROR}" ]] ; then
+        echo "{\"registry-mirrors\": [\"${DOCKER_HUB_MIRROR}\"], \"insecure-registries\": [\"${DOCKER_HUB_MIRROR##*://}\"]}" | sudo tee /etc/docker/daemon.json
+    fi
   - startdocker || true
   - docker info
   # Build .pypirc with PyPI credentials
