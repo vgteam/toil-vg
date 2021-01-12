@@ -884,7 +884,10 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
         job.fileStore.readGlobalFile(eagle_vcf_index_id, eagle_vcf_index_path)
         whatshap_input_file = '{}_cohort_{}.eagle_phased.vcf.gz'.format(proband_name, contig_name)
         # Run eagle phasing on autosomal and X chromsomes
-        context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', '/usr/src/app/genetic_map_hg19_withX.txt.gz', '--outPrefix', '{}_cohort_{}.eagle_phased'.format(proband_name, contig_name),
+        gen_map_file = '/usr/src/app/genetic_map_hg19_withX.txt.gz'
+        if '38' in ref_fasta_name:
+            gen_map_file = '/usr/src/app/genetic_map_hg38_withX.txt.gz'
+        context.runner.call(job, ['/usr/src/app/eagle', '--outputUnphased', '--geneticMapFile', gen_map_file, '--outPrefix', '{}_cohort_{}.eagle_phased'.format(proband_name, contig_name),
                             '--numThreads', job.cores, '--vcfRef', os.path.basename(eagle_vcf_path), '--vcfTarget', os.path.basename(contig_vcf_path),
                             '--chrom', contig_name], work_dir = work_dir, tool_name='eagle')
     
@@ -895,9 +898,9 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
         genetic_map_path = os.path.join(work_dir, os.path.basename(genetic_map_id))
         job.fileStore.readGlobalFile(genetic_map_id, genetic_map_path)
         context.runner.call(job, ['tar', '-xvf', os.path.basename(genetic_map_path)], work_dir = work_dir)
-        if contig_name not in ['X','Y', 'MT', 'ABOlocus']:
+        if contig_name not in ['X','Y', 'MT', 'ABOlocus', 'chrX', 'chrY', 'chrM']:
             command += ['--genmap', 'genetic_map_GRCh37/genetic_map_chr{}_combined_b37.txt'.format(contig_name), '--chromosome', contig_name]
-        elif contig_name == 'X':
+        elif contig_name in ['X', 'chrX']:
             command += ['--genmap', 'genetic_map_GRCh37/genetic_map_chrX_nonPAR_combined_b37.txt', '--chromosome', 'X']
 
     command += ['-o', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name), whatshap_input_file,
@@ -907,9 +910,9 @@ def run_whatshap_phasing(job, context, contig_vcf_id, contig_name, proband_name,
     # Filter for phased parental genotypes ONLY
     context.runner.call(job, ['bgzip', '{}_cohort_{}.phased.vcf'.format(proband_name, contig_name)], work_dir = work_dir, tool_name='whatshap')
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)], work_dir=work_dir)
-    if contig_name == "MT":
+    if contig_name in ['MT', 'chrM']:
         command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', maternal_name, '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
-    elif contig_name == "Y":
+    elif contig_name in ['Y', 'chrY']:
         command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', paternal_name, '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
     else:
         command = ['bcftools', 'view', '-Oz', '-r', contig_name, '-s', '{},{}'.format(maternal_name,paternal_name), '{}_cohort_{}.phased.vcf.gz'.format(proband_name, contig_name)]
@@ -976,9 +979,17 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
         for contig_id in contigs_list:
             eagle_file_id = None
             eagle_file_index_id = None
-            if contig_id not in ['Y', 'MT', 'ABOlocus']:
-                eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_id)))
-                eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_integrated.20130502.genotypes.bcf.csi'.format(contig_id)))
+            if '38' in os.path.basename(ref_fasta_id):
+                if contig_id in ['chrX']:
+                    eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data_grch38/CCDG_14151_B01_GRM_WGS_2020-08-05_{}.filtered.eagle2-phased.bcf'.format(contig_id)))
+                    eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data_grch38/CCDG_14151_B01_GRM_WGS_2020-08-05_{}.filtered.eagle2-phased.bcf.csi'.format(contig_id)))
+                elif contig_id not in ['chrY', 'chrM']:
+                    eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data_grch38/CCDG_14151_B01_GRM_WGS_2020-08-05_{}.filtered.shapeit2-duohmm-phased.bcf'.format(contig_id)))
+                    eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data_grch38/CCDG_14151_B01_GRM_WGS_2020-08-05_{}.filtered.shapeit2-duohmm-phased.bcf.csi'.format(contig_id)))
+            else:
+                if contig_id not in ['Y', 'MT', 'ABOlocus']:
+                    eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_integrated.20130502.genotypes.bcf'.format(contig_id)))
+                    eagle_file_index_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data/ALL.chr{}.phase3_integrated.20130502.genotypes.bcf.csi'.format(contig_id)))
             phasing_job = phasing_jobs.addChildJobFn(run_whatshap_phasing, context, split_jointcalled_vcf_job.rv(contig_id), contig_id, proband_name, maternal_name, paternal_name,
                                                         proband_bam_id, proband_bam_index_id,
                                                         maternal_bam_id, maternal_bam_index_id,
@@ -1005,7 +1016,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
 def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id, contig_vcf_gz_id_list,
                                     use_haplotypes=False, use_decoys=False, 
                                     contigs_list=["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y","MT"],
-                                    decoy_regex=">GL\|>NC_007605\|>hs37d5"):
+                                    decoy_regex=">GL\|>NC_007605\|>hs37d5\|>hs38d1_decoys\|>chrEBV\|>chrUn\|>chr\([1-2][1-9]\|[1-9]\|Y\)_"):
     # we make a sub job tree so that all graph construction and indexing is encapsulated in a top-level job
     RealtimeLogger.info("Running run_construct_index_workflow")
     construct_jobs = Job()
@@ -1174,7 +1185,7 @@ def run_prune_graph_subworkflow(job, context, options, contig_vg_ids):
     
     return prune_graph_ids
 
-def run_extract_decoys(job, context, options, ref_fasta_id, decoy_regex='\'>GL|>NC_007605|>hs37d5\''):
+def run_extract_decoys(job, context, options, ref_fasta_id, decoy_regex='\'>GL|>NC_007605|>hs37d5|>hs38d1_decoys|>chrEBV|>chrUn|>chr([1-2][1-9]|[1-9]|Y)_\''):
     RealtimeLogger.info("Running run_extract_decoys")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -1241,7 +1252,7 @@ def run_combine_graphs(job, context, options, graph_name, contigs_vg_id_list, de
         contig_vg_path = os.path.join(work_dir, os.path.basename(contig_vg_id))
         job.fileStore.readGlobalFile(contig_vg_id, contig_vg_path)
         contig_name = os.path.splitext(os.path.basename(contig_vg_path))[0]
-        if ("GL" in contig_name) or ("NC_007605" in contig_name) or ("hs37d5" in contig_name):
+        if ("GL" in contig_name) or ("NC_007605" in contig_name) or ("hs37d5" in contig_name) or ("KI" in contig_name) or ("chrEBV" in contig_name) or ("chrUn" in contig_name) or ("hs38d1_decoys" in contig_name):
             decoy_contigs_uid_vg.append(contig_vg_id)
         else:
             contigs_uid_vg.append(contig_vg_id)
