@@ -635,6 +635,66 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
     else:
         return (merge_chr_bams_job.rv(0), merge_chr_bams_job.rv(1), output_gvcf_id, output_gvcf_index_id)
 
+def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                dragen_ref_index_name=None, udp_data_dir=None, helix_username=None):
+    """
+    Call all the chromosomes for the trio using DeepVariant Trio caller and return a merged up gvcf vcf/tbi pair
+    """
+    RealtimeLogger.info("Starting gvcf calling pipeline for sample: {}".format(sample_name))
+    vcf_ids = []
+    tbi_ids = []
+    processed_bam_ids = []
+    # Write bams to final outstore only if not also doing indel realignment
+    if options.indel_realign_bams:
+        write_to_outstore = False
+    else:
+        write_to_outstore = True
+
+    # If running without dragen then
+    child_job = Job()
+    job.addChild(child_job)
+    if options.caller == 'gatk':
+        for chr_bam_id in chr_bam_ids:
+            call_job = child_job.addChildJobFn(run_gatk_haplotypecaller_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
+            vcf_ids.append(call_job.rv(0))
+            tbi_ids.append(call_job.rv(1))
+            processed_bam_ids.append(call_job.rv(2))
+    elif options.caller == 'deepvaraint':
+        for chr_bam_id in chr_bam_ids:
+            call_job = child_job.addChildJobFn(run_deepvariant_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
+            vcf_ids.append(call_job.rv(0))
+            tbi_ids.append(call_job.rv(1))
+            processed_bam_ids.append(call_job.rv(2))
+    elif options.caller == 'dragen':
+        for chr_bam_id in chr_bam_ids:
+            process_bam_job = child_job.addChildJobFn(run_process_chr_bam, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                            cores=context.config.alignment_cores, memory="{}G".format(int(int(re.findall(r'\d+', context.config.alignment_mem)[0])*1.5)), disk="{}G".format(int(re.findall(r'\d+', context.config.alignment_disk)[0])*4))
+            processed_bam_ids.append(process_bam_job.rv())
+
+    # Run merging of crhomosomal bams
+    merge_chr_bams_job = child_job.addFollowOnJobFn(run_merge_bams_ped_workflow, context, sample_name, processed_bam_ids, False, write_to_outstore,
+                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
+
+    # Run gvcf concatenation
+    # If using the Illumina Dragen module for the NIH Biowulf system, then instead run that on the processed merged bam file
+    output_gvcf_id = None
+    output_gvcf_index_id = None
+    if options.caller == 'gatk' or options.caller == 'deepvariant':
+        concat_job = merge_chr_bams_job.addChildJobFn(run_concat_vcfs, context, sample_name, vcf_ids, tbi_ids, write_to_outstore = True)
+        output_gvcf_id = concat_job.rv(0)
+        output_gvcf_index_id = concat_job.rv(1)
+    elif options.caller == 'dragen':
+        dragen_job = merge_chr_bams_job.addChildJobFn(run_dragen_gvcf, context, sample_name, merge_chr_bams_job.rv(0), dragen_ref_index_name, udp_data_dir, helix_username, write_to_outstore = True)
+        output_gvcf_id = dragen_job.rv(0)
+        output_gvcf_index_id = dragen_job.rv(1)
+
+    if options.indel_realign_bams:
+        return (merge_chr_bams_job.rv(0), merge_chr_bams_job.rv(1), output_gvcf_id, output_gvcf_index_id, processed_bam_ids)
+    else:
+        return (merge_chr_bams_job.rv(0), merge_chr_bams_job.rv(1), output_gvcf_id, output_gvcf_index_id)
+
 def run_joint_genotyper(job, context, options, sample_name, proband_gvcf_id, proband_gvcf_index_id,
                                     maternal_gvcf_id, maternal_gvcf_index_id,
                                     paternal_gvcf_id, paternal_gvcf_index_id,
@@ -1707,13 +1767,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
-    proband_calling_job = proband_first_mapping_job.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
-                                proband_name, proband_first_mapping_job.rv(2), 
-                                ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
-                                dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
-                                cores=context.config.misc_cores,
-                                memory=context.config.misc_mem,
-                                disk=context.config.misc_disk)
     
     # Define the maternal alignment and variant calling jobs
     maternal_mapping_job = stage1_jobs.addChildJobFn(run_mapping, context, fastq_maternal,
@@ -1726,13 +1779,6 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
-    maternal_calling_job = maternal_mapping_job.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
-                                maternal_name, maternal_mapping_job.rv(2),
-                                ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
-                                dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
-                                cores=context.config.misc_cores,
-                                memory=context.config.misc_mem,
-                                disk=context.config.misc_disk)
     
     # Define the paternal alignment and variant calling jobs
     paternal_mapping_job = stage1_jobs.addChildJobFn(run_mapping, context, fastq_paternal,
@@ -1745,13 +1791,41 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
-    paternal_calling_job = paternal_mapping_job.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
-                                paternal_name, paternal_mapping_job.rv(2),
-                                ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
-                                dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
-                                cores=context.config.misc_cores,
-                                memory=context.config.misc_mem,
-                                disk=context.config.misc_disk)
+    # Run Trio variant calling
+    if options.caller == 'deepvariant':
+        # Run DeepTrio on proband, maternal, paternal reads simultaneously and merge into whole genome GVCFs
+        trio_calling_job = proband_first_mapping_job.addFollowOnJobFn(run_pipeline_deepvariant_trio_call_gvcfs, context, options,
+                                    proband_name, maternal_name, paternal_name
+                                    proband_first_mapping_job.rv(2), maternal_mapping_job.rv(2), paternal_mapping_job.rv(2),
+                                    ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                    cores=context.config.misc_cores,
+                                    memory=context.config.misc_mem,
+                                    disk=context.config.misc_disk)
+        maternal_mapping_job.addFollowOnJobFn(trio_calling_job)
+        paternal_mapping_job.addFollowOnJobFn(trio_calling_job)
+    else:
+        #Run variant calling on individuals
+        proband_calling_job = proband_first_mapping_job.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                    proband_name, proband_first_mapping_job.rv(2), 
+                                    ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                    dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
+                                    cores=context.config.misc_cores,
+                                    memory=context.config.misc_mem,
+                                    disk=context.config.misc_disk)
+        maternal_calling_job = maternal_mapping_job.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                    maternal_name, maternal_mapping_job.rv(2),
+                                    ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                    dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
+                                    cores=context.config.misc_cores,
+                                    memory=context.config.misc_mem,
+                                    disk=context.config.misc_disk)
+        paternal_calling_job = paternal_mapping_job.addFollowOnJobFn(run_pipeline_call_gvcfs, context, options,
+                                    paternal_name, paternal_mapping_job.rv(2),
+                                    ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                    dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
+                                    cores=context.config.misc_cores,
+                                    memory=context.config.misc_mem,
+                                    disk=context.config.misc_disk)
     
     joint_calling_job = stage2_jobs.addChildJobFn(run_joint_genotyper, context, options, proband_name,
                                 proband_calling_job.rv(2), proband_calling_job.rv(3),
@@ -1868,12 +1942,19 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                         memory=context.config.calling_mem,
                                         disk=context.config.calling_disk)
     
-    if indel_realign_bams:
-        indel_realign_job = stage4_jobs.addChildJobFn(run_cohort_indel_realign_pipeline, context, options,
-                                                                proband_name, maternal_name, paternal_name,
-                                                                proband_parental_calling_job.rv(4), maternal_calling_job.rv(4), paternal_calling_job.rv(4),
-                                                                misc_file_ids['path_list'], ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
-                                                                siblings_names=siblings_names, sibling_mapping_chr_bam_ids_dict=sibling_mapping_chr_bam_ids_dict)
+    if indel_realign_bams not options.caller == 'deepvaraint':
+        if not options.caller == 'deepvaraint'
+            indel_realign_job = stage4_jobs.addChildJobFn(run_cohort_indel_realign_pipeline, context, options,
+                                                                    proband_name, maternal_name, paternal_name,
+                                                                    proband_parental_calling_job.rv(4), maternal_calling_job.rv(4), paternal_calling_job.rv(4),
+                                                                    misc_file_ids['path_list'], ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                                                    siblings_names=siblings_names, sibling_mapping_chr_bam_ids_dict=sibling_mapping_chr_bam_ids_dict)
+        else:
+            indel_realign_job = stage4_jobs.addChildJobFn(run_cohort_indel_realign_pipeline, context, options,
+                                                                    proband_name,
+                                                                    proband_parental_calling_job.rv(4),
+                                                                    misc_file_ids['path_list'], ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
+                                                                    siblings_names=siblings_names, sibling_mapping_chr_bam_ids_dict=sibling_mapping_chr_bam_ids_dict)
     if snpeff_annotation:
         snpeff_job = pedigree_joint_call_job.addFollowOnJobFn(run_snpEff_annotation, context,
                                                         proband_name, pedigree_joint_call_job.rv(0),
@@ -1916,17 +1997,29 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         final_sibling_gvcf_list = sibling_call_gvcf_ids
         final_sibling_gvcf_index_list = sibling_call_gvcf_index_ids
     
-    if indel_realign_bams:
-        final_proband_bam = indel_realign_job.rv(0)
-        final_proband_bam_index = indel_realign_job.rv(1)
-        final_maternal_bam = indel_realign_job.rv(2)
-        final_maternal_bam_index = indel_realign_job.rv(3)
-        final_paternal_bam = indel_realign_job.rv(4)
-        final_paternal_bam_index = indel_realign_job.rv(5)
-        final_sibling_bam_list_job = indel_realign_job.addFollowOnJobFn(run_collect_sibling_indel_realigned_bams, context, options,
-                                                                        final_proband_bam, final_proband_bam_index,
-                                                                        indel_realign_job.rv(6))
-    
+    if indel_realign_bams and not options.caller == 'deepvaraint':
+        if not options.caller == 'deepvaraint'
+            final_proband_bam = indel_realign_job.rv(0)
+            final_proband_bam_index = indel_realign_job.rv(1)
+            final_maternal_bam = indel_realign_job.rv(2)
+            final_maternal_bam_index = indel_realign_job.rv(3)
+            final_paternal_bam = indel_realign_job.rv(4)
+            final_paternal_bam_index = indel_realign_job.rv(5)
+            final_sibling_bam_list_job = indel_realign_job.addFollowOnJobFn(run_collect_sibling_indel_realigned_bams, context, options,
+                                                                            final_proband_bam, final_proband_bam_index,
+                                                                            indel_realign_job.rv(6))
+        else:
+            final_proband_bam = indel_realign_job.rv(0)
+            final_proband_bam_index = indel_realign_job.rv(1)
+            final_maternal_bam = trio_calling_job.rv(something)
+            final_maternal_bam_index = trio_calling_job.rv(something)
+            final_paternal_bam = trio_calling_job.rv(something)
+            final_paternal_bam_index = trio_calling_job.rv(something)
+            final_sibling_bam_list_job = indel_realign_job.addFollowOnJobFn(run_collect_sibling_indel_realigned_bams, context, options,
+                                                                            final_proband_bam, final_proband_bam_index,
+                                                                            indel_realign_job.rv(6))
+            
+            
     # Run analysis workflow
     if options.run_analysis:
         joined_sibling_names = [proband_name]
