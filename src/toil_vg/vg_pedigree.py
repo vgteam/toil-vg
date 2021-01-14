@@ -635,65 +635,133 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
     else:
         return (merge_chr_bams_job.rv(0), merge_chr_bams_job.rv(1), output_gvcf_id, output_gvcf_index_id)
 
-def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                dragen_ref_index_name=None, udp_data_dir=None, helix_username=None):
+def run_deepTrio_gvcf(job, context, options,
+                        proband_name, maternal_name, paternal_name, 
+                        proband_chr_bam_id, maternal_chr_bam_id, paternal_chr_bam_id,
+                        ref_fasta_id, ref_fasta_index_id):
+    """
+    Realign trio chromosome BAMs and run DeepTrio on them.
+    """
+    RealtimeLogger.info("Starting gvcf DeepTrio calling for trio")
+    start_time = timeit.default_timer()
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the trio bams
+    proband_bam_path = os.path.join(work_dir, os.path.basename(proband_chr_bam_id))
+    job.fileStore.readGlobalFile(proband_chr_bam_id, proband_bam_path)
+    maternal_bam_path = os.path.join(work_dir, os.path.basename(maternal_chr_bam_id))
+    job.fileStore.readGlobalFile(maternal_chr_bam_id, maternal_bam_path)
+    paternal_bam_path = os.path.join(work_dir, os.path.basename(paternal_chr_bam_id))
+    job.fileStore.readGlobalFile(paternal_chr_bam_id, paternal_bam_path)
+    
+    ref_fasta_name = os.path.basename(ref_fasta_id)
+    # Extract contig name
+    if '38' in ref_fasta_name:
+        contig_name = re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
+    else:
+        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
+    command = ['samtools', 'index', '{}_gatk.bam'.format(sample_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
+    run_gatk_haplotypecaller_gvcf 
+
+def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
+                                proband_name, maternal_name, paternal_name, 
+                                proband_chr_bam_ids, maternal_chr_bam_ids, paternal_chr_bam_ids,
+                                ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id)
     """
     Call all the chromosomes for the trio using DeepVariant Trio caller and return a merged up gvcf vcf/tbi pair
     """
-    RealtimeLogger.info("Starting gvcf calling pipeline for sample: {}".format(sample_name))
-    vcf_ids = []
-    tbi_ids = []
-    processed_bam_ids = []
-    # Write bams to final outstore only if not also doing indel realignment
-    if options.indel_realign_bams:
-        write_to_outstore = False
-    else:
-        write_to_outstore = True
-
-    # If running without dragen then
+    RealtimeLogger.info("Starting gvcf calling pipeline for proband, maternal, paternal trio: {}, {}, {}".format(proband_name,maternal_name,paternal_name))
     child_job = Job()
     job.addChild(child_job)
-    if options.caller == 'gatk':
-        for chr_bam_id in chr_bam_ids:
-            call_job = child_job.addChildJobFn(run_gatk_haplotypecaller_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
-            vcf_ids.append(call_job.rv(0))
-            tbi_ids.append(call_job.rv(1))
-            processed_bam_ids.append(call_job.rv(2))
-    elif options.caller == 'deepvaraint':
-        for chr_bam_id in chr_bam_ids:
-            call_job = child_job.addChildJobFn(run_deepvariant_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
-            vcf_ids.append(call_job.rv(0))
-            tbi_ids.append(call_job.rv(1))
-            processed_bam_ids.append(call_job.rv(2))
-    elif options.caller == 'dragen':
-        for chr_bam_id in chr_bam_ids:
-            process_bam_job = child_job.addChildJobFn(run_process_chr_bam, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                            cores=context.config.alignment_cores, memory="{}G".format(int(int(re.findall(r'\d+', context.config.alignment_mem)[0])*1.5)), disk="{}G".format(int(re.findall(r'\d+', context.config.alignment_disk)[0])*4))
-            processed_bam_ids.append(process_bam_job.rv())
+    proband_vcf_ids = []
+    proband_tbi_ids = []
+    proband_realign_bam_ids = []
+    maternal_vcf_ids = []
+    maternal_tbi_ids = []
+    maternal_realign_bam_ids = []
+    paternal_vcf_ids = []
+    paternal_tbi_ids = []
+    paternal_realign_bam_ids = []
+        sibling_root_job_dict =  {}
+        sibling_indel_realign_job_dict = {}
+        sibling_merge_bam_ids_list = []
+        for sibling_name in siblings_names:
+            # Dynamically allocate sibling indel realignment jobs to overall workflow structure
+            sibling_root_job_dict[sibling_name] = Job()
+            job.addChild(sibling_root_job_dict[sibling_name])
+            sibling_chr_bam_indel_realign_output = []
+    
+    for proband_chr_bam, maternal_chr_bam, paternal_chr_bam in zip(proband_chr_bam_ids, maternal_chr_bam_ids, paternal_chr_bam_ids):
+        chr_jobs = Job()
+        child_job.addChild(chr_jobs)
+        proband_chr_bam_indel_realign_job = chr_jobs.addChildJobFn(run_indel_realignment, context,
+                                                                proband_name, proband_chr_bam_id,
+                                                                ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.alignment_disk)
+        proband_realign_bam_ids.append(proband_chr_bam_indel_realign_job.rv())
+        
+        maternal_chr_bam_indel_realign_job = chr_jobs.addChildJobFn(run_indel_realignment, context,
+                                                                maternal_name, maternal_chr_bam_id,
+                                                                ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.alignment_disk)
+        maternal_realign_bam_ids.append(maternal_chr_bam_indel_realign_job.rv())
+        
+        paternal_chr_bam_indel_realign_job = chr_jobs.addChildJobFn(run_indel_realignment, context,
+                                                                paternal_name, paternal_chr_bam_id,
+                                                                ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.alignment_disk)
+        paternal_realign_bam_ids.append(paternal_chr_bam_indel_realign_job.rv())
+        
+        call_trio_job = chr_jobs.addFollowOnJobFn(run_deepTrio_gvcf, context,
+                                                                proband_name, maternal_name, paternal_name, 
+                                                                proband_chr_bam_indel_realign_job.rv(), maternal_chr_bam_indel_realign_job.rv(), paternal_chr_bam_indel_realign_job.rv(),
+                                                                ref_fasta_id, ref_fasta_index_id,
+                                                                cores=context.config.alignment_cores,
+                                                                memory=context.config.alignment_mem,
+                                                                disk=context.config.alignment_disk)
+        proband_vcf_ids.append(call_trio_job.rv(0))
+        maternal_vcf_ids.append(call_trio_job.rv(1))
+        paternal_vcf_ids.append(call_trio_job.rv(2))
+        proband_tbi_ids.append(call_trio_job.rv(3))
+        maternal_tbi_ids.append(call_trio_job.rv(4))
+        paternal_tbi_ids.append(call_trio_job.rv(5))
+    
+    merge_chr_bams_jobs = Job()
+    child_job.addFollowOn(merge_chr_bams_jobs)
+    maternal_merge_bams_job = merge_chr_bams_jobs.addChildJobFn(run_merge_bams_ped_workflow, context,
+                                                                    maternal_name, maternal_realign_bam_ids,
+                                                                    False, write_to_outstore=True,
+                                                                    cores=context.config.alignment_cores,
+                                                                    memory=context.config.alignment_mem,
+                                                                    disk=context.config.alignment_disk)
+    paternal_merge_bams_job = merge_chr_bams_jobs.addChildJobFn(run_merge_bams_ped_workflow, context,
+                                                                    paternal_name, paternal_realign_bam_ids,
+                                                                    False, write_to_outstore=True,
+                                                                    cores=context.config.alignment_cores,
+                                                                    memory=context.config.alignment_mem,
+                                                                    disk=context.config.alignment_disk)
 
-    # Run merging of crhomosomal bams
-    merge_chr_bams_job = child_job.addFollowOnJobFn(run_merge_bams_ped_workflow, context, sample_name, processed_bam_ids, False, write_to_outstore,
-                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
-
-    # Run gvcf concatenation
-    # If using the Illumina Dragen module for the NIH Biowulf system, then instead run that on the processed merged bam file
-    output_gvcf_id = None
-    output_gvcf_index_id = None
-    if options.caller == 'gatk' or options.caller == 'deepvariant':
-        concat_job = merge_chr_bams_job.addChildJobFn(run_concat_vcfs, context, sample_name, vcf_ids, tbi_ids, write_to_outstore = True)
-        output_gvcf_id = concat_job.rv(0)
-        output_gvcf_index_id = concat_job.rv(1)
-    elif options.caller == 'dragen':
-        dragen_job = merge_chr_bams_job.addChildJobFn(run_dragen_gvcf, context, sample_name, merge_chr_bams_job.rv(0), dragen_ref_index_name, udp_data_dir, helix_username, write_to_outstore = True)
-        output_gvcf_id = dragen_job.rv(0)
-        output_gvcf_index_id = dragen_job.rv(1)
-
-    if options.indel_realign_bams:
-        return (merge_chr_bams_job.rv(0), merge_chr_bams_job.rv(1), output_gvcf_id, output_gvcf_index_id, processed_bam_ids)
-    else:
-        return (merge_chr_bams_job.rv(0), merge_chr_bams_job.rv(1), output_gvcf_id, output_gvcf_index_id)
+    merge_chr_gvcfs_jobs = Job()
+    child_job.addFollowOn(merge_chr_gvcfs_jobs)
+    proband_merge_gvcfs_job = merge_chr_gvcfs_jobs.addChildJobFn(run_concat_vcfs, context,
+                                                                proband_name, proband_vcf_ids, proband_tbi_ids, write_to_outstore = True)
+    maternal_merge_gvcfs_job = merge_chr_gvcfs_jobs.addChildJobFn(run_concat_vcfs, context,
+                                                                maternal_name, maternal_vcf_ids, maternal_tbi_ids, write_to_outstore = True)
+    paternal_merge_gvcfs_job = merge_chr_gvcfs_jobs.addChildJobFn(run_concat_vcfs, context,
+                                                                paternal_name, paternal_vcf_ids, paternal_tbi_ids, write_to_outstore = True)
+    output_gvcf_id = proband_merge_gvcfs_job.rv(0)
+    output_gvcf_index_id = proband_merge_gvcfs_job.rv(1)
+    
+    return (merge_chr_bams_job.rv(0), merge_chr_bams_job.rv(1), output_gvcf_id, output_gvcf_index_id)
 
 def run_joint_genotyper(job, context, options, sample_name, proband_gvcf_id, proband_gvcf_index_id,
                                     maternal_gvcf_id, maternal_gvcf_index_id,
@@ -1561,7 +1629,7 @@ def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff
     
     return (snpeff_annotated_vcf_file_id, snpeff_annotated_vcf_index_file_id)
 
-def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id):
+def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id, abra_realign=False):
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -1587,12 +1655,23 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
                '-nt', str(job.cores), '-R', os.path.basename(ref_fasta_path), '-I', os.path.basename(sample_bam_path),
                '--out', 'forIndelRealigner.intervals']
     context.runner.call(job, command, work_dir = work_dir, tool_name='gatk3')
-    command = ['java', '-jar', '/usr/GenomeAnalysisTK.jar', '-T', 'IndelRealigner',
-               '--remove_program_records', '-drf', 'DuplicateRead', '--disable_bam_indexing',
-               '-R', os.path.basename(ref_fasta_path), '-I', os.path.basename(sample_bam_path),
-               '--targetIntervals', 'forIndelRealigner.intervals',
-               '--out', '{}.indel_realigned.bam'.format(sample_name)]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='gatk3')
+    if not abra_realign:
+        command = ['java', '-jar', '/usr/GenomeAnalysisTK.jar', '-T', 'IndelRealigner',
+                   '--remove_program_records', '-drf', 'DuplicateRead', '--disable_bam_indexing',
+                   '-R', os.path.basename(ref_fasta_path), '-I', os.path.basename(sample_bam_path),
+                   '--targetIntervals', 'forIndelRealigner.intervals',
+                   '--out', '{}.indel_realigned.bam'.format(sample_name)]
+        context.runner.call(job, command, work_dir = work_dir, tool_name='gatk3')
+    else:
+        command = ['awk', '-F', '\"[:-]\"', '\"BEGIN { OFS = "\t" } { if( $3 == "") { print $1, $2-1, $2 } else { print $1, $2-1, $3}}\"', 'forIndelRealigner.intervals', '>', 'forIndelRealigner.intervals.bed' ]
+        context.runner.call(job, command, work_dir = work_dir)
+        command = ['java', '-Xmx{}'.format(job.memory), '-jar', '/opt/abra2/abra2.jar',
+                    '--targets', 'forIndelRealigner.intervals.bed',
+                    '--in', os.path.basename(sample_bam_path),
+                    '--out', '{}.indel_realigned.bam'.format(sample_name),
+                    '--ref', os.path.basename(ref_fasta_path),
+                    '--threads', str(job.cores)]
+        context.runner.call(job, command, work_dir = work_dir, tool_name='abra2')
     cmd_list = []
     cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM',
                '{}.indel_realigned.bam'.format(sample_name)])
