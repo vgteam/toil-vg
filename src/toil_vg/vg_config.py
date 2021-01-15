@@ -248,6 +248,12 @@ deepvariant-docker: 'google/deepvariant:1.0.0'
 # Docker image to use for glnexus
 glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
 
+# Docker image to use for abra2
+abra2-docker: 'dceoy/abra2:latest'
+
+# Docker image to use for deeptrio
+deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'
+
 ##############################
 ### vg_construct Arguments ###
 
@@ -563,6 +569,12 @@ deepvariant-docker: 'google/deepvariant:1.0.0'
 
 # Docker image to use for glnexus
 glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
+
+# Docker image to use for abra2
+abra2-docker: 'dceoy/abra2:latest'
+
+# Docker image to use for deeptrio
+deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'
 
 ##############################
 ### vg_construct Arguments ###

@@ -127,7 +127,8 @@ def get_container_tool_map(options):
     cmap[0]['vt'] = options.vt_docker
     cmap[0]['deepvariant'] = options.deepvariant_docker
     cmap[0]['glnexus'] = options.glnexus_docker
-    
+    cmap[0]['abra2'] = options.abra2_docker
+    cmap[0]['deeptrio'] = options.deeptrio_docker
     # to do: could be a good place to do an existence check on these tools
     
     return cmap
