@@ -577,7 +577,8 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             vg_parts += [input_flag, os.path.basename(reads_file)]
         
         vg_parts += ['-t', str(context.config.alignment_cores)]
-
+        vg_parts += ['-R', 'SM:{}'.format(sample_name)]
+        
         # Override the -i flag in args with the --interleaved command-line flag
         if interleaved is True and '-i' not in vg_parts and '--interleaved' not in vg_parts:
             vg_parts += ['-i']

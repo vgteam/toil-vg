@@ -297,7 +297,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     
     # Extract contig name
     if '38' in ref_fasta_name:
-        contig_name = re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
+        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1))
     else:
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
     
@@ -372,7 +372,7 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
     
     # Extract contig name
     if '38' in ref_fasta_name:
-        contig_name = re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
+        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1))
     else:
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
     
@@ -670,17 +670,17 @@ def run_deepTrio_gvcf(job, context, options,
     
     # Extract contig name
     if '38' in ref_fasta_name:
-        contig_name = re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
+        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1))
     else:
-        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
-    command = ['samtools', 'index', '--threads', str(job.cores()), os.path.basename(proband_bam_path)]
+        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1)
+    command = ['samtools', 'index', '-@', str(job.cores), os.path.basename(proband_bam_path)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    command = ['samtools', 'index', '--threads', str(job.cores()), os.path.basename(maternal_bam_path)]
+    command = ['samtools', 'index', '-@', str(job.cores), os.path.basename(maternal_bam_path)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    command = ['samtools', 'index', '--threads', str(job.cores()), os.path.basename(paternal_bam_path)]
+    command = ['samtools', 'index', '-@', str(job.cores), os.path.basename(paternal_bam_path)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['/opt/deepvariant/bin/deeptrio/run_deeptrio', 
-               '--make_examples_extra_args', '\'min_mapping_quality=1\'',
+               '--make_examples_extra_args', 'min_mapping_quality=1',
                '--num_shards', str(job.cores),
                '--model_type', 'WGS',
                '--regions', contig_name,
@@ -701,12 +701,12 @@ def run_deepTrio_gvcf(job, context, options,
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}.gvcf.gz'.format(proband_name)], work_dir=work_dir)
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}.gvcf.gz'.format(maternal_name)], work_dir=work_dir)
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}.gvcf.gz'.format(paternal_name)], work_dir=work_dir)
-    proband_gvcf_file_id = context.write_output_file(job, '{}.gvcf.gz'.format(proband_name))
-    proband_gvcf_index_file_id = context.write_output_file(job, '{}.gvcf.gz.tbi'.format(proband_name))
-    maternal_gvcf_file_id = context.write_output_file(job, '{}.gvcf.gz'.format(maternal_name))
-    maternal_gvcf_index_file_id = context.write_output_file(job, '{}.gvcf.gz.tbi'.format(maternal_name))
-    paternal_gvcf_file_id = context.write_output_file(job, '{}.gvcf.gz'.format(paternal_name))
-    paternal_gvcf_index_file_id = context.write_output_file(job, '{}.gvcf.gz.tbi'.format(paternal_name))
+    proband_gvcf_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gvcf.gz'.format(proband_name)))
+    proband_gvcf_index_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gvcf.gz.tbi'.format(proband_name)))
+    maternal_gvcf_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gvcf.gz'.format(maternal_name)))
+    maternal_gvcf_index_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gvcf.gz.tbi'.format(maternal_name)))
+    paternal_gvcf_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gvcf.gz'.format(paternal_name)))
+    paternal_gvcf_index_file_id = context.write_output_file(job, os.path.join(work_dir, '{}.gvcf.gz.tbi'.format(paternal_name)))
     
     return (proband_gvcf_file_id, proband_gvcf_index_file_id, maternal_gvcf_file_id, maternal_gvcf_index_file_id, paternal_gvcf_file_id, paternal_gvcf_index_file_id)
      
@@ -761,7 +761,7 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
                                                                 disk=context.config.alignment_disk)
         paternal_realign_bam_ids.append(paternal_chr_bam_indel_realign_job.rv())
         
-        call_trio_job = chr_jobs.addFollowOnJobFn(run_deepTrio_gvcf, context,
+        call_trio_job = chr_jobs.addFollowOnJobFn(run_deepTrio_gvcf, context, options,
                                                                 proband_name, maternal_name, paternal_name, 
                                                                 proband_chr_bam_indel_realign_job.rv(), maternal_chr_bam_indel_realign_job.rv(), paternal_chr_bam_indel_realign_job.rv(),
                                                                 ref_fasta_id, ref_fasta_index_id,
@@ -858,12 +858,6 @@ def run_joint_genotyper(job, context, options, sample_name, proband_gvcf_id, pro
     
     ref_fasta_dict_path = os.path.join(work_dir, '{}.dict'.format(os.path.splitext(ref_fasta_name)[0]))
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
-    
-    # Extract contig name
-    if '38' in ref_fasta_name:
-        contig_name = re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
-    else:
-        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
     
     sibling_options_list = []
     if sibling_call_gvcf_ids is not None and sibling_call_gvcf_index_ids is not None:
@@ -1698,7 +1692,8 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
-    sample_bam_path = os.path.join(work_dir, os.path.basename(sample_bam_id))
+    bam_name = os.path.basename(sample_bam_id)
+    sample_bam_path = os.path.join(work_dir, bam_name)
     job.fileStore.readGlobalFile(sample_bam_id, sample_bam_path)
     
     ref_fasta_name = os.path.basename(ref_fasta_id)
@@ -1711,27 +1706,42 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     ref_fasta_dict_path = os.path.join(work_dir, '{}.dict'.format(os.path.splitext(ref_fasta_name)[0]))
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
+    # Extract contig name
+    if '38' in ref_fasta_name:
+        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1))
+    else:
+        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|ABOlocus)', bam_name).group(1)
     
-    command = ['samtools', 'index', os.path.basename(sample_bam_path)]
+    command = ['samtools', 'addreplacerg', '-O', 'BAM', '-@', str(job.cores), '-o', '{}_rg.bam'.format(sample_name),
+                '-r', 'ID:1', 
+                '-r', 'LB:lib1',
+                '-r', 'SM:{}'.format(sample_name),
+                '-r', 'PL:illumina',
+                '-r', 'PU:unit1',
+                os.path.basename(sample_bam_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
+    command = ['samtools', 'index', '-@', str(job.cores), '{}_rg.bam'.format(sample_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['java', '-jar', '/usr/GenomeAnalysisTK.jar', '-T', 'RealignerTargetCreator',
                '--remove_program_records', '-drf', 'DuplicateRead', '--disable_bam_indexing',
-               '-nt', str(job.cores), '-R', os.path.basename(ref_fasta_path), '-I', os.path.basename(sample_bam_path),
+               '-nt', str(job.cores), '-R', os.path.basename(ref_fasta_path), '-L', contig_name, '-I', '{}_rg.bam'.format(sample_name),
                '--out', 'forIndelRealigner.intervals']
     context.runner.call(job, command, work_dir = work_dir, tool_name='gatk3')
     if not abra_realign:
         command = ['java', '-jar', '/usr/GenomeAnalysisTK.jar', '-T', 'IndelRealigner',
                    '--remove_program_records', '-drf', 'DuplicateRead', '--disable_bam_indexing',
-                   '-R', os.path.basename(ref_fasta_path), '-I', os.path.basename(sample_bam_path),
+                   '-R', os.path.basename(ref_fasta_path), '-I', '{}_rg.bam'.format(sample_name),
                    '--targetIntervals', 'forIndelRealigner.intervals',
                    '--out', '{}.indel_realigned.bam'.format(sample_name)]
         context.runner.call(job, command, work_dir = work_dir, tool_name='gatk3')
     else:
-        command = ['awk', '-F', '\"[:-]\"', '\"BEGIN { OFS = "\t" } { if( $3 == "") { print $1, $2-1, $2 } else { print $1, $2-1, $3}}\"', 'forIndelRealigner.intervals', '>', 'forIndelRealigner.intervals.bed' ]
+        cmd_list = [['awk', '-F', '\'[:-]\'', '\'BEGIN { OFS = \"\t\" } { if( $3 == \"\") { print $1, $2-1, $2 } else { print $1, $2-1, $3}}\'', 'forIndelRealigner.intervals', '>', 'forIndelRealigner.intervals.bed']]
+        chain_cmds = [' '.join(p) for p in cmd_list]
+        command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
         context.runner.call(job, command, work_dir = work_dir)
         command = ['java', '-Xmx{}'.format(job.memory), '-jar', '/opt/abra2/abra2.jar',
                     '--targets', 'forIndelRealigner.intervals.bed',
-                    '--in', os.path.basename(sample_bam_path),
+                    '--in', '{}_rg.bam'.format(sample_name),
                     '--out', '{}.indel_realigned.bam'.format(sample_name),
                     '--ref', os.path.basename(ref_fasta_path),
                     '--threads', str(job.cores)]
@@ -1740,13 +1750,13 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM',
                '{}.indel_realigned.bam'.format(sample_name)])
     cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
-    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(os.path.basename(sample_bam_id))), 'wb') as output_indel_realigned_bam:
+    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.{}.bam'.format(bam_name, sample_name)), 'wb') as output_indel_realigned_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_indel_realigned_bam)
     
     # Delete input files
     job.fileStore.deleteGlobalFile(sample_bam_id)
     
-    return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.bam'.format(os.path.basename(sample_bam_id))))
+    return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.{}.bam'.format(bam_name, sample_name)))
 
 def run_cohort_indel_realign_pipeline(job, context, options, proband_name, maternal_name, paternal_name,
                                         proband_chr_bam_ids, maternal_chr_bam_ids, paternal_chr_bam_ids,
