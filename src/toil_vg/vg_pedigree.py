@@ -763,7 +763,7 @@ def run_deeptrio_make_examples(job, context, options,
     return (proband_examples_file_id, proband_nonvariant_site_tf_file_id, paternal_examples_file_id, paternal_nonvariant_site_tf_file_id, maternal_examples_file_id, maternal_nonvariant_site_tf_file_id)
 
 def run_deeptrio_call_variants(job, context, options,
-                                sample_name, contig_name
+                                sample_name, contig_name,
                                 ref_fasta_id, ref_fasta_index_id,
                                 examples_file_id, nonvariant_site_tf_file_id, child=False):
     """
