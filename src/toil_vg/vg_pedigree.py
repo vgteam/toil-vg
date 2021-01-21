@@ -649,7 +649,7 @@ def run_deepTrio_gvcf(job, context, options,
     Realign trio chromosome BAMs and run DeepTrio on them.
     """
     # Extract contig name
-    if '38' in ref_fasta_name:
+    if '38' in os.path.basename(ref_fasta_id):
         contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1))
     else:
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1)
@@ -732,7 +732,8 @@ def run_deeptrio_make_examples(job, context, options,
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
     command = ['samtools', 'index', '-@', str(job.cores), os.path.basename(paternal_bam_path)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    cmd_list = ['seq', '0', '{}'.format(str(int(job.cores)-1))]
+    cmd_list = []
+    cmd_list.append(['seq', '0', '{}'.format(str(int(job.cores)-1))])
     cmd_list.append(['parallel', '-q', '--halt', '2', '--line-buffer', '/opt/deepvariant/bin/deeptrio/make_examples',
                       '--mode', 'calling',
                       '--ref', os.path.basename(ref_fasta_path),
