@@ -670,21 +670,21 @@ def run_deepTrio_gvcf(job, context, options,
     child_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
                                                                 proband_name, contig_name,
                                                                 ref_fasta_id, ref_fasta_index_id,
-                                                                make_examples_job.rv(0), make_examples_job.rv(1), child=True,
+                                                                make_examples_job.rv(0), make_examples_job.rv(1),
                                                                 cores=context.config.alignment_cores,
                                                                 memory=context.config.alignment_mem,
                                                                 disk=context.config.alignment_disk)
     parent1_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
                                                                 paternal_name, contig_name,
                                                                 ref_fasta_id, ref_fasta_index_id,
-                                                                make_examples_job.rv(2), make_examples_job.rv(3), child=False,
+                                                                make_examples_job.rv(2), make_examples_job.rv(3),
                                                                 cores=context.config.alignment_cores,
                                                                 memory=context.config.alignment_mem,
                                                                 disk=context.config.alignment_disk)
     parent2_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
                                                                 maternal_name, contig_name,
                                                                 ref_fasta_id, ref_fasta_index_id,
-                                                                make_examples_job.rv(4), make_examples_job.rv(5), child=False,
+                                                                make_examples_job.rv(4), make_examples_job.rv(5),
                                                                 cores=context.config.alignment_cores,
                                                                 memory=context.config.alignment_mem,
                                                                 disk=context.config.alignment_disk)
@@ -753,20 +753,30 @@ def run_deeptrio_make_examples(job, context, options,
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' | '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='deeptrio')
-    proband_examples_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'make_examples_child.tfrecord@{}.gz'.format(str(job.cores))))
-    paternal_examples_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'make_examples_parent1.tfrecord@{}.gz'.format(str(job.cores))))
-    maternal_examples_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'make_examples_parent2.tfrecord@{}.gz'.format(str(job.cores))))
     
-    proband_nonvariant_site_tf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'gvcf_child.tfrecord@{}.gz'.format(str(job.cores))))
-    paternal_nonvariant_site_tf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'gvcf_parent1.tfrecord@{}.gz'.format(str(job.cores))))
-    maternal_nonvariant_site_tf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'gvcf_parent2.tfrecord@{}.gz'.format(str(job.cores))))
+    for sample_id, file_type in itertools.product(['child', 'parent1', 'parent2'],['make_examples','gvcf']):
+        cmd_list = []
+        cmd_list.append(['ls'])
+        cmd_list.append(['grep', '\"{}_{}.tfrecord\"'.format(file_type, sample_id)])
+        cmd_list.append(['tar', '-czf', '{}_{}.tfrecord.tar.gz'.format(file_type, sample_id), '-T', '-'])
+        chain_cmds = [' '.join(p) for p in cmd_list]
+        command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' | '.join(chain_cmds))]
+        context.runner.call(job, command, work_dir = work_dir)
+    
+    proband_examples_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'make_examples_child.tfrecord.tar.gz'))
+    paternal_examples_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'make_examples_parent1.tfrecord.tar.gz'))
+    maternal_examples_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'make_examples_parent2.tfrecord.tar.gz'))
+    
+    proband_nonvariant_site_tf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'gvcf_child.tfrecord.tar.gz'))
+    paternal_nonvariant_site_tf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'gvcf_parent1.tfrecord.tar.gz'))
+    maternal_nonvariant_site_tf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, 'gvcf_parent2.tfrecord.tar.gz'))
     
     return (proband_examples_file_id, proband_nonvariant_site_tf_file_id, paternal_examples_file_id, paternal_nonvariant_site_tf_file_id, maternal_examples_file_id, maternal_nonvariant_site_tf_file_id)
 
 def run_deeptrio_call_variants(job, context, options,
                                 sample_name, contig_name,
                                 ref_fasta_id, ref_fasta_index_id,
-                                examples_file_id, nonvariant_site_tf_file_id, child=False):
+                                examples_file_id, nonvariant_site_tf_file_id):
     """
     Run DeepTrio call variants on a trio sample.
     """
@@ -789,23 +799,36 @@ def run_deeptrio_call_variants(job, context, options,
     job.fileStore.readGlobalFile(examples_file_id, examples_file_path)
     nonvariant_site_tf_file_path = os.path.join(work_dir, os.path.basename(nonvariant_site_tf_file_id))
     job.fileStore.readGlobalFile(nonvariant_site_tf_file_id, nonvariant_site_tf_file_path)
-
-    outfile_name = "call_variants_output_parent.tfrecord.gz"
-    deeptrio_model = "/opt/models/deeptrio/wgs/parent/model.ckpt"
-    if child:
+    
+    context.runner.call(job, ['tar', '-xzf', os.path.basename(examples_file_path)], work_dir = work_dir)
+    context.runner.call(job, ['tar', '-xzf', os.path.basename(nonvariant_site_tf_file_path)], work_dir = work_dir)
+    
+    if 'parent1' in os.path.basename(examples_file_path):
+        examples_file = "make_examples_parent1.tfrecord@{}.gz".format(str(job.cores))
+        outfile_name = "call_variants_output_parent1.tfrecord.gz"
+        nonvariant_site_tfrecord_path = "gvcf_parent1.tfrecord@{}.gz".format(str(job.cores))
+        deeptrio_model = "/opt/models/deeptrio/wgs/parent/model.ckpt"
+    if 'parent2' in os.path.basename(examples_file_path):
+        examples_file = "make_examples_parent2.tfrecord@{}.gz".format(str(job.cores))
+        outfile_name = "call_variants_output_parent2.tfrecord.gz"
+        nonvariant_site_tfrecord_path = "gvcf_parent2.tfrecord@{}.gz".format(str(job.cores))
+        deeptrio_model = "/opt/models/deeptrio/wgs/parent/model.ckpt"
+    if 'child' in os.path.basename(examples_file_path):
+        examples_file = "make_examples_child.tfrecord@{}.gz".format(str(job.cores))
         outfile_name = "call_variants_output_child.tfrecord.gz"
+        nonvariant_site_tfrecord_path = "gvcf_child.tfrecord@{}.gz".format(str(job.cores))
         deeptrio_model = "/opt/models/deeptrio/wgs/child/model.ckpt"
     
     command = ['/opt/deepvariant/bin/call_variants',
                '--outfile', outfile_name,
-               '--examples', os.path.basename(examples_file_path),
+               '--examples', examples_file,
                '--checkpoint', deeptrio_model]
     context.runner.call(job, command, work_dir = work_dir, tool_name='deeptrio')
     command = ['/opt/deepvariant/bin/postprocess_variants',
                '--ref', os.path.basename(ref_fasta_path),
                '--infile', outfile_name,
                '--outfile', '{}_{}_deeptrio.vcf.gz'.format(sample_name, contig_name),
-               '--nonvariant_site_tfrecord_path', os.path.basename(nonvariant_site_tf_file_path),
+               '--nonvariant_site_tfrecord_path', nonvariant_site_tfrecord_path,
                '--gvcf_outfile', '{}_{}_deeptrio.g.vcf.gz'.format(sample_name, contig_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='deeptrio')
     context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_{}_deeptrio.g.vcf.gz'.format(sample_name, contig_name)], work_dir=work_dir)
