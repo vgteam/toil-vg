@@ -348,7 +348,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
 def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
                                     ref_fasta_index_id, ref_fasta_dict_id):
 
-    RealtimeLogger.info("Starting gatk haplotypecalling gvcfs")
+    RealtimeLogger.info("Starting deepvariant haplotypecalling gvcfs")
     start_time = timeit.default_timer()
 
     # Define work directory for docker calls
@@ -606,7 +606,7 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
             vcf_ids.append(call_job.rv(0))
             tbi_ids.append(call_job.rv(1))
             processed_bam_ids.append(call_job.rv(2))
-    elif options.caller == 'deepvaraint':
+    elif options.caller == 'deepvariant':
         for chr_bam_id in chr_bam_ids:
             call_job = child_job.addChildJobFn(run_deepvariant_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
                                                             cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
