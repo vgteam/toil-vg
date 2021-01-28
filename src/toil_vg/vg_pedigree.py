@@ -723,9 +723,9 @@ def run_deeptrio_make_examples(job, context, options,
     # We need the trio bams
     proband_bam_path = os.path.join(work_dir, os.path.basename(proband_chr_bam_id))
     job.fileStore.readGlobalFile(proband_chr_bam_id, proband_bam_path)
-    maternal_bam_path = os.path.join(work_dir, os.path.basename(maternal_chr_bam_id))
+    maternal_bam_path = os.path.join(work_dir, '{}_{}'.format(os.path.basename(maternal_chr_bam_id), maternal_name))
     job.fileStore.readGlobalFile(maternal_chr_bam_id, maternal_bam_path)
-    paternal_bam_path = os.path.join(work_dir, os.path.basename(paternal_chr_bam_id))
+    paternal_bam_path = os.path.join(work_dir, '{}_{}'.format(os.path.basename(paternal_chr_bam_id), paternal_name))
     job.fileStore.readGlobalFile(paternal_chr_bam_id, paternal_bam_path)
     
     ref_fasta_name = os.path.basename(ref_fasta_id)
@@ -878,7 +878,7 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
         proband_chr_bam_indel_realign_job = chr_jobs.addChildJobFn(run_indel_realignment, context,
                                                                 proband_name, proband_chr_bam_id,
                                                                 ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                                abra_realign=True,
+                                                                abra_realign=True, delete_input=True,
                                                                 cores=context.config.alignment_cores,
                                                                 memory=context.config.alignment_mem,
                                                                 disk=context.config.alignment_disk)
@@ -887,7 +887,7 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
             maternal_chr_bam_indel_realign_job = chr_jobs.addChildJobFn(run_indel_realignment, context,
                                                                     maternal_name, maternal_chr_bam_id,
                                                                     ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                                    abra_realign=True,
+                                                                    abra_realign=True, delete_input=False,
                                                                     cores=context.config.alignment_cores,
                                                                     memory=context.config.alignment_mem,
                                                                     disk=context.config.alignment_disk)
@@ -896,7 +896,7 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
             paternal_chr_bam_indel_realign_job = chr_jobs.addChildJobFn(run_indel_realignment, context,
                                                                     paternal_name, paternal_chr_bam_id,
                                                                     ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                                    abra_realign=True,
+                                                                    abra_realign=True, delete_input=False,
                                                                     cores=context.config.alignment_cores,
                                                                     memory=context.config.alignment_mem,
                                                                     disk=context.config.alignment_disk)
@@ -955,13 +955,13 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
                                                                 proband_name, proband_vcf_ids, proband_vcf_tbi_ids, write_to_outstore = True)
     output_proband_gvcf_id = proband_merge_gvcfs_job.rv(0)
     output_proband_gvcf_index_id = proband_merge_gvcfs_job.rv(1)
+    output_proband_bam_id = proband_merge_bams_job.rv(0)
+    output_proband_bam_index_id = proband_merge_bams_job.rv(1)
     if run_parents:
         output_maternal_gvcf_id = maternal_merge_gvcfs_job.rv(0)
         output_maternal_gvcf_index_id = maternal_merge_gvcfs_job.rv(1)
         output_paternal_gvcf_id = paternal_merge_gvcfs_job.rv(0)
         output_paternal_gvcf_index_id = paternal_merge_gvcfs_job.rv(1)
-        output_proband_bam_id = proband_merge_bams_job.rv(0)
-        output_proband_bam_index_id = proband_merge_bams_job.rv(1)
         output_maternal_bam_id = maternal_merge_bams_job.rv(0)
         output_maternal_bam_index_id = maternal_merge_bams_job.rv(1)
         output_paternal_bam_id = paternal_merge_bams_job.rv(0)
@@ -1842,7 +1842,7 @@ def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff
     
     return (snpeff_annotated_vcf_file_id, snpeff_annotated_vcf_index_file_id)
 
-def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id, abra_realign=False):
+def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id, abra_realign=False, delete_input=True):
     
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
@@ -1908,8 +1908,9 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     with open(os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.{}.bam'.format(bam_name, sample_name)), 'wb') as output_indel_realigned_bam:
         context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_indel_realigned_bam)
     
-    # Delete input files
-    job.fileStore.deleteGlobalFile(sample_bam_id)
+    if delete_input:
+        # Delete input files
+        job.fileStore.deleteGlobalFile(sample_bam_id)
     
     return context.write_intermediate_file(job, os.path.join(work_dir, '{}_positionsorted.mdtag.indel_realigned.{}.bam'.format(bam_name, sample_name)))
 
