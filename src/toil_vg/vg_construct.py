@@ -1476,7 +1476,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 # Now combine the two files, adding the paths to the graph
                 vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
                 logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
-                cmd = ['vg', 'combine', base_graph_filename, path_graph_filename]
+                cmd = ['vg', 'combine', '-c', base_graph_filename, path_graph_filename]
                 with open(vg_with_thread_as_path_path, 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
                     
