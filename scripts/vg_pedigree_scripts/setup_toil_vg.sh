@@ -73,7 +73,7 @@ if [ ! -d "${TOIL_VG_DIR}" ]; then
 fi
 
 cd ${TOIL_VG_DIR}
-git clone --single-branch --branch vg_pedigree_workflow_giraffe https://github.com/vgteam/toil-vg.git 
+git clone --single-branch --branch vg_pedigree_workflow_deepvariant https://github.com/vgteam/toil-vg.git 
 git clone https://github.com/cmarkello/toil.git
 python3 -m venv toilvg_venv
 source toilvg_venv/bin/activate

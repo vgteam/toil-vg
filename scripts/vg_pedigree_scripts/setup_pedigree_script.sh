@@ -210,7 +210,7 @@ if [ $RESTART == true ]; then
     RESTART_ARG="--restart"
 fi
 
-CALLER="gatk"
+CALLER="deepvariant"
 DRAGEN_ARGS=""
 if [ $USE_DRAGEN == true ]; then
     CALLER="dragen"
@@ -262,7 +262,6 @@ ${SIB_READ_PAIR_LIST} \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
 --use_decoys \\
---force_phasing True \\
 --indel_realign_bams \\
 --snpeff_annotation \\
 ${DRAGEN_ARGS} \\
