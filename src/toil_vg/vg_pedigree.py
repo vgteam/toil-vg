@@ -2240,6 +2240,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     sibling_merged_bam_index_ids = None
     sibling_call_gvcf_ids = None
     sibling_call_gvcf_index_ids = None
+    sibling_bam_list_dict = None
     if siblings_names is not None: 
         sibling_mapping_job_dict =  {}
         sibling_calling_job_dict =  {}
@@ -2248,6 +2249,8 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         sibling_merged_bam_index_ids = []
         sibling_call_gvcf_ids = []
         sibling_call_gvcf_index_ids = []
+        if indel_realign_bams:
+            sibling_bam_list_dict = []
         for sibling_number,sibling_name in enumerate(siblings_names):
             
             # Dynamically allocate sibling map allignment jobs to overall workflow structure
@@ -2296,6 +2299,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
             sibling_merged_bam_index_ids.append(sibling_calling_job_dict[sibling_name].rv(1))
             sibling_call_gvcf_ids.append(sibling_calling_job_dict[sibling_name].rv(2))
             sibling_call_gvcf_index_ids.append(sibling_calling_job_dict[sibling_name].rv(3))
+            sibling_bam_list_dict.append((sibling_calling_job_dict[sibling_name].rv(0),sibling_calling_job_dict[sibling_name].rv(1)))
     
     pedigree_joint_call_job = stage4_jobs.addChildJobFn(run_joint_genotyper, context, options, proband_name,
                                         proband_parental_calling_job.rv(2), proband_parental_calling_job.rv(3),
@@ -2312,7 +2316,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     if indel_realign_bams:
         maternal_chr_bam_ids = None
         paternal_chr_bam_ids = None
-        if not options.caller == 'deepvaraint':
+        if not options.caller == 'deepvariant':
             maternal_chr_bam_ids = maternal_calling_job.rv(4)
             paternal_chr_bam_ids = paternal_calling_job.rv(4)
             indel_realign_job = stage4_jobs.addChildJobFn(run_cohort_indel_realign_pipeline, context, options,
@@ -2364,7 +2368,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         final_sibling_gvcf_index_list = sibling_call_gvcf_index_ids
     
     if indel_realign_bams:
-        if not options.caller == 'deepvaraint':    
+        if not options.caller == 'deepvariant':    
             final_proband_bam = indel_realign_job.rv(0)
             final_proband_bam_index = indel_realign_job.rv(1)
             final_maternal_bam = indel_realign_job.rv(2)
@@ -2372,9 +2376,13 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
             final_paternal_bam = indel_realign_job.rv(4)
             final_paternal_bam_index = indel_realign_job.rv(5)
             sibling_bam_list_dict = indel_realign_job.rv(6)
-        final_sibling_bam_list_job = indel_realign_job.addFollowOnJobFn(run_collect_sibling_indel_realigned_bams, context, options,
-                                                                            final_proband_bam, final_proband_bam_index,
-                                                                            sibling_bam_list_dict)
+            final_sibling_bam_list_job = indel_realign_job.addFollowOnJobFn(run_collect_sibling_indel_realigned_bams, context, options,
+                                                                                final_proband_bam, final_proband_bam_index,
+                                                                                sibling_bam_list_dict)
+        else:
+            final_sibling_bam_list_job = stage4_jobs.addChildJobFn(run_collect_sibling_indel_realigned_bams, context, options,
+                                                                                final_proband_bam, final_proband_bam_index,
+                                                                                sibling_bam_list_dict)
         final_sibling_bam_list = final_sibling_bam_list_job.rv(0)
         final_sibling_bam_index_list = final_sibling_bam_list_job.rv(1)
             
