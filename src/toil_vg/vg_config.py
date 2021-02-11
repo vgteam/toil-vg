@@ -174,7 +174,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
-jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
+jq-docker: 'celfring/jq'
 
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
@@ -481,7 +481,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
-jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
+jq-docker: 'celfring/jq'
 
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
