@@ -1,5 +1,9 @@
 image: quay.io/vgteam/dind
 
+variables:
+  PYTHONIOENCODING: "utf-8"
+  DEBIAN_FRONTEND: "noninteractive"
+
 before_script:
   - whoami
   - sudo apt-get -q -y update
