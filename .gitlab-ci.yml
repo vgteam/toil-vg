@@ -4,8 +4,18 @@ before_script:
   - whoami
   - sudo apt-get -q -y update
   # Make sure we have some curl stuff for pycurl which we need for some Python stuff
-  # Also Singularity from the repos which is now new enough
-  - sudo apt-get -q -y install --no-upgrade docker.io python3-pip python3-virtualenv libcurl4-gnutls-dev python-dev libgnutls28-dev singularity-container
+  - sudo apt-get -q -y install --no-upgrade docker.io python3-pip python3-virtualenv libcurl4-gnutls-dev python-dev libgnutls28-dev
+  # Ubuntu 20.04 doesn't seem to ship singularity, so we install from source
+  # https://stackoverflow.com/questions/50537404/error-called-singularity-config-get-value-on-uninitialized-config-subsystem-wh
+  - sudo apt-get -q -y install wget libarchive-dev squashfs-tools
+  - wget https://github.com/singularityware/singularity/releases/download/2.6.1/singularity-2.6.1.tar.gz
+  - tar xf singularity-2.6.1.tar.gz
+  - pushd singularity-2.6.1
+  - ./configure --prefix=/usr/local > /dev/null
+  - make > /dev/null
+  - sudo make install > /dev/null
+  - popd
+  - rm -rf singularity-2.6.1.tar.gz singularity-2.6.1 
   # TODO: Make Singularity use the Docker cache with a wrapper like Toil will.
   # Configure Docker to use a mirror for Docker Hub and restart the daemon
   # Set the registry as insecure because it is probably cluster-internal over plain HTTP.
