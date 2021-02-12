@@ -19,7 +19,7 @@ kwargs = dict(
     python_requires='>=3.0',
     install_requires=[x + y for x, y in required_versions.items()],
     dependency_links=[],
-    tests_require=['pytest==2.8.3', 'numpy', 'scipy'],
+    tests_require=['pytest', 'numpy', 'scipy'],
     package_dir={'': 'src'},
     packages=find_packages('src'),
     entry_points={
