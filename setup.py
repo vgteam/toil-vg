@@ -43,7 +43,7 @@ class PyTest(TestCommand):
         import pytest
         # Sanitize command line arguments to avoid confusing Toil code attempting to parse them
         sys.argv[1:] = []
-        errno = pytest.main(self.pytest_args)
+        errno = pytest.main(self.pytest_args.split())
         sys.exit(errno)
 
 kwargs['cmdclass'] = {'test': PyTest}
