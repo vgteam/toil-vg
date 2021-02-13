@@ -5,7 +5,7 @@ before_script:
   - export DEBIAN_FRONTEND=noninteractive
   - apt-get -q -y update
   # Make sure we have some curl stuff for pycurl which we need for some Python stuff
-  - apt-get -q -y install --no-upgrade docker.io python3-pip python3-virtualenv libcurl4-gnutls-dev python-dev libgnutls28-dev libssl-dev uuid-dev libgpgme11-dev libseccomp-dev cryptsetup-bin
+  - apt-get -q -y install --no-upgrade docker.io python3-pip python3-virtualenv libcurl4-gnutls-dev python-dev libgnutls28-dev libssl-dev uuid-dev libgpgme11-dev libseccomp-dev cryptsetup-bin pkg-config
   # Ubuntu 20.04 doesn't seem to ship singularity, so we install from source
   # https://stackoverflow.com/questions/50537404/error-called-singularity-config-get-value-on-uninitialized-config-subsystem-wh
   - apt-get -q -y install wget libarchive-dev squashfs-tools
