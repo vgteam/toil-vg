@@ -1061,7 +1061,7 @@ def run_joint_genotyper(job, context, options, sample_name, proband_gvcf_id, pro
     elif options.caller == 'deepvariant':     
         # Run gatk variant calling commands
         command = ['/usr/local/bin/glnexus_cli',
-                    '--config', 'DeepVariantWGS',
+                    '--config', 'DeepVariant_unfiltered',
                     '--mem-gbytes', str(int(job.memory)/1073741824),
                     '--threads', str(job.cores),
                     os.path.basename(maternal_gvcf_path),
