@@ -19,7 +19,7 @@ kwargs = dict(
     python_requires='>=3.0',
     install_requires=[x + y for x, y in required_versions.items()],
     dependency_links=[],
-    tests_require=['pytest==2.8.3', 'numpy', 'scipy'],
+    tests_require=['pytest', 'numpy', 'scipy'],
     package_dir={'': 'src'},
     packages=find_packages('src'),
     entry_points={
@@ -43,7 +43,7 @@ class PyTest(TestCommand):
         import pytest
         # Sanitize command line arguments to avoid confusing Toil code attempting to parse them
         sys.argv[1:] = []
-        errno = pytest.main(self.pytest_args)
+        errno = pytest.main(self.pytest_args.split())
         sys.exit(errno)
 
 kwargs['cmdclass'] = {'test': PyTest}
