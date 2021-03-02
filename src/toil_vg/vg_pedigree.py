@@ -857,6 +857,7 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
     """
     Call all the chromosomes for the trio using DeepVariant Trio caller and return a merged up gvcf vcf/tbi pair
     """
+    # ADD ABRA_INDELREALIGNMENT HOOK HERE
     RealtimeLogger.info("Starting gvcf calling pipeline for proband, maternal, paternal trio: {}, {}, {}".format(proband_name,maternal_name,paternal_name))
     child_job = Job()
     job.addChild(child_job)
@@ -1387,7 +1388,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     
     construct_decoy_graph_vg_ids = []
     if use_decoys:
-        extract_decoys_job = construct_jobs.addChildJobFn(run_extract_decoys, context, options, ref_fasta_id)
+        extract_decoys_job = construct_jobs.addChildJobFn(run_extract_decoys, context, options, ref_fasta_id, decoy_regex=decoy_regex)
         construct_decoy_graph_vg_ids_job = extract_decoys_job.addFollowOnJobFn(run_construct_decoy_contigs_subworkflow, context, options, ref_fasta_id, extract_decoys_job.rv(),
                                                                                  cores=context.config.construct_cores,
                                                                                  memory=context.config.fq_split_mem,
@@ -2112,6 +2113,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     # Run Trio variant calling
     if options.caller == 'deepvariant':
         # Run DeepTrio on proband, maternal, paternal reads simultaneously and merge into whole genome GVCFs
+        #TODO: hook in abra_indel_realignment option
         trio_calling_job = proband_first_mapping_job.addFollowOnJobFn(run_pipeline_deepvariant_trio_call_gvcfs, context, options,
                                     proband_name, maternal_name, paternal_name,
                                     proband_first_mapping_job.rv(2), maternal_mapping_job.rv(2), paternal_mapping_job.rv(2),
@@ -2218,6 +2220,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                      disk=context.config.misc_disk)
     if options.caller == 'deepvariant':
         # Run DeepTrio on proband, maternal, paternal reads simultaneously and merge into whole genome GVCFs
+        #TODO: hook in abra_indel_realignment option
         proband_parental_calling_job = proband_second_mapping_job.addFollowOnJobFn(run_pipeline_deepvariant_trio_call_gvcfs, context, options,
                                     proband_name, maternal_name, paternal_name,
                                     proband_second_mapping_job.rv(2), maternal_mapping_job.rv(2), paternal_mapping_job.rv(2),
@@ -2277,6 +2280,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                              disk=context.config.misc_disk)
             if options.caller == 'deepvariant':
                 # Run DeepTrio on proband, maternal, paternal reads simultaneously and merge into whole genome GVCFs
+                #TODO: hook in abra_indel_realignment option
                 sibling_calling_job_dict[sibling_name] = sibling_mapping_job_dict[sibling_name].addFollowOnJobFn(run_pipeline_deepvariant_trio_call_gvcfs, context, options,
                                     sibling_name, maternal_name, paternal_name,
                                     sibling_mapping_job_dict[sibling_name].rv(2), maternal_mapping_job.rv(2), paternal_mapping_job.rv(2),
