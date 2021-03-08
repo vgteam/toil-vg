@@ -1358,7 +1358,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
 def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id, contig_vcf_gz_id_list,
                                     use_haplotypes=False, use_decoys=False, 
                                     contigs_list=["chr1","chr2","chr3","chr4","chr5","chr6","chr7","chr8","chr9","chr10","chr11","chr12","chr13","chr14","chr15","chr16","chr17","chr18","chr19","chr20","chr21","chr22","chrX","chrY","chrM"],
-                                    decoy_regex=">GL\|>NC_007605\|>hs37d5\|>hs38d1_decoys\|>chrEBV\|>chrUn\|>chr\([1-2][1-9]\|[1-9]\|Y\)_"):
+                                    decoy_regex='\'>GL|>NC_007605|>hs37d5|>hs38d1_decoys|>chrEBV|>chrUn|>chr([1-2][1-9]|[1-9]|Y)_\''):
     # we make a sub job tree so that all graph construction and indexing is encapsulated in a top-level job
     RealtimeLogger.info("Running run_construct_index_workflow")
     construct_jobs = Job()
@@ -1534,7 +1534,6 @@ def run_extract_decoys(job, context, options, ref_fasta_id, decoy_regex='\'>GL|>
     
     ref_fasta_path =  os.path.join(work_dir, os.path.basename(ref_fasta_id))
     job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
-    
     cmd = [['cat', os.path.basename(ref_fasta_path)]]
     cmd.append(['grep', '-E', decoy_regex])
     cmd.append(['cut', '-f', '1', '-d', '\' \''])
