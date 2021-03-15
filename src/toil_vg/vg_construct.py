@@ -59,6 +59,8 @@ def construct_subparser(parser):
     parser.add_argument("--alt_regions_bed", type=make_url,
                         help="BED file mapping alt regions (cols 1-3) to sequence names (col 4) from the FASTA. "
                         "Alt regions will be aligned to the graph using vg msga")
+    parser.add_argument("--coalesce_regions", type=make_url,
+                        help="File of tab-separated sets of sequence names for batching construction jobs, one per line.")
     parser.add_argument("--max_node_size", type=int, default=32,
                         help="Maximum node length")
     parser.add_argument("--alt_paths", action="store_true",
@@ -739,6 +741,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           region_names, sort_ids, join_ids, name, merge_output_name,
                                           normalize and name != 'haplo', validate, alt_regions_id,
                                           coalesce_regions=coalesce_regions)
+                                          
+        RealtimeLogger.info('Kick off construction of {}'.format((name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names))))
 
         mapping_id = construct_job.rv('mapping')
         
@@ -926,7 +930,8 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
 
     if not regions:
         regions, region_names = [None], ['genome']
-   
+    
+    RealtimeLogger.info('Before coalesce: {}, {}'.format(regions, region_names))
    
     if not alt_regions_id:
         # Coalesce regions (which we can't yet do if also runnign MSGA)
@@ -963,6 +968,8 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
             # they are probably big chromosomes and may have associated VCFs.
             regions = remaining_regions + coalesced_regions
             region_names = remaining_names + coalesced_names
+            
+    RealtimeLogger.info('After coalesce: {}, {}'.format(regions, region_names))
 
     region_graph_ids = []    
     for i, (region, region_name) in enumerate(zip(regions, region_names)):
@@ -1091,6 +1098,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
             context.runner.call(job, cmd, work_dir=work_dir, outfile = merge_file)
                     
         # And write the merged graph as an output file
+        RealtimeLogger.info('Save merged graph: {}'.format(merge_output_name))
         to_return['merged'] = context.write_output_file(job, os.path.join(work_dir, merge_output_name))
         
         if join_ids and len(region_files) != 1:
@@ -1103,6 +1111,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         # No merging happened, so the id-joined files need to be output files.
         # We assume they came in as intermediate files, even if we didn't join them.
         # So we defintiely have to write them.
+        RealtimeLogger.info('Save id-merged graphs: {}'.format(region_files))
         to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
                     
     return to_return 
@@ -1140,6 +1149,8 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
         job.fileStore.readGlobalFile(vcf_id, vcf_file)
         job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
+
+    RealtimeLogger.info('Construct region graph for {}'.format(region_name))
 
     cmd = ['vg', 'construct', '--reference', os.path.basename(fasta_file)]
     if vcf_id:
@@ -1752,7 +1763,7 @@ def construct_main(context, options):
                 inputRegionsFileID = importer.load(options.regions_file)
 
             alt_regions_id = importer.load(options.alt_regions_bed) if options.alt_regions_bed else None
-            coalesce_contigs_id = importer.load(options.coalesce_contigs) if options.coalesce_contigs else None 
+            coalesce_regions_id = importer.load(options.coalesce_regions) if options.coalesce_regions else None 
 
             importer.wait()
             inputFastaFileIDs = importer.resolve(inputFastaFileIDs)
@@ -1761,7 +1772,7 @@ def construct_main(context, options):
             inputBWAFastaID = importer.resolve(inputBWAFastaID)
             inputRegionsFileID = importer.resolve(inputRegionsFileID)
             alt_regions_id = importer.resolve(alt_regions_id)
-            coalesce_contigs_id = importer.resolve(coalesce_contigs_id)
+            coalesce_regions_id = importer.resolve(coalesce_regions_id)
 
             # We only support one haplotype extraction sample (enforced by validate) despire what CLI implies
             haplo_extraction_sample = options.haplo_sample if options.haplo_sample else options.sample_graph       
@@ -1863,14 +1874,14 @@ def construct_main(context, options):
             else:
                 alt_regions=[]
                 
-            if coalesce_contigs_id:
+            if coalesce_regions_id:
                 cur_job = cur_job.addFollowOnJob(run_read_coalesce_list,
                                                  context,
-                                                 coalesce_contigs_id)
-                coalesce_contigs = cur_job.rv()
+                                                 coalesce_regions_id)
+                coalesce_regions = cur_job.rv()
             
             else:
-                coalesce_contigs=[]
+                coalesce_regions=[]
 
             # Merge up comma-separated vcfs with bcftools merge
             cur_job = cur_job.addFollowOnJobFn(run_merge_all_vcfs, context,
@@ -1907,8 +1918,8 @@ def construct_main(context, options):
                                      normalize = options.normalize,
                                      validate = options.validate,
                                      alt_regions_id = alt_regions_id,
-                                     alt_regions = alt_regions
-                                     coalesce_contigs = coalesce_contigs)
+                                     alt_regions = alt_regions,
+                                     coalesce_regions = coalesce_regions)
                                      
             
             if inputBWAFastaID:

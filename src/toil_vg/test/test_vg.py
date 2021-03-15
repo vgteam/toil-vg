@@ -54,7 +54,7 @@ class VGCGLTest(TestCase):
 
     def setUp(self):
         # Set this to True to poke around in the outsores for debug purposes
-        self.saveWorkDir = False
+        self.saveWorkDir = True
         self.workdir = './toil-vgci_work' if self.saveWorkDir else tempfile.mkdtemp()
         if not os.path.exists(self.workdir):
             os.makedirs(self.workdir)
@@ -404,7 +404,7 @@ class VGCGLTest(TestCase):
         self._assertOutput('NA12877', self.local_outstore, f1_threshold=0.45)        
 
     def test_07_BRCA1_BRCA2_NA12877(self):
-        '''  Test pipeline on chase with two chromosomes, in this case both BRCA regions
+        '''  Test pipeline on case with two chromosomes, in this case both BRCA regions
         '''
         self._download_input('NA12877.brca1.brca2.bam.fq.gz')
         self._download_input('snp1kg-brca1.vg')
@@ -595,7 +595,49 @@ class VGCGLTest(TestCase):
             if prev_vg_size is not None:
                 assert vg_size <= prev_vg_size
             prev_vg_size = vg_size
-
+            
+    def test_10_construct_multiple_contigs(self):
+        '''  Test ability to group construction jobs
+        '''
+        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz.tbi')
+        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz')
+        self._download_input('BRCA1_BRCA2.fa.gz')
+        
+        in_vcf = self._ci_input_path('platinum_NA12877_BRCA1_BRCA2.vcf.gz')
+        in_tbi = in_vcf + '.tbi'
+        in_fa = self._ci_input_path('BRCA1_BRCA2.fa.gz')
+        out_name = 'allbrca'
+       
+        print("Construct to " + self.local_outstore)
+       
+        command = ['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--fasta', in_fa, '--vcf', in_vcf, '--regions', '13', '17', '--remove_chr_prefix',
+                   '--out_name', out_name, '--pangenome', '--filter_ceph', '--min_af', '0.01',
+                   '--realTimeLogging', '--logInfo']
+        self._run(command)
+        self._run(['toil', 'clean', self.jobStoreLocal])
+        
+        # Pangenome should leave individual graphs. For some reason they aren't contig named.
+        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '0.vg')))
+        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '1.vg')))
+        # Also individual filtered graphs
+        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}_filtered_0.vg'.format(out_name))))
+        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}_filtered_1.vg'.format(out_name))))
+        
+        in_coalesce_regions = os.path.join(self.local_outstore, 'coalesce.tsv')
+        with open(in_coalesce_regions, 'w') as to_coalesce:
+            to_coalesce.write('13\t17\n')
+        command += ['--coalesce_regions', in_coalesce_regions]
+        
+        self._run(command)
+        self._run(['toil', 'clean', self.jobStoreLocal])
+        
+        # We need coalesced versions of all the graph types.
+        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, out_name + '_coalesced0.vg')))
+        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, out_name + '_filtered_coalesced0.vg')))
+        
     def test_11_gbwt(self):
         '''
         Test that the gbwt gets constructed without crashing (but not much beyond that)
