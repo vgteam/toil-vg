@@ -496,7 +496,7 @@ def run_read_coalesce_list(job, context, coalesce_regions_id):
     with open(coalesce_regions_path) as in_regions:
         for line in in_regions:
             toks = line.strip().split('\t')
-            if len(toks) > 0 and toks[0] != '' and not toks[0][0] != '#':
+            if len(toks) > 0 and toks[0] != '' and toks[0][0] != '#':
                 coalesce_regions.append(set(toks))
     
     return coalesce_regions
@@ -928,31 +928,36 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
 
     if not regions:
         regions, region_names = [None], ['genome']
-    
-    RealtimeLogger.info('Before coalesce: {}, {}'.format(regions, region_names))
-   
+        
     if not alt_regions_id:
-        # Coalesce regions (which we can't yet do if also runnign MSGA)
+        # Coalesce regions (which we can't yet do if also running MSGA)
         wanted_regions = set(regions)
+        # We need to fake the output names for the coalesced regions based on
+        # the original ones. So map from region to region name.
+        region_to_name = dict(zip(regions, region_names))
         # These will replace regions and region_names if we coalesce away regions
         coalesced_regions = []
         coalesced_names = []
         coalesced_away = set()
-       
+        
         for to_coalesce in coalesce_regions:
             # Find out if we have all the regions that need to be coalesced here.
             have_all = True
-            for region_name in to_coalesce:
-                if region_name not in wanted_regions:
-                   have_all = False
-                   break
+            for region in to_coalesce:
+                if region not in wanted_regions:
+                    have_all = False
+                    break
             if have_all:
                 # Use this coalescing
                 coalesced_regions.append(to_coalesce)
-                coalesced_names.append("coalesced{}".format(len(coalesced_regions)))
+                
+                # Try and replace the region in its name, if possible, when naming the coalesced region.
+                region_in_name = region_to_name[region].rfind(region)
+                base_name = region_to_name[region][:region_in_name] if region_in_name != -1 else region_to_name[region]
+                coalesced_names.append("{}coalesced{}".format(base_name, len(coalesced_regions - 1)))
                 # And skip these regions
-                coalesced_away += to_coalesce
-            
+                coalesced_away.update(to_coalesce)
+                
         if len(coalesced_away) > 0:
             # Drop the coalesced regions from regions
             remaining_regions = []
@@ -967,8 +972,6 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
             regions = remaining_regions + coalesced_regions
             region_names = remaining_names + coalesced_names
             
-    RealtimeLogger.info('After coalesce: {}, {}'.format(regions, region_names))
-
     region_graph_ids = []    
     for i, (region, region_name) in enumerate(zip(regions, region_names)):
         if not vcf_ids or (len(vcf_ids) > 1 and i >= len(vcf_ids)):

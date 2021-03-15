@@ -599,6 +599,8 @@ class VGCGLTest(TestCase):
     def test_10_construct_multiple_contigs(self):
         '''  Test ability to group construction jobs
         '''
+        
+        # This has no phasings so we can't build a GBWT.
         self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz.tbi')
         self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz')
         self._download_input('BRCA1_BRCA2.fa.gz')
@@ -613,8 +615,10 @@ class VGCGLTest(TestCase):
         command = ['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--fasta', in_fa, '--vcf', in_vcf, '--regions', '13', '17', '--remove_chr_prefix',
+                   '--fasta', in_fa, '--vcf', in_vcf, '--vcf_phasing', in_vcf,
+                   '--regions', '13', '17', '--remove_chr_prefix',
                    '--out_name', out_name, '--pangenome', '--filter_ceph', '--min_af', '0.01',
+                   '--xg_index',
                    '--realTimeLogging', '--logInfo']
         self._run(command)
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -624,7 +628,7 @@ class VGCGLTest(TestCase):
             self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}13.vg'.format(out_name, middle))))
             self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}17.vg'.format(out_name, middle))))
             # Should not leave a coalesced region
-            self.assertFalse(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesce0.vg'.format(out_name, middle))))
+            self.assertFalse(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesced0.vg'.format(out_name, middle))))
         
         in_coalesce_regions = os.path.join(self.local_outstore, 'coalesce.tsv')
         with open(in_coalesce_regions, 'w') as to_coalesce:
