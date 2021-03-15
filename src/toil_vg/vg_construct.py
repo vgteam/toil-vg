@@ -954,7 +954,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
                 # Try and replace the region in its name, if possible, when naming the coalesced region.
                 region_in_name = region_to_name[region].rfind(region)
                 base_name = region_to_name[region][:region_in_name] if region_in_name != -1 else region_to_name[region]
-                coalesced_names.append("{}coalesced{}".format(base_name, len(coalesced_regions - 1)))
+                coalesced_names.append("{}coalesced{}".format(base_name, len(coalesced_regions) - 1))
                 # And skip these regions
                 coalesced_away.update(to_coalesce)
                 

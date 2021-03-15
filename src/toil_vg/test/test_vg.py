@@ -54,7 +54,7 @@ class VGCGLTest(TestCase):
 
     def setUp(self):
         # Set this to True to poke around in the outsores for debug purposes
-        self.saveWorkDir = True
+        self.saveWorkDir = False
         self.workdir = './toil-vgci_work' if self.saveWorkDir else tempfile.mkdtemp()
         if not os.path.exists(self.workdir):
             os.makedirs(self.workdir)
@@ -640,7 +640,7 @@ class VGCGLTest(TestCase):
         
         for middle in ['_', '_filter_', '_minaf_0.01_']:
             # Should now leave a coalesced region
-            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesce0.vg'.format(out_name, middle))))
+            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesced0.vg'.format(out_name, middle))))
        
     def test_11_gbwt(self):
         '''
