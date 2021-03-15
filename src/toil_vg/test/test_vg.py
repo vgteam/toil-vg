@@ -636,7 +636,7 @@ class VGCGLTest(TestCase):
         
         for middle in ['_', '_filter_', '_minaf_0.01_']:
             # Should now leave a coalesced region
-            self.assertFalse(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesce0.vg'.format(out_name, middle))))
+            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesce0.vg'.format(out_name, middle))))
        
     def test_11_gbwt(self):
         '''
