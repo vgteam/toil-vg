@@ -619,12 +619,12 @@ class VGCGLTest(TestCase):
         self._run(command)
         self._run(['toil', 'clean', self.jobStoreLocal])
         
-        # Pangenome should leave individual graphs. For some reason they aren't contig named.
-        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '0.vg')))
-        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '1.vg')))
-        # Also individual filtered graphs
-        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}_filtered_0.vg'.format(out_name))))
-        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}_filtered_1.vg'.format(out_name))))
+        for middle in ['_', '_filter_', '_minaf_0.01_']:
+            # Should leave individual graphs, named sensibly.
+            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}13.vg'.format(out_name, middle))))
+            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}17.vg'.format(out_name, middle))))
+            # Should not leave a coalesced region
+            self.assertFalse(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesce0.vg'.format(out_name, middle))))
         
         in_coalesce_regions = os.path.join(self.local_outstore, 'coalesce.tsv')
         with open(in_coalesce_regions, 'w') as to_coalesce:
@@ -634,10 +634,10 @@ class VGCGLTest(TestCase):
         self._run(command)
         self._run(['toil', 'clean', self.jobStoreLocal])
         
-        # We need coalesced versions of all the graph types.
-        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, out_name + '_coalesced0.vg')))
-        self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, out_name + '_filtered_coalesced0.vg')))
-        
+        for middle in ['_', '_filter_', '_minaf_0.01_']:
+            # Should now leave a coalesced region
+            self.assertFalse(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesce0.vg'.format(out_name, middle))))
+       
     def test_11_gbwt(self):
         '''
         Test that the gbwt gets constructed without crashing (but not much beyond that)

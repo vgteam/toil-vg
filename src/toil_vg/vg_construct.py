@@ -742,8 +742,6 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                           normalize and name != 'haplo', validate, alt_regions_id,
                                           coalesce_regions=coalesce_regions)
                                           
-        RealtimeLogger.info('Kick off construction of {}'.format((name, (vcf_ids, vcf_names, tbi_ids, output_name, region_names))))
-
         mapping_id = construct_job.rv('mapping')
         
         # Find the joined VG files, which always exist
@@ -1056,10 +1054,13 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     # Download graph for each region.
     # To keep command line lengths short we name the files by numbers.
     region_files = []
+    # But track their human-readable names
+    human_names = []
     for number, (region_graph_id, region_name) in enumerate(zip(region_graph_ids, region_names)):
         region_file = '{}.vg'.format(number)
         job.fileStore.readGlobalFile(region_graph_id, os.path.join(work_dir, region_file), mutable=True)
         region_files.append(region_file)
+        human_names.append(remove_ext(region_name, '.vg') + '.vg')
 
     if merge_output_name:
         merge_output_name = remove_ext(merge_output_name, '.vg') + '.vg'
@@ -1098,12 +1099,12 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
             context.runner.call(job, cmd, work_dir=work_dir, outfile = merge_file)
                     
         # And write the merged graph as an output file
-        RealtimeLogger.info('Save merged graph: {}'.format(merge_output_name))
         to_return['merged'] = context.write_output_file(job, os.path.join(work_dir, merge_output_name))
         
         if join_ids and len(region_files) != 1:
             # If we do all the merging, and we made new joined graphs, write the joined graphs as intermediates
-            to_return['joined'] = [context.write_intermediate_file(job, os.path.join(work_dir, f)) for f in region_files]
+            to_return['joined'] = [context.write_intermediate_file(job, os.path.join(work_dir, f), dest)
+                                   for f, dest in zip(region_files, human_names)]
         else:
             # We can just pass through the existing intermediate files without re-uploading
             to_return['joined'] = region_graph_ids
@@ -1111,8 +1112,10 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         # No merging happened, so the id-joined files need to be output files.
         # We assume they came in as intermediate files, even if we didn't join them.
         # So we defintiely have to write them.
-        RealtimeLogger.info('Save id-merged graphs: {}'.format(region_files))
-        to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f)) for f in region_files]
+        # And we need to make sure to write them under their assigned
+        # region-based names, even if we downloaded them to shorter names.
+        to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f), dest)
+                               for f, dest in zip(region_files, human_names)]
                     
     return to_return 
         
@@ -1149,8 +1152,6 @@ def run_construct_region_graph(job, context, fasta_id, fasta_name, vcf_id, vcf_n
         vcf_file = os.path.join(work_dir, os.path.basename(vcf_name))
         job.fileStore.readGlobalFile(vcf_id, vcf_file)
         job.fileStore.readGlobalFile(tbi_id, vcf_file + '.tbi')
-
-    RealtimeLogger.info('Construct region graph for {}'.format(region_name))
 
     cmd = ['vg', 'construct', '--reference', os.path.basename(fasta_file)]
     if vcf_id:
@@ -1875,9 +1876,9 @@ def construct_main(context, options):
                 alt_regions=[]
                 
             if coalesce_regions_id:
-                cur_job = cur_job.addFollowOnJob(run_read_coalesce_list,
-                                                 context,
-                                                 coalesce_regions_id)
+                cur_job = cur_job.addFollowOnJobFn(run_read_coalesce_list,
+                                                   context,
+                                                   coalesce_regions_id)
                 coalesce_regions = cur_job.rv()
             
             else:
