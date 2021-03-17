@@ -360,15 +360,23 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
     out_regions = []
     something_to_rename = False
 
-    # map the regions
+    # Map the regions.
+    # Some regions may map to the same region as a previous region if e.g. we
+    # fetched region names out of the FASTA. So deduplicate here.
+    done_regions = set()
     for region in regions:
         region_name = region.split(':')[0]
         if region_name in name_map:
             something_to_rename = True
-            out_regions.append(name_map[region_name] + region[len(region_name):])
+            renamed_region = name_map[region_name] + region[len(region_name):]
+            if renamed_region not in done_regions:
+                out_regions.append(renamed_region)
+                done_regions.add(renamed_region)
         else:
             something_to_rename = something_to_rename or region_name in list(name_map.values())
-            out_regions.append(region)
+            if region not in done_regions:
+                out_regions.append(region)
+                done_regions.add(region)
         
     # map the vcf
     out_vcf_ids = []
@@ -768,6 +776,8 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
             
             # Get the chromosome names
             chroms = [p.split(':')[0] for p in regions]
+            
+            RealtimeLogger.info('Operating on chromosomes: %s', chroms)
             
             # Make sure we have no more than 1 region per chromosome.
             # Otherwise GBWT region restriction will mess things up.
