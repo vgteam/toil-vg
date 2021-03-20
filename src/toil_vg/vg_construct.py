@@ -755,7 +755,7 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
         # Find the joined VG files, which always exist
         joined_vg_ids = construct_job.rv('joined')
         # And give them names
-        joined_vg_names = [remove_ext(i, '.vg') + '.vg' for i in region_names] 
+        joined_vg_names = construct_job.rv('joined_names')
         
         if merge_graphs or not regions or len(regions) < 2: 
             # Sometimes we will have a single VG file also
@@ -832,16 +832,20 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                     wanted = set('xg')
                     construct_job.addFollowOnJobFn(run_indexing, context, joined_vg_ids,
                                                    joined_vg_names, output_name_base, chroms, [], [], 
-                                                   wanted=wanted)
+                                                   wanted=wanted, coalesce_regions=coalesce_regions)
                 
-                index_prev_job = join_job
                 # In the indexing step below, we want to index our haplo-extracted sample graph
                 # So replace the withref graph IDs and names with these
                 
                 # Find the joined VG files, which always exist
                 joined_vg_ids = join_job.rv('joined')
                 # And give them names
-                joined_vg_names = [n.replace('_withref', '') for n in joined_vg_names]
+                rename_job = join_job.addFollowOnJobFn(run_remove_withref, context, joined_vg_names,
+                                                       cores=context.config.misc_cores,
+                                                       memory=context.config.misc_mem,
+                                                       disk=context.config.misc_disk)
+                joined_vg_names = rename_job.rv()
+                index_prev_job = rename_job
                 
                 if sample_merge_output_name:
                     # We expect a single output graph too
@@ -890,11 +894,19 @@ def run_construct_all(job, context, fasta_ids, fasta_names, vcf_inputs,
                                                        wanted=wanted,
                                                        gbwt_prune=gbwt_prune and 'gbwt' in wanted,
                                                        gbwt_regions=gbwt_regions,
-                                                       dont_restore_paths=alt_regions)
+                                                       dont_restore_paths=alt_regions,
+                                                       coalesce_regions=coalesce_regions)
         indexes = indexing_job.rv()    
 
         output.append((joined_vg_ids, joined_vg_names, indexes))
     return output
+    
+def run_remove_withref(job, context, joined_vg_names):
+    """
+    Return the names in joined_vg_names with '_withref' removed from them.
+    """
+    
+    return [n.replace('_withref', '') for n in joined_vg_names]
                 
 
 def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vcf_names, tbi_ids,
@@ -941,46 +953,7 @@ def run_construct_genome_graph(job, context, fasta_ids, fasta_names, vcf_ids, vc
         
     if not alt_regions_id:
         # Coalesce regions (which we can't yet do if also running MSGA)
-        wanted_regions = set(regions)
-        # We need to fake the output names for the coalesced regions based on
-        # the original ones. So map from region to region name.
-        region_to_name = dict(zip(regions, region_names))
-        # These will replace regions and region_names if we coalesce away regions
-        coalesced_regions = []
-        coalesced_names = []
-        coalesced_away = set()
-        
-        for to_coalesce in coalesce_regions:
-            # Find out if we have all the regions that need to be coalesced here.
-            have_all = True
-            for region in to_coalesce:
-                if region not in wanted_regions:
-                    have_all = False
-                    break
-            if have_all:
-                # Use this coalescing
-                coalesced_regions.append(to_coalesce)
-                
-                # Try and replace the region in its name, if possible, when naming the coalesced region.
-                region_in_name = region_to_name[region].rfind(region)
-                base_name = region_to_name[region][:region_in_name] if region_in_name != -1 else region_to_name[region]
-                coalesced_names.append("{}coalesced{}".format(base_name, len(coalesced_regions) - 1))
-                # And skip these regions
-                coalesced_away.update(to_coalesce)
-                
-        if len(coalesced_away) > 0:
-            # Drop the coalesced regions from regions
-            remaining_regions = []
-            remaining_names = []
-            for i in range(len(regions)):
-                if regions[i] not in coalesced_away:
-                    remaining_regions.append(regions[i])
-                    remaining_names.append(region_names[i])
-            # And replace the original regions with the coalesced ones, and the
-            # remaining uncoalesced regions. Put the remaining ones first because
-            # they are probably big chromosomes and may have associated VCFs.
-            regions = remaining_regions + coalesced_regions
-            region_names = remaining_names + coalesced_names
+        regions, region_names = apply_coalesce(regions, region_names=region_names, coalesce_regions=coalesce_regions)
             
     region_graph_ids = []    
     for i, (region, region_name) in enumerate(zip(regions, region_names)):
@@ -1054,6 +1027,8 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     'joined': a list of the unmerged, id-joined graph file IDs (or the input
     graph(s) re-uploaded as output files if no joining occurred)
     
+    'joined_names': a list of .vg filenames for those graphs 
+    
     'merged': the merged graph file ID, if merging occurred, or the only input
     graph ID, if there was only one. None otherwise.
     
@@ -1082,6 +1057,7 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
     # set to make asking for things with .rv() easier.
     to_return = {
         'joined': [],
+        'joined_names': human_names,
         'merged': None,
         'mapping': None
     }
