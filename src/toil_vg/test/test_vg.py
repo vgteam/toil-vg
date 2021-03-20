@@ -597,43 +597,29 @@ class VGCGLTest(TestCase):
             prev_vg_size = vg_size
             
     def test_10_construct_multiple_contigs(self):
-        '''  Test ability to group construction jobs
+        '''  Test ability to group construction jobs, in the chape of GRCh38
         '''
         
-        # This has no phasings so we can't build a GBWT.
-        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz.tbi')
-        self._download_input('platinum_NA12877_BRCA1_BRCA2.vcf.gz')
-        self._download_input('BRCA1_BRCA2.fa.gz')
+        chrom_names = [f'{x}' for x in range(1,23)] + ['X', 'Y']
+        vcf_bases = [f'chr{x}' for x in chrom_names] + ['others']
+        region_names = chrom_names + ['chrM']
         
-        in_vcf = self._ci_input_path('platinum_NA12877_BRCA1_BRCA2.vcf.gz')
-        in_tbi = in_vcf + '.tbi'
-        in_fa = self._ci_input_path('BRCA1_BRCA2.fa.gz')
-        out_name = 'allbrca'
+        in_vcfs = [self._ci_input_path(f'GRCh38.1000gp.fake.{vcf_base}.vcf.gz') for vcf_base in vcf_bases]
+        in_tbis = [in_vcf + '.tbi' for in_vcf in in_vcfs]
+        in_fa = self._ci_input_path('GRCh38.fake.fa')
+        in_coalesce_regions = self._ci_input_path('GRCh38.1000gp.fake.minor_contigs.tsv')
+        out_name = 'Fake1000GP'
        
         print("Construct to " + self.local_outstore)
        
         command = ['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--fasta', in_fa, '--vcf', in_vcf, '--vcf_phasing', in_vcf,
-                   '--regions', '13', '17', '--remove_chr_prefix',
+                   '--fasta', in_fa, '--vcf'] + in_vcfs + ['--vcf_phasing'] + in_vcfs + [
+                   '--regions'] + region_names + ['--fasta_regions', '--remove_chr_prefix',
                    '--out_name', out_name, '--pangenome', '--filter_ceph', '--min_af', '0.01',
-                   '--xg_index',
-                   '--realTimeLogging', '--logInfo']
-        self._run(command)
-        self._run(['toil', 'clean', self.jobStoreLocal])
-        
-        for middle in ['_', '_filter_', '_minaf_0.01_']:
-            # Should leave individual graphs, named sensibly.
-            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}13.vg'.format(out_name, middle))))
-            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}17.vg'.format(out_name, middle))))
-            # Should not leave a coalesced region
-            self.assertFalse(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesced0.vg'.format(out_name, middle))))
-        
-        in_coalesce_regions = os.path.join(self.local_outstore, 'coalesce.tsv')
-        with open(in_coalesce_regions, 'w') as to_coalesce:
-            to_coalesce.write('13\t17\n')
-        command += ['--coalesce_regions', in_coalesce_regions]
+                   '--all_index',
+                   '--realTimeLogging', '--logInfo', '--coalesce_regions', in_coalesce_regions]
         
         self._run(command)
         self._run(['toil', 'clean', self.jobStoreLocal])
