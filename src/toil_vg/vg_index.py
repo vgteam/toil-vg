@@ -291,6 +291,9 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     index_temp_dir = os.path.join(work_dir, 'index-temp')
     os.makedirs(index_temp_dir)
 
+    # Track disk used for files, so we can sensibly limit disk used for GCSA scratch
+    disk_used = 0
+
     # Download all the pruned graphs.  
     prune_filenames = []
     
@@ -298,12 +301,14 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
         prune_filename = os.path.join(work_dir, remove_ext(os.path.basename(graph_names[graph_i]), '.vg') + '.prune.vg')
         job.fileStore.readGlobalFile(prune_id, prune_filename)
         prune_filenames.append(prune_filename)
+        disk_used += prune_id.size
 
     # Download the mapping_id
     mapping_filename = None
     if mapping_id:
         mapping_filename = os.path.join(work_dir, 'node_mapping')
         job.fileStore.readGlobalFile(mapping_id, mapping_filename)
+        disk_used += mapping_id.size
 
     # Where do we put the GCSA2 index?
     gcsa_filename = "{}.gcsa".format(index_name)
@@ -311,6 +316,8 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['--threads', str(job.cores)]
     command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
+    # TODO: can/should we guess the size of the output file and subtract that here too?
+    command += ['--size-limit', str((job.disk - disk_used)//(1024**3))]
     
     if mapping_id:
         command += ['--mapping', os.path.basename(mapping_filename)]
