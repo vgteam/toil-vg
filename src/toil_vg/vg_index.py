@@ -317,7 +317,7 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     command += ['--threads', str(job.cores)]
     command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
     # TODO: can/should we guess the size of the output file and subtract that here too?
-    command += ['--size-limit', str((job.disk - disk_used)//(1024**3))]
+    command += ['--size-limit', str((job.disk - disk_used) // (1024**3))]
     
     if mapping_id:
         command += ['--mapping', os.path.basename(mapping_filename)]

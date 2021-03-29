@@ -72,7 +72,7 @@ prune-disk: '2G'
 # Resources allotted gcsa indexing
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
-gcsa-index-disk: '2G'
+gcsa-index-disk: '8G'
 gcsa-index-preemptable: True
 
 # Resources allotted for snarl indexing.
