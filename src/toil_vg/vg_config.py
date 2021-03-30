@@ -47,6 +47,11 @@ misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
 
+# Resources allotted for vcf preprocessing.
+preprocess-cores: 1
+preprocess-mem: '2G'
+preprocess-disk: '2G'
+
 # Resources allotted for vg construction.
 construct-cores: 1
 construct-mem: '4G'
@@ -353,6 +358,11 @@ whole_genome_config = textwrap.dedent("""
 misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
+
+# Resources allotted for vcf preprocessing.
+preprocess-cores: 1
+preprocess-mem: '8G'
+preprocess-disk: '64G'
 
 # Resources allotted for vg construction.
 construct-cores: 1

@@ -220,9 +220,9 @@ def run_merge_all_vcfs(job, context, vcf_file_ids_list, vcf_names_list, tbi_file
     for vcf_file_ids, vcf_names, tbi_file_ids in zip(vcf_file_ids_list, vcf_names_list, tbi_file_ids_list):
         if len(vcf_file_ids) > 1:
             merge_job = job.addChildJobFn(run_merge_vcfs, context, vcf_file_ids, vcf_names, tbi_file_ids,
-                                          cores=context.config.construct_cores,
-                                          memory=context.config.construct_mem,
-                                          disk=context.config.construct_disk)
+                                          cores=context.config.preprocess_cores,
+                                          memory=context.config.preprocess_mem,
+                                          disk=context.config.preprocess_disk)
             out_vcf_ids_list.append(merge_job.rv(0))
             out_names_list.append(merge_job.rv(1))
             out_tbi_ids_list.append(merge_job.rv(2))
@@ -395,9 +395,9 @@ def run_fix_chrom_names(job, context, to_ucsc, regions, fasta_ids, fasta_names,
             out_tbi_ids.append([])
             for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
                 vcf_rename_job = job.addChildJobFn(run_fix_vcf_chrom_names, context, vcf_id, vcf_name, tbi_id, name_map_id,
-                                                   cores=context.config.construct_cores,
-                                                   memory=context.config.construct_mem,
-                                                   disk=context.config.construct_disk)
+                                                   cores=context.config.preprocess_cores,
+                                                   memory=context.config.preprocess_mem,
+                                                   disk=context.config.preprocess_disk)
                 out_vcf_ids[-1].append(vcf_rename_job.rv(0))
                 out_vcf_names[-1].append(vcf_rename_job.rv(1))
                 out_tbi_ids[-1].append(vcf_rename_job.rv(2))
@@ -564,9 +564,9 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
                                               control_sample,
                                               pos_only = not neg_control_sample,
                                               vcf_subdir = vcf_subdir,
-                                              cores=context.config.construct_cores,
-                                              memory=context.config.construct_mem,
-                                              disk=context.config.construct_disk)
+                                              cores=context.config.preprocess_cores,
+                                              memory=context.config.preprocess_mem,
+                                              disk=context.config.preprocess_disk)
             pos_control_vcf_ids.append(make_controls.rv(0))
             pos_control_tbi_ids.append(make_controls.rv(1))
             neg_control_vcf_ids.append(make_controls.rv(2))
@@ -603,9 +603,9 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             make_sample = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, sample_graph,
                                             pos_only = True,
                                             vcf_subdir = vcf_subdir,
-                                            cores=context.config.construct_cores,
-                                            memory=context.config.construct_mem,
-                                            disk=context.config.construct_disk)
+                                            cores=context.config.preprocess_cores,
+                                            memory=context.config.preprocess_mem,
+                                            disk=context.config.preprocess_disk)
             sample_graph_vcf_ids.append(make_sample.rv(0))
             sample_graph_tbi_ids.append(make_sample.rv(1))
             vcf_base = os.path.basename(remove_ext(remove_ext(vcf_name, '.gz'), '.vcf'))
@@ -629,9 +629,9 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             make_controls = job.addChildJobFn(run_make_control_vcfs, context, vcf_id, vcf_name, tbi_id, haplo_sample,
                                               pos_only = True, 
                                               vcf_subdir = vcf_subdir,
-                                              cores=context.config.construct_cores,
-                                              memory=context.config.construct_mem,
-                                              disk=context.config.construct_disk)
+                                              cores=context.config.preprocess_cores,
+                                              memory=context.config.preprocess_mem,
+                                              disk=context.config.preprocess_disk)
             hap_control_vcf_ids.append(make_controls.rv(0))
             hap_control_tbi_ids.append(make_controls.rv(1))
 
@@ -656,9 +656,9 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             filter_job = job.addChildJobFn(run_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
                                            filter_samples,
                                            vcf_subdir = vcf_subdir,
-                                           cores=context.config.construct_cores,
-                                           memory=context.config.construct_mem,
-                                           disk=context.config.construct_disk)
+                                           cores=context.config.preprocess_cores,
+                                           memory=context.config.preprocess_mem,
+                                           disk=context.config.preprocess_disk)
 
             filter_vcf_ids.append(filter_job.rv(0))
             filter_tbi_ids.append(filter_job.rv(1))
@@ -683,9 +683,9 @@ def run_generate_input_vcfs(job, context, vcf_ids, vcf_names, tbi_ids,
             af_job = job.addChildJobFn(run_min_allele_filter_vcf_samples, context, vcf_id, vcf_name, tbi_id,
                                        min_af,
                                        vcf_subdir = vcf_subdir,
-                                       cores=context.config.construct_cores,
-                                       memory=context.config.construct_mem,
-                                       disk=context.config.construct_disk)
+                                       cores=context.config.preprocess_cores,
+                                       memory=context.config.preprocess_mem,
+                                       disk=context.config.preprocess_disk)
 
             af_vcf_ids.append(af_job.rv(0))
             af_tbi_ids.append(af_job.rv(1))
@@ -1802,9 +1802,9 @@ def construct_main(context, options):
                     for vcf_id, vcf_name, tbi_id in zip(vcf_ids, vcf_names, tbi_ids):
                         af_job = min_af_job.addChildJobFn(run_min_allele_filter_vcf_samples, context, vcf_id,
                                                           vcf_name, tbi_id, options.pre_min_af,
-                                                          cores=context.config.construct_cores,
-                                                          memory=context.config.construct_mem,
-                                                          disk=context.config.construct_disk)
+                                                          cores=context.config.preprocess_cores,
+                                                          memory=context.config.preprocess_mem,
+                                                          disk=context.config.preprocess_disk)
                         af_vcf_ids.append(af_job.rv(0))
                         af_tbi_ids.append(af_job.rv(1))
                     af_vcf_ids_list.append(af_vcf_ids)
@@ -1828,7 +1828,7 @@ def construct_main(context, options):
                                                    options.regions,
                                                    regions_regex,
                                                    memory=context.config.misc_mem,
-                                                   disk=context.config.construct_disk)
+                                                   disk=context.config.preprocess_disk)
                 regions = cur_job.rv()
             else:
                 regions = options.regions          
@@ -1846,9 +1846,9 @@ def construct_main(context, options):
                                                    inputVCFNames,
                                                    inputTBIFileIDs,
                                                    alt_regions_id,
-                                                   cores=context.config.construct_cores,
-                                                   memory=context.config.construct_mem,
-                                                   disk=context.config.construct_disk)
+                                                   cores=context.config.preprocess_cores,
+                                                   memory=context.config.preprocess_mem,
+                                                   disk=context.config.preprocess_disk)
                 regions = cur_job.rv(0)
                 inputFastaFileIDs, inputFastaFileNames = cur_job.rv(1), cur_job.rv(2)
                 inputVCFFileIDs, inputTBIFileIDs = cur_job.rv(3), cur_job.rv(5)
