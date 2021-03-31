@@ -24,11 +24,6 @@ import time
 
 logger = logging.getLogger(__name__)
 
-if sys.version_info[0] < 3:
-    # Define the error we see when trying to clobber a directory with a rename
-    FileExistsError = OSError
-
-
 def is_containerized():
     """
     Return True if we think we are already running in a Docker/Kubernetes
@@ -220,7 +215,7 @@ def _singularity(job,
         try:
             # This may happen repeatedly but it is atomic
             os.rename(temp_sandbox_dirname, sandbox_dirname)
-        except FileExistsError:
+        except (FileExistsError, OSError) as e:
             # Can't rename a directory over another
             # Make sure someone else has made the directory
             assert os.path.exists(sandbox_dirname)
