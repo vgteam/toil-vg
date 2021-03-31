@@ -47,6 +47,11 @@ misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
 
+# Resources allotted for vcf preprocessing.
+preprocess-cores: 1
+preprocess-mem: '2G'
+preprocess-disk: '2G'
+
 # Resources allotted for vg construction.
 construct-cores: 1
 construct-mem: '4G'
@@ -72,7 +77,7 @@ prune-disk: '2G'
 # Resources allotted gcsa indexing
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
-gcsa-index-disk: '2G'
+gcsa-index-disk: '8G'
 gcsa-index-preemptable: True
 
 # Resources allotted for snarl indexing.
@@ -156,7 +161,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.28.0'
+vg-docker: 'quay.io/vgteam/vg:ci-2850-58eed1cb13f9444849933685a7f51a8dc9273ca6'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -354,6 +359,11 @@ misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
 
+# Resources allotted for vcf preprocessing.
+preprocess-cores: 1
+preprocess-mem: '8G'
+preprocess-disk: '64G'
+
 # Resources allotted for vg construction.
 construct-cores: 1
 construct-mem: '64G'
@@ -463,7 +473,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.24.0'
+vg-docker: 'quay.io/vgteam/vg:ci-2850-58eed1cb13f9444849933685a7f51a8dc9273ca6'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'

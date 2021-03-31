@@ -633,7 +633,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             end_time = timeit.default_timer()
             if validate:
                 alignment_file.flush()
-                context.runner.call(job, ['vg', 'validate', '--xg', os.path.basename(index_files['xg']),
+                context.runner.call(job, ['vg', 'validate', os.path.basename(index_files['xg']),
                                           '--gam', os.path.basename(output_file)], work_dir = work_dir)
         except:
             # Dump everything we need to replicate the alignment
