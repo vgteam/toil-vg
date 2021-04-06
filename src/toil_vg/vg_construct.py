@@ -1393,7 +1393,8 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
     # returning nonsense
     # Note that some regions may be coalesged away but we don't have that information.
     assert len(regions) >= len(vg_ids)
-    assert len(vg_ids) <= len(vcf_ids)
+    assert len(vg_ids) >= len(vcf_ids)
+    assert len(vg_ids) == len(vg_names)
     assert len(vcf_ids) == 1 or len(vcf_ids) <= len(regions)
     assert len(tbi_ids) == len(vcf_ids)
     assert len(vcf_names) == len(vcf_ids)
