@@ -617,16 +617,22 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf'] + in_vcfs + ['--vcf_phasing'] + in_vcfs + [
                    '--regions'] + region_names + ['--fasta_regions', '--remove_chr_prefix',
-                   '--out_name', out_name, '--pangenome', '--filter_ceph', '--min_af', '0.01',
+                   '--out_name', out_name, 
+                   '--pangenome', 
+                   '--filter_ceph', 
+                   '--min_af', '0.01',
+                   '--sample_graph', 'NA19239',
                    '--all_index',
                    '--realTimeLogging', '--logInfo', '--coalesce_regions', in_coalesce_regions]
         
         self._run(command)
         self._run(['toil', 'clean', self.jobStoreLocal])
         
-        for middle in ['_', '_filter_', '_minaf_0.01_']:
+        for middle in ['_', '_filter_', '_minaf_0.01_', '_NA19239_sample_withref_']:
             # Should now leave a coalesced region
-            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, '{}{}coalesced0.vg'.format(out_name, middle))))
+            wanted = '{}{}coalesced0.vg'.format(out_name, middle)
+            print("Check for " + wanted)
+            self.assertTrue(os.path.isfile(os.path.join(self.local_outstore, wanted)))
        
     def test_11_gbwt(self):
         '''

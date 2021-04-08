@@ -1623,13 +1623,14 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
         # We need exactly one name per region but we don't know what region is what graph.
         region_names = ['region{}'.format(i) for i in range(len(vg_ids))]
     
-    logger.info('Making sample graphs for chromosomes {}'.format(chroms))
-    
     for i, (vg_id, vg_name, region, xg_id) in enumerate(zip(vg_ids, vg_names, region_names, xg_ids)):
         # make a thread graph from the xg
-        assert not gbwt_ids or len(gbwt_ids) in [1, len(xg_ids)]
+        # We need GBWTs
+        assert gbwt_ids
+        assert len(gbwt_ids) in [1, len(xg_ids)]
         # support whole-genome or chromosome gbwts
-        gbwt_id = gbwt_ids[0] if len(gbwt_ids) == 1 else gbwt_ids[i]        
+        gbwt_id = gbwt_ids[0] if len(gbwt_ids) == 1 else gbwt_ids[i]
+        # Some GBWTs will be None if no VCF was used for a region
         hap_job = job.addChildJobFn(run_make_sample_region_graph, context, vg_id, vg_name,
                                     output_name, region, xg_id, sample, [0,1], gbwt_id,
                                     cores=context.config.construct_cores,
@@ -1647,6 +1648,8 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
     Extract the subgraph visited by threads for the requested sample, if it is nonempty.
     Otherwise (for cases like chrM where there are no variant calls and no threads) pass through
     the primary path of the graph.
+    
+    A None GBWT ID is accepted for cases when there are no variants.
     
     chrom may be a real chromosome/contig name, or a made up name if regions coalesced.
     
@@ -1672,13 +1675,16 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
 
     gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
     if gbwt_id:
+        # We have a VCF and thus a GBWT
         job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
-        
-    # Check if there are any threads in the index
-    assert(gbwt_id)
-    thread_count = int(context.runner.call(job,
-        [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
-        ['wc', '-l']], work_dir = work_dir, check_output = True))
+        # Check if there are any threads in the index
+        thread_count = int(context.runner.call(job,
+            [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
+            ['wc', '-l']], work_dir = work_dir, check_output = True))
+    else:
+        # No index, so no threads.
+        thread_count = 0
+
     if thread_count == 0:
         # There are no threads in our GBWT index (it is empty).
         # This means that we have no haplotype data for this graph.
@@ -1696,11 +1702,9 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
             context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
 
-            # get haplotype thread paths from the index for all haplotypes of the sample
-            if gbwt_id:
-                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
-            else:
-                cmd = ['vg', 'find']
+            # If we have a nonzero thread count we must have a GBWT.
+            # Get haplotype thread paths from the index for all haplotypes of the sample.
+            cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
             cmd += ['-x', os.path.basename(xg_path)]
             cmd += ['-Q', '_thread_{}_'.format(sample)]
             context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
