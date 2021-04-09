@@ -1543,7 +1543,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
                 with open(os.path.join(work_dir, base_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-                    
+                
                 path_graph_filename = '{}{}_thread_{}_path.vg'.format(output_name, tag, hap)
 
                 # get haplotype thread paths from the gbwt
@@ -1552,7 +1552,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                     cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
                 with open(os.path.join(work_dir, path_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-                
+                    
                 # Now combine the two files, adding the paths to the graph
                 vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
                 logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
@@ -1576,7 +1576,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                     filter_cmd += ['--retain-paths', chrom]
                 cmd.append(filter_cmd)
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = trimmed_file)
-
+                
             write_fn = context.write_intermediate_file if intermediate else context.write_output_file
             thread_vg_ids.append(write_fn(job, vg_trimmed_path))
             
@@ -1677,53 +1677,74 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
     if gbwt_id:
         # We have a VCF and thus a GBWT
         job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
-        # Check if there are any threads in the index
-        thread_count = int(context.runner.call(job,
-            [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
-            ['wc', '-l']], work_dir = work_dir, check_output = True))
+        RealtimeLogger.info('Getting sample graph with xg %s, vg %s, gbwt %s', xg_id, vg_id, gbwt_id)
     else:
-        # No index, so no threads.
-        thread_count = 0
+        RealtimeLogger.info('Getting sample graph with xg %s, vg %s', xg_id, vg_id)
+    
+    try:
+    
+        if gbwt_id:
+            # Check if there are any threads in the index
+            thread_count = int(context.runner.call(job,
+                [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
+                ['wc', '-l']], work_dir = work_dir, check_output = True))
+        else:
+            # No index, so no threads.
+            thread_count = 0
 
-    if thread_count == 0:
-        # There are no threads in our GBWT index (it is empty).
-        # This means that we have no haplotype data for this graph.
-        # This means the graph's contigs contig probably should be included,
-        # in at least their reference versions, in all graphs.
-        # Use the whole graph as our "extracted" graph, which we 
-        # will then pare down to the part covered by paths (i.e. the primary path)
-        extract_graph_path = vg_path
-    else:
-        # We have actual thread data for the graph. Go extract the relevant threads.
-        extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
-        logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
-        with open(extract_graph_path, 'wb') as extract_graph_file:
-            # strip paths from our original graph            
-            cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+        if thread_count == 0:
+            # There are no threads in our GBWT index (it is empty).
+            # This means that we have no haplotype data for this graph.
+            # This means the graph's contigs contig probably should be included,
+            # in at least their reference versions, in all graphs.
+            # Use the whole graph as our "extracted" graph, which we 
+            # will then pare down to the part covered by paths (i.e. the primary path)
+            extract_graph_path = vg_path
+        else:
+            # We have actual thread data for the graph. Go extract the relevant threads.
+            extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
+            logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
+            with open(extract_graph_path, 'wb') as extract_graph_file:
+                # strip paths from our original graph            
+                cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
 
-            # If we have a nonzero thread count we must have a GBWT.
-            # Get haplotype thread paths from the index for all haplotypes of the sample.
-            cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
-            cmd += ['-x', os.path.basename(xg_path)]
-            cmd += ['-Q', '_thread_{}_'.format(sample)]
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+                # If we have a nonzero thread count we must have a GBWT.
+                # Get haplotype thread paths from the index for all haplotypes of the sample.
+                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
+                cmd += ['-x', os.path.basename(xg_path)]
+                cmd += ['-Q', '_thread_{}_'.format(sample)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+                
+        assert os.path.getsize(extract_graph_path) > 4
 
-    sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
-    logger.info('Creating sample graph {}'.format(sample_graph_path))
-    with open(sample_graph_path, 'wb') as sample_graph_file:
-        # Then we trim out anything other than our thread paths
-        cmd = [['vg', 'mod', '-N', os.path.basename(extract_graph_path)]]
-        if not leave_thread_paths:
-            cmd.append(['vg', 'paths', '-v', '-', '-d'])
-        context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
+        sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
+        logger.info('Creating sample graph {}'.format(sample_graph_path))
+        with open(sample_graph_path, 'wb') as sample_graph_file:
+            # Then we trim out anything other than our thread paths
+            cmd = [['vg', 'mod', '-N', os.path.basename(extract_graph_path)]]
+            if not leave_thread_paths:
+                cmd.append(['vg', 'paths', '-v', '-', '-d'])
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
+            
+        assert os.path.getsize(sample_graph_path) > 4
+            
+        if validate:
+            # Make sure that the resulting graph passes validation before returning it.
+            # This is another whole graph load and so will take a while.
+            context.runner.call(job, ['vg', 'validate', os.path.basename(sample_graph_path)], work_dir = work_dir)
+
+        sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
+    except:
+        # Dump everything we need to replicate the sample graph extraction
+        logging.error("Sample graph extraction failed. Dumping files.")
+
+        context.write_output_file(job, vg_path)
+        context.write_output_file(job, xg_path)
+        if gbwt_id:
+            context.write_output_file(job, gbwt_path)
         
-    if validate:
-        # Make sure that the resulting graph passes validation before returning it.
-        # This is another whole graph load and so will take a while.
-        context.runner.call(job, ['vg', 'validate', os.path.basename(sample_graph_path)], work_dir = work_dir)
-
-    sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
+        raise
             
     return sample_vg_id
 
