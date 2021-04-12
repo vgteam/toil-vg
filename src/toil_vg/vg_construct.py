@@ -1640,31 +1640,6 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
 
     return sample_vg_ids
     
-def unzip_if_needed(context, work_dir, filename, outfile=None):
-    """
-    Decompress the given file if it is actually gzip-compressed. It
-    must be in work_dir. The decompressed file will have the same
-    name. No .gz version of the file may already exist.
-    
-    If outfile is set, stream decompressed data to that stream.
-    """
-    
-    # Make it decompressable
-    os.rename(filename, filename + '.gz')
-    try:
-        # Decompress it if it looks compressed
-        context.runner.call(['bgzip', '-d' + ('c' if outfile else ''),
-                             os.path.basename(filename + '.gz')], work_dir=work_dir, outfile=outfile)
-        logger.info("File %s was in gzip format", filename)
-    except Exception:
-        # It wasn't decompressable. Use it as is.
-        # TODO: Can we guarantee a tighter type here?
-        logger.info("File %s is not in gzip format", filename)
-        os.rename(filename + '.gz', filename)
-        if outfile:
-            with open(filename, 'rb') as infile:
-                shutil.copyfileobj(infile, outfile)
-
 def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chrom, xg_id,
                                  sample, haplotypes, gbwt_id, leave_thread_paths=True, validate=True):
     """
@@ -1749,9 +1724,9 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = paths_file)
                
             with open(extract_graph_path, 'wb') as extract_graph_file:
-                # Combine and decompress.
-                unzip_if_needed(context, work_dir, base_path, outfile=extract_graph_file)
-                unzip_if_needed(context, work_dir, paths_path, outfile=extract_graph_file)
+                # Combine as Protobuf.
+                cmd = ['vg', 'combine', '-c', os.path.basename(base_path), os.path.basename(paths_path)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
                 
         assert os.path.getsize(extract_graph_path) > 4
 
