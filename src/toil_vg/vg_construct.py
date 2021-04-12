@@ -1641,11 +1641,13 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
     return sample_vg_ids
     
 def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chrom, xg_id,
-                                 sample, haplotypes, gbwt_id, leave_thread_paths=True, validate=True):
+                                 sample, haplotypes, gbwt_id, leave_thread_paths=False, validate=True):
     """
     make a sample graph using the gbwt.
     
     Extract the subgraph visited by threads for the requested sample, if it is nonempty.
+    Does not keep any paths in the resulting graph unless leave_thread_paths is set.
+    
     Otherwise (for cases like chrM where there are no variant calls and no threads) pass through
     the primary path of the graph.
     
