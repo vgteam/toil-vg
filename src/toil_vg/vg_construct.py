@@ -101,7 +101,7 @@ def construct_subparser(parser):
                         " phased variants will be included.  Will also make a _withref version that includes reference")
     parser.add_argument("--haplo_sample", type=str,
                         help="Make two haplotype thread graphs (for simulating from) for this sample.  Phasing"
-                        " information required in the input vcf.")    
+                        " information required in the input vcf. Incompatible with coalescing.")    
     parser.add_argument("--filter_ceph", action="store_true",
                         help="Make a graph where all variants private to the CEPH pedigree, which includes "
                         "NA12878 are excluded")
@@ -188,6 +188,8 @@ def validate_construct_options(options):
     require(not options.haplo_sample or not options.sample_graph or
             (options.haplo_sample == options.sample_graph),
             '--haplo_sample and --sample_graph must be the same')
+    require(not options.haplo_sample or not options.coalesce_regions,
+            '--coalesce_regions cannot be used with --haplo_sample')
 
     validate_shared_index_options(options)
 
@@ -1372,7 +1374,7 @@ def run_min_allele_filter_vcf_samples(job, context, vcf_id, vcf_name, tbi_id, mi
 def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg_names,
                            output_name, regions, sample, intermediate = False):
     """
-    return xg/gbwt for each chromosome for extracting haplotype thread graphs
+    return xg/gbwt for each vg for extracting haplotype thread graphs
     (to simulate from) or sample graphs (as positive control)
     """
     assert(sample is not None)
@@ -1389,17 +1391,20 @@ def run_make_haplo_indexes(job, context, vcf_ids, tbi_ids, vcf_names, vg_ids, vg
 
     # validate options should enforce this but check to be sure assumptions met to avoid
     # returning nonsense
-    assert len(vg_ids) == len(regions)
+    # Note that some regions may be coalesged away but we don't have that information.
+    assert len(regions) >= len(vg_ids)
+    assert len(vg_ids) >= len(vcf_ids)
+    assert len(vg_ids) == len(vg_names)
     assert len(vcf_ids) == 1 or len(vcf_ids) <= len(regions)
     assert len(tbi_ids) == len(vcf_ids)
     assert len(vcf_names) == len(vcf_ids)
     
-    logger.info('Making gbwt for chromosomes {}'.format(chroms))
+    logger.info('Making gbwt for graphs {}'.format(vg_names))
 
     xg_ids = []
     gbwt_ids = []
     
-    for i, (vg_id, vg_name, region) in enumerate(zip(vg_ids, vg_names, chroms)):
+    for i, (vg_id, vg_name) in enumerate(zip(vg_ids, vg_names)):
         if len(vcf_names) == 1: 
             # One VCF for all contigs
             vcf_name = vcf_names[0]
@@ -1538,7 +1543,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
                 with open(os.path.join(work_dir, base_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-                    
+                
                 path_graph_filename = '{}{}_thread_{}_path.vg'.format(output_name, tag, hap)
 
                 # get haplotype thread paths from the gbwt
@@ -1547,7 +1552,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                     cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
                 with open(os.path.join(work_dir, path_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-                
+                    
                 # Now combine the two files, adding the paths to the graph
                 vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
                 logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
@@ -1571,7 +1576,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                     filter_cmd += ['--retain-paths', chrom]
                 cmd.append(filter_cmd)
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = trimmed_file)
-
+                
             write_fn = context.write_intermediate_file if intermediate else context.write_output_file
             thread_vg_ids.append(write_fn(job, vg_trimmed_path))
             
@@ -1593,9 +1598,9 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
 def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
                            output_name, regions, sample, gbwt_ids):
     """
-    Make some sample graphs for threads in a gbwt. regions must be defined
-    since we use the chromosome name to get the threads. Also, gbwt_ids must be
-    specified (one genome gbwt or one per region).
+    Make some sample graphs for threads in a gbwt. regions may have been
+    coalesced in an unspecified way into vg files. Also, gbwt_ids must be
+    specified (one genome gbwt or one per vg).
     """
 
     assert(sample is not None)
@@ -1608,15 +1613,24 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
 
     # validate options should enforce this but check to be sure assumptions met to avoid
     # returning nonsense
-    assert len(vg_ids) == len(regions)
+    # Regions may have been coalesced, but we don't necessarily know which.
+    assert len(vg_ids) <= len(regions)
     
-    logger.info('Making sample graphs for chromosomes {}'.format(chroms))
+    if len(regions) == len(vg_ids):
+        # Nothing coalesced away
+        region_names = chroms
+    else:
+        # We need exactly one name per region but we don't know what region is what graph.
+        region_names = ['region{}'.format(i) for i in range(len(vg_ids))]
     
-    for i, (vg_id, vg_name, region, xg_id) in enumerate(zip(vg_ids, vg_names, chroms, xg_ids)):
+    for i, (vg_id, vg_name, region, xg_id) in enumerate(zip(vg_ids, vg_names, region_names, xg_ids)):
         # make a thread graph from the xg
-        assert not gbwt_ids or len(gbwt_ids) in [1, len(xg_ids)]
+        # We need GBWTs
+        assert gbwt_ids
+        assert len(gbwt_ids) in [1, len(xg_ids)]
         # support whole-genome or chromosome gbwts
-        gbwt_id = gbwt_ids[0] if len(gbwt_ids) == 1 else gbwt_ids[i]        
+        gbwt_id = gbwt_ids[0] if len(gbwt_ids) == 1 else gbwt_ids[i]
+        # Some GBWTs will be None if no VCF was used for a region
         hap_job = job.addChildJobFn(run_make_sample_region_graph, context, vg_id, vg_name,
                                     output_name, region, xg_id, sample, [0,1], gbwt_id,
                                     cores=context.config.construct_cores,
@@ -1625,15 +1639,21 @@ def run_make_sample_graphs(job, context, vg_ids, vg_names, xg_ids,
         sample_vg_ids.append(hap_job.rv())
 
     return sample_vg_ids
-
+    
 def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chrom, xg_id,
-                                 sample, haplotypes, gbwt_id, leave_thread_paths=True, validate=True):
+                                 sample, haplotypes, gbwt_id, leave_thread_paths=False, validate=True):
     """
     make a sample graph using the gbwt.
     
     Extract the subgraph visited by threads for the requested sample, if it is nonempty.
+    Does not keep any paths in the resulting graph unless leave_thread_paths is set.
+    
     Otherwise (for cases like chrM where there are no variant calls and no threads) pass through
     the primary path of the graph.
+    
+    A None GBWT ID is accepted for cases when there are no variants.
+    
+    chrom may be a real chromosome/contig name, or a made up name if regions coalesced.
     
     If validate is True (the default), makes sure the final graph passes
     `vg validate` before sending it on.
@@ -1641,6 +1661,11 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
 
     # This can't work if the sample is None and we want any haplotypes
     assert(sample is not None)
+    
+    # We can't handle coalesced regions unless we are always getting haplotypes
+    # 0 and 1 (i.e. all of them). Otherwise we need a real region name to
+    # construct the prefix.
+    assert(haplotypes == [0, 1])
 
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -1652,55 +1677,88 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
 
     gbwt_path = os.path.join(work_dir, vg_name[:-3] + '.gbwt')
     if gbwt_id:
+        # We have a VCF and thus a GBWT
         job.fileStore.readGlobalFile(gbwt_id, gbwt_path)
-        
-    # Check if there are any threads in the index
-    assert(gbwt_id)
-    thread_count = int(context.runner.call(job,
-        [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
-        ['wc', '-l']], work_dir = work_dir, check_output = True))
-    if thread_count == 0:
-        # There are no threads in our GBWT index (it is empty).
-        # This means that we have no haplotype data for this graph.
-        # This means the graph's contigs contig probably should be included,
-        # in at least their reference versions, in all graphs.
-        # Use the whole graph as our "extracted" graph, which we 
-        # will then pare down to the part covered by paths (i.e. the primary path)
-        extract_graph_path = vg_path
+        RealtimeLogger.info('Getting sample graph with xg %s, vg %s, gbwt %s', xg_id, vg_id, gbwt_id)
     else:
-        # We have actual thread data for the graph. Go extract the relevant threads.
-        extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
-        logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
-        with open(extract_graph_path, 'wb') as extract_graph_file:
-            # strip paths from our original graph            
-            cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
-            context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+        RealtimeLogger.info('Getting sample graph with xg %s, vg %s', xg_id, vg_id)
+    
+    try:
+    
+        if gbwt_id:
+            # Check if there are any threads in the index
+            thread_count = int(context.runner.call(job,
+                [['vg', 'paths', '--threads', '--list', '--gbwt', os.path.basename(gbwt_path), '-x',  os.path.basename(xg_path)], 
+                ['wc', '-l']], work_dir = work_dir, check_output = True))
+        else:
+            # No index, so no threads.
+            thread_count = 0
 
-            for hap in haplotypes:
-                # get haplotype thread paths from the index
-                if gbwt_id:
-                    cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
-                else:
-                    cmd = ['vg', 'find']
+        if thread_count == 0:
+            # There are no threads in our GBWT index (it is empty).
+            # This means that we have no haplotype data for this graph.
+            # This means the graph's contigs contig probably should be included,
+            # in at least their reference versions, in all graphs.
+            # Use the whole graph as our "extracted" graph, which we 
+            # will then pare down to the part covered by paths (i.e. the primary path)
+            extract_graph_path = vg_path
+        else:
+            # We have actual thread data for the graph. Go extract the relevant threads.
+            extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
+            logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
+            
+            # We need to extract two pieces (the base graph and the paths) and combine them.
+            # Different versions of vg may compress the parts. We need them both uncompressed.
+            base_path = extract_graph_path + '.1'
+            paths_path = extract_graph_path + '.2'
+            
+            with open(base_path, 'wb') as base_file:
+                # strip paths from our original graph
+                cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = base_file)
+               
+            with open(paths_path, 'wb') as paths_file:
+                # If we have a nonzero thread count we must have a GBWT.
+                # Get haplotype thread paths from the index for all haplotypes of the sample.
+                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
                 cmd += ['-x', os.path.basename(xg_path)]
-                cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+                cmd += ['-Q', '_thread_{}_'.format(sample)]
+                context.runner.call(job, cmd, work_dir = work_dir, outfile = paths_file)
+               
+            with open(extract_graph_path, 'wb') as extract_graph_file:
+                # Combine as Protobuf.
+                cmd = ['vg', 'combine', '-c', os.path.basename(base_path), os.path.basename(paths_path)]
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
+                
+        assert os.path.getsize(extract_graph_path) > 4
 
-    sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
-    logger.info('Creating sample graph {}'.format(sample_graph_path))
-    with open(sample_graph_path, 'wb') as sample_graph_file:
-        # Then we trim out anything other than our thread paths
-        cmd = [['vg', 'mod', '-N', os.path.basename(extract_graph_path)]]
-        if not leave_thread_paths:
-            cmd.append(['vg', 'paths', '-v', '-', '-d'])
-        context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
+        sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
+        logger.info('Creating sample graph {}'.format(sample_graph_path))
+        with open(sample_graph_path, 'wb') as sample_graph_file:
+            # Then we trim out anything other than our thread paths
+            cmd = [['vg', 'mod', '-N', os.path.basename(extract_graph_path)]]
+            if not leave_thread_paths:
+                cmd.append(['vg', 'paths', '-v', '-', '-d'])
+            context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
+            
+        assert os.path.getsize(sample_graph_path) > 4
+            
+        if validate:
+            # Make sure that the resulting graph passes validation before returning it.
+            # This is another whole graph load and so will take a while.
+            context.runner.call(job, ['vg', 'validate', os.path.basename(sample_graph_path)], work_dir = work_dir)
+
+        sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
+    except:
+        # Dump everything we need to replicate the sample graph extraction
+        logging.error("Sample graph extraction failed. Dumping files.")
+
+        context.write_output_file(job, vg_path)
+        context.write_output_file(job, xg_path)
+        if gbwt_id:
+            context.write_output_file(job, gbwt_path)
         
-    if validate:
-        # Make sure that the resulting graph passes validation before returning it.
-        # This is another whole graph load and so will take a while.
-        context.runner.call(job, ['vg', 'validate', os.path.basename(sample_graph_path)], work_dir = work_dir)
-
-    sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
+        raise
             
     return sample_vg_id
 
