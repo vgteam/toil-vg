@@ -47,6 +47,11 @@ misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
 
+# Resources allotted for vcf preprocessing.
+preprocess-cores: 1
+preprocess-mem: '2G'
+preprocess-disk: '2G'
+
 # Resources allotted for vg construction.
 construct-cores: 1
 construct-mem: '4G'
@@ -156,7 +161,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.29.0'
+vg-docker: 'quay.io/vgteam/vg:v1.31.0'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -225,16 +230,16 @@ whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 eagle-docker: 'quay.io/cmarkello/eagle'
 
 # Docker image to use for vcf2shebang
-vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang:latest'
+vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang_grch38:latest'
 
 # Docker image to use for cadd
-cadd-docker: 'quay.io/cmarkello/cadd:latest'
+cadd-docker: 'quay.io/cmarkello/cadd_1.6:latest'
 
 # Docker image to use for cadd editor
 caddeditor-docker: 'quay.io/cmarkello/cadd_editor:latest'
 
 # Docker image to use for bmtb
-bmtb-docker: 'quay.io/cmarkello/bmtb:latest'
+bmtb-docker: 'quay.io/cmarkello/bmtb_grch38:latest'
 
 # Docker image to use for vcftools
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
@@ -253,6 +258,9 @@ abra2-docker: 'dceoy/abra2:latest'
 
 # Docker image to use for deeptrio
 deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'
+
+# Docker image to use for mosaicism detection
+mosaicism-docker: 'quay.io/cmarkello/mosaicism_detector:latest'
 
 ##############################
 ### vg_construct Arguments ###
@@ -369,6 +377,11 @@ misc-cores: 1
 misc-mem: '1G'
 misc-disk: '1G'
 
+# Resources allotted for vcf preprocessing.
+preprocess-cores: 1
+preprocess-mem: '8G'
+preprocess-disk: '64G'
+
 # Resources allotted for vg construction.
 construct-cores: 1
 construct-mem: '64G'
@@ -478,7 +491,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.29.0'
+vg-docker: 'quay.io/vgteam/vg:v1.31.0'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -547,16 +560,16 @@ whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 eagle-docker: 'quay.io/cmarkello/eagle'
 
 # Docker image to use for vcf2shebang
-vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang'
+vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang_grch38:latest'
 
 # Docker image to use for cadd
-cadd-docker: 'quay.io/cmarkello/cadd'
+cadd-docker: 'quay.io/cmarkello/cadd_1.6:latest'
 
 # Docker image to use for cadd editor
-caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
+caddeditor-docker: 'quay.io/cmarkello/cadd_editor:latest'
 
 # Docker image to use for bmtb
-bmtb-docker: 'quay.io/cmarkello/bmtb'
+bmtb-docker: 'quay.io/cmarkello/bmtb_grch38:latest'
 
 # Docker image to use for vcftools
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
@@ -575,6 +588,9 @@ abra2-docker: 'dceoy/abra2:latest'
 
 # Docker image to use for deeptrio
 deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'
+
+# Docker image to use for mosaicism detection
+mosaicism-docker: 'quay.io/cmarkello/mosaicism_detector:latest'
 
 ##############################
 ### vg_construct Arguments ###

@@ -35,6 +35,8 @@ def analysis_subparser(parser):
     # General options
     parser.add_argument("out_store",
         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
+    parser.add_argument("--trio_pedfile", type=make_url, required=True,
+        help="Path to trio ped file used for mosaicism detector")    
     # VCFtoShebang options
     parser.add_argument("--cohort_vcf", type=make_url, required=True,
         help="Path to cohort vcf processed by toil-vg pedigree")    
@@ -224,7 +226,7 @@ def run_cadd(job, context, chunk_vcf_id, genome_build, cadd_data_dir):
     cadd_data_dir_basename = os.path.basename(cadd_data_dir)
     cmd_list = []
     cmd_list.append(['source', 'activate', '/opt/conda/envs/cadd-env'])
-    cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.5\"', '-g', genome_build, '-o', '/mnt/{}_out.tsv.gz'.format(base_vcf_name), '-d', '/mnt/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
+    cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.6\"', '-g', genome_build, '-o', '/mnt/{}_out.tsv.gz'.format(base_vcf_name), '-d', '/mnt/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='cadd', mount_list=[cadd_data_dir])
@@ -240,22 +242,22 @@ def run_merge_annotated_vcf(job, context, cadd_output_chunk_ids):
     
     cmd_list = [['source', 'activate', '/opt/conda/envs/cadd-env']]
     # Decompress and concatenate cadd output chunks into a single file
-    cadd_chunk_merged_file = os.path.join(work_dir, 'merged_CADDv1.5_offline_unsorted')
+    cadd_chunk_merged_file = os.path.join(work_dir, 'merged_CADDv1.6_offline_unsorted')
     for cadd_output_chunk_id in sorted(cadd_output_chunk_ids):
         cadd_chunk_file = os.path.join(work_dir, os.path.basename(cadd_output_chunk_id))
         job.fileStore.readGlobalFile(cadd_output_chunk_id, cadd_chunk_file)
-        cmd_list.append(['zcat', os.path.basename(cadd_chunk_file), '>>', 'merged_CADDv1.5_offline_unsorted'])
+        cmd_list.append(['zcat', os.path.basename(cadd_chunk_file), '>>', 'merged_CADDv1.6_offline_unsorted'])
         
     # Sort and process the merged file
-    cmd_list.append(['sort', '-k1,1', '-k2,2n', 'merged_CADDv1.5_offline_unsorted', '>', 'merged_CADDv1.5_offline.vcf'])
-    cmd_list.append(['rm', '-f', 'merged_CADDv1.5_offline_unsorted'])
-    cmd_list.append(['python', '/usr/src/app/CADD_offline_mito_postprocessing.py', '-c', '/usr/src/app/whole_mito_SNP_pp2_predictions_sorted.txt', '-i', 'merged_CADDv1.5_offline.vcf', '-o', 'merged_CADDv1.5_offline_proper_format.vcf'])
-    cmd_list.append(['rm', '-f', 'merged_CADDv1.5_offline.vcf'])
+    cmd_list.append(['sort', '-k1,1', '-k2,2n', 'merged_CADDv1.6_offline_unsorted', '>', 'merged_CADDv1.6_offline.vcf'])
+    cmd_list.append(['rm', '-f', 'merged_CADDv1.6_offline_unsorted'])
+    cmd_list.append(['python', '/usr/src/app/CADD_offline_mito_postprocessing.py', '-c', '/usr/src/app/whole_mito_SNP_pp2_predictions_sorted.txt', '-i', 'merged_CADDv1.6_offline.vcf', '-o', 'merged_CADDv1.6_offline_proper_format.vcf'])
+    cmd_list.append(['rm', '-f', 'merged_CADDv1.6_offline.vcf'])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='cadd')
     
-    merged_cadd_output_vcf_path = os.path.join(work_dir, 'merged_CADDv1.5_offline_proper_format.vcf')
+    merged_cadd_output_vcf_path = os.path.join(work_dir, 'merged_CADDv1.6_offline_proper_format.vcf')
     return context.write_output_file(job, merged_cadd_output_vcf_path)
 
 def run_cadd_editor(job, context, vcftoshebang_vs_file_id, merged_cadd_vcf_file_id):
@@ -360,8 +362,38 @@ def run_cadd_jobs(job, context, vcf_chunk_ids, genome_build, cadd_data_dir):
         cadd_engine_output_ids.append(cadd_job.rv())
     
     return cadd_engine_output_ids
+
+def run_detect_mosaicism(job, context, ped_file_id, cohort_vcf_id, sample_name):
+    """ run mosaicism detector on a sibling in a pedigree.
+        Outputs a mosaicism report for the sample in tsv format.
+    """
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
     
-def run_analysis(job, context, cohort_vcf_id,
+    ped_file = os.path.join(work_dir, os.path.basename(ped_file_id))
+    job.fileStore.readGlobalFile(ped_file_id, ped_file)
+    
+    vcf_file = os.path.join(work_dir, os.path.basename(cohort_vcf_id))
+    job.fileStore.readGlobalFile(cohort_vcf_id, vcf_file)
+    
+    cmd_list = [['cp', '/usr/src/app/phasing_config_file.txt', '$PWD/phasing_config_file.txt']]
+    # Decompress cohort vcf if already compressed
+    if os.path.basename(vcf_file).endswith('.gz'):
+        cmd_list.append(['bgzip', '-d', os.path.basename(vcf_file)])
+        vcf_file = os.path.splitext(vcf_file)[0]
+    
+    cmd_list.append(['sed', '-i', '\"s|^PED_FILE.*|PED_FILE\t$PWD/{}|\"'.format(os.path.basename(ped_file)), '$PWD/phasing_config_file.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^VCF_FILE.*|VCF_FILE\t$PWD/{}|\"'.format(os.path.basename(vcf_file)), '$PWD/phasing_config_file.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^OUTPUT_FILE.*|OUTPUT_FILE\t$PWD/{}_mosaicism_output.txt|\"'.format(sample_name), '$PWD/phasing_config_file.txt'])
+    cmd_list.append(['python', '/usr/src/app/main.py', '-i', '$PWD/phasing_config_file.txt'])
+    chain_cmds = [' '.join(p) for p in cmd_list]
+    command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='mosaicism')
+    
+    mosaicism_output_path = os.path.join(work_dir, '{}_mosaicism_output.txt'.format(sample_name))
+    return context.write_output_file(job, mosaicism_output_path)
+    
+def run_analysis(job, context, ped_file_id, cohort_vcf_id,
                        maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
                        sample_name, maternal_name, paternal_name,
                        sibling_names, sibling_genders, sibling_affected,
@@ -376,6 +408,11 @@ def run_analysis(job, context, cohort_vcf_id,
     child_job = Job()
     job.addChild(child_job)
     
+    mosaicism_detecting_job = child_job.addChildJobFn(run_detect_mosaicism, context, ped_file_id, cohort_vcf_id, sample_name, 
+                                                        cores=context.config.misc_cores,
+                                                        memory=context.config.misc_mem,
+                                                        disk=context.config.misc_disk)
+    
     vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, cohort_vcf_id,
                                                    maternal_bam_id, maternal_bai_id, paternal_bam_id, paternal_bai_id, sibling_bam_ids, sibling_bai_ids,
                                                    sample_name, maternal_name, paternal_name,
@@ -385,7 +422,7 @@ def run_analysis(job, context, cohort_vcf_id,
                                                    memory=context.config.alignment_mem,
                                                    disk=context.config.alignment_disk)
     
-    return vcf_to_shebang_job.rv()
+    return vcf_to_shebang_job.rv(), mosaicism_detecting_job.rv()
     
 def analysis_main(context, options):
     """
@@ -404,6 +441,7 @@ def analysis_main(context, options):
             importer = AsyncImporter(toil)
             
             # Upload local files to the remote IO Store
+            inputPEDFileID = importer.load(options.trio_pedfile)
             inputVCFFileID = importer.load(options.cohort_vcf)
             inputMBAMFileID = importer.load(options.maternal_bam)
             inputMBAMINDEXFileID = importer.load(options.maternal_bai)
@@ -420,6 +458,7 @@ def analysis_main(context, options):
 
             # Make a root job
             root_job = Job.wrapJobFn(run_analysis, context,
+                                     importer.resolve(inputPEDFileID),
                                      importer.resolve(inputVCFFileID),
                                      importer.resolve(inputMBAMFileID),
                                      importer.resolve(inputMBAMINDEXFileID),

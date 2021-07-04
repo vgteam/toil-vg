@@ -296,7 +296,7 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
     # Extract contig name
-    if '38' in ref_fasta_name:
+    if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
         contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
     else:
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
@@ -371,7 +371,7 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
     # Extract contig name
-    if '38' in ref_fasta_name:
+    if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
         contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
     else:
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
@@ -652,7 +652,8 @@ def run_deepTrio_gvcf(job, context, options,
     Realign trio chromosome BAMs and run DeepTrio on them.
     """
     # Extract contig name
-    if '38' in os.path.basename(ref_fasta_id):
+    ref_fasta_name = os.path.basename(ref_fasta_id)
+    if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
         contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1))
     else:
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1)
@@ -1321,6 +1322,7 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
         for contig_id in contigs_list:
             eagle_file_id = None
             eagle_file_index_id = None
+            #TODO: FIX THIS FOR NO_SEGDUP_GRCH38
             if '38' in os.path.basename(ref_fasta_id):
                 if contig_id in ['chrX']:
                     eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data_grch38/CCDG_14151_B01_GRM_WGS_2020-08-05_{}.filtered.eagle2-phased.bcf'.format(contig_id)))
@@ -1812,7 +1814,7 @@ def run_process_parental_graph_index(job, context, options, parental_indexes, ol
         parental_indexes.pop('gbwt', None)
     return parental_indexes
 
-def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff_database_file_id):
+def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff_database_file_id, ref_fasta_id):
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
@@ -1827,9 +1829,14 @@ def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff
     context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools')
     command = ['unzip', os.path.basename(snpeff_database_file_path)]
     context.runner.call(job, command, work_dir = work_dir)
-    command = ['snpEff', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
-                    '-dataDir', '$PWD/data',
-                    'GRCh37.75', '{}.unrolled.vcf'.format(cohort_name)]
+    if '38' in os.path.basename(ref_fasta_id):
+        command = ['snpEff', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
+                        '-dataDir', '$PWD/data',
+                        'GRCh38.99', '{}.unrolled.vcf'.format(cohort_name)]
+    else:
+        command = ['snpEff', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
+                        '-dataDir', '$PWD/data',
+                        'GRCh37.75', '{}.unrolled.vcf'.format(cohort_name)]
     with open(os.path.join(work_dir, '{}.snpeff.unrolled.vcf'.format(cohort_name)), 'wb') as output_snpeff_vcf:
         context.runner.call(job, command, work_dir = work_dir, tool_name='snpEff', outfile=output_snpeff_vcf)
     context.runner.call(job, ['bgzip', '{}.snpeff.unrolled.vcf'.format(cohort_name)], work_dir = work_dir, tool_name='vg')
@@ -1862,7 +1869,8 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
     
     # Extract contig name
-    if '38' in ref_fasta_name:
+    RealtimeLogger.info("DEBUGGING, bam_name: {}".format(bam_name))
+    if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
         contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
     else:
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
@@ -2331,7 +2339,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     if snpeff_annotation:
         snpeff_job = pedigree_joint_call_job.addFollowOnJobFn(run_snpEff_annotation, context,
                                                         proband_name, pedigree_joint_call_job.rv(0),
-                                                        misc_file_ids['snpeff_data'],
+                                                        misc_file_ids['snpeff_data'], ref_fasta_ids[0],
                                                         cores=context.config.calling_cores,
                                                         memory=context.config.calling_mem,
                                                         disk=context.config.calling_disk)
@@ -2395,7 +2403,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
         joined_sibling_names = [proband_name]
         if siblings_names is not None: 
             joined_sibling_names += siblings_names
-        analysis_workflow_job = stage4_jobs.addFollowOnJobFn(run_analysis, context, final_pedigree_joint_called_vcf,
+        analysis_workflow_job = stage4_jobs.addFollowOnJobFn(run_analysis, context, misc_file_ids['ped_file'], final_pedigree_joint_called_vcf,
                                                            final_maternal_bam, final_maternal_bam_index, 
                                                            final_paternal_bam, final_paternal_bam_index,
                                                            final_sibling_bam_list, final_sibling_bam_index_list,
