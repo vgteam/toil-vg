@@ -56,7 +56,7 @@ def analysis_subparser(parser):
     # CADD options
     parser.add_argument("--split_lines", type=int, default=30000,
         help="Number of lines to chunk the input VCF for CADD processing.")
-    parser.add_argument("--genome_build", type=str, default="GRCh37",
+    parser.add_argument("--genome_build", type=str, default="GRCh38",
         help="Genome annotation version for the CADD engine")
     parser.add_argument("--cadd_data", type=str, required=True,
         help="Path to cadd engine data directory")
@@ -121,7 +121,8 @@ def run_vcftoshebang(job, context, cohort_vcf_id,
         cohort_vcf_file = os.path.splitext(cohort_vcf_file)[0]
     
     # Remove the hs37d5 contig
-    context.runner.call(job, ['vcftools', '--vcf', os.path.basename(cohort_vcf_file), '--not-chr', 'hs37d5', '--recode-INFO-all', '--recode', '--out', '{}.filtered'.format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))], work_dir = work_dir, tool_name='vcftools')
+    #TODO: properly handle removing either 'hs38d1_decoys' or 'hs37d5' contigs from unrolled vcf
+    context.runner.call(job, ['vcftools', '--vcf', os.path.basename(cohort_vcf_file), '--not-chr', 'hs38d1_decoys', '--recode-INFO-all', '--recode', '--out', '{}.filtered'.format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))], work_dir = work_dir, tool_name='vcftools')
     input_vcf_file = "{}.filtered.recode.vcf".format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))
     
     output_dir = "vcf2shebang_output/"
@@ -140,6 +141,9 @@ def run_vcftoshebang(job, context, cohort_vcf_id,
     cmd_list.append(['sed', '-i', '\"s|^EDITOR_CONFIG.*|EDITOR_CONFIG\t/vcftoshebang/edit_config.txt|\"', 'VCFtoShebang_Config.txt'])
     cmd_list.append(['java', '-XX:+UnlockExperimentalVMOptions', '-XX:ActiveProcessorCount=32', '-cp', '/vcftoshebang/VCFtoShebang.jar:/vcftoshebang/json_simple.jar',
                              'Runner', 'VCFtoShebang_Config.txt'])
+    cmd_list.append(['pwd'])
+    cmd_list.append(['ls -lht'])
+    cmd_list.append(['tar', 'czvf', '\"SexDeterminerOutputFiles.tar.gz\"', '\"vcf2shebang_output/SexDeterminerOutputFiles\"'])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='vcf2shebang', mount_list=[chrom_dir,edit_dir])
@@ -159,6 +163,7 @@ def run_vcftoshebang(job, context, cohort_vcf_id,
     # Write VCFtoShebang_Config.txt to the outstore for debugging purposes
     context.write_output_file(job, os.path.join(work_dir, 'VCFtoShebang_Config.txt'))
     context.write_output_file(job, os.path.join(work_dir, input_vcf_file))
+    context.write_output_file(job, os.path.join(work_dir, 'SexDeterminerOutputFiles.tar.gz'))
     
     baseline_vs_file_id = context.write_output_file(job, output_vs_path)
     if output_cadd_vcf_path is not None:
@@ -225,7 +230,6 @@ def run_cadd(job, context, chunk_vcf_id, genome_build, cadd_data_dir):
     base_vcf_name = os.path.basename(os.path.splitext(vcf_file)[0])
     cadd_data_dir_basename = os.path.basename(cadd_data_dir)
     cmd_list = []
-    cmd_list.append(['source', 'activate', '/opt/conda/envs/cadd-env'])
     cmd_list.append(['/bin/bash', '/usr/src/app/CADD.sh', '-v', '\"v1.6\"', '-g', genome_build, '-o', '/mnt/{}_out.tsv.gz'.format(base_vcf_name), '-d', '/mnt/{}'.format(cadd_data_dir_basename), os.path.basename(vcf_file)])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
@@ -257,7 +261,7 @@ def run_merge_annotated_vcf(job, context, cadd_output_chunk_ids):
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='cadd')
     
-    merged_cadd_output_vcf_path = os.path.join(work_dir, 'merged_CADDv1.6_offline_proper_format.vcf')
+    merged_cadd_output_vcf_path = os.path.join(work_dir, 'merged_CADDv1.6_offline_proper_format.vcf_final')
     return context.write_output_file(job, merged_cadd_output_vcf_path)
 
 def run_cadd_editor(job, context, vcftoshebang_vs_file_id, merged_cadd_vcf_file_id):
@@ -385,6 +389,7 @@ def run_detect_mosaicism(job, context, ped_file_id, cohort_vcf_id, sample_name):
     cmd_list.append(['sed', '-i', '\"s|^PED_FILE.*|PED_FILE\t$PWD/{}|\"'.format(os.path.basename(ped_file)), '$PWD/phasing_config_file.txt'])
     cmd_list.append(['sed', '-i', '\"s|^VCF_FILE.*|VCF_FILE\t$PWD/{}|\"'.format(os.path.basename(vcf_file)), '$PWD/phasing_config_file.txt'])
     cmd_list.append(['sed', '-i', '\"s|^OUTPUT_FILE.*|OUTPUT_FILE\t$PWD/{}_mosaicism_output.txt|\"'.format(sample_name), '$PWD/phasing_config_file.txt'])
+    cmd_list.append(['sed', '-i', '\"s|^PROBAND_NAME.*|PROBAND_NAME\t{}|\"'.format(sample_name), '$PWD/phasing_config_file.txt'])
     cmd_list.append(['python', '/usr/src/app/main.py', '-i', '$PWD/phasing_config_file.txt'])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
