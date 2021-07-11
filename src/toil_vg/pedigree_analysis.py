@@ -83,7 +83,7 @@ def analysis_subparser(parser):
     parser.add_argument("--sibling_genders", nargs='+', type=int, required=True,
         help="Gender of each sibling sample. 0 = male, 1 = female. Same sample order as --siblings_bam.")
     parser.add_argument("--sibling_affected", nargs='+', type=int, required=True,
-        help="Affected status of each sibling sample. 0 = unaffected, 1 = affected. Same sample order as --siblings_bam.")
+        help="Affected status of each sibling sample. 0 = affected, 1 = unaffected. Same sample order as --siblings_bam.")
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -143,7 +143,7 @@ def run_vcftoshebang(job, context, cohort_vcf_id,
                              'Runner', 'VCFtoShebang_Config.txt'])
     cmd_list.append(['pwd'])
     cmd_list.append(['ls -lht'])
-    cmd_list.append(['tar', 'czvf', '\"SexDeterminerOutputFiles.tar.gz\"', '\"vcf2shebang_output/SexDeterminerOutputFiles\"'])
+    cmd_list.append(['tar', 'czvf', '\"vcf2shebang_output.tar.gz\"', '\"vcf2shebang_output\"'])
     chain_cmds = [' '.join(p) for p in cmd_list]
     command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
     context.runner.call(job, command, work_dir = work_dir, tool_name='vcf2shebang', mount_list=[chrom_dir,edit_dir])
@@ -163,7 +163,7 @@ def run_vcftoshebang(job, context, cohort_vcf_id,
     # Write VCFtoShebang_Config.txt to the outstore for debugging purposes
     context.write_output_file(job, os.path.join(work_dir, 'VCFtoShebang_Config.txt'))
     context.write_output_file(job, os.path.join(work_dir, input_vcf_file))
-    context.write_output_file(job, os.path.join(work_dir, 'SexDeterminerOutputFiles.tar.gz'))
+    context.write_output_file(job, os.path.join(work_dir, 'vcf2shebang_output.tar.gz'))
     
     baseline_vs_file_id = context.write_output_file(job, output_vs_path)
     if output_cadd_vcf_path is not None:
@@ -331,6 +331,10 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
             cmd_list.append(['sed', '-i', '\"s|^PB_ID.*|PB_ID\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
             cmd_list.append(['sed', '-i', '\"s|^PB_GENDER.*|PB_GENDER\t{}|\"'.format(s_gender), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
             cmd_list.append(['sed', '-i', '\"s|^OUT_FILE_NAME.*|OUT_FILE_NAME\t{}|\"'.format(s_name), '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+            if s_gender == 0:
+                cmd_list.append(['sed', '-i', '\"s|^FILTER_HEMI.*|FILTER_HEMI\t1|\"', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
+            else:
+                cmd_list.append(['sed', '-i', '\"s|^FILTER_HEMI.*|FILTER_HEMI\t0|\"', '$PWD/Configs/BMTB_Genome_Input_Config.txt'])
         else:
             if sibling_id_string == "NA":
                 sibling_id_string = "{},{},{};".format(s_name,s_gender,s_affected)
