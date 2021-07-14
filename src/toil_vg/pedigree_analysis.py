@@ -81,7 +81,7 @@ def analysis_subparser(parser):
     parser.add_argument("--sibling_genders", nargs='+', type=int, required=True,
         help="Gender of each sibling sample. 0 = male, 1 = female. Same sample order as --siblings_bam.")
     parser.add_argument("--sibling_affected", nargs='+', type=int, required=True,
-        help="Affected status of each sibling sample. 0 = unaffected, 1 = affected. Same sample order as --siblings_bam.")
+        help="Affected status of each sibling sample. 0 = affected, 1 = unaffected. Same sample order as --siblings_bam.")
     
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
