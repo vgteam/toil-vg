@@ -150,7 +150,7 @@ do
     SIB_GENDER_LIST+="${SIBLING_GENDERS[$n]} "
     SIB_AFFECTED_LIST+="${SIBLING_AFFECTED[$n]} "
     SIB_BAM_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.bam' "
-    SIB_BAI_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.bai' "
+    SIB_BAI_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.bam.bai' "
 done
 
 if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]] || [ -z ${COHORT_WORKFLOW_DIR} ]; then
