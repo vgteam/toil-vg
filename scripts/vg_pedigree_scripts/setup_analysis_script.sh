@@ -145,8 +145,8 @@ do
     SIB_ID_LIST+="${SIBLING_SAMPLE_NAMES[$n]} "
     SIB_GENDER_LIST+="${SIBLING_GENDERS[$n]} "
     SIB_AFFECTED_LIST+="${SIBLING_AFFECTED[$n]} "
-    SIB_BAM_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.indel_realigned.bam' "
-    SIB_BAI_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.indel_realigned.bai' "
+    SIB_BAM_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.bam' "
+    SIB_BAI_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.bai' "
 done
 
 if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]] || [ -z ${COHORT_WORKFLOW_DIR} ]; then
@@ -207,10 +207,10 @@ ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore \\
 --sibling_names ${SIB_ID_LIST[@]} \\
 --sibling_genders ${SIB_GENDER_LIST[@]} \\
 --sibling_affected ${SIB_AFFECTED_LIST[@]} \\
---maternal_bam ${INPUT_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_merged.indel_realigned.bam \\
---maternal_bai ${INPUT_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_merged.indel_realigned.bam.bai \\
---paternal_bam ${INPUT_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_merged.indel_realigned.bam \\
---paternal_bai ${INPUT_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_merged.indel_realigned.bam.bai \\
+--maternal_bam ${INPUT_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_merged.bam \\
+--maternal_bai ${INPUT_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_merged.bam.bai \\
+--paternal_bam ${INPUT_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_merged.bam \\
+--paternal_bai ${INPUT_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_merged.bam.bai \\
 --siblings_bam ${SIB_BAM_LIST[@]} \\
 --siblings_bai ${SIB_BAI_LIST[@]} \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
