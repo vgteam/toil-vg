@@ -18,28 +18,20 @@
 ## Create help statement
 usage(){
 cat << EOF
-
 This script setups up a bash script to run a UDP cohort through all stages of the toil-vg
 candidate analysis workflow on the NIH Biowulf Cluster.
-
 Inputs:
-    -m Mother UDP ID (in format UDP####)
-    -f Father UDP ID (in format UDP####)
-    -s List of Sibling UDP ID, Proband ID must be first in the list (in format UDP#### UDP#### UDP#### ...)
-    -g List of Sibling Gender IDs. 0=male, 1=female. Must be same order as the input to -s argument.
-    -a List of Sibling affected status. 0=unaffected, 1=affected. Must be same order as the input to -s argument.
+    -f Cohort name. Should be the same as the proband sample name.
+    -c PATH to .ped file containing all samples in the family.
     -w PATH to where the UDP cohort will be processed.
-    -c PATH to chromosome annotation directory used by vcftoshebang.
+    -a PATH to chromosome annotation directory used by vcftoshebang.
     -e PATH to directory containing master edit files used by vcftoshebang.
     -d PATH to cadd engine data directory.
     -v PATH to the toil_vg repository
     -r (OPTIONAL, default=false) Set to 'true' to restart an incompletely ran workflow
-    -t (OPTIONAL, default=false) Set to 'true' if running workflow on small HG002 chr21 test data
     
 Outputs:
-
 Assumptions:
-
 EOF
 
 }
@@ -51,31 +43,21 @@ if [ $# -lt 7 ] || [[ $@ != -* ]]; then
 fi
 
 ## DEFAULT PARAMETERS
-RUN_SMALL_TEST=false
 RESTART=false
 
 ## Parse through arguments
-while getopts "m:f:s:w:i:c:e:d:v:r:t:h" OPTION; do
+while getopts "f:c:w:a:e:d:v:r:h" OPTION; do
     case $OPTION in
-        m)
-            MATERNAL_SAMPLE_NAME=$OPTARG
-        ;;
         f)
-            PATERNAL_SAMPLE_NAME=$OPTARG
+            COHORT_NAME=$OPTARG
         ;;
-        s)
-            SIBLING_SAMPLE_NAMES+=($OPTARG)
-        ;;
-        g)
-            SIBLING_GENDERS+=($OPTARG)
-        ;;
-        a)
-            SIBLING_AFFECTED+=($OPTARG)
+        c)
+            COHORT_PED_FILE=$OPTARG
         ;;
         w)
             COHORT_WORKFLOW_DIR=$OPTARG
         ;;
-        c)
+        a)
             CHROM_ANNOT_DIR=$OPTARG
         ;;
         e)
@@ -90,9 +72,6 @@ while getopts "m:f:s:w:i:c:e:d:v:r:t:h" OPTION; do
         r)
             RESTART=$OPTARG
         ;;
-        t)
-            RUN_SMALL_TEST=$OPTARG
-        ;;
         h)
             usage
             exit 1
@@ -104,18 +83,68 @@ while getopts "m:f:s:w:i:c:e:d:v:r:t:h" OPTION; do
     esac
 done
 
+# Extract sample information from input family .ped file
+source ${TOIL_VG_DIR}/toilvg_venv/bin/activate
+pip install ped_parser
+TRIO_PED_FILE="${COHORT_NAME}.trio.ped"
+
+READ_DATA_DIR="${COHORT_WORKFLOW_DIR}/input_reads"
+SAMPLES_LIST=($(python3 -c "import ped_parser; print(list(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals.keys()))" | tr -d '[],' | tr -d \'))
+SIB_ID_LIST_SET=()
+SIB_GENDER_LIST_SET=()
+SIB_AFFECTED_LIST_SET=()
+
+SIBLING_SAMPLE_NAMES=()
+SIBLING_GENDERS=()
+SIBLING_AFFECTED=()
+
+for SAMPLE_ID in ${SAMPLES_LIST[@]}
+do
+    SAMPLE_MOM=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].mother)"))
+    SAMPLE_DAD=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].father)"))
+    SAMPLE_GENDER=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].sex)"))
+    SAMPLE_AFFECTED=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].phenotype)"))
+    if [[ "$SAMPLE_ID" == "$COHORT_NAME" ]]; then
+        SIBLING_SAMPLE_NAMES+=(${SAMPLE_ID})
+        SIBLING_GENDERS+=($((${SAMPLE_GENDER} - 1)))
+        if [[ ${SAMPLE_AFFECTED} -eq 1 ]]; then
+            SIBLING_AFFECTED+=(1)
+        else
+            SIBLING_AFFECTED+=(0)
+        fi
+        MATERNAL_SAMPLE_NAME="${SAMPLE_MOM}"
+        PATERNAL_SAMPLE_NAME="${SAMPLE_DAD}"
+    elif [[ ${SAMPLE_MOM} != '0' ]]; then
+        SIB_ID_LIST_SET+=(${SAMPLE_ID})
+        SIB_GENDER_LIST_SET+=(${SAMPLE_GENDER})
+        SIB_AFFECTED_LIST_SET+=(${SAMPLE_AFFECTED})
+    fi
+done
+
+for (( n=0; n<${#SIB_ID_LIST_SET[@]}; n++ ))
+do
+    SIBLING_SAMPLE_NAMES+=(${SIB_ID_LIST_SET[$n]})
+    SIBLING_GENDERS+=($((${SIB_GENDER_LIST_SET[$n]} - 1)))
+    if [[ ${SIB_AFFECTED_LIST_SET[$n]} -eq 1 ]]; then
+        SIBLING_AFFECTED+=(1)
+    else
+        SIBLING_AFFECTED+=(0)
+    fi
+done
+
+# Format the input values in the command by the parsed sample information
 PROBAND_SAMPLE_NAME="${SIBLING_SAMPLE_NAMES[0]}"
 INPUT_DATA_DIR="${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore"
 SIB_ID_LIST=""
 SIB_GENDER_LIST=""
-SIB_AFFECT_LIST=""
+SIB_AFFECTED_LIST=""
 SIB_BAM_LIST=""
 SIB_BAI_LIST=""
 for (( n=0; n<${#SIBLING_SAMPLE_NAMES[@]}; n++ ))
 do
     SIB_ID_LIST+="${SIBLING_SAMPLE_NAMES[$n]} "
     SIB_GENDER_LIST+="${SIBLING_GENDERS[$n]} "
-    SIB_AFFECT_LIST+="${SIBLING_AFFECTED[$n]} "
+    SIB_AFFECTED_LIST+="${SIBLING_AFFECTED[$n]} "
     SIB_BAM_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.indel_realigned.bam' "
     SIB_BAI_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.indel_realigned.bai' "
 done
@@ -171,13 +200,13 @@ ${RESTART_ARG} \\
 --whole_genome_config \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_jobstore \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore \\
---cohort_vcf ${INPUT_DATA_DIR}/${PROBAND_SAMPLE_NAME}.snpeff.unrolled.vcf \\
+--cohort_vcf ${INPUT_DATA_DIR}/${PROBAND_SAMPLE_NAME}.snpeff.unrolled.vcf.gz \\
 --sample_name ${PROBAND_SAMPLE_NAME} \\
 --maternal_name ${MATERNAL_SAMPLE_NAME} \\
 --paternal_name ${PATERNAL_SAMPLE_NAME} \\
 --sibling_names ${SIB_ID_LIST[@]} \\
 --sibling_genders ${SIB_GENDER_LIST[@]} \\
---sibling_affected ${SIB_AFFECT_LIST[@]} \\
+--sibling_affected ${SIB_AFFECTED_LIST[@]} \\
 --maternal_bam ${INPUT_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_merged.indel_realigned.bam \\
 --maternal_bai ${INPUT_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_merged.indel_realigned.bam.bai \\
 --paternal_bam ${INPUT_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_merged.indel_realigned.bam \\
@@ -189,4 +218,3 @@ ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore \\
 --cadd_data ${CADD_DATA_DIR}" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 
 exit
-
