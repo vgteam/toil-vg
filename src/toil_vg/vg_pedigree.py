@@ -824,6 +824,11 @@ def run_deeptrio_call_variants(job, context, options,
         job.fileStore.readGlobalFile(deeptrio_model_file_id, model_file_path)
         context.runner.call(job, ['tar', '-xzf', os.path.basename(model_file_path)], work_dir = work_dir)
         model_dir_name = os.path.splitext(os.path.splitext(os.path.basename(model_file_path))[0])[0]
+        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, deeptrio_model_file_id: ", deeptrio_model_file_id)
+        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, work_dir: ", work_dir)
+        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, model_file_path: ", model_file_path)
+        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, model_dir_name: ", model_dir_name)
+        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, os.getcwd(): ", os.getcwd())
         model_filename = ""
         with os.scandir(model_dir_name) as entries:
             for entry in entries:
