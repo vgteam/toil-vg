@@ -817,38 +817,39 @@ def run_deeptrio_call_variants(job, context, options,
     context.runner.call(job, ['tar', '-xzf', os.path.basename(examples_file_path)], work_dir = work_dir)
     context.runner.call(job, ['tar', '-xzf', os.path.basename(nonvariant_site_tf_file_path)], work_dir = work_dir)
     
+    # Gather the deeptrio models if they exist
+    deeptrio_model = ""
+    if deeptrio_model_file_id:
+        model_file_path = os.path.join(work_dir, os.path.basename(deeptrio_model_file_id))
+        job.fileStore.readGlobalFile(deeptrio_model_file_id, model_file_path)
+        context.runner.call(job, ['tar', '-xzf', os.path.basename(model_file_path)], work_dir = work_dir)
+        model_dir_name = os.path.splitext(os.path.splitext(os.path.basename(model_file_path))[0])[0]
+        model_filename = ""
+        with os.scandir(model_dir_name) as entries:
+            for entry in entries:
+                model_filename = os.path.splitext(entry.name)[0]
+        deeptrio_model = os.path.join(model_dir_name, model_filename)
+    
     if 'parent1' in os.path.basename(examples_file_path):
         examples_file = "make_examples_parent1.tfrecord@{}.gz".format(str(job.cores))
         outfile_name = "call_variants_output_parent1.tfrecord.gz"
         nonvariant_site_tfrecord_path = "gvcf_parent1.tfrecord@{}.gz".format(str(job.cores))
-        # Gather the deeptrio models if they exist
-        if deeptrio_model_file_id:
-            model_file_path = os.path.join(work_dir, os.path.basename(deeptrio_model_file_id))
-            job.fileStore.readGlobalFile(deeptrio_model_file_id, model_file_path)
-            deeptrio_model = os.path.basename(model_file_path)
-        else:
+        # Use the default model if none are provided
+        if not deeptrio_model_file_id:
             deeptrio_model = "/opt/models/deeptrio/wgs/parent/model.ckpt"
     if 'parent2' in os.path.basename(examples_file_path):
         examples_file = "make_examples_parent2.tfrecord@{}.gz".format(str(job.cores))
         outfile_name = "call_variants_output_parent2.tfrecord.gz"
         nonvariant_site_tfrecord_path = "gvcf_parent2.tfrecord@{}.gz".format(str(job.cores))
-        # Gather the deeptrio models if they exist
-        if deeptrio_model_file_id:
-            model_file_path = os.path.join(work_dir, os.path.basename(deeptrio_model_file_id))
-            job.fileStore.readGlobalFile(deeptrio_model_file_id, model_file_path)
-            deeptrio_model = os.path.basename(model_file_path)
-        else:
+        # Use the default model if none are provided
+        if not deeptrio_model_file_id:
             deeptrio_model = "/opt/models/deeptrio/wgs/parent/model.ckpt"
     if 'child' in os.path.basename(examples_file_path):
         examples_file = "make_examples_child.tfrecord@{}.gz".format(str(job.cores))
         outfile_name = "call_variants_output_child.tfrecord.gz"
         nonvariant_site_tfrecord_path = "gvcf_child.tfrecord@{}.gz".format(str(job.cores))
-        # Gather the deeptrio models if they exist
-        if deeptrio_model_file_id:
-            model_file_path = os.path.join(work_dir, os.path.basename(deeptrio_model_file_id))
-            job.fileStore.readGlobalFile(deeptrio_model_file_id, model_file_path)
-            deeptrio_model = os.path.basename(model_file_path)
-        else:
+        # Use the default model if none are provided
+        if not deeptrio_model_file_id:
             deeptrio_model = "/opt/models/deeptrio/wgs/child/model.ckpt"
     
     command = ['/opt/deepvariant/bin/call_variants',
@@ -1346,7 +1347,6 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
         for contig_id in contigs_list:
             eagle_file_id = None
             eagle_file_index_id = None
-            #TODO: FIX THIS FOR NO_SEGDUP_GRCH38
             if '38' in os.path.basename(ref_fasta_id):
                 if contig_id in ['chrX']:
                     eagle_file_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'eagle_data_grch38/CCDG_14151_B01_GRM_WGS_2020-08-05_{}.filtered.eagle2-phased.bcf'.format(contig_id)))

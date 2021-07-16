@@ -120,9 +120,11 @@ def run_vcftoshebang(job, context, cohort_vcf_id,
         context.runner.call(job, ['bgzip', '-d', os.path.basename(cohort_vcf_file)], work_dir = work_dir, tool_name='vg')
         cohort_vcf_file = os.path.splitext(cohort_vcf_file)[0]
     
-    # Remove the hs37d5 contig
-    #TODO: properly handle removing either 'hs38d1_decoys' or 'hs37d5' contigs from unrolled vcf
-    context.runner.call(job, ['vcftools', '--vcf', os.path.basename(cohort_vcf_file), '--not-chr', 'hs38d1_decoys', '--recode-INFO-all', '--recode', '--out', '{}.filtered'.format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))], work_dir = work_dir, tool_name='vcftools')
+    # Remove the decoy contig
+    if genome_build == "GRCh38":
+        context.runner.call(job, ['vcftools', '--vcf', os.path.basename(cohort_vcf_file), '--not-chr', 'hs38d1_decoys', '--recode-INFO-all', '--recode', '--out', '{}.filtered'.format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))], work_dir = work_dir, tool_name='vcftools')
+    else:
+        context.runner.call(job, ['vcftools', '--vcf', os.path.basename(cohort_vcf_file), '--not-chr', 'hs37d5', '--recode-INFO-all', '--recode', '--out', '{}.filtered'.format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))], work_dir = work_dir, tool_name='vcftools')
     input_vcf_file = "{}.filtered.recode.vcf".format(os.path.basename(os.path.splitext(cohort_vcf_file)[0]))
     
     output_dir = "vcf2shebang_output/"
@@ -317,7 +319,6 @@ def run_bmtb(job, context, analysis_ready_vs_file_id,
         job.fileStore.readGlobalFile(s_bai_id, s_bai_path)
         s_bai_paths.append(s_bai_path)
     
-    context.runner.call(job, ['ls', '-l', '/bmtb/'], work_dir = work_dir, tool_name='bmtb')
     cmd_list = [['cp', '-r', '/bmtb/Configs', '$PWD/Configs']]
     cmd_list.append(['rm', '-f', '$PWD/Configs/BAM_Directory_Config.txt'])
     cmd_list.append(['touch', '$PWD/Configs/BAM_Directory_Config.txt'])

@@ -253,6 +253,8 @@ ${SIB_READ_PAIR_LIST} \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/hs37d5.fa.fai \\
 --ref_fasta_dict ${WORKFLOW_INPUT_DIR}/hs37d5.dict \\
 --caller ${CALLER} \\
+--deeptrio_child_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0711.tar.gz \\
+--deeptrio_parent_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0713.tar.gz \\
 --mapper giraffe \\
 --use_haplotypes \\
 --xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg \\
@@ -355,6 +357,8 @@ ${SIB_READ_PAIR_LIST} \\
 --ref_fasta_index ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.fna.fai \\
 --ref_fasta_dict ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.dict \\
 --caller ${CALLER} \\
+--deeptrio_child_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0711.tar.gz \\
+--deeptrio_parent_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0713.tar.gz \\
 --mapper giraffe \\
 --use_haplotypes \\
 --xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg \\

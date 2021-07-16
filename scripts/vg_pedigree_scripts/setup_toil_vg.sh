@@ -116,16 +116,18 @@ if [ $GRCh38_REFERENCE_VERSION == false ]; then
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/eagle_data.tar.gz -O ${WORKFLOW_INPUT_DIR}/eagle_data.tar.gz
 else
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/path_list_whole_genome.txt -O ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/vg_v1.31.0_grch38_graph_references/liftover_snp1kg_grch38_nosegdup.xg -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/vg_v1.31.0_grch38_graph_references/liftover_snp1kg_grch38_nosegdup.gbwt -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gbwt
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/vg_v1.31.0_grch38_graph_references/liftover_snp1kg_grch38_nosegdup.gg -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gg
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/vg_v1.31.0_grch38_graph_references/liftover_snp1kg_grch38_nosegdup.min -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.min
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/vg_v1.31.0_grch38_graph_references/liftover_snp1kg_grch38_nosegdup.dist -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.dist
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/liftover_snp1kg_grch38_nosegdup.xg -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/liftover_snp1kg_grch38_nosegdup.gbwt -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gbwt
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/liftover_snp1kg_grch38_nosegdup.gg -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gg
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/liftover_snp1kg_grch38_nosegdup.min -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.min
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/liftover_snp1kg_grch38_nosegdup.dist -O ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.dist
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.fna -O ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.fna
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.fna.fai -O ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.fna.fai
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.dict -O ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.dict
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/snpEff_v5_0_GRCh38.99.zip -O ${WORKFLOW_INPUT_DIR}/snpEff_v5_0_GRCh38.99.zip
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/eagle_data_grch38.tar.gz -O ${WORKFLOW_INPUT_DIR}/eagle_data_grch38.tar.gz
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-child-0711.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0711.tar.gz
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-parent-0713.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0713.tar.gz
 fi
 
 exit
