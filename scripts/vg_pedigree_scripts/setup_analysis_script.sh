@@ -44,6 +44,7 @@ fi
 
 ## DEFAULT PARAMETERS
 RESTART=false
+GRCh38_REFERENCE_VERSION=false
 
 ## Parse through arguments
 while getopts "f:c:w:a:e:d:v:r:h" OPTION; do
@@ -71,6 +72,9 @@ while getopts "f:c:w:a:e:d:v:r:h" OPTION; do
         ;;
         r)
             RESTART=$OPTARG
+        ;;
+        b)
+            GRCh38_REFERENCE_VERSION=$OPTARG
         ;;
         h)
             usage
@@ -179,6 +183,14 @@ echo "source ${TOIL_VG_DIR}/toilvg_venv/bin/activate" >> ${COHORT_WORKFLOW_DIR}/
 echo "export TOIL_SLURM_ARGS='-t 20:00:00'" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 echo "export SINGULARITY_CACHEDIR=/data/$USER/singularity_cache" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 echo "cd ${COHORT_WORKFLOW_DIR}" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
+echo "toil-vg generate-config --whole_genome >config.cfg" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
+## Adjust the containers in the config file that are dependent on genome reference version
+if [ $GRCh38_REFERENCE_VERSION == false ]; then
+    echo "sed -i'' config.cfg -e \"s|_grch38||g\""
+else
+    echo "sed -i'' config.cfg -e \"s|vcf2shebang-docker: \'quay.io/cmarkello/vcf2shebang:latest\'|vcf2shebang-docker: \'quay.io/cmarkello/vcf2shebang_grch38:latest\'|g\" -e \"s|bmtb-docker: \'quay.io/cmarkello/bmtb:latest\'|bmtb-docker: \'quay.io/cmarkello/bmtb_grch38:latest\'|g\""
+fi
+
 if [ $RESTART == false ]; then
     echo "toil clean ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_jobstore" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 fi
@@ -197,7 +209,7 @@ ${RESTART_ARG} \\
 --logFile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir onSuccess \\
---whole_genome_config \\
+--config ${COHORT_WORKFLOW_DIR}/config.cfg \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_jobstore \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore \\
 --cohort_vcf ${INPUT_DATA_DIR}/${PROBAND_SAMPLE_NAME}.snpeff.unrolled.vcf.gz \\

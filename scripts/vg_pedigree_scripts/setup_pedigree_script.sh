@@ -32,6 +32,7 @@ Inputs:
     -v PATH to the toil_vg repository
     -i (OPTIONAL, default=false) Set to 'true' to run workflow using the udp nih illumina dragen module for variant calling
     -r (OPTIONAL, default=false) Set to 'true' to restart an incompletely ran workflow
+    -b (OPTIONAL, default=false) Set to 'true' to setup a workflow that runs GRCh38-based input
     -t (OPTIONAL, default=false) Set to 'true' if running workflow on small HG002 chr21 test data
     
 Outputs:
@@ -52,9 +53,10 @@ fi
 USE_DRAGEN=false
 RUN_SMALL_TEST=false
 RESTART=false
+GRCh38_REFERENCE_VERSION=false
 
 ## Parse through arguments
-while getopts "f:c:w:g:a:e:d:v:i:r:t:h" OPTION; do
+while getopts "f:c:w:g:a:e:d:v:i:r:b:t:h" OPTION; do
     case $OPTION in
         f)
             COHORT_NAME=$OPTARG
@@ -85,6 +87,9 @@ while getopts "f:c:w:g:a:e:d:v:i:r:t:h" OPTION; do
         ;;
         r)
             RESTART=$OPTARG
+        ;;
+        b)
+            GRCh38_REFERENCE_VERSION=$OPTARG
         ;;
         t)
             RUN_SMALL_TEST=$OPTARG
@@ -217,7 +222,8 @@ if [ $USE_DRAGEN == true ]; then
     DRAGEN_ARGS="--dragen_ref_index_name 'hs37d5_v7' --udp_data_dir 'Udpbinfo'"
 fi
 
-if [ $RUN_SMALL_TEST == false ]; then
+if [ $GRCh38_REFERENCE_VERSION == false ]; then
+    if [ $RUN_SMALL_TEST == false ]; then
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
 --setEnv PATH=\$PATH \\
@@ -258,7 +264,7 @@ ${SIB_READ_PAIR_LIST} \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
 --ped_file ${TRIO_PED_FILE} \\
 --eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar.gz \\
---snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
+--snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v5_0_GRCh37.75 \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
 --use_decoys \\
@@ -272,7 +278,7 @@ ${DRAGEN_ARGS} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
 --cadd_data ${CADD_DATA_DIR} \\
 --helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
-else
+    else
     echo "toil-vg pedigree \\
 ${RESTART_ARG} \\
 --setEnv PATH=\$PATH \\
@@ -306,7 +312,7 @@ ${SIB_READ_PAIR_LIST} \\
 --path_list ${WORKFLOW_INPUT_DIR}/path_list_21.txt \\
 --ped_file ${TRIO_PED_FILE} \\
 --eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data.tar.gz \\
---snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v4_3_GRCh37.75.zip \\
+--snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v5_0_GRCh37.75 \\
 --genetic_map ${WORKFLOW_INPUT_DIR}/genetic_map_GRCh37.tar \\
 --bam_output \\
 --force_phasing True \\
@@ -314,6 +320,61 @@ ${SIB_READ_PAIR_LIST} \\
 --snpeff_annotation \\
 ${DRAGEN_ARGS} \\
 --run_analysis \\
+--chrom_dir ${CHROM_ANNOT_DIR} \\
+--edit_dir ${EDIT_ANNOT_DIR} \\
+--cadd_data ${CADD_DATA_DIR} \\
+--helix_username $USER" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+    fi
+else
+    echo "toil-vg pedigree \\
+${RESTART_ARG} \\
+--setEnv PATH=\$PATH \\
+--batchSystem Slurm \\
+--statePollingWait 120 \\
+--rescueJobsFrequency 120 \\
+--container Singularity \\
+--logInfo \\
+--logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
+--workDir ${COHORT_WORKFLOW_DIR}/tmp \\
+--cleanWorkDir onSuccess \\
+--whole_genome_config \\
+${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_jobstore \\
+${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore \\
+${PROBAND_NAME} \\
+${MATERNAL_SAMPLE_NAME} \\
+${PATERNAL_SAMPLE_NAME} \\
+${SIB_ID_LIST} \\
+--sibling_genders ${OFFSPRING_GENDER_LIST[@]} \\
+--sibling_affected ${OFFSPRING_AFFECTED_LIST[@]} \\
+--fastq_proband ${READ_DATA_DIR}/${PROBAND_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PROBAND_NAME}_read_pair_2.fq.gz \\
+--fastq_maternal ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${MATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
+--fastq_paternal ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_1.fq.gz ${READ_DATA_DIR}/${PATERNAL_SAMPLE_NAME}_read_pair_2.fq.gz \\
+${SIB_READ_PAIR_LIST} \\
+--reads_per_chunk 200000000 \\
+--ref_fasta ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.fna \\
+--ref_fasta_index ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.fna.fai \\
+--ref_fasta_dict ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.dict \\
+--caller ${CALLER} \\
+--mapper giraffe \\
+--use_haplotypes \\
+--xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg \\
+--gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gbwt \\
+--graph_gbwt_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.gg \\
+--minimizer_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.min \\
+--distance_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.dist \\
+--id_ranges ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
+--path_list ${WORKFLOW_INPUT_DIR}/path_list_whole_genome.txt \\
+--ped_file ${TRIO_PED_FILE} \\
+--eagle_data ${WORKFLOW_INPUT_DIR}/eagle_data_grch38.tar.gz \\
+--snpeff_database ${WORKFLOW_INPUT_DIR}/snpEff_v5_0_GRCh38.99.zip \\
+--bam_output \\
+--use_decoys \\
+--indel_realign_bams \\
+--snpeff_annotation \\
+${DRAGEN_ARGS} \\
+--run_analysis \\
+--cadd_lines 100000 \\
+--split_lines 100000 \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
 --cadd_data ${CADD_DATA_DIR} \\
