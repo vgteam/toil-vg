@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 
+from toil.lib.misc import mkdir_p
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ def _singularity(job,
     
     # As a workaround, we have out own cache which we manage ourselves.
     cache_dir = os.path.join(os.environ.get('SINGULARITY_CACHEDIR',  os.path.join(os.environ.get('HOME'), '.singularity')), 'toil')
-    os.makedirs(cache_dir)
+    mkdir_p(cache_dir)
     
     # What Singularity url/spec do we want?
     source_image = _convertImageSpec(tool) 
