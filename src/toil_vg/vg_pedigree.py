@@ -113,7 +113,10 @@ def pedigree_subparser(parser):
     parser.add_argument("--bam_input_reads_siblings", nargs='+', type=make_url, default=None,
                         help="Input reads of sibling(s) in BAM format. Must follow same order as input to\
                             --sibling_names argument.")
-    
+    parser.add_argument("--deeptrio_child_model", type=make_url, default=None,
+                        help="Input child model for the deeptrio variant caller. Must be accompanied by --caller='deepvariant' setting.")
+    parser.add_argument("--deeptrio_parent_model", type=make_url, default=None,
+                        help="Input parent model for the deeptrio variant caller. Must be accompanied by --caller='deepvariant' setting.")
 
     # Add common indexing options shared with vg_index
     index_parse_args(parser)
