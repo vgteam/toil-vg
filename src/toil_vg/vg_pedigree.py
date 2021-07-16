@@ -830,7 +830,7 @@ def run_deeptrio_call_variants(job, context, options,
         RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, model_dir_name: {}".format(model_dir_name))
         RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, os.getcwd(): {}".format(os.getcwd()))
         model_filename = ""
-        with os.scandir(model_dir_name) as entries:
+        with os.scandir(os.path.join(work_dir, model_dir_name)) as entries:
             for entry in entries:
                 model_filename = os.path.splitext(entry.name)[0]
         deeptrio_model = os.path.join(model_dir_name, model_filename)
