@@ -420,7 +420,7 @@ def run_analysis(job, context, ped_file_id, cohort_vcf_id,
     
     mosaicism_detecting_job = child_job.addChildJobFn(run_detect_mosaicism, context, ped_file_id, cohort_vcf_id, sample_name, 
                                                         cores=context.config.misc_cores,
-                                                        memory=context.config.misc_mem,
+                                                        memory=context.config.preprocess_mem,
                                                         disk=context.config.misc_disk)
     
     vcf_to_shebang_job = child_job.addChildJobFn(run_vcftoshebang, context, cohort_vcf_id,

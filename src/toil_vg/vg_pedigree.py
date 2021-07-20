@@ -184,7 +184,7 @@ def pedigree_analysis_parse_args(parser, stand_alone = False):
     # CADD options
     parser.add_argument("--split_lines", type=int, default=30000,
         help="Number of lines to chunk the input VCF for CADD processing.")
-    parser.add_argument("--genome_build", type=str, default="GRCh37",
+    parser.add_argument("--genome_build", type=str, default="GRCh38",
         help="Genome annotation version for the CADD engine")
     parser.add_argument("--cadd_data", type=str,
         help="Path to cadd engine data directory")
