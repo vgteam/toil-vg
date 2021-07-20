@@ -185,10 +185,12 @@ echo "export SINGULARITY_CACHEDIR=/data/$USER/singularity_cache" >> ${COHORT_WOR
 echo "cd ${COHORT_WORKFLOW_DIR}" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 echo "toil-vg generate-config --whole_genome >config.cfg" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 ## Adjust the containers in the config file that are dependent on genome reference version
+preprocess-mem
+echo "sed -i'' config.cfg -e \"s|^preprocess-mem:.*|preprocess-mem: \'8G\'|g\"" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 if [ $GRCh38_REFERENCE_VERSION == false ]; then
-    echo "sed -i'' config.cfg -e \"s|_grch38||g\""
+    echo "sed -i'' config.cfg -e \"s|_grch38||g\"" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 else
-    echo "sed -i'' config.cfg -e \"s|vcf2shebang-docker: \'quay.io/cmarkello/vcf2shebang:latest\'|vcf2shebang-docker: \'quay.io/cmarkello/vcf2shebang_grch38:latest\'|g\" -e \"s|bmtb-docker: \'quay.io/cmarkello/bmtb:latest\'|bmtb-docker: \'quay.io/cmarkello/bmtb_grch38:latest\'|g\""
+    echo "sed -i'' config.cfg -e \"s|vcf2shebang-docker: \'quay.io/cmarkello/vcf2shebang:latest\'|vcf2shebang-docker: \'quay.io/cmarkello/vcf2shebang_grch38:latest\'|g\" -e \"s|bmtb-docker: \'quay.io/cmarkello/bmtb:latest\'|bmtb-docker: \'quay.io/cmarkello/bmtb_grch38:latest\'|g\"" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 fi
 
 if [ $RESTART == false ]; then
