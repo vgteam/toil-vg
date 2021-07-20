@@ -223,6 +223,7 @@ ${GENOME_BUILD_ARG} \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_jobstore \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore \\
 --cohort_vcf ${INPUT_DATA_DIR}/${PROBAND_SAMPLE_NAME}.snpeff.unrolled.vcf.gz \\
+--trio_pedfile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}.trio.ped \\
 --sample_name ${PROBAND_SAMPLE_NAME} \\
 --maternal_name ${MATERNAL_SAMPLE_NAME} \\
 --paternal_name ${PATERNAL_SAMPLE_NAME} \\
