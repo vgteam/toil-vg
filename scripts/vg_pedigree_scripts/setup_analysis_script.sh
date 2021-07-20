@@ -29,7 +29,7 @@ Inputs:
     -d PATH to cadd engine data directory.
     -v PATH to the toil_vg repository
     -r (OPTIONAL, default=false) Set to 'true' to restart an incompletely ran workflow
-    
+    -b (OPTIONAL, default=true) Set to 'false' to use the GRCh37 cadd annotations
 Outputs:
 Assumptions:
 EOF
@@ -44,10 +44,10 @@ fi
 
 ## DEFAULT PARAMETERS
 RESTART=false
-GRCh38_REFERENCE_VERSION=false
+GRCh38_REFERENCE_VERSION=true
 
 ## Parse through arguments
-while getopts "f:c:w:a:e:d:v:r:h" OPTION; do
+while getopts "f:c:w:a:e:d:v:r:b:h" OPTION; do
     case $OPTION in
         f)
             COHORT_NAME=$OPTARG
@@ -194,12 +194,22 @@ fi
 if [ $RESTART == false ]; then
     echo "toil clean ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_jobstore" >> ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_workflow.sh
 fi
+
 RESTART_ARG=""
 if [ $RESTART == true ]; then
     RESTART_ARG="--restart"
 fi
+
+GENOME_BUILD_ARG=""
+if [ $GRCh38_REFERENCE_VERSION == false ]; then
+    GENOME_BUILD_ARG="--genome_build 'GRCh37'"
+else
+    GENOME_BUILD_ARG="--genome_build 'GRCh38'"
+fi
+
 echo "toil-vg analysis \\
 ${RESTART_ARG} \\
+${GENOME_BUILD_ARG} \\
 --setEnv PATH=\$PATH \\
 --batchSystem Slurm \\
 --statePollingWait 60 \\
