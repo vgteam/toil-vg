@@ -60,7 +60,7 @@ while getopts "f:c:w:g:a:e:d:v:i:r:b:t:h" OPTION; do
     case $OPTION in
         f)
             COHORT_NAME=$OPTARG
-        O_PED_FILE;;
+        ;;
         c)
             COHORT_PED_FILE=$OPTARG
         ;;
