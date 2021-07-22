@@ -32,7 +32,7 @@ Inputs:
     -v PATH to the toil_vg repository
     -i (OPTIONAL, default=false) Set to 'true' to run workflow using the udp nih illumina dragen module for variant calling
     -r (OPTIONAL, default=false) Set to 'true' to restart an incompletely ran workflow
-    -b (OPTIONAL, default=false) Set to 'true' to setup a workflow that runs GRCh38-based input
+    -b (OPTIONAL, default=true) Set to 'false' to setup a workflow that runs GRCh37-based input
     -t (OPTIONAL, default=false) Set to 'true' if running workflow on small HG002 chr21 test data
     
 Outputs:
@@ -53,14 +53,14 @@ fi
 USE_DRAGEN=false
 RUN_SMALL_TEST=false
 RESTART=false
-GRCh38_REFERENCE_VERSION=false
+GRCh38_REFERENCE_VERSION=true
 
 ## Parse through arguments
 while getopts "f:c:w:g:a:e:d:v:i:r:b:t:h" OPTION; do
     case $OPTION in
         f)
             COHORT_NAME=$OPTARG
-        ;;
+        O_PED_FILE;;
         c)
             COHORT_PED_FILE=$OPTARG
         ;;

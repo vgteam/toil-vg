@@ -90,7 +90,6 @@ done
 # Extract sample information from input family .ped file
 source ${TOIL_VG_DIR}/toilvg_venv/bin/activate
 pip install ped_parser
-TRIO_PED_FILE="${COHORT_NAME}.trio.ped"
 
 READ_DATA_DIR="${COHORT_WORKFLOW_DIR}/input_reads"
 SAMPLES_LIST=($(python3 -c "import ped_parser; print(list(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals.keys()))" | tr -d '[],' | tr -d \'))
@@ -102,8 +101,10 @@ SIBLING_SAMPLE_NAMES=()
 SIBLING_GENDERS=()
 SIBLING_AFFECTED=()
 
+FAMILY_ID=""
 for SAMPLE_ID in ${SAMPLES_LIST[@]}
 do
+    FAMILY_ID=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].family)"))
     SAMPLE_MOM=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].mother)"))
     SAMPLE_DAD=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].father)"))
     SAMPLE_GENDER=($(python3 -c "import ped_parser; print(ped_parser.FamilyParser(family_info=open('${COHORT_PED_FILE}','r'), family_type='ped').individuals['${SAMPLE_ID}'].sex)"))
@@ -138,7 +139,7 @@ done
 
 # Format the input values in the command by the parsed sample information
 PROBAND_SAMPLE_NAME="${SIBLING_SAMPLE_NAMES[0]}"
-INPUT_DATA_DIR="${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_pedigree_outstore"
+INPUT_DATA_DIR="${COHORT_WORKFLOW_DIR}/${FAMILY_ID}_pedigree_outstore"
 SIB_ID_LIST=""
 SIB_GENDER_LIST=""
 SIB_AFFECTED_LIST=""
@@ -153,18 +154,27 @@ do
     SIB_BAI_LIST+="'${INPUT_DATA_DIR}/${SIBLING_SAMPLE_NAMES[$n]}_merged.bam.bai' "
 done
 
+# Build trio .ped file for parental graph construction
+TRIO_PED_FILE="${PROBAND_SAMPLE_NAME}.trio.ped"
+rm -f ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "#Family\tID\tFather\tMother\tSex[1=M]\tAffected[2=A]" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "${FAMILY_ID}\t${PROBAND_SAMPLE_NAME}\t${PATERNAL_SAMPLE_NAME}\t${MATERNAL_SAMPLE_NAME}\t$((${SIB_GENDER_LIST[0]} + 1))\t2" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "${FAMILY_ID}\t${PATERNAL_SAMPLE_NAME}\t0\t0\t1\t1" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+echo -e "${FAMILY_ID}\t${MATERNAL_SAMPLE_NAME}\t0\t0\t2\t1" >> ${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}
+chmod 2770 "${COHORT_WORKFLOW_DIR}/${TRIO_PED_FILE}"
+
 if [[ ${COHORT_WORKFLOW_DIR} = *[[:space:]]* ]] || [ -z ${COHORT_WORKFLOW_DIR} ]; then
     echo "ERROR: ${COHORT_WORKFLOW_DIR} argument value contains whitespace or is empty"
     exit 1
 fi
-if [[ ${PROBAND_SAMPLE_NAME} = *[[:space:]]* ]] || [ -z ${PROBAND_SAMPLE_NAME} ]; then
-    echo "ERROR: ${PROBAND_SAMPLE_NAME} argument value contains whitespace or is empty"
+if [[ ${FAMILY_ID} = *[[:space:]]* ]] || [ -z ${FAMILY_ID} ]; then
+    echo "ERROR: ${FAMILY_ID} argument value contains whitespace or is empty"
     exit 1
 fi
 
-if [ ! -d "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore" ]; then
-    mkdir -p "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore"
-    chmod 2770 "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore"
+if [ ! -d "${COHORT_WORKFLOW_DIR}/${FAMILY_ID}_analysis_outstore" ]; then
+    mkdir -p "${COHORT_WORKFLOW_DIR}/${FAMILY_ID}_analysis_outstore"
+    chmod 2770 "${COHORT_WORKFLOW_DIR}/${FAMILY_ID}_analysis_outstore"
 fi
 if [ ! -d "${COHORT_WORKFLOW_DIR}/tmp" ]; then
     mkdir -p "${COHORT_WORKFLOW_DIR}/tmp"
