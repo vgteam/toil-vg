@@ -172,9 +172,9 @@ if [[ ${FAMILY_ID} = *[[:space:]]* ]] || [ -z ${FAMILY_ID} ]; then
     exit 1
 fi
 
-if [ ! -d "${COHORT_WORKFLOW_DIR}/${FAMILY_ID}_analysis_outstore" ]; then
-    mkdir -p "${COHORT_WORKFLOW_DIR}/${FAMILY_ID}_analysis_outstore"
-    chmod 2770 "${COHORT_WORKFLOW_DIR}/${FAMILY_ID}_analysis_outstore"
+if [ ! -d "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore" ]; then
+    mkdir -p "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore"
+    chmod 2770 "${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore"
 fi
 if [ ! -d "${COHORT_WORKFLOW_DIR}/tmp" ]; then
     mkdir -p "${COHORT_WORKFLOW_DIR}/tmp"
@@ -233,7 +233,7 @@ ${GENOME_BUILD_ARG} \\
 --config ${COHORT_WORKFLOW_DIR}/config.cfg \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_jobstore \\
 ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}_analysis_outstore \\
---cohort_vcf ${INPUT_DATA_DIR}/${PROBAND_SAMPLE_NAME}.snpeff.unrolled.vcf.gz \\
+--cohort_vcf ${INPUT_DATA_DIR}/${FAMILY_ID}.snpeff.unrolled.vcf.gz \\
 --trio_pedfile ${COHORT_WORKFLOW_DIR}/${PROBAND_SAMPLE_NAME}.trio.ped \\
 --sample_name ${PROBAND_SAMPLE_NAME} \\
 --maternal_name ${MATERNAL_SAMPLE_NAME} \\
