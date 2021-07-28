@@ -204,7 +204,7 @@ rm -f ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 echo '#!/bin/bash' >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 echo "module load singularity python/3.7" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 echo "source ${TOIL_VG_DIR}/toilvg_venv/bin/activate" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
-echo "export TOIL_SLURM_ARGS='-t 35:00:00'" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
+echo "export TOIL_SLURM_ARGS='-t 48:00:00'" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 echo "export SINGULARITY_CACHEDIR=/data/$USER/singularity_cache" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 echo "cd ${COHORT_WORKFLOW_DIR}" >> ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.sh
 if [ $RESTART == false ]; then
