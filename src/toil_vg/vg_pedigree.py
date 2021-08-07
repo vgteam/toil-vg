@@ -824,11 +824,6 @@ def run_deeptrio_call_variants(job, context, options,
         job.fileStore.readGlobalFile(deeptrio_model_file_id, model_file_path)
         context.runner.call(job, ['tar', '-xzf', os.path.basename(model_file_path)], work_dir = work_dir)
         model_dir_name = os.path.splitext(os.path.splitext(os.path.basename(model_file_path))[0])[0]
-        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, deeptrio_model_file_id: {}".format(deeptrio_model_file_id))
-        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, work_dir: {}".format(work_dir))
-        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, model_file_path: {}".format(model_file_path))
-        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, model_dir_name: {}".format(model_dir_name))
-        RealtimeLogger.debug("DEBUGGING run_deeptrio_call_variants, os.getcwd(): {}".format(os.getcwd()))
         model_filename = ""
         with os.scandir(os.path.join(work_dir, model_dir_name)) as entries:
             for entry in entries:
@@ -860,7 +855,8 @@ def run_deeptrio_call_variants(job, context, options,
     command = ['/opt/deepvariant/bin/call_variants',
                '--outfile', outfile_name,
                '--examples', examples_file,
-               '--checkpoint', deeptrio_model]
+               '--checkpoint', deeptrio_model,
+               '--call_variants_extra_args', "use_openvino=true"]
     context.runner.call(job, command, work_dir = work_dir, tool_name='deeptrio')
     command = ['/opt/deepvariant/bin/postprocess_variants',
                '--ref', os.path.basename(ref_fasta_path),
