@@ -126,8 +126,8 @@ else
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.dict -O ${WORKFLOW_INPUT_DIR}/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.compact_decoys.dict
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/snpEff_v5_0_GRCh38.99.zip -O ${WORKFLOW_INPUT_DIR}/snpEff_v5_0_GRCh38.99.zip
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/eagle_data_grch38.tar.gz -O ${WORKFLOW_INPUT_DIR}/eagle_data_grch38.tar.gz
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-child-0711.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0711.tar.gz
-    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-parent-0713.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0713.tar.gz
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-child-0806.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0806.tar.gz
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-parent-0806.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0806.tar.gz
 fi
 
 exit
