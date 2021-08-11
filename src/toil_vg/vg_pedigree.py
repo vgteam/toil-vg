@@ -855,8 +855,7 @@ def run_deeptrio_call_variants(job, context, options,
     command = ['/opt/deepvariant/bin/call_variants',
                '--outfile', outfile_name,
                '--examples', examples_file,
-               '--checkpoint', deeptrio_model,
-               '--call_variants_extra_args', "use_openvino=true"]
+               '--checkpoint', deeptrio_model]
     context.runner.call(job, command, work_dir = work_dir, tool_name='deeptrio')
     command = ['/opt/deepvariant/bin/postprocess_variants',
                '--ref', os.path.basename(ref_fasta_path),
