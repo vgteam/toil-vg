@@ -128,6 +128,7 @@ else
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/eagle_data_grch38.tar.gz -O ${WORKFLOW_INPUT_DIR}/eagle_data_grch38.tar.gz
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-child-0806.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0806.tar.gz
     wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dt-giraffe-parent-0806.tar.gz -O ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0806.tar.gz
+    wget https://storage.googleapis.com/cmarkell-vg-wdl-dev/grch38_inputs/dv-giraffe-0507.tar.gz -O ${WORKFLOW_INPUT_DIR}/dv-giraffe-0507.tar.gz
 fi
 
 exit

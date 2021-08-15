@@ -255,6 +255,7 @@ ${SIB_READ_PAIR_LIST} \\
 --caller ${CALLER} \\
 --deeptrio_child_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0806.tar.gz \\
 --deeptrio_parent_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0806.tar.gz \\
+--deepvariant_model ${WORKFLOW_INPUT_DIR}/dv-giraffe-0507.tar.gz \\
 --mapper giraffe \\
 --use_haplotypes \\
 --xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg \\
@@ -359,6 +360,7 @@ ${SIB_READ_PAIR_LIST} \\
 --caller ${CALLER} \\
 --deeptrio_child_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-child-0806.tar.gz \\
 --deeptrio_parent_model ${WORKFLOW_INPUT_DIR}/dt-giraffe-parent-0806.tar.gz \\
+--deepvariant_model ${WORKFLOW_INPUT_DIR}/dv-giraffe-0507.tar.gz \\
 --mapper giraffe \\
 --use_haplotypes \\
 --xg_index ${WORKFLOW_INPUT_DIR}/snp1kg_decoys.xg \\

@@ -117,7 +117,9 @@ def pedigree_subparser(parser):
                         help="Input child model for the deeptrio variant caller. Must be accompanied by --caller='deepvariant' setting.")
     parser.add_argument("--deeptrio_parent_model", type=make_url, default=None,
                         help="Input parent model for the deeptrio variant caller. Must be accompanied by --caller='deepvariant' setting.")
-
+    parser.add_argument("--deepvariant_model", type=make_url, default=None,
+                        help="Input general model for the deepvariant variant caller. Must be accompanied by --caller='deepvariant' setting.")
+    
     # Add common indexing options shared with vg_index
     index_parse_args(parser)
 
@@ -348,82 +350,6 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     
     return (vcf_file_id, vcf_index_file_id, processed_bam_file_id)
 
-def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
-                                    ref_fasta_index_id, ref_fasta_dict_id):
-
-    RealtimeLogger.info("Starting deepvariant haplotypecalling gvcfs")
-    start_time = timeit.default_timer()
-
-    # Define work directory for docker calls
-    work_dir = job.fileStore.getLocalTempDir()
-
-    # We need the sample bam for variant calling
-    bam_name = os.path.basename(chr_bam_id)
-    bam_path = os.path.join(work_dir, bam_name)
-    job.fileStore.readGlobalFile(chr_bam_id, bam_path)
-    bam_name = os.path.splitext(bam_name)[0]
-    
-    ref_fasta_name = os.path.basename(ref_fasta_id)
-    ref_fasta_path = os.path.join(work_dir, ref_fasta_name)
-    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
-    
-    ref_fasta_index_path = os.path.join(work_dir, '{}.fai'.format(ref_fasta_name))
-    job.fileStore.readGlobalFile(ref_fasta_index_id, ref_fasta_index_path)
-    
-    ref_fasta_dict_path = os.path.join(work_dir, '{}.dict'.format(os.path.splitext(ref_fasta_name)[0]))
-    job.fileStore.readGlobalFile(ref_fasta_dict_id, ref_fasta_dict_path)
-    
-    # Extract contig name
-    if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
-        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
-    else:
-        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
-    
-    # Run variant calling commands
-    cmd_list = []
-    cmd_list.append(['samtools', 'sort', '--threads', str(job.cores), '-O', 'BAM', os.path.basename(bam_path)])
-    cmd_list.append(['samtools', 'addreplacerg', '-O', 'BAM',
-                        '-r', 'ID:1', 
-                        '-r', 'LB:lib1',
-                        '-r', 'SM:{}'.format(sample_name),
-                        '-r', 'PL:illumina',
-                        '-r', 'PU:unit1',
-                        '-'])
-    cmd_list.append(['samtools', 'calmd', '-b', '-', os.path.basename(ref_fasta_path)])
-    with open(os.path.join(work_dir, '{}_positionsorted.mdtag.bam'.format(sample_name)), 'wb') as output_samtools_bam:
-        context.runner.call(job, cmd_list, work_dir = work_dir, tool_name='samtools', outfile=output_samtools_bam)
-    command = ['samtools', 'index', '{}_positionsorted.mdtag.bam'.format(sample_name)]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    command = ['java', '-Xmx{}'.format(job.memory), '-XX:ParallelGCThreads={}'.format(job.cores), '-jar', '/usr/picard/picard.jar', 'MarkDuplicates',
-                'PROGRAM_RECORD_ID=null', 'VALIDATION_STRINGENCY=LENIENT', 'I={}_positionsorted.mdtag.bam'.format(sample_name),
-                'O={}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name), 'M=marked_dup_metrics.txt']
-    with open(os.path.join(work_dir, 'mark_dup_stderr.txt'), 'wb') as outerr_markdupes:
-        context.runner.call(job, command, work_dir = work_dir, tool_name='picard', errfile=outerr_markdupes)
-    command = ['samtools', 'index', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name)]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
-    command = ['/opt/deepvariant/bin/run_deepvariant',
-                '--num_shards', job.cores,
-                '--model_type', 'WGS',
-                '--regions', contig_name,
-                '--ref', os.path.basename(ref_fasta_path),
-                '--reads', '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name),
-                '--output_gvcf', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name),
-                '--output_vcf', '{}.{}.rawLikelihoods.vcf'.format(bam_name, sample_name)]
-    context.runner.call(job, command, work_dir = work_dir, tool_name='deepvariant')
-    context.runner.call(job, ['bgzip', '{}.{}.rawLikelihoods.gvcf'.format(bam_name, sample_name)],
-                        work_dir = work_dir, tool_name='vg')
-    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name)], work_dir=work_dir)
-    
-    # Write output to intermediate store
-    out_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.gvcf.gz'.format(bam_name, sample_name))
-    vcf_file_id = context.write_intermediate_file(job, out_file)
-    vcf_index_file_id = context.write_intermediate_file(job, out_file + '.tbi')
-    out_bam_file = os.path.join(work_dir, '{}_{}.mdtag.dupmarked.bam'.format(bam_name, sample_name))
-    processed_bam_file_id = context.write_intermediate_file(job, out_bam_file)
-    out_vcf_file = os.path.join(work_dir, '{}.{}.rawLikelihoods.vcf'.format(bam_name, sample_name))
-    context.write_output_file(job, out_vcf_file)
-    
-    return (vcf_file_id, vcf_index_file_id, processed_bam_file_id)
 
 def run_process_chr_bam(job, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id):
     
@@ -612,13 +538,6 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
             vcf_ids.append(call_job.rv(0))
             tbi_ids.append(call_job.rv(1))
             processed_bam_ids.append(call_job.rv(2))
-    elif options.caller == 'deepvariant':
-        for chr_bam_id in chr_bam_ids:
-            call_job = child_job.addChildJobFn(run_deepvariant_gvcf, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
-                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
-            vcf_ids.append(call_job.rv(0))
-            tbi_ids.append(call_job.rv(1))
-            processed_bam_ids.append(call_job.rv(2))
     elif options.caller == 'dragen':
         for chr_bam_id in chr_bam_ids:
             process_bam_job = child_job.addChildJobFn(run_process_chr_bam, context, sample_name, chr_bam_id, ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
@@ -650,7 +569,7 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
 def run_deepTrio_gvcf(job, context, options,
                         proband_name, maternal_name, paternal_name, 
                         proband_chr_bam_id, maternal_chr_bam_id, paternal_chr_bam_id,
-                        ref_fasta_id, ref_fasta_index_id, output_child_vcf=False, call_parents=True, deeptrio_child_model_file_id=None, deeptrio_parent_model_file_id=None):
+                        ref_fasta_id, ref_fasta_index_id, output_child_vcf=False, call_parents=True, deeptrio_child_model_file_id=None, deeptrio_parent_model_file_id=None, deepvariant_model_file_id=None):
     """
     Realign trio chromosome BAMs and run DeepTrio on them.
     """
@@ -662,43 +581,69 @@ def run_deepTrio_gvcf(job, context, options,
         contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1)
     RealtimeLogger.info("Starting gvcf DeepTrio calling for trio on contig {}".format(contig_name))
     child_job = Job()
-    job.addChild(child_job)
-    
-    make_examples_job = child_job.addChildJobFn(run_deeptrio_make_examples, context, options,
-                                                contig_name, proband_name, maternal_name, paternal_name,
-                                                proband_chr_bam_id, maternal_chr_bam_id, paternal_chr_bam_id,
-                                                ref_fasta_id, ref_fasta_index_id,
-                                                cores=context.config.alignment_cores,
-                                                memory=context.config.alignment_mem,
-                                                disk=context.config.alignment_disk)
     call_variant_jobs = Job()
+    job.addChild(child_job)
     child_job.addFollowOn(call_variant_jobs)
     
-    child_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
-                                                                proband_name, contig_name,
-                                                                ref_fasta_id, ref_fasta_index_id,
-                                                                make_examples_job.rv(0), make_examples_job.rv(1), store_output_vcf=output_child_vcf,
-                                                                deeptrio_model_file_id=deeptrio_child_model_file_id,
-                                                                cores=context.config.alignment_cores,
-                                                                memory=context.config.alignment_mem,
-                                                                disk=context.config.alignment_disk)
-    if call_parents:
-        parent1_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
-                                                                    paternal_name, contig_name,
+    # Run DeepVariant for haploid and sex contigs, run DeepTrio for autosomes
+    if contig_name in ['X','Y', 'MT', 'ABOlocus', 'chrX', 'chrY', 'chrM']:
+        child_call_variants_job = call_variant_jobs.addChildJobFn(run_deepvariant_gvcf, context,
+                                                                    proband_name, proband_chr_bam_id,
                                                                     ref_fasta_id, ref_fasta_index_id,
-                                                                    make_examples_job.rv(2), make_examples_job.rv(3),
-                                                                    deeptrio_model_file_id=deeptrio_parent_model_file_id,
+                                                                    store_output_vcf=output_child_vcf,
+                                                                    deepvariant_model_file_id=deepvariant_model_file_id,
                                                                     cores=context.config.alignment_cores,
                                                                     memory=context.config.alignment_mem,
                                                                     disk=context.config.alignment_disk)
-        parent2_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
-                                                                    maternal_name, contig_name,
+        if call_parents:
+            parent1_call_variants_job = call_variant_jobs.addChildJobFn(run_deepvariant_gvcf, context,
+                                                                        paternal_name, paternal_chr_bam_id,
+                                                                        ref_fasta_id, ref_fasta_index_id,
+                                                                        deepvariant_model_file_id=deepvariant_model_file_id,
+                                                                        cores=context.config.alignment_cores,
+                                                                        memory=context.config.alignment_mem,
+                                                                        disk=context.config.alignment_disk)
+            parent2_call_variants_job = call_variant_jobs.addChildJobFn(run_deepvariant_gvcf, context,
+                                                                        maternal_name, maternal_chr_bam_id,
+                                                                        ref_fasta_id, ref_fasta_index_id,
+                                                                        deepvariant_model_file_id=deepvariant_model_file_id,
+                                                                        cores=context.config.alignment_cores,
+                                                                        memory=context.config.alignment_mem,
+                                                                        disk=context.config.alignment_disk)
+    else:
+        make_examples_job = child_job.addChildJobFn(run_deeptrio_make_examples, context, options,
+                                                    contig_name, proband_name, maternal_name, paternal_name,
+                                                    proband_chr_bam_id, maternal_chr_bam_id, paternal_chr_bam_id,
+                                                    ref_fasta_id, ref_fasta_index_id,
+                                                    cores=context.config.alignment_cores,
+                                                    memory=context.config.alignment_mem,
+                                                    disk=context.config.alignment_disk)
+        
+        child_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
+                                                                    proband_name, contig_name,
                                                                     ref_fasta_id, ref_fasta_index_id,
-                                                                    make_examples_job.rv(4), make_examples_job.rv(5),
-                                                                    deeptrio_model_file_id=deeptrio_parent_model_file_id,
+                                                                    make_examples_job.rv(0), make_examples_job.rv(1), store_output_vcf=output_child_vcf,
+                                                                    deeptrio_model_file_id=deeptrio_child_model_file_id,
                                                                     cores=context.config.alignment_cores,
                                                                     memory=context.config.alignment_mem,
                                                                     disk=context.config.alignment_disk)
+        if call_parents:
+            parent1_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
+                                                                        paternal_name, contig_name,
+                                                                        ref_fasta_id, ref_fasta_index_id,
+                                                                        make_examples_job.rv(2), make_examples_job.rv(3),
+                                                                        deeptrio_model_file_id=deeptrio_parent_model_file_id,
+                                                                        cores=context.config.alignment_cores,
+                                                                        memory=context.config.alignment_mem,
+                                                                        disk=context.config.alignment_disk)
+            parent2_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
+                                                                        maternal_name, contig_name,
+                                                                        ref_fasta_id, ref_fasta_index_id,
+                                                                        make_examples_job.rv(4), make_examples_job.rv(5),
+                                                                        deeptrio_model_file_id=deeptrio_parent_model_file_id,
+                                                                        cores=context.config.alignment_cores,
+                                                                        memory=context.config.alignment_mem,
+                                                                        disk=context.config.alignment_disk)
     
     proband_gvcf_file_id = child_call_variants_job.rv(0)
     proband_gvcf_index_file_id = child_call_variants_job.rv(1)
@@ -712,6 +657,76 @@ def run_deepTrio_gvcf(job, context, options,
         proband_vcf_file_id = child_call_variants_job.rv(2)
         proband_vcf_index_file_id = child_call_variants_job.rv(3)
         return (proband_gvcf_file_id, proband_gvcf_index_file_id, proband_vcf_file_id, proband_vcf_index_file_id)
+
+def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
+                                    ref_fasta_index_id, store_output_vcf=False, deepvariant_model_file_id=None):
+
+    RealtimeLogger.info("Starting deepvariant haplotypecalling gvcfs")
+    start_time = timeit.default_timer()
+
+    # Define work directory for docker calls
+    work_dir = job.fileStore.getLocalTempDir()
+
+    # We need the sample bam for variant calling
+    bam_name = os.path.basename(chr_bam_id)
+    bam_path = os.path.join(work_dir, bam_name)
+    job.fileStore.readGlobalFile(chr_bam_id, bam_path)
+    bam_name = os.path.splitext(bam_name)[0]
+    
+    ref_fasta_name = os.path.basename(ref_fasta_id)
+    ref_fasta_path = os.path.join(work_dir, ref_fasta_name)
+    job.fileStore.readGlobalFile(ref_fasta_id, ref_fasta_path)
+    
+    ref_fasta_index_path = os.path.join(work_dir, '{}.fai'.format(ref_fasta_name))
+    job.fileStore.readGlobalFile(ref_fasta_index_id, ref_fasta_index_path)
+    
+    # Gather the deepvariant model if they exist
+    deepvaraint_model = ""
+    if deepvariant_model_file_id:
+        model_file_path = os.path.join(work_dir, os.path.basename(deepvariant_model_file_id))
+        job.fileStore.readGlobalFile(deepvariant_model_file_id, model_file_path)
+        context.runner.call(job, ['tar', '-xzf', os.path.basename(model_file_path)], work_dir = work_dir)
+        model_dir_name = os.path.splitext(os.path.splitext(os.path.basename(model_file_path))[0])[0]
+        model_filename = ""
+        with os.scandir(os.path.join(work_dir, model_dir_name)) as entries:
+            for entry in entries:
+                model_filename = os.path.splitext(entry.name)[0]
+        deepvaraint_model = os.path.join(model_dir_name, model_filename)
+    else:
+        deepvaraint_model = "/opt/models/wgs/model.ckpt"
+
+    # Extract contig name
+    if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
+        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
+    else:
+        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
+    
+    # Run variant calling commands
+    command = ['samtools', 'index', '-@', str(job.cores), os.path.basename(bam_path)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='samtools')
+    command = ['/opt/deepvariant/bin/run_deepvariant',
+                '--num_shards', job.cores,
+                '--customized_model', deepvaraint_model,
+                '--model_type', 'WGS',
+                '--make_examples_extra_args', 'min_mapping_quality=1',
+                '--regions', contig_name,
+                '--ref', os.path.basename(ref_fasta_path),
+                '--reads', os.path.basename(bam_path),
+                '--output_gvcf', '{}_{}_deepvariant.g.vcf.gz'.format(sample_name, contig_name),
+                '--output_vcf', '{}_{}_deepvariant.vcf.gz'.format(sample_name, contig_name)]
+    context.runner.call(job, command, work_dir = work_dir, tool_name='deepvariant')
+    context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_{}_deepvariant.g.vcf.gz'.format(sample_name, contig_name)], work_dir=work_dir)
+    
+    # Write output to intermediate store
+    output_gvcf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, '{}_{}_deepvariant.g.vcf.gz'.format(sample_name, contig_name)))
+    output_gvcf_index_file_id = context.write_intermediate_file(job, os.path.join(work_dir, '{}_{}_deepvariant.g.vcf.gz.tbi'.format(sample_name, contig_name)))
+    if store_output_vcf:
+        context.runner.call(job, ['tabix', '-f', '-p', 'vcf', '{}_{}_deepvariant.vcf.gz'.format(sample_name, contig_name)], work_dir=work_dir)
+        output_vcf_file_id = context.write_intermediate_file(job, os.path.join(work_dir, '{}_{}_deepvariant.vcf.gz'.format(sample_name, contig_name)))
+        output_vcf_index_file_id = context.write_intermediate_file(job, os.path.join(work_dir, '{}_{}_deepvariant.vcf.gz.tbi'.format(sample_name, contig_name)))
+        return output_gvcf_file_id, output_gvcf_index_file_id, output_vcf_file_id, output_vcf_index_file_id
+    else:
+        return output_gvcf_file_id, output_gvcf_index_file_id
 
 def run_deeptrio_make_examples(job, context, options,
                                 contig_name,
@@ -879,7 +894,7 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
                                 proband_name, maternal_name, paternal_name, 
                                 proband_chr_bam_ids, maternal_chr_bam_ids, paternal_chr_bam_ids,
                                 ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id, run_parents=True,
-                                deeptrio_child_model_file_id=None, deeptrio_parent_model_file_id=None):
+                                deeptrio_child_model_file_id=None, deeptrio_parent_model_file_id=None, deepvariant_model_file_id=None):
     """
     Call all the chromosomes for the trio using DeepVariant Trio caller and return a merged up gvcf vcf/tbi pair
     """
@@ -931,7 +946,8 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
             call_trio_job = chr_jobs.addFollowOnJobFn(run_deepTrio_gvcf, context, options,
                                                                     proband_name, maternal_name, paternal_name, 
                                                                     proband_chr_bam_indel_realign_job.rv(), maternal_chr_bam_indel_realign_job.rv(), paternal_chr_bam_indel_realign_job.rv(),
-                                                                    ref_fasta_id, ref_fasta_index_id, deeptrio_child_model_file_id=deeptrio_child_model_file_id, deeptrio_parent_model_file_id=deeptrio_parent_model_file_id)
+                                                                    ref_fasta_id, ref_fasta_index_id, 
+                                                                    deeptrio_child_model_file_id=deeptrio_child_model_file_id, deeptrio_parent_model_file_id=deeptrio_parent_model_file_id, deepvariant_model_file_id=deepvariant_model_file_id)
             maternal_gvcf_ids.append(call_trio_job.rv(2))
             maternal_tbi_ids.append(call_trio_job.rv(3))
             paternal_gvcf_ids.append(call_trio_job.rv(4))
@@ -940,7 +956,8 @@ def run_pipeline_deepvariant_trio_call_gvcfs(job, context, options,
             call_trio_job = chr_jobs.addFollowOnJobFn(run_deepTrio_gvcf, context, options,
                                                                     proband_name, maternal_name, paternal_name, 
                                                                     proband_chr_bam_indel_realign_job.rv(), maternal_chr_bam_id, paternal_chr_bam_id,
-                                                                    ref_fasta_id, ref_fasta_index_id, output_child_vcf=True, call_parents=False, deeptrio_child_model_file_id=deeptrio_child_model_file_id, deeptrio_parent_model_file_id=None)
+                                                                    ref_fasta_id, ref_fasta_index_id, 
+                                                                    output_child_vcf=True, call_parents=False, deeptrio_child_model_file_id=deeptrio_child_model_file_id, deeptrio_parent_model_file_id=None, deepvariant_model_file_id=deepvariant_model_file_id)
             proband_vcf_ids.append(call_trio_job.rv(2))
             proband_vcf_tbi_ids.append(call_trio_job.rv(3))
         proband_gvcf_ids.append(call_trio_job.rv(0))
@@ -2097,7 +2114,12 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
     
     # Make sure if we're using the DeepTrio caller then we'll need both child and parent models
     if options.caller == 'deepvariant':
-        assert(bool(deeptrio_model_file_ids) == 1)
+        RealtimeLogger.debug("deeptrio_model_file_ids: {}".format(deeptrio_model_file_ids))
+        RealtimeLogger.debug("deeptrio_model_file_ids[0]: {}".format(bool(deeptrio_model_file_ids[0])))
+        RealtimeLogger.debug("deeptrio_model_file_ids[1]: {}".format(bool(deeptrio_model_file_ids[1])))
+        RealtimeLogger.debug("deeptrio_model_file_ids[2]: {}".format(bool(deeptrio_model_file_ids[2])))
+        RealtimeLogger.debug("deeptrio_model_file_ids assertion: {}".format(bool(deeptrio_model_file_ids[0]) + bool(deeptrio_model_file_ids[1]) + bool(deeptrio_model_file_ids[2]) == 3))
+        assert(bool(deeptrio_model_file_ids[0]) + bool(deeptrio_model_file_ids[1]) + bool(deeptrio_model_file_ids[2]) == 3)
     
     # define the job workflow structure
     stage1_jobs = Job()
@@ -2154,7 +2176,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                     proband_name, maternal_name, paternal_name,
                                     proband_first_mapping_job.rv(2), maternal_mapping_job.rv(2), paternal_mapping_job.rv(2),
                                     ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2],
-                                    deeptrio_child_model_file_id=deeptrio_model_file_ids[0], deeptrio_parent_model_file_id=deeptrio_model_file_ids[1],
+                                    deeptrio_child_model_file_id=deeptrio_model_file_ids[0], deeptrio_parent_model_file_id=deeptrio_model_file_ids[1], deepvariant_model_file_id=deeptrio_model_file_ids[2],
                                     cores=context.config.misc_cores,
                                     memory=context.config.misc_mem,
                                     disk=context.config.misc_disk)
@@ -2262,7 +2284,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                     proband_name, maternal_name, paternal_name,
                                     proband_second_mapping_job.rv(2), maternal_mapping_job.rv(2), paternal_mapping_job.rv(2),
                                     ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2], run_parents=False,
-                                    deeptrio_child_model_file_id=deeptrio_model_file_ids[0], deeptrio_parent_model_file_id=deeptrio_model_file_ids[1],
+                                    deeptrio_child_model_file_id=deeptrio_model_file_ids[0], deeptrio_parent_model_file_id=deeptrio_model_file_ids[1], deepvariant_model_file_id=deeptrio_model_file_ids[2],
                                     cores=context.config.misc_cores,
                                     memory=context.config.misc_mem,
                                     disk=context.config.misc_disk)
@@ -2323,7 +2345,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                     sibling_name, maternal_name, paternal_name,
                                     sibling_mapping_job_dict[sibling_name].rv(2), maternal_mapping_job.rv(2), paternal_mapping_job.rv(2),
                                     ref_fasta_ids[0], ref_fasta_ids[1], ref_fasta_ids[2], run_parents=False,
-                                    deeptrio_child_model_file_id=deeptrio_model_file_ids[0], deeptrio_parent_model_file_id=deeptrio_model_file_ids[1],
+                                    deeptrio_child_model_file_id=deeptrio_model_file_ids[0], deeptrio_parent_model_file_id=deeptrio_model_file_ids[1], deepvariant_model_file_id=deeptrio_model_file_ids[2],
                                     cores=context.config.misc_cores,
                                     memory=context.config.misc_mem,
                                     disk=context.config.misc_disk)
@@ -2555,6 +2577,7 @@ def pedigree_main(context, options):
             inputDeepTrioModelFileIDs = []
             inputDeepTrioModelFileIDs.append(importer.load(options.deeptrio_child_model))
             inputDeepTrioModelFileIDs.append(importer.load(options.deeptrio_parent_model))
+            inputDeepTrioModelFileIDs.append(importer.load(options.deepvariant_model))
             
             
             importer.wait()
