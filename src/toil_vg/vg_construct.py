@@ -1094,7 +1094,8 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         
         if join_ids and len(region_files) != 1:
             # If we do all the merging, and we made new joined graphs, write the joined graphs as intermediates
-            to_return['joined'] = [context.write_intermediate_file(job, os.path.join(work_dir, f), dest) for f, dest in zip(region_files, human_names)]
+            to_return['joined'] = [context.write_intermediate_file(job, os.path.join(work_dir, f), dest)
+                                   for f, dest in zip(region_files, human_names)]
         else:
             # We can just pass through the existing intermediate files without re-uploading
             to_return['joined'] = region_graph_ids
@@ -1104,7 +1105,8 @@ def run_join_graphs(job, context, region_graph_ids, join_ids, region_names, name
         # So we defintiely have to write them.
         # And we need to make sure to write them under their assigned
         # region-based names, even if we downloaded them to shorter names.
-        to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f), dest) for f, dest in zip(region_files, human_names)]
+        to_return['joined'] = [context.write_output_file(job, os.path.join(work_dir, f), dest)
+                               for f, dest in zip(region_files, human_names)]
                     
     return to_return 
         
@@ -1749,7 +1751,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
         sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
         if gbwt_id:
             context.write_output_file(job, gbwt_path)
-        
+
     except:
         # Dump everything we need to replicate the sample graph extraction
         logging.error("Sample graph extraction failed. Dumping files.")

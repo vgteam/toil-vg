@@ -141,8 +141,8 @@ def validate_map_options(context, options):
     require(options.mapper == 'mpmap' or options.snarls_index is None,
             '--snarls_index can only be used with --mapper mpmap') 
     if options.mapper == 'mpmap':
-        require('-S' in context.config.mpmap_opts or '--single-path-mode' in context.config.mpmap_opts,
-                '-S must be used with mpmap mapper to produce GAM output')
+        require(('-F' in context.config.mpmap_opts or '--output-fmt' in context.config.mpmap_opts) and ('GAM' in context.config.mpmap_opts),
+                '-F GAM must be used with mpmap mapper to produce GAM output')
         require(not options.bam_output,
                 '--bam_output not currently supported with mpmap mapper')
     require (not options.bam_output or not options.surject,
@@ -560,9 +560,9 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         if mapper == 'mpmap':
             vg_parts += ['vg', 'mpmap']
             vg_parts += context.config.mpmap_opts
-            if '-S' not in vg_parts and '--single-path-mode' not in vg_parts:
-                RealtimeLogger.warning('Adding --single-path-mode to mpmap options as only GAM output supported')
-                vg_parts += ['--single-path-mode']
+            if ('-F' not in vg_parts and '--output-fmt' not in vg_parts) or 'GAM' not in vg_parts:
+                RealtimeLogger.warning('Adding --output-fmt GAM to mpmap options as only GAM output supported')
+                vg_parts += ['--output-fmt', 'GAM']
         elif mapper == 'map':
             vg_parts += ['vg', 'map'] 
             vg_parts += context.config.map_opts
@@ -648,7 +648,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             end_time = timeit.default_timer()
             if validate:
                 alignment_file.flush()
-                context.runner.call(job, ['vg', 'validate', '--xg', os.path.basename(index_files['xg']),
+                context.runner.call(job, ['vg', 'validate', os.path.basename(index_files['xg']),
                                           '--gam', os.path.basename(output_file)], work_dir = work_dir)
         except:
             # Dump everything we need to replicate the alignment

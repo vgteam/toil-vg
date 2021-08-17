@@ -77,7 +77,7 @@ prune-disk: '2G'
 # Resources allotted gcsa indexing
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
-gcsa-index-disk: '2G'
+gcsa-index-disk: '8G'
 gcsa-index-preemptable: True
 
 # Resources allotted for snarl indexing.
@@ -161,7 +161,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.31.0'
+vg-docker: 'quay.io/vgteam/vg:ci-2850-58eed1cb13f9444849933685a7f51a8dc9273ca6'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -179,7 +179,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
-jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
+jq-docker: 'celfring/jq'
 
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
@@ -248,7 +248,7 @@ vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 vt-docker: 'quay.io/biocontainers/vt:0.57721--heae7c10_3'
 
 # Docker image to use for deepvariant
-deepvariant-docker: 'google/deepvariant:1.0.0'
+deepvariant-docker: 'google/deepvariant:1.1.0'
 
 # Docker image to use for glnexus
 glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
@@ -302,7 +302,7 @@ reads-per-chunk: 10000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt', 'GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []
@@ -491,7 +491,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.31.0'
+vg-docker: 'quay.io/vgteam/vg:ci-2850-58eed1cb13f9444849933685a7f51a8dc9273ca6'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -509,7 +509,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
-jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
+jq-docker: 'celfring/jq'
 
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
@@ -578,7 +578,7 @@ vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
 vt-docker: 'quay.io/biocontainers/vt:0.57721--heae7c10_3'
 
 # Docker image to use for deepvariant
-deepvariant-docker: 'google/deepvariant:1.0.0'
+deepvariant-docker: 'google/deepvariant:1.1.0'
 
 # Docker image to use for glnexus
 glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
@@ -632,7 +632,7 @@ reads-per-chunk: 50000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt', 'GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []
