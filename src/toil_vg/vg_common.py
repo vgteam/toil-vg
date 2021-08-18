@@ -124,7 +124,12 @@ def get_container_tool_map(options):
     cmap[0]['caddeditor'] = options.caddeditor_docker
     cmap[0]['bmtb'] = options.bmtb_docker
     cmap[0]['vcftools'] = options.vcftools_docker
-    
+    cmap[0]['vt'] = options.vt_docker
+    cmap[0]['deepvariant'] = options.deepvariant_docker
+    cmap[0]['glnexus'] = options.glnexus_docker
+    cmap[0]['abra2'] = options.abra2_docker
+    cmap[0]['deeptrio'] = options.deeptrio_docker
+    cmap[0]['mosaicism'] = options.mosaicism_docker
     # to do: could be a good place to do an existence check on these tools
     
     return cmap
@@ -1091,7 +1096,7 @@ class AsyncImporter(object):
             return result.result()
         else:
             return result
-            
+
 
 def apply_coalesce(regions, region_names=None, coalesce_regions=[]):
     """

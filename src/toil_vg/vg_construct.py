@@ -1749,6 +1749,9 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             context.runner.call(job, ['vg', 'validate', os.path.basename(sample_graph_path)], work_dir = work_dir)
 
         sample_vg_id = context.write_intermediate_file(job, sample_graph_path)
+        if gbwt_id:
+            context.write_output_file(job, gbwt_path)
+
     except:
         # Dump everything we need to replicate the sample graph extraction
         logging.error("Sample graph extraction failed. Dumping files.")

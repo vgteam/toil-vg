@@ -218,7 +218,7 @@ gatk-docker: 'broadinstitute/gatk:4.1.1.0'
 gatk3-docker: 'broadinstitute/gatk3:3.8-1'
 
 # Docker image to use for snpEff
-snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
+snpEff-docker: 'quay.io/biocontainers/snpeff:5.0--hdfd78af_1'
 
 # Docker image to use for picard
 picard-docker: 'broadinstitute/picard:2.21.9'
@@ -230,19 +230,37 @@ whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 eagle-docker: 'quay.io/cmarkello/eagle'
 
 # Docker image to use for vcf2shebang
-vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang'
+vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang_grch38:latest'
 
 # Docker image to use for cadd
-cadd-docker: 'quay.io/cmarkello/cadd'
+cadd-docker: 'quay.io/cmarkello/cadd_1.6:latest'
 
 # Docker image to use for cadd editor
-caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
+caddeditor-docker: 'quay.io/cmarkello/cadd_editor:latest'
 
 # Docker image to use for bmtb
-bmtb-docker: 'quay.io/cmarkello/bmtb'
+bmtb-docker: 'quay.io/cmarkello/bmtb_grch38:latest'
 
 # Docker image to use for vcftools
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
+
+# Docker image to use for vt
+vt-docker: 'quay.io/biocontainers/vt:0.57721--heae7c10_3'
+
+# Docker image to use for deepvariant
+deepvariant-docker: 'google/deepvariant:1.1.0'
+
+# Docker image to use for glnexus
+glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
+
+# Docker image to use for abra2
+abra2-docker: 'dceoy/abra2:latest'
+
+# Docker image to use for deeptrio
+deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'
+
+# Docker image to use for mosaicism detection
+mosaicism-docker: 'quay.io/cmarkello/mosaicism_detector:latest'
 
 ##############################
 ### vg_construct Arguments ###
@@ -376,7 +394,7 @@ xg-index-disk: '100G'
 
 # Resources allotted for xg indexing by chromosome (used for GBWT).
 gbwt-index-cores: 4
-gbwt-index-mem: '35G'
+gbwt-index-mem: '50G'
 gbwt-index-disk: '100G'
 gbwt-index-preemptable: True
 
@@ -387,8 +405,8 @@ prune-mem: '60G'
 prune-disk: '60G'
 
 # Resources allotted gcsa indexing
-gcsa-index-cores: 16
-gcsa-index-mem: '110G'
+gcsa-index-cores: 32
+gcsa-index-mem: '220G'
 gcsa-index-disk: '2200G'
 gcsa-index-preemptable: True
 
@@ -530,7 +548,7 @@ gatk-docker: 'broadinstitute/gatk:4.1.1.0'
 gatk3-docker: 'broadinstitute/gatk3:3.8-1'
 
 # Docker image to use for snpEff
-snpEff-docker: 'quay.io/biocontainers/snpeff:4.3.1t--2'
+snpEff-docker: 'quay.io/biocontainers/snpeff:5.0--hdfd78af_1'
 
 # Docker image to use for picard
 picard-docker: 'broadinstitute/picard:2.21.9'
@@ -542,19 +560,37 @@ whatshap-docker: 'quay.io/biocontainers/whatshap:0.18--py37h6bb024c_0'
 eagle-docker: 'quay.io/cmarkello/eagle'
 
 # Docker image to use for vcf2shebang
-vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang'
+vcf2shebang-docker: 'quay.io/cmarkello/vcf2shebang_grch38:latest'
 
 # Docker image to use for cadd
-cadd-docker: 'quay.io/cmarkello/cadd'
+cadd-docker: 'quay.io/cmarkello/cadd_1.6:latest'
 
 # Docker image to use for cadd editor
-caddeditor-docker: 'quay.io/cmarkello/cadd_editor'
+caddeditor-docker: 'quay.io/cmarkello/cadd_editor:latest'
 
 # Docker image to use for bmtb
-bmtb-docker: 'quay.io/cmarkello/bmtb'
+bmtb-docker: 'quay.io/cmarkello/bmtb_grch38:latest'
 
 # Docker image to use for vcftools
 vcftools-docker: 'biocontainers/vcftools:v0.1.16-1-deb_cv1'
+
+# Docker image to use for vt
+vt-docker: 'quay.io/biocontainers/vt:0.57721--heae7c10_3'
+
+# Docker image to use for deepvariant
+deepvariant-docker: 'google/deepvariant:1.1.0'
+
+# Docker image to use for glnexus
+glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
+
+# Docker image to use for abra2
+abra2-docker: 'dceoy/abra2:latest'
+
+# Docker image to use for deeptrio
+deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'
+
+# Docker image to use for mosaicism detection
+mosaicism-docker: 'quay.io/cmarkello/mosaicism_detector:latest'
 
 ##############################
 ### vg_construct Arguments ###
