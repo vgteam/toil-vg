@@ -1070,7 +1070,7 @@ def compare_scores(job, context, baseline_name, baseline_file_id, name, score_fi
         
     return out_file_id
 
-def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, minimizer_file_ids,
+def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, ggbwt_file_ids, minimizer_file_ids,
     distance_file_ids, id_range_file_ids, snarl_file_ids, vg_file_ids):
     """ 
     Index the given vg files.
@@ -1109,6 +1109,8 @@ def run_map_eval_index(job, context, xg_file_ids, gcsa_file_ids, gbwt_file_ids, 
                 indexes['gcsa'], indexes['lcp'] = gcsa_file_ids[i]
             if gbwt_file_ids and gbwt_file_ids[i] is not None:
                 indexes['gbwt'] = gbwt_file_ids[i]
+            if ggbwt_file_ids and ggbwt_file_ids[i] is not None:
+                indexes['ggbwt'] = ggbwt_file_ids[i]
             if minimizer_file_ids and minimizer_file_ids[i] is not None:
                 indexes['minimizer'] = minimizer_file_ids[i]
             if distance_file_ids and distance_file_ids[i] is not None:
@@ -2420,7 +2422,7 @@ def run_portion_worse(job, context, name, compare_id):
     portion = float(worse) / float(total) if total > 0 else 0
     return total, portion
 
-def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file_ids, gbwt_file_ids,
+def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file_ids, gbwt_file_ids, ggbwt_file_ids,
                 minimizer_file_ids, distance_file_ids, id_range_file_ids, snarl_file_ids,
                 vg_file_ids, gam_file_ids, reads_gam_file_id, reads_xg_file_id, reads_bam_file_id,
                 reads_fastq_file_ids,
@@ -2456,6 +2458,7 @@ def run_mapeval(job, context, options, xg_file_ids, xg_comparison_ids, gcsa_file
                                   xg_file_ids,
                                   gcsa_file_ids,
                                   gbwt_file_ids,
+                                  ggbwt_file_ids,
                                   minimizer_file_ids,
                                   distance_file_ids,
                                   id_range_file_ids,
@@ -3040,6 +3043,7 @@ def make_mapeval_plan(toil, options):
     plan.xg_comparison_ids = [] # optional override xg_file_ids for comparison
     plan.gcsa_file_ids = [] # list of gcsa/lcp pairs
     plan.gbwt_file_ids = []
+    plan.ggbwt_file_ids = []
     plan.minimizer_file_ids = []
     plan.distance_file_ids = []
     plan.id_range_file_ids = []
@@ -3071,6 +3075,7 @@ def make_mapeval_plan(toil, options):
                     if 'giraffe' not in options.mappers:
                         # We don't absolutely need it
                         plan.gbwt_file_ids.append(None)
+                        plan.ggbwt_file_ids.append(None)
                     else:
                         # We do need the GBWT to run
                         raise
@@ -3080,6 +3085,8 @@ def make_mapeval_plan(toil, options):
                     plan.minimizer_file_ids.append(importer.load(ib + '.min'))
                     # We need the distance index
                     plan.distance_file_ids.append(importer.load(ib + '.dist'))
+                    # We need the graph gbwt index
+                    plan.ggbwt_file_ids.append(importer.load(ib + '.gg'))
                     
                 if options.use_snarls:
                     try:
@@ -3195,6 +3202,7 @@ def mapeval_main(context, options):
                                      plan.xg_comparison_ids,
                                      plan.gcsa_file_ids,
                                      plan.gbwt_file_ids,
+                                     plan.ggbwt_file_ids,
                                      plan.minimizer_file_ids,
                                      plan.distance_file_ids,
                                      plan.id_range_file_ids,

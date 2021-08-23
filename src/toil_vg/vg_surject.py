@@ -183,7 +183,7 @@ def run_chunk_surject(job, context, interleaved, xg_file_id, paths, chunk_filena
         
     return [context.write_intermediate_file(job, output_file)], run_time
 
-def run_merge_bams(job, context, output_name, bam_chunk_file_ids):
+def run_merge_bams(job, context, output_name, bam_chunk_file_ids, write_to_outstore=True):
     """
     Merge together bams.
     
@@ -219,9 +219,12 @@ def run_merge_bams(job, context, output_name, bam_chunk_file_ids):
     cmd += ['-o', os.path.basename(surject_path)]
 
     context.runner.call(job, cmd, work_dir = work_dir)
+    if write_to_outstore:
+        merged_file_id = context.write_output_file(job, surject_path)
+    else:
+        merged_file_id = context.write_intermediate_file(job, surject_path)
+    return merged_file_id
 
-    return context.write_output_file(job, surject_path)
-    
 def surject_main(context, options):
     """
     Wrapper for vg surject. 

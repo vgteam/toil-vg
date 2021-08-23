@@ -224,7 +224,7 @@ def run_gcsa_prune(job, context, graph_name, input_graph_id, gbwt_id, mapping_id
     return pruned_graph_id, mapping_id
 
 def run_gcsa_prep(job, context, input_graph_ids,
-                  graph_names, index_name, chroms,
+                  graph_names, index_name,
                   chrom_gbwt_ids, node_mapping_id, skip_pruning=False,
                   remove_paths=[]):
     """
@@ -291,6 +291,9 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     index_temp_dir = os.path.join(work_dir, 'index-temp')
     os.makedirs(index_temp_dir)
 
+    # Track disk used for files, so we can sensibly limit disk used for GCSA scratch
+    disk_used = 0
+
     # Download all the pruned graphs.  
     prune_filenames = []
     
@@ -298,12 +301,14 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
         prune_filename = os.path.join(work_dir, remove_ext(os.path.basename(graph_names[graph_i]), '.vg') + '.prune.vg')
         job.fileStore.readGlobalFile(prune_id, prune_filename)
         prune_filenames.append(prune_filename)
+        disk_used += prune_id.size
 
     # Download the mapping_id
     mapping_filename = None
     if mapping_id:
         mapping_filename = os.path.join(work_dir, 'node_mapping')
         job.fileStore.readGlobalFile(mapping_id, mapping_filename)
+        disk_used += mapping_id.size
 
     # Where do we put the GCSA2 index?
     gcsa_filename = "{}.gcsa".format(index_name)
@@ -311,6 +316,8 @@ def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_
     command = ['vg', 'index', '-g', os.path.basename(gcsa_filename)] + context.config.gcsa_opts
     command += ['--threads', str(job.cores)]
     command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
+    # TODO: can/should we guess the size of the output file and subtract that here too?
+    command += ['--size-limit', str((job.disk - disk_used) // (1024**3))]
     
     if mapping_id:
         command += ['--mapping', os.path.basename(mapping_filename)]
@@ -825,7 +832,9 @@ def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=
 
 def run_id_ranges(job, context, inputGraphFileIDs, graph_names, index_name, chroms):
     """ Make a file of chrom_name <tab> first_id <tab> last_id covering the 
-    id ranges of all chromosomes.  This is to speed up gam splitting down the road. 
+    id ranges of all chromosomes.  This is to speed up gam splitting down the road.
+    
+    Chroms is a list of contig names or sets of contig names that correspond to each graph.
     """
     
     RealtimeLogger.info("Starting id ranges...")
@@ -859,6 +868,10 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
     """
     Compute a node id range for a graph (which should be an entire contig/chromosome with
     contiguous id space -- see vg ids) using vg stats
+    
+    Chrom is a contig name or set of contig names we expect to be in the graph.
+    
+    If multiple contigs are in the graph, we comma-separate them.
     """
     work_dir = job.fileStore.getLocalTempDir()
 
@@ -872,7 +885,10 @@ def run_id_range(job, context, graph_id, graph_name, chrom):
     stats_out = context.runner.call(job, command, work_dir=work_dir, check_output = True).strip().split()
     assert stats_out[0].decode('ascii') == 'node-id-range'
     first, last = stats_out[1].split(b':')
-
+    
+    if isinstance(chrom, set):
+        chrom = ','.join(sorted(chrom))
+    
     return chrom, first, last
     
 def run_merge_id_ranges(job, context, id_ranges, index_name):
@@ -1113,7 +1129,8 @@ def run_indexing(job, context, inputGraphFileIDs,
                  gbwt_id = None, node_mapping_id = None,
                  wanted = set(),
                  gbwt_prune=False, gbwt_regions=[],
-                 dont_restore_paths=[]):
+                 dont_restore_paths=[],
+                 coalesce_regions=[]):
     """
     
     Run indexing logic by itself.
@@ -1164,9 +1181,18 @@ def run_indexing(job, context, inputGraphFileIDs,
     skipped.
     
     If the 'distance' index is requested, the 'trivial_snarls' and 'xg' indexes
-    will also be computed. 
+    will also be computed.
+    
+    If coalesce_regions is set, it must be a list of sets of 'chroms' region
+    names. Each set of region names will be expected to be together in a graph
+    file, instead of in separate graph files.
     
     """
+    
+    # Coalesce the chroms, so we have some sets of chroms that live in the same
+    # graph file.
+    chroms, chrom_names = apply_coalesce(chroms, coalesce_regions=coalesce_regions)
+    
     # Make a master child job
     child_job = Job()
     job.addChild(child_job)
@@ -1182,14 +1208,15 @@ def run_indexing(job, context, inputGraphFileIDs,
     RealtimeLogger.info("Running indexing: {}.".format({
          'graph_names': graph_names,
          'index_name': index_name,
-         'chroms': chroms,
+         'chroms': chroms if len(chroms) < 100 else f'{len(chroms)} items',
          'vcf_phasing_file_ids': vcf_phasing_file_ids,
          'tbi_phasing_file_ids': tbi_phasing_file_ids,
          'gbwt_id': gbwt_id,
          'node_mapping_id': node_mapping_id,
          'wanted': wanted,
          'gbwt_prune': gbwt_prune,
-         'bwa_fasta_id': bwa_fasta_id
+         'bwa_fasta_id': bwa_fasta_id,
+         'coalesce_regions': coalesce_regions if max([len(x) for x in coalesce_regions] + [0]) < 100 else '(many)'
     }))
 
     # This will hold the index to return
@@ -1281,7 +1308,8 @@ def run_indexing(job, context, inputGraphFileIDs,
                 # don't put them in the outstore, unless we're only doing one contig.
                 xg_chrom_index_job = chrom_xg_root_job.addChildJobFn(run_cat_xg_indexing,
                                                                      context, [inputGraphFileIDs[i]],
-                                                                     [graph_names[i]], chrom,
+                                                                     [graph_names[i]],
+                                                                     chrom_names[i] if len(chroms) > 1 else index_name,
                                                                      vcf_id, tbi_id,
                                                                      make_gbwt=('gbwt' in wanted),
                                                                      gbwt_regions=gbwt_regions, intermediate=(len(chroms) > 1),
@@ -1340,7 +1368,7 @@ def run_indexing(job, context, inputGraphFileIDs,
             # We lack per-chromosome GBWTs but we have a whole genome one we can use
             indexes['chrom_gbwt'] = indexes['gbwt'] * len(inputGraphFileIDs)
         gcsa_job = gcsa_root_job.addChildJobFn(run_gcsa_prep, context, inputGraphFileIDs,
-                                               graph_names, index_name, chroms,
+                                               graph_names, index_name, 
                                                indexes.get('chrom_gbwt', []) if gbwt_prune else [],
                                                node_mapping_id,
                                                remove_paths=dont_restore_paths,

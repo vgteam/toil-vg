@@ -42,6 +42,8 @@ def map_subparser(parser):
                         help="output store.  All output written here. Path specified using same syntax as toil jobStore")
     parser.add_argument("--kmer_size", type=int,
                         help="size of kmers to use in gcsa-kmer mapping mode")
+    parser.add_argument("--fasta_dict", type=make_url, default=None,
+                        help="Path to file with reference fasta dict index.")
         
     # Add common options shared with everybody
     add_common_vg_parse_args(parser)
@@ -70,9 +72,10 @@ def map_parse_index_args(parser):
                         help="Path to distance index (for giraffe)")
     parser.add_argument("--gbwt_index", type=make_url,
                         help="Path to GBWT haplotype index")
+    parser.add_argument("--graph_gbwt_index", type=make_url,
+                        help="Path to graph GBWT haplotype index (for giraffe)")
     parser.add_argument("--snarls_index", type=make_url,
                         help="Path to snarls file")
-                        
     parser.add_argument("--mapper", default="map", choices=["map", "mpmap", "giraffe"],
                         help="vg mapper to use")
 
@@ -126,9 +129,8 @@ def validate_map_options(context, options):
         require(options.minimizer_index, '--minimizer_index is required for giraffe')
         require(options.distance_index, '--distance_index is required for giraffe')
         require(options.gbwt_index, '--gbwt_index is required for giraffe')
+        require(options.graph_gbwt_index, '--graph_gbwt_index is required for giraffe')
         require(not options.bam_input_reads, '--bam_input_reads is not supported with giraffe')
-        require(not options.interleaved, '--interleaved is not supported with giraffe')
-        require(options.fastq is None or len(options.fastq) < 2, 'Multiple --fastq files are not supported with giraffe')
     
     require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
             ' passed with --fastq')
@@ -174,7 +176,7 @@ def run_split_reads_if_needed(job, context, fastq, gam_input_reads, bam_input_re
 def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                 indexes, reads_file_ids=None, reads_chunk_ids=None,
                 bam_output=False, surject=False, 
-                gbwt_penalty=None, validate=False):
+                gbwt_penalty=None, validate=False, fasta_dict_id=None):
     """
     Split the fastq, then align each chunk.
     
@@ -229,6 +231,7 @@ def run_mapping(job, context, fastq, gam_input_reads, bam_input_reads, sample_na
                               bam_output=bam_output, surject=surject,
                               gbwt_penalty=gbwt_penalty,
                               validate=validate,
+                              fasta_dict_id=fasta_dict_id,
                               cores=context.config.misc_cores,
                               memory=context.config.misc_mem, disk=context.config.misc_disk)
                  
@@ -400,7 +403,7 @@ def run_split_bam_reads(job, context, bam_input_reads, bam_reads_file_id):
     
 def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                         indexes, reads_chunk_ids,
-                        bam_output=False, surject=False, gbwt_penalty=None, validate=False):
+                        bam_output=False, surject=False, gbwt_penalty=None, validate=False, fasta_dict_id=None):
     """
     align all fastq chunks in parallel
     
@@ -433,6 +436,7 @@ def run_whole_alignment(job, context, fastq, gam_input_reads, bam_input_reads, s
                                                       bam_output=bam_output,
                                                       gbwt_penalty=gbwt_penalty,
                                                       validate=validate,
+                                                      fasta_dict_id=fasta_dict_id,
                                                       cores=context.config.alignment_cores, memory=context.config.alignment_mem,
                                                       disk=context.config.alignment_disk)
         if not bam_output:
@@ -480,7 +484,7 @@ def run_zip_surject_input(job, context, gam_chunk_file_ids):
 
 def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_name, interleaved, mapper,
                         chunk_filename_ids, chunk_id, indexes,
-                        bam_output=False, gbwt_penalty=None, always_check_population=True, validate=False):
+                        bam_output=False, gbwt_penalty=None, always_check_population=True, validate=False, fasta_dict_id=None):
                         
     """
     Align a chunk of reads.
@@ -525,7 +529,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         index_files['minimizer'] = graph_file + ".min"
         index_files['distance'] = graph_file + ".dist"
         index_files['gbwt'] = graph_file + ".gbwt"
-     
+        index_files['ggbwt'] = graph_file + ".gg"
         
     for index_type in list(index_files.keys()):
         # Download each index file
@@ -571,8 +575,10 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         for reads_file in reads_files:
             input_flag = '-G' if gam_input_reads else '-b' if bam_input_reads else '-f'
             vg_parts += [input_flag, os.path.basename(reads_file)]
+        
         vg_parts += ['-t', str(context.config.alignment_cores)]
-
+        vg_parts += ['-R', 'SM:{}'.format(sample_name)]
+        
         # Override the -i flag in args with the --interleaved command-line flag
         if interleaved is True and '-i' not in vg_parts and '--interleaved' not in vg_parts:
             vg_parts += ['-i']
@@ -582,8 +588,10 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             del vg_parts[vg_parts.index('--interleaved')]
 
         # Override the --surject-to option
-        if bam_output is True and '--surject-to' not in vg_parts:
+        if bam_output is True and '--surject-to' not in vg_parts and mapper != 'giraffe':
             vg_parts += ['--surject-to', 'bam']
+        elif bam_output is True and '--output-format' not in vg_parts and mapper == 'giraffe':
+            vg_parts += ['--output-format', 'BAM']
         elif bam_output is False and '--surject-to' in vg_parts:
             sidx = vg_parts.index('--surject-to')
             del vg_parts[sidx]
@@ -597,6 +605,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             'lcp': None,
             'distance': '-d',
             'minimizer': '-m',
+            'ggbwt': '--graph-name',
             'snarls': '--snarls'
         }
         for index_type, index_file in list(index_files.items()):
@@ -620,7 +629,13 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
                 # Always try to population-score even unambiguous reads
                 # mpmap can do this
                 vg_parts += ['--always-check-population']
-
+        
+        if fasta_dict_id is not None and bam_output is True:
+            fasta_dict_file = os.path.join(work_dir, 'fasta.dict')
+            job.fileStore.readGlobalFile(fasta_dict_id, fasta_dict_file)
+            vg_parts += ['--ref-paths', os.path.basename(fasta_dict_file)]
+            
+        
         RealtimeLogger.info(
             "Running VG for {} against {}: {}".format(sample_name, graph_file,
             " ".join(vg_parts)))
@@ -633,7 +648,7 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
             end_time = timeit.default_timer()
             if validate:
                 alignment_file.flush()
-                context.runner.call(job, ['vg', 'validate', '--xg', os.path.basename(index_files['xg']),
+                context.runner.call(job, ['vg', 'validate', os.path.basename(index_files['xg']),
                                           '--gam', os.path.basename(output_file)], work_dir = work_dir)
         except:
             # Dump everything we need to replicate the alignment
@@ -884,7 +899,11 @@ def map_main(context, options):
             else:
                 assert options.bam_input_reads
                 inputReadsFileIDs.append(importer.load(options.bam_input_reads))
-
+            
+            fasta_dict_id=None
+            if options.fasta_dict is not None:
+                fasta_dict_id = importer.load(options.fasta_dict)
+            
             importer.wait()
 
             # Make a root job
@@ -895,6 +914,7 @@ def map_main(context, options):
                                      reads_file_ids=importer.resolve(inputReadsFileIDs),
                                      bam_output=options.bam_output, surject=options.surject,
                                      validate=options.validate,
+                                     fasta_dict_id=importer.resolve(fasta_dict_id),
                                      cores=context.config.misc_cores,
                                      memory=context.config.misc_mem,
                                      disk=context.config.misc_disk)
