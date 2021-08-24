@@ -161,7 +161,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.31.0'
+vg-docker: 'quay.io/vgteam/vg:v1.34.0'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -394,7 +394,7 @@ xg-index-disk: '100G'
 
 # Resources allotted for xg indexing by chromosome (used for GBWT).
 gbwt-index-cores: 4
-gbwt-index-mem: '50G'
+gbwt-index-mem: '10G'
 gbwt-index-disk: '100G'
 gbwt-index-preemptable: True
 
@@ -491,7 +491,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.31.0'
+vg-docker: 'quay.io/vgteam/vg:v1.34.0'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
