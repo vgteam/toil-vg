@@ -254,7 +254,7 @@ deepvariant-docker: 'google/deepvariant:1.1.0'
 glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
 
 # Docker image to use for abra2
-abra2-docker: 'dceoy/abra2:latest'
+abra2-docker: 'quay.io/biocontainers/abra2:2.24--h7d875b9_0'
 
 # Docker image to use for deeptrio
 deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'
@@ -584,7 +584,7 @@ deepvariant-docker: 'google/deepvariant:1.1.0'
 glnexus-docker: 'quay.io/mlin/glnexus:v1.2.7'
 
 # Docker image to use for abra2
-abra2-docker: 'dceoy/abra2:latest'
+abra2-docker: 'quay.io/biocontainers/abra2:2.24--h7d875b9_0'
 
 # Docker image to use for deeptrio
 deeptrio-docker: 'google/deepvariant:deeptrio-1.1.0'

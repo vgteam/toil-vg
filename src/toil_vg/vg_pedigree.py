@@ -1940,7 +1940,7 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
         chain_cmds = [' '.join(p) for p in cmd_list]
         command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
         context.runner.call(job, command, work_dir = work_dir)
-        command = ['java', '-Xmx{}'.format(job.memory), '-jar', '/opt/abra2/abra2.jar',
+        command = ['/usr/local/bin/abra2',
                     '--targets', 'forIndelRealigner.intervals.bed',
                     '--in', '{}_rg.bam'.format(sample_name),
                     '--out', '{}.indel_realigned.bam'.format(sample_name),
