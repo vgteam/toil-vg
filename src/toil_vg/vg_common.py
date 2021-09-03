@@ -529,6 +529,10 @@ to do: Should go somewhere more central """
             
         # When we get here, the container has been run, and stdout is either in the file object we sent it to or in the Docker logs.
         # stderr is always in the Docker logs.
+        
+        if isinstance(return_code, dict) and 'StatusCode' in return_code:
+            # New? Docker gives us a dict like this
+            return_code = return_code['StatusCode']
             
         if return_code != 0:
             # What were we doing?
@@ -1092,6 +1096,7 @@ class AsyncImporter(object):
             return result.result()
         else:
             return result
+
 
 def apply_coalesce(regions, region_names=None, coalesce_regions=[]):
     """

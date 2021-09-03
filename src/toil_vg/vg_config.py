@@ -77,7 +77,7 @@ prune-disk: '2G'
 # Resources allotted gcsa indexing
 gcsa-index-cores: 1
 gcsa-index-mem: '4G'
-gcsa-index-disk: '2G'
+gcsa-index-disk: '8G'
 gcsa-index-preemptable: True
 
 # Resources allotted for snarl indexing.
@@ -179,7 +179,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
-jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
+jq-docker: 'celfring/jq'
 
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
@@ -302,7 +302,7 @@ reads-per-chunk: 10000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt', 'GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []
@@ -509,7 +509,7 @@ bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
 
 # Docker image to use for jq
-jq-docker: 'devorbitus/ubuntu-bash-jq-curl'
+jq-docker: 'celfring/jq'
 
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
@@ -632,7 +632,7 @@ reads-per-chunk: 50000000
 map-opts: []
 
 # Core arguments for vg multipath mapping (do not include file names or -t/--threads)
-mpmap-opts: ['--single-path-mode']
+mpmap-opts: ['--output-fmt', 'GAM']
 
 # Core arguments for vg giraffe mapping (do not include file names or -t/--threads)
 giraffe-opts: []

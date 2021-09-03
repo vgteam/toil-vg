@@ -113,7 +113,7 @@ class Context(object):
             return IOStore.get(self.out_store_string)
         else:
             return None
-   
+
     def write_intermediate_file(self, job, path, out_store_path = None):
         """
         Write the file at the given path to the given job's Toil FileStore, and

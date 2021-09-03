@@ -22,14 +22,7 @@ import sys
 import tempfile
 import time
 
-from toil.lib.misc import mkdir_p
-
 logger = logging.getLogger(__name__)
-
-if sys.version_info[0] < 3:
-    # Define the error we see when trying to clobber a directory with a rename
-    FileExistsError = OSError
-
 
 def is_containerized():
     """
@@ -186,7 +179,7 @@ def _singularity(job,
     
     # As a workaround, we have out own cache which we manage ourselves.
     cache_dir = os.path.join(os.environ.get('SINGULARITY_CACHEDIR',  os.path.join(os.environ.get('HOME'), '.singularity')), 'toil')
-    mkdir_p(cache_dir)
+    os.makedirs(cache_dir, exist_ok=True)
     
     # What Singularity url/spec do we want?
     source_image = _convertImageSpec(tool) 
@@ -222,7 +215,7 @@ def _singularity(job,
         try:
             # This may happen repeatedly but it is atomic
             os.rename(temp_sandbox_dirname, sandbox_dirname)
-        except FileExistsError:
+        except (FileExistsError, OSError) as e:
             # Can't rename a directory over another
             # Make sure someone else has made the directory
             assert os.path.exists(sandbox_dirname)

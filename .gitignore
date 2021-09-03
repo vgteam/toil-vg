@@ -2,6 +2,7 @@
 *.log
 /src/*.egg-info
 .cache/
+.pytest_cache/
 .eggs/
 test-report.xml
 __pycache__
