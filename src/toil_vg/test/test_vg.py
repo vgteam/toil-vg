@@ -39,7 +39,10 @@ class VGCGLTest(TestCase):
         """
         Get the URL from which an input file can be obtained.
         """
-        return 'https://{}.s3.amazonaws.com/{}/{}'.format(self.bucket_name, self.folder_name, filename)
+        # /public/groups/vg/vg-data on Courtyard is served as
+        # https://courtyard.gi.ucsc.edu/~anovak/vg-data/. These are also the
+        # files from the s3://vg-data bucket.
+        return 'https://courtyard.gi.ucsc.edu/~anovak/vg-data/toil_vg_ci/{}'.format(filename)
     
     def _download_input(self, filename, local_path = None):
         # Where should we put this input file?
@@ -63,10 +66,6 @@ class VGCGLTest(TestCase):
         # Determine if we can use Docker or not
         self.containerType = os.environ.get('TOIL_VG_TEST_CONTAINER', 'Docker')
 
-        # input files all in same bucket folder, which is specified (only) here:
-        self.bucket_name = 'vg-data'
-        self.folder_name = 'toil_vg_ci'
-        
         self.base_command = ['toil-vg', 'run',
                              '--container', self.containerType,
                              '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
