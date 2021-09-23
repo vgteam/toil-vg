@@ -81,6 +81,7 @@ class VGCGLTest(TestCase):
         # default output store
         self.local_outstore = os.path.join(self.workdir, 'toilvg-jenkinstest-outstore-{}'.format(uuid4()))
 
+
         # TODO: Since this might be on NFS, and sicne Toil can't clean up a job
         # store on NFS when the job finishes due to
         # https://github.com/DataBiosphere/toil/issues/2162, we need to pass
@@ -873,6 +874,82 @@ class VGCGLTest(TestCase):
         if not check_singularity():
             pytest.skip("singularity not installed")
         self._test_03_sim_small_mapeval_plots('Singularity')
+
+    def test_20_sv_genotyping_giraffe(self):
+        '''
+        End to end SV genotyping on chr21 and chr22 of the HGSVC graph.  
+        We subset reads and variants to chr21:5000000-6000000 and chr22:10000000-11000000
+        and the fastas are subset to chr21:1-7000000 and chr22:1-12000000
+        
+        Use giraffe instead of map
+        '''
+
+        fa_path = self._ci_input_path('hg38_chr21_22.fa.gz')
+        vcf_path = self._ci_input_path('HGSVC_regions.vcf.gz')
+        gam_reads_path = self._ci_input_path('HGSVC_regions.gam')
+
+        self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--gcsa_index_cores', str(self.cores), '--realTimeLogging',
+                   '--clean', 'never',
+                   '--fasta', fa_path,
+                   '--regions', 'chr21', 'chr22',
+                   '--vcf', vcf_path,
+                   '--out_name', 'HGSVC', '--pangenome', '--flat_alts', '--alt_paths', '--xg_index', '--xg_alts'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
+                   '--container', self.containerType,
+                   '--graphs', os.path.join(self.local_outstore, 'HGSVC_chr21.vg'), os.path.join(self.local_outstore, 'HGSVC_chr22.vg'),
+                   '--chroms', 'chr21', 'chr22',
+                   '--vcf_phasing', vcf_path,
+                   '--index_name', 'HGSVC',
+                   '--minimizer_index',
+                   '--distance_index',
+                   '--gbwt_index',
+                   '--gbwt_index_cores', str(self.cores)])
+        self._run(['toil', 'clean', self.jobStoreLocal])        
+
+        self._run(['toil-vg', 'map', self.jobStoreLocal, 'HG00514',
+                   self.local_outstore,
+                   '--mapper', 'giraffe',
+                   '--xg_index', os.path.join(self.local_outstore, 'HGSVC.xg'),
+                   '--minimizer_index', os.path.join(self.local_outstore, 'HGSVC.min'),
+                   '--distance_index', os.path.join(self.local_outstore, 'HGSVC.dist'),                  
+                   '--gbwt_index', os.path.join(self.local_outstore, 'HGSVC.gbwt'),
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--gam_input_reads', gam_reads_path,
+                   '--interleaved',
+                   '--alignment_cores', str(self.cores), 
+                   '--single_reads_chunk',
+                   '--realTimeLogging', '--logInfo'])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+
+        self._run(['toil-vg', 'call', self.jobStoreLocal,
+                   '--graph', os.path.join(self.local_outstore, 'HGSVC.xg'),
+                   '--sample', 'HG00514', '--realTimeLogging', 
+                   self.local_outstore,
+                   '--container', self.containerType,
+                   '--clean', 'never',
+                   '--ref_paths', 'chr21', 'chr22',
+                   '--gam', os.path.join(self.local_outstore, 'HG00514_default.gam'),
+                   '--recall',
+                   '--calling_cores', str(self.cores)])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+        
+        self._run(['toil-vg', 'vcfeval', self.jobStoreLocal,
+                   self.local_outstore,
+                   '--sveval',
+                   '--vcfeval_baseline', vcf_path,
+                   '--vcfeval_sample', 'HG00514',
+                   '--normalize',
+                   '--vcfeval_fasta', fa_path,
+                   '--call_vcf', os.path.join(self.local_outstore, 'HGSVC_HG00514.vcf.gz')])
+        self._run(['toil', 'clean', self.jobStoreLocal])
+                   
+        self._assertSVEvalOutput(self.local_outstore, f1_threshold=0.29)        
+        
         
     def _run(self, args):
         log.info('Running %r', args)
