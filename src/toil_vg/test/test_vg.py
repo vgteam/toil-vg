@@ -67,13 +67,14 @@ class VGCGLTest(TestCase):
         self.containerType = os.environ.get('TOIL_VG_TEST_CONTAINER', 'Docker')
 
         self.cores = 4
+        self.half_cores = 2
 
         self.base_command = ['toil-vg', 'run',
                              '--container', self.containerType,
                              '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
                              '--gcsa_index_cores', str(self.cores),
-                             '--alignment_cores', str(max(1, self.cores/2)),
-                             '--calling_cores', str(max(1, self.cores/2)), '--vcfeval_cores', str(max(1, self.cores/2)),
+                             '--alignment_cores', str(self.half_cores),
+                             '--calling_cores', str(self.half_cores), '--vcfeval_cores', str(self.half_cores),
                              '--vcfeval_opts', ' --ref-overlap',
                              '--min_mapq', '15', '--min_baseq', '10']
         
@@ -149,7 +150,7 @@ class VGCGLTest(TestCase):
                    '--container', container_override,
                    '--clean', 'never',
                    '--gam', os.path.join(self.local_outstore, 'sample_default.gam'), 
-                   '--ref_paths', 'x', '--calling_cores', str(max(1, self.cores/2)),
+                   '--ref_paths', 'x', '--calling_cores', str(self.half_cores),
                    '--realTimeLogging', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -444,7 +445,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graph', self.xg_index, '--sample', 'NA12877', outstore, '--gam', self.sample_gam,
                    '--ref_paths', '17', '13', '--vcf_offsets', '43044293', '32314860',
-                   '--calling_cores', str(max(1, self.cores/2)),
+                   '--calling_cores', str(self.half_cores),
                    '--min_mapq', '15', '--min_baseq', '10',
                    '--realTimeLogging', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -481,7 +482,7 @@ class VGCGLTest(TestCase):
                    '--graph', os.path.join(outstore, 'genome_13-aug.pg'),
                    '--gam', os.path.join(outstore, 'genome_13-aug.gam'),
                    '--sample', 'NA12877', '--recall',
-                   '--calling_cores', str(max(1, self.cores/2)),
+                   '--calling_cores', str(self.half_cores),
                    '--min_mapq', '15', '--min_baseq', '10',
                    '--ref_paths', '13', '--vcf_offsets', '32314860',
                    '--realTimeLogging', '--realTimeStderr', '--logInfo'])
@@ -514,7 +515,7 @@ class VGCGLTest(TestCase):
         #           '--clean', 'never', '--old_call',
         #           self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
         #           '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
-        #           '--call_chunk_size', '23000', '--calling_cores', str(max(1, self.cores/2)),
+        #           '--call_chunk_size', '23000', '--calling_cores', str(self.half_cores),
         #           '--realTimeLogging', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0', '--recall'])
         #self._run(['toil', 'clean', self.jobStoreLocal])
         #
@@ -664,7 +665,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--xg_index', '--graphs', vg_path, '--chroms', '17',
                    '--vcf_phasing', in_vcf, '--index_name', 'my_index',
-                   '--gbwt_index', '--xg_index_cores', str(max(1, self.cores/2)), '--xg_alts',
+                   '--gbwt_index', '--xg_index_cores', str(self.half_cores), '--xg_alts',
                    '--realTimeLogging', '--logInfo', '--realTimeStderr'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
