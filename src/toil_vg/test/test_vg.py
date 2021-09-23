@@ -39,7 +39,10 @@ class VGCGLTest(TestCase):
         """
         Get the URL from which an input file can be obtained.
         """
-        return 'https://{}.s3.amazonaws.com/{}/{}'.format(self.bucket_name, self.folder_name, filename)
+        # /public/groups/vg/vg-data on Courtyard is served as
+        # https://courtyard.gi.ucsc.edu/~anovak/vg-data/. These are also the
+        # files from the s3://vg-data bucket.
+        return 'https://courtyard.gi.ucsc.edu/~anovak/vg-data/toil_vg_ci/{}'.format(filename)
     
     def _download_input(self, filename, local_path = None):
         # Where should we put this input file?
@@ -63,16 +66,15 @@ class VGCGLTest(TestCase):
         # Determine if we can use Docker or not
         self.containerType = os.environ.get('TOIL_VG_TEST_CONTAINER', 'Docker')
 
-        # input files all in same bucket folder, which is specified (only) here:
-        self.bucket_name = 'vg-data'
-        self.folder_name = 'toil_vg_ci'
-        
+        self.cores = 4
+        self.half_cores = 2
+
         self.base_command = ['toil-vg', 'run',
                              '--container', self.containerType,
                              '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
-                             '--gcsa_index_cores', '8',
-                             '--alignment_cores', '4',
-                             '--calling_cores', '4', '--vcfeval_cores', '4',
+                             '--gcsa_index_cores', str(self.cores),
+                             '--alignment_cores', str(self.half_cores),
+                             '--calling_cores', str(self.half_cores), '--vcfeval_cores', str(self.half_cores),
                              '--vcfeval_opts', ' --ref-overlap',
                              '--min_mapq', '15', '--min_baseq', '10']
         
@@ -125,7 +127,7 @@ class VGCGLTest(TestCase):
                    '--container', container_override,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8',
+                   '--gcsa_index_cores', str(self.cores),
                    '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -137,7 +139,7 @@ class VGCGLTest(TestCase):
                    '--container', container_override,
                    '--clean', 'never',
                    '--fastq', self.sample_reads,
-                   '--alignment_cores', '8', '--reads_per_chunk', '8000',
+                   '--alignment_cores', str(self.cores), '--reads_per_chunk', '8000',
                    '--realTimeLogging', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
         
@@ -148,7 +150,7 @@ class VGCGLTest(TestCase):
                    '--container', container_override,
                    '--clean', 'never',
                    '--gam', os.path.join(self.local_outstore, 'sample_default.gam'), 
-                   '--ref_paths', 'x', '--calling_cores', '4',
+                   '--ref_paths', 'x', '--calling_cores', str(self.half_cores),
                    '--realTimeLogging', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -182,7 +184,7 @@ class VGCGLTest(TestCase):
                    '--container', container_override,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8',
+                   '--gcsa_index_cores', str(self.cores),
                    '--realTimeLogging', '--logInfo', '--index_name', 'small', '--xg_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -191,7 +193,7 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--container', container_override,
                    '--clean', 'never',
-                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--gam', '--sim_chunks', '5', '--maxCores', str(self.cores),
                    '--sim_opts', ' -l 150 -p 500 -v 50', '--seed', '1',
                    '--fastq', os.path.join(self.workdir, 'NA12877.brca1.bam_1.fq.gz')])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -204,8 +206,8 @@ class VGCGLTest(TestCase):
                    '--vg-graphs', self.test_vg_graph,
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                   '--alignment_cores', '8', '--single-only', '--multipath-only',                 
-                   '--maxCores', '8', '--fasta', self.chrom_fa])
+                   '--alignment_cores', str(self.cores), '--single-only', '--multipath-only',                 
+                   '--maxCores', str(self.cores), '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
@@ -220,7 +222,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
                    '--realTimeLogging', '--logInfo',
-                   '--maxCores', '8'])
+                   '--maxCores', str(self.cores)])
         self._run(['toil', 'clean', self.jobStoreLocal])
         self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-pr.svg')), 0)
         self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-qq.svg')), 0)
@@ -240,7 +242,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8',
+                   '--gcsa_index_cores', str(self.cores),
                    '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -250,7 +252,7 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--gam', '--sim_chunks', '5', '--maxCores', str(self.cores),
                    '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -276,7 +278,7 @@ class VGCGLTest(TestCase):
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--gams', os.path.join(self.local_outstore, 'sample_default.gam'),
                    '--gam-names', 'vg-pe', '--realTimeLogging', '--logInfo',
-                   '--maxCores', '8', '--bwa', '--paired-only', '--fasta', self.chrom_fa])
+                   '--maxCores', str(self.cores), '--bwa', '--paired-only', '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-pe', 'bwa-mem-pe'], 0.9)
@@ -297,7 +299,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8',
+                   '--gcsa_index_cores', str(self.cores),
                    '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -307,7 +309,7 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--gam', '--sim_chunks', '5', '--maxCores', str(self.cores),
                    '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.005 -i 0.001', '--seed', '1'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -321,8 +323,8 @@ class VGCGLTest(TestCase):
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                   '--alignment_cores', '8',
-                   '--maxCores', '8', '--bwa', '--fasta', self.chrom_fa])
+                   '--alignment_cores', str(self.cores),
+                   '--maxCores', str(self.cores), '--bwa', '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
         
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg', 'vg-pe', 'bwa-mem', 'bwa-mem-pe'], 0.8)
@@ -443,7 +445,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graph', self.xg_index, '--sample', 'NA12877', outstore, '--gam', self.sample_gam,
                    '--ref_paths', '17', '13', '--vcf_offsets', '43044293', '32314860',
-                   '--calling_cores', '4',
+                   '--calling_cores', str(self.half_cores),
                    '--min_mapq', '15', '--min_baseq', '10',
                    '--realTimeLogging', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -480,7 +482,7 @@ class VGCGLTest(TestCase):
                    '--graph', os.path.join(outstore, 'genome_13-aug.pg'),
                    '--gam', os.path.join(outstore, 'genome_13-aug.gam'),
                    '--sample', 'NA12877', '--recall',
-                   '--calling_cores', '4',
+                   '--calling_cores', str(self.half_cores),
                    '--min_mapq', '15', '--min_baseq', '10',
                    '--ref_paths', '13', '--vcf_offsets', '32314860',
                    '--realTimeLogging', '--realTimeStderr', '--logInfo'])
@@ -513,7 +515,7 @@ class VGCGLTest(TestCase):
         #           '--clean', 'never', '--old_call',
         #           self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
         #           '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
-        #           '--call_chunk_size', '23000', '--calling_cores', '4',
+        #           '--call_chunk_size', '23000', '--calling_cores', str(self.half_cores),
         #           '--realTimeLogging', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0', '--recall'])
         #self._run(['toil', 'clean', self.jobStoreLocal])
         #
@@ -663,7 +665,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--xg_index', '--graphs', vg_path, '--chroms', '17',
                    '--vcf_phasing', in_vcf, '--index_name', 'my_index',
-                   '--gbwt_index', '--xg_index_cores', '4', '--xg_alts',
+                   '--gbwt_index', '--xg_index_cores', str(self.half_cores), '--xg_alts',
                    '--realTimeLogging', '--logInfo', '--realTimeStderr'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -689,7 +691,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8',
+                   '--gcsa_index_cores', str(self.cores),
                    '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -700,7 +702,7 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--gam', '--sim_chunks', '5', '--maxCores', str(self.cores),
                    '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1'])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
@@ -713,8 +715,8 @@ class VGCGLTest(TestCase):
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
-                   '--alignment_cores', '8', '--validate',
-                   '--maxCores', '8', '--minimap2', '--fasta', self.chrom_fa])
+                   '--alignment_cores', str(self.cores), '--validate',
+                   '--maxCores', str(self.cores), '--minimap2', '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
         
         # TODO: Minimap2 is quite inaccurate on this tiny test. Maybe it only works well at larger scales?
@@ -736,7 +738,7 @@ class VGCGLTest(TestCase):
                    '--container', self.containerType,
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
-                   '--gcsa_index_cores', '8',
+                   '--gcsa_index_cores', str(self.cores),
                    '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -747,7 +749,7 @@ class VGCGLTest(TestCase):
                    self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
-                   '--gam', '--sim_chunks', '5', '--maxCores', '8',
+                   '--gam', '--sim_chunks', '5', '--maxCores', str(self.cores),
                    '--sim_opts', ' -l 150 -p 500 -v 50 -e 0.05 -i 0.01', '--seed', '1', '--validate'])
         self._run(['toil', 'clean', self.jobStoreLocal])
                    
@@ -762,8 +764,8 @@ class VGCGLTest(TestCase):
                    '--gam-names', 'vg', 
                    '--use-snarls', '--strip-snarls', '--multipath', '--paired-only',
                    '--realTimeLogging', '--logInfo',
-                   '--alignment_cores', '8',
-                   '--maxCores', '8'])
+                   '--alignment_cores', str(self.cores),
+                   '--maxCores', str(self.cores)])
         self._run(['toil', 'clean', self.jobStoreLocal])
         
         # Note that snarls only matter for mpmap
@@ -811,7 +813,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
-                   '--gcsa_index_cores', '8', '--realTimeLogging',
+                   '--gcsa_index_cores', str(self.cores), '--realTimeLogging',
                    '--clean', 'never',
                    '--fasta', fa_path,
                    '--regions', 'chr21', 'chr22',
@@ -827,7 +829,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--gam_input_reads', gam_reads_path,
                    '--interleaved',
-                   '--alignment_cores', '8', 
+                   '--alignment_cores', str(self.cores), 
                    '--single_reads_chunk',
                    '--realTimeLogging', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -841,7 +843,7 @@ class VGCGLTest(TestCase):
                    '--ref_paths', 'chr21', 'chr22',
                    '--gam', os.path.join(self.local_outstore, 'HG00514_default.gam'),
                    '--genotype_vcf', vcf_path,
-                   '--calling_cores', '8'])
+                   '--calling_cores', str(self.cores)])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         
