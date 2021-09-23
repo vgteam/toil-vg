@@ -129,7 +129,6 @@ def validate_map_options(context, options):
         require(options.minimizer_index, '--minimizer_index is required for giraffe')
         require(options.distance_index, '--distance_index is required for giraffe')
         require(options.gbwt_index, '--gbwt_index is required for giraffe')
-        require(options.graph_gbwt_index, '--graph_gbwt_index is required for giraffe')
         require(not options.bam_input_reads, '--bam_input_reads is not supported with giraffe')
     
     require(options.fastq is None or len(options.fastq) in [1, 2], 'Exacty 1 or 2 files must be'
@@ -529,7 +528,8 @@ def run_chunk_alignment(job, context, gam_input_reads, bam_input_reads, sample_n
         index_files['minimizer'] = graph_file + ".min"
         index_files['distance'] = graph_file + ".dist"
         index_files['gbwt'] = graph_file + ".gbwt"
-        index_files['ggbwt'] = graph_file + ".gg"
+        if 'ggbwt' in indexes:
+            index_files['ggbwt'] = graph_file + ".gg"
         
     for index_type in list(index_files.keys()):
         # Download each index file
@@ -880,6 +880,8 @@ def map_main(context, options):
                 indexes['lcp'] = importer.load(options.gcsa_index + ".lcp")
             if options.gbwt_index is not None:
                 indexes['gbwt'] = importer.load(options.gbwt_index)
+            if options.graph_gbwt_index is not None:
+                indexes['ggbwt'] = importer.load(options.graph_gbwt_index)
             if options.distance_index is not None:
                 indexes['distance'] = importer.load(options.distance_index)
             if options.minimizer_index is not None:
