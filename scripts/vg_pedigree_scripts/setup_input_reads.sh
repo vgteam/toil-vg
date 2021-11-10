@@ -86,7 +86,7 @@ if [ $RUN_SMALL_TEST == false ]; then
       INDIVIDUAL_DATA_DIR="${INDIVIDUALS_DATA_DIR}/${SAMPLE_NAME}"
       if [ $(find ${INDIVIDUAL_DATA_DIR}/ \( \( \( -wholename '*_R1*.fastq.gz' \) -not -wholename '*WES*' \) -not -wholename '*WTS*' \) | wc -l) -eq 1 ]; then
         ln -s $(find ${INDIVIDUAL_DATA_DIR}/ \( \( \( -wholename '*_R1*.fastq.gz' \) -not -wholename '*WES*' \) -not -wholename '*WTS*' \) ) ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_1.fq.gz
-        ln -s $(find ${INDIVIDUAL_DATA_DIR}/ \( \( \( -wholename '*_R1*.fastq.gz' \) -not -wholename '*WES*' \) -not -wholename '*WTS*' \) ) ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_2.fq.gz
+        ln -s $(find ${INDIVIDUAL_DATA_DIR}/ \( \( \( -wholename '*_R2*.fastq.gz' \) -not -wholename '*WES*' \) -not -wholename '*WTS*' \) ) ${READ_DATA_DIR}/${SAMPLE_NAME}_read_pair_2.fq.gz
       elif [ $(find ${INDIVIDUAL_DATA_DIR}/ \( \( \( -wholename '*_R1*.fastq.gz' \) -not -wholename '*WES*' \) -not -wholename '*WTS*' \) | wc -l) -gt 1 ]; then
         PAIR_1_READS=()
         PAIR_2_READS=()
