@@ -28,6 +28,31 @@ logger = logging.getLogger(__name__)
 # from ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/NA12878/analysis/Illumina_PlatinumGenomes_NA12877_NA12878_09162015/IlluminaPlatinumGenomes-user-guide.pdf
 CEPH_SAMPLES="NA12889 NA12890 NA12891 NA12892 NA12877 NA12878 NA12879 NA12880 NA12881 NA12882 NA12883 NA12884 NA12885 NA12886 NA12887 NA12888 NA12893".split()
 
+def get_haplotype_selection_options(sample, contig=None, haplotype=None):
+    """
+    Get the options that select haplotypes for the given sample.
+    
+    If contig and haplotype are specified, restrict to the given haplotype
+    number of the given contig. Contig and haplotype must be specified together
+    or not at all.
+    """
+    
+    if (contig is None) != (haplotype is None):
+        raise ValueError("contig and haplotype must be specified together")
+    
+    # We change the way vg names threads in
+    # <https://github.com/vgteam/vg/pull/3646>; we can only support one thread
+    # name format at a time. So we support the new way.
+    
+    if contig is not None and haplotype is not None:
+        # We have a contig and haplotype. Ask for a path prefix.
+        return ['--paths-by', '{}#{}#{}#'.format(sample, haplotype, contig)]
+    else:
+        # We just want this sample
+        return ['--sample', sample]
+
+
+
 def construct_subparser(parser):
     """
     Create a subparser for construction.  Should pass in results of subparsers.add_parser()
@@ -1549,7 +1574,9 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 # get haplotype thread paths from the gbwt
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg', '-x', os.path.basename(xg_path)]
                 for chrom in chroms:
-                    cmd += ['-q', '_thread_{}_{}_{}'.format(sample, chrom, hap)]
+                    # TODO: vg as of 1.39 can currently only support one
+                    # selection at a time, and will fail if more are provided.
+                    cmd += get_haplotype_selection_options(sample, chrom, hap)
                 with open(os.path.join(work_dir, path_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
                     
@@ -1722,7 +1749,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
                 # Get haplotype thread paths from the index for all haplotypes of the sample.
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
                 cmd += ['-x', os.path.basename(xg_path)]
-                cmd += ['-Q', '_thread_{}_'.format(sample)]
+                cmd += get_haplotype_selection_options(sample)
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = paths_file)
                
             with open(extract_graph_path, 'wb') as extract_graph_file:
