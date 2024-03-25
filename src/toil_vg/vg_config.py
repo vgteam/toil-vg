@@ -161,7 +161,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.34.0'
+vg-docker: 'quay.io/vgteam/vg:ci-309-3db0ee65a49f4fb619263d01b62c5a5ea8aac497'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -188,7 +188,7 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
 # Docker image to use to run R scripts
-r-docker: 'rocker/tidyverse:3.5.1'
+r-docker: 'rocker/tidyverse:4.3.2'
 
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
@@ -491,7 +491,7 @@ container: """ + (default_container) + """
 ##   of through docker. 
 
 # Docker image to use for vg
-vg-docker: 'quay.io/vgteam/vg:v1.34.0'
+vg-docker: 'quay.io/vgteam/vg:ci-309-3db0ee65a49f4fb619263d01b62c5a5ea8aac497'
 
 # Docker image to use for bcftools
 bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
@@ -518,7 +518,7 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 pigz-docker: 'quay.io/glennhickey/pigz:latest'
 
 # Docker image to use to run R scripts
-r-docker: 'rocker/tidyverse:3.5.1'
+r-docker: 'rocker/tidyverse:4.3.2'
 
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'

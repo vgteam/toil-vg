@@ -543,14 +543,14 @@ to do: Should go somewhere more central """
             RealtimeLogger.error("Dumping stderr...")
             for line in container.logs(stderr=True, stdout=False, stream=True):
                 # Convert to string and trim trailing \n
-                RealtimeLogger.error(line.decode('utf-8', errors='replace')[:-1])
+                RealtimeLogger.error(line.decode('utf-8', errors='replace').rstrip("\n"))
                 
             if not check_output and outfile is None:
                 # Dump stdout as well, since it's not something the caller wanted as data
                 RealtimeLogger.error("Dumping stdout...")
                 for line in container.logs(stderr=False, stdout=True, stream=True):
                     # Trim trailing \n
-                    RealtimeLogger.error(line[:-1])
+                    RealtimeLogger.error(line.decode('utf-8', errors='replace').rstrip("\n"))
         
             # Raise an error if it's not sucess
             raise RuntimeError("Docker container for command {} failed with code {}".format(command, return_code))
