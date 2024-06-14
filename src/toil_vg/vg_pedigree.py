@@ -546,7 +546,9 @@ def run_pipeline_call_gvcfs(job, context, options, sample_name, chr_bam_ids, ref
     
     # Run merging of crhomosomal bams
     merge_chr_bams_job = child_job.addFollowOnJobFn(run_merge_bams_ped_workflow, context, sample_name, processed_bam_ids, False, write_to_outstore,
-                                                            cores=context.config.alignment_cores, memory=context.config.alignment_mem, disk=context.config.alignment_disk)
+                                                            cores=context.config.minimizer_index_cores,
+                                                            memory=context.config.preprocess_mem,
+                                                            disk=context.config.preprocess_disk)
     
     # Run gvcf concatenation
     # If using the Illumina Dragen module for the NIH Biowulf system, then instead run that on the processed merged bam file
@@ -593,7 +595,7 @@ def run_deepTrio_gvcf(job, context, options,
                                                                     store_output_vcf=output_child_vcf,
                                                                     deepvariant_model_file_id=deepvariant_model_file_id,
                                                                     cores=context.config.alignment_cores,
-                                                                    memory=context.config.alignment_mem,
+                                                                    memory=context.config.sim_mem,
                                                                     disk=context.config.alignment_disk)
         if call_parents:
             parent1_call_variants_job = call_variant_jobs.addChildJobFn(run_deepvariant_gvcf, context,
@@ -601,14 +603,14 @@ def run_deepTrio_gvcf(job, context, options,
                                                                         ref_fasta_id, ref_fasta_index_id,
                                                                         deepvariant_model_file_id=deepvariant_model_file_id,
                                                                         cores=context.config.alignment_cores,
-                                                                        memory=context.config.alignment_mem,
+                                                                        memory=context.config.sim_mem,
                                                                         disk=context.config.alignment_disk)
             parent2_call_variants_job = call_variant_jobs.addChildJobFn(run_deepvariant_gvcf, context,
                                                                         maternal_name, maternal_chr_bam_id,
                                                                         ref_fasta_id, ref_fasta_index_id,
                                                                         deepvariant_model_file_id=deepvariant_model_file_id,
                                                                         cores=context.config.alignment_cores,
-                                                                        memory=context.config.alignment_mem,
+                                                                        memory=context.config.sim_mem,
                                                                         disk=context.config.alignment_disk)
     else:
         make_examples_job = child_job.addChildJobFn(run_deeptrio_make_examples, context, options,
@@ -616,7 +618,7 @@ def run_deepTrio_gvcf(job, context, options,
                                                     proband_chr_bam_id, maternal_chr_bam_id, paternal_chr_bam_id,
                                                     ref_fasta_id, ref_fasta_index_id,
                                                     cores=context.config.alignment_cores,
-                                                    memory=context.config.alignment_mem,
+                                                    memory=context.config.bwa_index_mem,
                                                     disk=context.config.alignment_disk)
         
         child_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
@@ -625,7 +627,7 @@ def run_deepTrio_gvcf(job, context, options,
                                                                     make_examples_job.rv(0), make_examples_job.rv(1), store_output_vcf=output_child_vcf,
                                                                     deeptrio_model_file_id=deeptrio_child_model_file_id,
                                                                     cores=context.config.alignment_cores,
-                                                                    memory=context.config.alignment_mem,
+                                                                    memory=context.config.sim_mem,
                                                                     disk=context.config.alignment_disk)
         if call_parents:
             parent1_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
@@ -634,7 +636,7 @@ def run_deepTrio_gvcf(job, context, options,
                                                                         make_examples_job.rv(2), make_examples_job.rv(3),
                                                                         deeptrio_model_file_id=deeptrio_parent_model_file_id,
                                                                         cores=context.config.alignment_cores,
-                                                                        memory=context.config.alignment_mem,
+                                                                        memory=context.config.sim_mem,
                                                                         disk=context.config.alignment_disk)
             parent2_call_variants_job = call_variant_jobs.addChildJobFn(run_deeptrio_call_variants, context, options,
                                                                         maternal_name, contig_name,
@@ -642,7 +644,7 @@ def run_deepTrio_gvcf(job, context, options,
                                                                         make_examples_job.rv(4), make_examples_job.rv(5),
                                                                         deeptrio_model_file_id=deeptrio_parent_model_file_id,
                                                                         cores=context.config.alignment_cores,
-                                                                        memory=context.config.alignment_mem,
+                                                                        memory=context.config.sim_mem,
                                                                         disk=context.config.alignment_disk)
     
     proband_gvcf_file_id = child_call_variants_job.rv(0)
@@ -1381,8 +1383,8 @@ def run_pipeline_construct_parental_graphs(job, context, options, joint_called_v
                                                         paternal_bam_id, paternal_bam_index_id,
                                                         ref_fasta_id, ref_fasta_index_id, ref_fasta_dict_id,
                                                         ped_file_id, eagle_file_id, eagle_file_index_id, genetic_map_id,
-                                                        cores=context.config.misc_cores,
-                                                        memory=context.config.alignment_mem,
+                                                        cores=context.config.calling_cores,
+                                                        memory=context.config.bwa_index_mem,
                                                         disk=context.config.alignment_disk)
             phased_vcf_ids.append(phasing_job.rv())
         construct_job = phasing_jobs.addFollowOnJobFn(run_construct_index_workflow, context, options, '{}.parental.graphs'.format(proband_name), ref_fasta_id,
@@ -1432,18 +1434,15 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     construct_decoy_graph_vg_ids = []
     if use_decoys:
         extract_decoys_job = construct_jobs.addChildJobFn(run_extract_decoys, context, options, ref_fasta_id, decoy_regex=decoy_regex)
-        construct_decoy_graph_vg_ids_job = extract_decoys_job.addFollowOnJobFn(run_construct_decoy_contigs_subworkflow, context, options, ref_fasta_id, extract_decoys_job.rv(),
-                                                                                 cores=context.config.construct_cores,
-                                                                                 memory=context.config.fq_split_mem,
-                                                                                 disk=context.config.calling_disk)
+        construct_decoy_graph_vg_ids_job = extract_decoys_job.addFollowOnJobFn(run_construct_decoy_contigs_subworkflow, context, options, ref_fasta_id, extract_decoys_job.rv())
         combine_graphs_job = construct_jobs.addFollowOnJobFn(run_combine_graphs, context, options, graph_name, construct_chromosome_graph_vg_ids, decoy_contigs_vg_id_list=construct_decoy_graph_vg_ids_job.rv(),
                                                                 cores=context.config.construct_cores,
-                                                                memory=context.config.construct_mem,
+                                                                memory=context.config.bwa_index_mem,
                                                                 disk=context.config.construct_disk)
     else:
         combine_graphs_job = construct_jobs.addFollowOnJobFn(run_combine_graphs, context, options, graph_name, construct_chromosome_graph_vg_ids,
                                                                 cores=context.config.construct_cores,
-                                                                memory=context.config.construct_mem,
+                                                                memory=context.config.bwa_index_mem,
                                                                 disk=context.config.construct_disk)
         
     construct_indexes['vg'] = combine_graphs_job.rv(0)
@@ -1451,7 +1450,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     if 'xg' in wanted_indexes:
         xg_index_job = indexing_jobs.addChildJobFn(run_xg_index, context, options, graph_name, combine_graphs_job.rv(0),
                                                     cores=context.config.alignment_cores,
-                                                    memory=context.config.construct_mem,
+                                                    memory=context.config.prune_mem,
                                                     disk=context.config.construct_disk)
         construct_indexes['xg'] = xg_index_job.rv()
     if 'trivial_snarls' in wanted_indexes:
@@ -1463,7 +1462,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
         construct_indexes['snarls'] = trivial_snarls_job.rv()
     if 'dist' in wanted_indexes:
         dist_index_job = trivial_snarls_job.addFollowOnJobFn(run_dist_indexing, context, graph_name, xg_index_job.rv(), trivial_snarls_job.rv(),
-                                                             cores=context.config.alignment_cores,
+                                                             cores=context.config.gbwt_index_cores,
                                                              memory=context.config.alignment_mem,
                                                              disk=context.config.snarl_index_disk)
         xg_index_job.addFollowOn(dist_index_job)
@@ -1474,7 +1473,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
         contig_gbwt_ids_job = indexing_jobs.addChildJobFn(run_gbwt_index_subworkflow, context, options, combine_graphs_job.rv(2), contig_vcf_gz_id_list)
         gbwt_merge_job = contig_gbwt_ids_job.addFollowOnJobFn(run_gbwt_merge, context, options, contig_gbwt_ids_job.rv(), graph_name,
                                                                 cores=context.config.construct_cores,
-                                                                memory=context.config.alignment_mem,
+                                                                memory=context.config.gbwt_index_mem,
                                                                 disk=context.config.construct_disk)
         if 'ggbwt' not in wanted_indexes:
             construct_indexes['gbwt'] = gbwt_merge_job.rv()
@@ -1500,7 +1499,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
         
         if 'ggbwt' in wanted_indexes:
             sampled_gbwt_and_gbwt_graph_job = gbwt_merge_job.addFollowOnJobFn(run_sampled_gbwt, context, options, graph_name, gbwt_merge_job.rv(), xg_index_job.rv(),
-                                                                            cores=context.config.alignment_cores,
+                                                                            cores=context.config.gbwt_index_cores,
                                                                             memory=context.config.alignment_mem,
                                                                             disk=context.config.construct_disk)
             xg_index_job.addFollowOn(sampled_gbwt_and_gbwt_graph_job)
@@ -1510,7 +1509,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
         if 'min' in wanted_indexes:
             min_index_job = sampled_gbwt_and_gbwt_graph_job.addFollowOnJobFn(run_min_index, context, options, graph_name,
                                                                                 sampled_gbwt_and_gbwt_graph_job.rv(0), sampled_gbwt_and_gbwt_graph_job.rv(1), dist_index_job.rv(),
-                                                                                cores=context.config.alignment_cores,
+                                                                                cores=context.config.gbwt_index_cores,
                                                                                 memory=context.config.alignment_mem,
                                                                                 disk=context.config.construct_disk)
             dist_index_job.addFollowOn(min_index_job)
@@ -1532,8 +1531,7 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
 def run_construct_decoy_contigs_subworkflow(job, context, options, ref_fasta_id, decoy_contigs_list):
     child_jobs = Job()
     job.addChild(child_jobs)
-    RealtimeLogger.info("Running run_construct_decoy_contigs_subworkflow, decoy_contigs: {}".format(str(decoy_contigs_list)))
-    RealtimeLogger.info("Running run_construct_decoy_contigs_subworkflow, ref_fasta_id: {}".format(ref_fasta_id))
+    RealtimeLogger.info("Running run_construct_decoy_contigs_subworkflow")
     construct_decoy_graph_vg_ids = []
     for decoy_contig in decoy_contigs_list:
         construct_decoy_graph_vg_ids.append(child_jobs.addChildJobFn(run_construct_graph_pedigree, context, options, 
@@ -1870,14 +1868,13 @@ def run_snpEff_annotation(job, context, cohort_name, joint_called_vcf_id, snpeff
     context.runner.call(job, command, work_dir = work_dir, tool_name='bcftools')
     command = ['unzip', os.path.basename(snpeff_database_file_path)]
     context.runner.call(job, command, work_dir = work_dir)
+    command = ['snpEff', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic', '-dataDir', '$PWD/data']
     if '38' in os.path.basename(ref_fasta_id):
-        command = ['snpEff', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
-                        '-dataDir', '$PWD/data',
-                        'GRCh38.99', '{}.unrolled.vcf'.format(cohort_name)]
+        command += ['GRCh38.99']
     else:
-        command = ['snpEff', '-Xmx{}g'.format(int(float(job.memory)/1000000000)), '-i', 'VCF', '-o', 'VCF', '-noLof', '-noHgvs', '-formatEff', '-classic',
-                        '-dataDir', '$PWD/data',
-                        'GRCh37.75', '{}.unrolled.vcf'.format(cohort_name)]
+        command += ['GRCh37.75']
+    
+    command += ['{}.unrolled.vcf'.format(cohort_name)]
     with open(os.path.join(work_dir, '{}.snpeff.unrolled.vcf'.format(cohort_name)), 'wb') as output_snpeff_vcf:
         context.runner.call(job, command, work_dir = work_dir, tool_name='snpEff', outfile=output_snpeff_vcf)
     context.runner.call(job, ['bgzip', '{}.snpeff.unrolled.vcf'.format(cohort_name)], work_dir = work_dir, tool_name='vg')
@@ -1943,7 +1940,7 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
         chain_cmds = [' '.join(p) for p in cmd_list]
         command = ['/bin/bash', '-c', 'set -eo pipefail && {}'.format(' && '.join(chain_cmds))]
         context.runner.call(job, command, work_dir = work_dir)
-        command = ['java', '-Xmx{}'.format(job.memory), '-jar', '/opt/abra2/abra2.jar',
+        command = ['/usr/local/bin/abra2',
                     '--targets', 'forIndelRealigner.intervals.bed',
                     '--in', '{}_rg.bam'.format(sample_name),
                     '--out', '{}.indel_realigned.bam'.format(sample_name),
@@ -2230,7 +2227,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                 snpeff_annotation=snpeff_annotation,
                                 dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
                                 cores=context.config.calling_cores,
-                                memory=context.config.calling_mem,
+                                memory=context.config.bwa_index_mem,
                                 disk=context.config.calling_disk)
     
     gen_map_id = None
@@ -2375,7 +2372,7 @@ def run_pedigree(job, context, options, fastq_proband, gam_input_reads_proband, 
                                         dragen_ref_index_name=options.dragen_ref_index_name, udp_data_dir=options.udp_data_dir, helix_username=options.helix_username,
                                         snpeff_annotation=snpeff_annotation,
                                         cores=context.config.calling_cores,
-                                        memory=context.config.calling_mem,
+                                        memory=context.config.bwa_index_mem,
                                         disk=context.config.calling_disk)
     
     if indel_realign_bams:

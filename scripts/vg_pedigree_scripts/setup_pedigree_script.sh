@@ -236,6 +236,7 @@ ${RESTART_ARG} \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir onSuccess \\
 --whole_genome_config \\
+--vg_docker 'quay.io/vgteam/vg:v1.31.0' \\
 ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_jobstore \\
 ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore \\
 ${PROBAND_NAME} \\
@@ -275,8 +276,8 @@ ${SIB_READ_PAIR_LIST} \\
 --snpeff_annotation \\
 ${DRAGEN_ARGS} \\
 --run_analysis \\
---cadd_lines 100000 \\
---split_lines 100000 \\
+--cadd_lines 30000 \\
+--split_lines 30000 \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
 --cadd_data ${CADD_DATA_DIR} \\
@@ -293,6 +294,7 @@ ${RESTART_ARG} \\
 --logFile ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_workflow.log \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir always \\
+--vg_docker 'quay.io/vgteam/vg:v1.31.0' \\
 ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_jobstore \\
 ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore \\
 ${PROBAND_NAME} \\
@@ -341,6 +343,7 @@ ${RESTART_ARG} \\
 --workDir ${COHORT_WORKFLOW_DIR}/tmp \\
 --cleanWorkDir onSuccess \\
 --whole_genome_config \\
+--vg_docker 'quay.io/vgteam/vg:v1.31.0' \\
 ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_jobstore \\
 ${COHORT_WORKFLOW_DIR}/${COHORT_NAME}_pedigree_outstore \\
 ${PROBAND_NAME} \\
@@ -379,8 +382,8 @@ ${SIB_READ_PAIR_LIST} \\
 --snpeff_annotation \\
 ${DRAGEN_ARGS} \\
 --run_analysis \\
---cadd_lines 100000 \\
---split_lines 100000 \\
+--cadd_lines 30000 \\
+--split_lines 30000 \\
 --chrom_dir ${CHROM_ANNOT_DIR} \\
 --edit_dir ${EDIT_ANNOT_DIR} \\
 --cadd_data ${CADD_DATA_DIR} \\
