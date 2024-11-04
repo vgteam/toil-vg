@@ -500,31 +500,6 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         job.fileStore.readGlobalFile(graph_id, graph_filename)
         graph_filenames.append(os.path.basename(graph_filename))
 
-    # If we have a separate GBWT it will go here
-    gbwt_filename = os.path.join(work_dir, "{}.gbwt".format(index_name))
-    # And if we ahve a separate thread db it will go here
-    thread_db_filename = os.path.join(work_dir, "{}.threads".format(index_name))
-    
-    # Get the vcf file for loading phasing info
-    if vcf_phasing_file_id:
-        phasing_file = os.path.join(work_dir, 'phasing.{}.vcf.gz'.format(index_name))
-        job.fileStore.readGlobalFile(vcf_phasing_file_id, phasing_file)
-        job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
-        phasing_opts = ['-v', os.path.basename(phasing_file)]
-        
-        if make_gbwt:
-            # Write the haplotype index to its own file
-            phasing_opts += ['--gbwt-name', os.path.basename(gbwt_filename)]
-                       
-            for region in gbwt_regions:
-                phasing_opts += ['--region', region]
-
-            if context.config.force_phasing:
-                # We need to discard overlaps also to really get rid of haplotype breaks.
-                phasing_opts += ['--force-phasing', '--discard-overlaps']
-    else:
-        phasing_opts = []
-        
     # Where do we put the XG index?
     xg_filename = "{}.xg".format(index_name)
 
@@ -532,7 +507,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     RealtimeLogger.info("XG Indexing {}".format(str(graph_filenames)))
 
     command = ['vg', 'index', '--threads', str(job.cores), '--xg-name', os.path.basename(xg_filename)]
-    command += phasing_opts + graph_filenames
+    command += graph_filenames
     command += ['--temp-dir', os.path.join('.', os.path.basename(index_temp_dir))]
 
     if include_alt_paths:
@@ -555,11 +530,61 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
     # Determine if we want to checkpoint index to output store
     write_function = context.write_intermediate_file if intermediate else context.write_output_file
     xg_file_id = write_function(job, os.path.join(work_dir, xg_filename))
-    
+
+    # We can no longer make the GBWT in the vg index call after https://github.com/vgteam/vg/pull/4433/.
+    # Also, vg gbwt needs a graph all in one file, with alt paths.
     gbwt_file_id = None
-    thread_db_file_id = None
-    if make_gbwt and vcf_phasing_file_id:
-        # Also save the GBWT if it was generated
+    if make_gbwt:
+
+        # We need a VCF to do this.
+        assert vcf_phasing_file_id is not None
+        assert tbi_phasing_file_id is not None
+        phasing_file = os.path.join(work_dir, 'phasing.{}.vcf.gz'.format(index_name))
+        job.fileStore.readGlobalFile(vcf_phasing_file_id, phasing_file)
+        job.fileStore.readGlobalFile(tbi_phasing_file_id, phasing_file + '.tbi')
+
+        # Determine where to put the GBWT 
+        gbwt_filename = os.path.join(work_dir, "{}.gbwt".format(index_name))
+
+        # We need a single input graph with alt paths
+        if include_alt_paths:
+            # We already have this
+            single_input_graph_filename = xg_filename
+        else:
+            # We need to make this.
+            single_input_graph_filename = os.path.join(work_dir, "combined_with_alts.vg")
+            # We assume the IDs are alreay joined.
+            combine_command = ['vg', 'combine'] + graph_filenames
+            try:
+                context.runner.call(job, combine_command, work_dir=work_dir, outfile=single_input_graph_filename)
+            except:
+                # Dump everything we need to replicate the index run
+                logging.error("Graph combining failed. Dumping files.")
+                for graph_filename in graph_filenames:
+                    context.write_output_file(job, os.path.join(work_dir, graph_filename))
+                raise
+
+        gbwt_command = ['vg', 'gbwt', '-x', os.path.basename(single_input_graph_filename), '-v', os.path.basename(phasing_file), '-o', os.path.basename(gbwt_filename)]
+
+        for region in gbwt_regions:
+            gbwt_command += ['--vcf-region', region]
+
+        if context.config.force_phasing:
+            # We need to discard overlaps also to really get rid of haplotype breaks.
+            gbwt_command += ['--force-phasing', '--discard-overlaps']
+    
+        try:
+            context.runner.call(job, gbwt_command, work_dir=work_dir)
+        except:
+            # Dump everything we need to replicate the index run
+            logging.error("GBWT indexing failed. Dumping files.")
+
+            context.write_output_file(job, phasing_file)
+            context.write_output_file(job, phasing_file + '.tbi')
+            context.write_output_file(job, single_input_graph_filename)
+
+            raise
+
         gbwt_file_id = write_function(job, gbwt_filename)
         
     end_time = timeit.default_timer()
