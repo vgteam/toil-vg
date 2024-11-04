@@ -392,7 +392,7 @@ to do: Should go somewhere more central """
                     connection_sock.settimeout(10)
                     
                     # Check the security cookie
-                    received_cookie_and_newline = connection_sock.recv(len(security_cookie) + 1)
+                    received_cookie_and_newline = connection_sock.recv(len(security_cookie) + 1).decode('utf-8', errors='replace')
                     
                     if received_cookie_and_newline != security_cookie + "\n":
                         # Incorrect security cookie.
