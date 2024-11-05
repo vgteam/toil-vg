@@ -550,8 +550,11 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
         if include_alt_paths:
             # We already have this
             single_input_graph_filename = xg_filename
+        elif len(graph_filenames) == 1:
+            # We have just one input graph and don't need to combine.
+            single_input_graph_filename = graph_filenames[0]
         else:
-            # We need to make this.
+            # We need to make a combined graph.
             single_input_graph_filename = os.path.join(work_dir, "combined_with_alts.vg")
             # We assume the IDs are alreay joined.
             combine_command = ['vg', 'combine'] + graph_filenames
