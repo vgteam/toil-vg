@@ -1719,6 +1719,7 @@ def run_xg_index(job, context, options, graph_name, vg_id, xg_options=None):
     
     return xg_id
 
+# TODO: This won't work with modern Distance Index 2 vg.
 def run_dist_indexing(job, context, graph_name, xg_id, trivial_snarls_id):
     RealtimeLogger.info("Running run_dist_indexing")
     # Define work directory for docker calls

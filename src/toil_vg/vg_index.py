@@ -732,12 +732,9 @@ def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=
 
         return snarl_file_id
         
-def run_distance_indexing(job, context, input_xg_id, input_trivial_snarls_id, index_name=None, max_distance_threshold=0):
+def run_distance_indexing(job, context, input_xg_id, index_name=None, max_distance_threshold=0):
     """
-    Make a distance index from the given XG index and the given snarls file,
-    including the trivial snarls.
-    
-    TODO: also support a single VG file and snarls.
+    Make a distance index from the given XG index.
     
     If index_name is not None, saves it as <index_name>.dist to the output
     store.
@@ -758,14 +755,12 @@ def run_distance_indexing(job, context, input_xg_id, input_trivial_snarls_id, in
     # Download the input files.
     xg_filename = os.path.join(work_dir, 'graph.xg')
     job.fileStore.readGlobalFile(input_xg_id, xg_filename)
-    trivial_snarls_filename = os.path.join(work_dir, 'graph.trivial.snarls')
-    job.fileStore.readGlobalFile(input_trivial_snarls_id, trivial_snarls_filename)
 
     # Where do we put the distance index?
     distance_filename = os.path.join(work_dir, (index_name if index_name is not None else 'graph') + '.dist')
 
     cmd = ['vg', 'index', '-t', max(1, int(job.cores)), '-j', os.path.basename(distance_filename),
-        '-x', os.path.basename(xg_filename), '-s', os.path.basename(trivial_snarls_filename)]
+        '-x', os.path.basename(xg_filename)]
     
     if max_distance_threshold > 0:
         # Add a max distance index with this limit.
@@ -779,7 +774,6 @@ def run_distance_indexing(job, context, input_xg_id, input_trivial_snarls_id, in
         # Dump everything we need to replicate the indexing
         logging.error("Distance indexing failed. Dumping files.")
         context.write_output_file(job, xg_filename)
-        context.write_output_file(job, trivial_snarls_filename)
         if os.path.exists(distance_filename):
             context.write_output_file(job, distance_filename)
         raise
@@ -798,7 +792,7 @@ def run_distance_indexing(job, context, input_xg_id, input_trivial_snarls_id, in
 
     return distance_file_id
         
-def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=None):
+def run_minimizer_indexing(job, context, input_xg_id, input_distance_id, input_gbwt_id, index_name=None):
     """
     Make a minimizer index file for the graph and haplotypes described by the
     given input XG and GBWT indexes.
@@ -824,6 +818,8 @@ def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=
     # Download the input files.
     xg_filename = os.path.join(work_dir, 'graph.xg')
     job.fileStore.readGlobalFile(input_xg_id, xg_filename)
+    distance_filename = os.path.join(work_dir, 'graph.dist')
+    job.fileStore.readGlobalFile(input_distance_id, distance_filename)
     gbwt_filename = os.path.join(work_dir, 'graph.gbwt')
     job.fileStore.readGlobalFile(input_gbwt_id, gbwt_filename)
 
@@ -831,6 +827,7 @@ def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=
     minimizer_filename = os.path.join(work_dir, (index_name if index_name is not None else 'graph') + '.min')
 
     cmd = ['vg', 'minimizer', '-t', max(1, int(job.cores)), '-i', os.path.basename(minimizer_filename),
+        '--distance-index', os.path.basename(distance_filename),
         '-g', os.path.basename(gbwt_filename)] + context.config.minimizer_opts + [os.path.basename(xg_filename)]
     try:
         # Compute the index to the correct file
@@ -839,8 +836,8 @@ def run_minimizer_indexing(job, context, input_xg_id, input_gbwt_id, index_name=
         # Dump everything we need to replicate the indexing
         logging.error("Minimizer indexing failed. Dumping files.")
         context.write_output_file(job, xg_filename)
+        context.write_output_file(job, distance_filename)
         context.write_output_file(job, gbwt_filename)
-        context.write_output_file(job, minimizer_filename)
         raise
     
     if index_name is not None:
@@ -1203,13 +1200,12 @@ def run_indexing(job, context, inputGraphFileIDs,
     index will also be computed. If no phasing VCFs are provided, computing
     this index will be skipped.
     
-    If the 'minimizer' index is requested, the 'xg' index will also be
-    computed, and the 'gbwt' index will either be computed or sourced from
-    gbwt_id. If the 'gbwt' index is not available, computing this index will be
-    skipped.
+    If the 'minimizer' index is requested, the 'xg' and 'distance' indexes will
+    also be computed, and the 'gbwt' index will either be computed or sourced
+    from gbwt_id. If the 'gbwt' index is not available, computing this index
+    will be skipped.
     
-    If the 'distance' index is requested, the 'trivial_snarls' and 'xg' indexes
-    will also be computed.
+    If the 'distance' index is requested, the 'xg' index will also be computed.
     
     If coalesce_regions is set, it must be a list of sets of 'chroms' region
     names. Each set of region names will be expected to be together in a graph
@@ -1262,13 +1258,13 @@ def run_indexing(job, context, inputGraphFileIDs,
     if 'minimizer' in wanted:
         # The minimizer index has some dependencies
         wanted.add('xg')
+        wanted.add('distance')
         if not gbwt_id:
             wanted.add('gbwt')
             
     if 'distance' in wanted:
         # The distance index also has some dependencies
         wanted.add('xg')
-        wanted.add('trivial_snarls')
         
     # We guarantee that if 'gbwt' is in indexes, then there is (a promise for)
     # an actual GBWT.
@@ -1434,15 +1430,13 @@ def run_indexing(job, context, inputGraphFileIDs,
         indexes['trivial_snarls'] = trivial_snarls_job.rv()
                                                             
     if 'distance' in wanted:
-        # We need a distance index, based on the XG and the trivial snarls, which we know are being computed.
+        # We need a distance index, based on the XG, which we know are being computed.
         # Run it after our XG
         distance_job = xg_root_job.addFollowOnJobFn(run_distance_indexing, context, indexes['xg'],
-                                                    indexes['trivial_snarls'], index_name,
+                                                    index_name,
                                                     cores=context.config.distance_index_cores,
                                                     memory=context.config.distance_index_mem,
                                                     disk=context.config.distance_index_disk)
-        # Make sure it waits for trivial snarls
-        trivial_snarls_job.addFollowOn(distance_job)
         
         indexes['distance'] = distance_job.rv()
         
@@ -1456,10 +1450,13 @@ def run_indexing(job, context, inputGraphFileIDs,
         # We know that, if the GBWT is being computed, it also happens under the XG job.
         # TODO: change that.
         minimizer_job = xg_root_job.addFollowOnJobFn(run_minimizer_indexing, context, indexes['xg'],
-                                                     indexes['gbwt'], index_name,
+                                                     indexes['distance'], indexes['gbwt'], index_name,
                                                      cores=context.config.minimizer_index_cores,
                                                      memory=context.config.minimizer_index_mem,
                                                      disk=context.config.minimizer_index_disk)
+
+        # Also wait for the distance index
+        distance_job.addFollowOn(minimizer_job)
                                                      
         indexes['minimizer'] = minimizer_job.rv()
     

@@ -900,6 +900,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
+                   '--realTimeLogging',
                    '--graphs', os.path.join(self.local_outstore, 'HGSVC_chr21.vg'), os.path.join(self.local_outstore, 'HGSVC_chr22.vg'),
                    '--chroms', 'chr21', 'chr22',
                    '--vcf_phasing', vcf_path,
