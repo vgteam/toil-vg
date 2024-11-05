@@ -556,7 +556,7 @@ def run_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name,
             # We assume the IDs are alreay joined.
             combine_command = ['vg', 'combine'] + graph_filenames
             try:
-                context.runner.call(job, combine_command, work_dir=work_dir, outfile=single_input_graph_filename)
+                context.runner.call(job, combine_command, work_dir=work_dir, outfile=open(single_input_graph_filename, 'wb'))
             except:
                 # Dump everything we need to replicate the index run
                 logging.error("Graph combining failed. Dumping files.")
