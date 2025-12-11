@@ -9,7 +9,6 @@ import logging, logging.handlers, struct, socket, threading
 import string
 import getpass
 import gzip
-import pipes
 import shlex
 
 from math import ceil

@@ -398,7 +398,7 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
                       
 
 def main():
-    """
+    r"""
     Computational Genomics Lab, Genomics Institute, UC Santa Cruz
     Toil vg DNA-seq pipeline
     
