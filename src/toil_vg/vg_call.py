@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 Generate a VCF from a GAM and XG by splitting into GAM/VG chunks.
 """

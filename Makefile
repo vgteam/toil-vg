@@ -111,17 +111,10 @@ prepare: check_venv
 	# scikit-learn needs Cython to build from source (which we *shouldn't* do), but doesn't require it in a way that lets pip know to install it.
 	$(pip) install "cython>=0.28.5"
 	$(pip) install scipy "scikit-learn>=0.22.1,<=2.0"
-	# To install pyvcf, we need a version of setuptools before 58. Pyvcf
-	# doesn't have the necessary build requirement information because its last
-	# release predates setuptools' breaking change by several years.
-	$(pip) install "setuptools<58"
-	# The old Docker that comes with the old Toil we use needs an old
-	# Requeests. See https://github.com/docker/docker-py/issues/3256.
-	$(pip) install "requests<2.32.0"
-	$(pip) install pytest 'toil[aws,mesos]==4.1.0' biopython pyvcf
+	$(pip) install pytest 'toil[aws,mesos]==9.1.2' biopython pyvcf3
 	pip list
 clean_prepare: check_venv
-	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf
+	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf3
 
 check_venv:
 	@$(python) -c 'import sys, os; sys.exit( int( 0 if "VIRTUAL_ENV" in os.environ else 1 ) )' \

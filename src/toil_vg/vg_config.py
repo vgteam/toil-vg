@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 vg_config.py: Default configuration values all here (and only here), as well as logic
 for reading and generating config files.

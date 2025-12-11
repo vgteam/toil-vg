@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 Shared stuff between different modules in this package.  Some
 may eventually move to or be replaced by stuff in toil-lib.

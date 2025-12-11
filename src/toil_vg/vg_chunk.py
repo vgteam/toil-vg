@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 vg_chunk.py: split a graph and/or GAM into chunks by connected component
 

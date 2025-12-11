@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 context.py: Defines a toil_vg context, which contains (and hides) all the config
 file values, IOStore dumping parameters, and other things that need to be passed
