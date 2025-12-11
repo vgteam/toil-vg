@@ -149,7 +149,12 @@ def parse_args(args=None):
 def pipeline_subparser(parser_run):
     
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser_run)
+    try:
+        # New Toil; allows us to rename its --config and take it for ourselves
+        Job.Runner.addToilOptions(parser_run, config_option="toilConfig")
+    except TypeError:
+        # Old Toil; hopefully one too old to have --config itself
+        Job.Runner.addToilOptions(parser_run)
     
     # General options
     parser_run.add_argument("sample_name", type=str,

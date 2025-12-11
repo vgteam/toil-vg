@@ -111,7 +111,7 @@ prepare: check_venv
 	# scikit-learn needs Cython to build from source (which we *shouldn't* do), but doesn't require it in a way that lets pip know to install it.
 	$(pip) install "cython>=0.28.5"
 	$(pip) install scipy "scikit-learn>=0.22.1,<=2.0"
-	$(pip) install pytest 'toil[aws,mesos]==9.1.2' biopython pyvcf3
+	$(pip) install pytest 'toil[wdl,aws,mesos]@git+https://github.com/DataBiosphere/toil.git@c529489cd0b617e66e65420741e830e9be9fde92' biopython pyvcf3
 	pip list
 clean_prepare: check_venv
 	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf3
