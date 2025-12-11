@@ -40,9 +40,9 @@ class VGCGLTest(TestCase):
         Get the URL from which an input file can be obtained.
         """
         # /public/groups/vg/vg-data on Courtyard is served as
-        # https://courtyard.gi.ucsc.edu/~anovak/vg-data/. These are also the
+        # https://public.gi.ucsc.edu/~anovak/vg-data/. These are also the
         # files from the s3://vg-data bucket.
-        return 'https://courtyard.gi.ucsc.edu/~anovak/vg-data/toil_vg_ci/{}'.format(filename)
+        return 'https://public.gi.ucsc.edu/~anovak/vg-data/toil_vg_ci/{}'.format(filename)
     
     def _download_input(self, filename, local_path = None):
         # Where should we put this input file?
@@ -900,6 +900,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
+                   '--realTimeLogging',
                    '--graphs', os.path.join(self.local_outstore, 'HGSVC_chr21.vg'), os.path.join(self.local_outstore, 'HGSVC_chr22.vg'),
                    '--chroms', 'chr21', 'chr22',
                    '--vcf_phasing', vcf_path,

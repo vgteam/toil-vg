@@ -25,7 +25,7 @@ from toil_vg.vg_map import *
 from toil_vg.vg_surject import *
 from toil_vg.vg_config import *
 from toil_vg.vg_construct import *
-from toil_vg.vg_index import index_parse_args, run_snarl_indexing
+from toil_vg.vg_index import index_parse_args
 from toil_vg.context import Context, run_write_info_to_outstore
 from toil_vg.pedigree_analysis import *
 
@@ -1414,7 +1414,6 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
     if options.mapper == 'giraffe' and options.use_haplotypes:
         wanted_indexes.add('gbwt')
         wanted_indexes.add('ggbwt')
-        wanted_indexes.add('trivial_snarls')
         wanted_indexes.add('min')
         wanted_indexes.add('dist')
         wanted_indexes.discard('gcsa')
@@ -1454,19 +1453,11 @@ def run_construct_index_workflow(job, context, options, graph_name, ref_fasta_id
                                                     memory=context.config.construct_mem,
                                                     disk=context.config.construct_disk)
         construct_indexes['xg'] = xg_index_job.rv()
-    if 'trivial_snarls' in wanted_indexes:
-        trivial_snarls_job = indexing_jobs.addChildJobFn(run_snarl_indexing, context, [combine_graphs_job.rv(0)],
-                                                     [graph_name], index_name=graph_name, include_trivial=True,
-                                                     cores=context.config.alignment_cores,
-                                                     memory=context.config.snarl_index_mem,
-                                                     disk=context.config.snarl_index_disk)
-        construct_indexes['snarls'] = trivial_snarls_job.rv()
     if 'dist' in wanted_indexes:
-        dist_index_job = trivial_snarls_job.addFollowOnJobFn(run_dist_indexing, context, graph_name, xg_index_job.rv(), trivial_snarls_job.rv(),
-                                                             cores=context.config.alignment_cores,
-                                                             memory=context.config.alignment_mem,
-                                                             disk=context.config.snarl_index_disk)
-        xg_index_job.addFollowOn(dist_index_job)
+        dist_index_job = xg_index_job.addFollowOnJobFn(run_dist_indexing, context, graph_name, xg_index_job.rv(),
+                                                       cores=context.config.alignment_cores,
+                                                       memory=context.config.alignment_mem,
+                                                       disk=context.config.snarl_index_disk)
         construct_indexes['distance'] = dist_index_job.rv()
     
     if 'gbwt' in wanted_indexes:
@@ -1719,20 +1710,18 @@ def run_xg_index(job, context, options, graph_name, vg_id, xg_options=None):
     
     return xg_id
 
-def run_dist_indexing(job, context, graph_name, xg_id, trivial_snarls_id):
+def run_dist_indexing(job, context, graph_name, xg_id):
     RealtimeLogger.info("Running run_dist_indexing")
     # Define work directory for docker calls
     work_dir = job.fileStore.getLocalTempDir()
     
     xg_file_path = os.path.join(work_dir, os.path.basename(xg_id))
     job.fileStore.readGlobalFile(xg_id, xg_file_path)
-    trivial_snarls_file_path = os.path.join(work_dir, os.path.basename(trivial_snarls_id))
-    job.fileStore.readGlobalFile(trivial_snarls_id, trivial_snarls_file_path)
     
-    command = ['vg', 'index', '--threads', job.cores, '-x', os.path.basename(xg_id), '-s', os.path.basename(trivial_snarls_id), '-j', '{}.trivial.snarls.dist'.format(graph_name)]
+    command = ['vg', 'index', '--threads', job.cores, '-x', os.path.basename(xg_id), '-j', '{}.dist'.format(graph_name)]
     context.runner.call(job, command, work_dir = work_dir, tool_name='vg')
     
-    dist_id = context.write_output_file(job, os.path.join(work_dir, '{}.trivial.snarls.dist'.format(graph_name)))
+    dist_id = context.write_output_file(job, os.path.join(work_dir, '{}.dist'.format(graph_name)))
     
     return dist_id
 
