@@ -321,10 +321,10 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
             cmd += ['-n']
         context.runner.call(job, cmd, work_dir = work_dir)
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
-        gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', 's/\/1/_1/g'], ['gzip', '-c']]
+        gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', r's/\/1/_1/g'], ['gzip', '-c']]
         with open(sim_fq_files[0] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
-        gzip_cmd = [['sed', os.path.basename(sim_fq_files[1]), '-e', 's/\/2/_2/g'], ['gzip', '-c']]
+        gzip_cmd = [['sed', os.path.basename(sim_fq_files[1]), '-e', r's/\/2/_2/g'], ['gzip', '-c']]
         with open(sim_fq_files[1] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
         return [context.write_intermediate_file(job, sim_fq_files[0] + '.gz'),
@@ -333,7 +333,7 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
         sim_fq_file = os.path.join(work_dir, 'sim.fq.gz')
         cmd = [['samtools', 'fastq', os.path.basename(bam_file), '-N']]
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
-        cmd.append(['sed', '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
+        cmd.append(['sed', '-e', r's/\/1/_1/g', '-e', r's/\/2/_2/g'])
         cmd.append(['gzip'])
         with open(sim_fq_file, 'wb') as sim_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_file)
@@ -440,7 +440,7 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
     for fq_id, fq_name,  out_name in zip(fq_reads_ids, fq_file_names, out_file_names):
         job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
         cmd = [['pigz', '-dc', os.path.basename(fq_name)]]
-        cmd.append(['sed', '-e', 's/_1$\|_2$//g'])
+        cmd.append(['sed', '-e', r's/_1$\|_2$//g'])
         cmd.append(['pigz', '-c', '-p', str(max(1, job.cores))])
         with open(out_name, 'wb') as out_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
@@ -825,7 +825,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
               'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
               os.path.basename(gam_annot_json)]
     # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
-    jq_pipe = [jq_cmd, ['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g']]
+    jq_pipe = [jq_cmd, ['sed', '-e', r's/null/0/g',  '-e', r's/\/1/_1/g', '-e', r's/\/2/_2/g']]
     with open(out_pos_file + '.unsorted', 'wb') as out_pos:
         context.runner.call(job, jq_pipe, work_dir = work_dir, outfile=out_pos)
 

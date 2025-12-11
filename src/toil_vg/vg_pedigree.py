@@ -301,9 +301,9 @@ def run_gatk_haplotypecaller_gvcf(job, context, sample_name, chr_bam_id, ref_fas
     
     # Extract contig name
     if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
-        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
+        contig_name = 'chr{}'.format(re.search(r'bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
     else:
-        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
+        contig_name = re.search(r'bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
     
     # Run variant calling commands
     cmd_list = []
@@ -575,9 +575,9 @@ def run_deepTrio_gvcf(job, context, options,
     # Extract contig name
     ref_fasta_name = os.path.basename(ref_fasta_id)
     if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
-        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1))
+        contig_name = 'chr{}'.format(re.search(r'bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1))
     else:
-        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1)
+        contig_name = re.search(r'bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', os.path.basename(proband_chr_bam_id)).group(1)
     RealtimeLogger.info("Starting gvcf DeepTrio calling for trio on contig {}".format(contig_name))
     child_job = Job()
     call_variant_jobs = Job()
@@ -696,9 +696,9 @@ def run_deepvariant_gvcf(job, context, sample_name, chr_bam_id, ref_fasta_id,
 
     # Extract contig name
     if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
-        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
+        contig_name = 'chr{}'.format(re.search(r'bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
     else:
-        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
+        contig_name = re.search(r'bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
     
     # Run variant calling commands
     command = ['samtools', 'index', '-@', str(job.cores), os.path.basename(bam_path)]
@@ -1596,7 +1596,7 @@ def run_construct_graph_pedigree(job, context, options, ref_fasta_id, contig_nam
         vcf_gz_path = os.path.join(work_dir, os.path.basename(vcf_gz_id))
         job.fileStore.readGlobalFile(vcf_gz_id, vcf_gz_path)
         context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_gz_path)], work_dir = work_dir, tool_name='vg')
-        context.runner.call(job, ['vt', 'view', '-f', 'ALT~~\'\*\'', os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
+        context.runner.call(job, ['vt', 'view', '-f', 'ALT~~\'\\*\'', os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
         context.runner.call(job, ['tabix', '-p', 'vcf', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vg')
         command += ['-v', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path)), '--region-is-chrom']
         
@@ -1659,7 +1659,7 @@ def run_gbwt_index(job, context, options, vg_id, vcf_gz_id):
     
     contig_name = os.path.splitext(os.path.basename(vg_file_path))[0]
     context.runner.call(job, ['tabix', '-p', 'vcf', os.path.basename(vcf_gz_path)], work_dir = work_dir, tool_name='vg')
-    context.runner.call(job, ['vt', 'view', '-f', 'ALT~~\'\*\'', os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
+    context.runner.call(job, ['vt', 'view', '-f', 'ALT~~\'\\*\'', os.path.basename(vcf_gz_path), '-o', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vt')
     context.runner.call(job, ['tabix', '-p', 'vcf', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path))], work_dir = work_dir, tool_name='vg')
     context.runner.call(job, ['vg', 'index', '--threads', job.cores, '--force-phasing', '--discard-overlaps', '-G', '{}.gbwt'.format(contig_name), '-v', 'no_asterisk.{}'.format(os.path.basename(vcf_gz_path)), os.path.basename(vg_file_path)], work_dir = work_dir, tool_name='vg')
     
@@ -1900,9 +1900,9 @@ def run_indel_realignment(job, context, sample_name, sample_bam_id, ref_fasta_id
     # Extract contig name
     RealtimeLogger.info("DEBUGGING, bam_name: {}".format(bam_name))
     if '38' in ref_fasta_name and 'no_segdup' not in ref_fasta_name:
-        contig_name = 'chr{}'.format(re.search('bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
+        contig_name = 'chr{}'.format(re.search(r'bam_chr(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1))
     else:
-        contig_name = re.search('bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
+        contig_name = re.search(r'bam_(2[0-2]|1\d|\d|X|Y|MT|M|ABOlocus)', bam_name).group(1)
     
     command = ['samtools', 'addreplacerg', '-O', 'BAM', '-@', str(job.cores), '-o', '{}_rg.bam'.format(sample_name),
                 '-r', 'ID:1', 

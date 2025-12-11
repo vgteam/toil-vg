@@ -282,7 +282,7 @@ def run_merge_vcfs(job, context, vcf_file_ids, vcf_names, tbi_file_ids):
     with open(os.path.join(work_dir, merged_name), 'wb') as merged_file:
         cmd = [['bcftools', 'merge', '--missing-to-ref', '--force-samples'] + vcf_names]
         # phase the ref/ref calls added by --missing-to-ref
-        cmd.append(['sed', '-e', 's/0\/0/0\|0/g'])
+        cmd.append(['sed', '-e', r's/0\/0/0\|0/g'])
         cmd.append(['bcftools', 'view', '-', '--output-type', 'z'])
         context.runner.call(job, cmd, work_dir = work_dir, outfile = merged_file)
     context.runner.call(job, ['tabix', '--preset', 'vcf', merged_name], work_dir = work_dir)
