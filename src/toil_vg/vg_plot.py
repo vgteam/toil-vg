@@ -20,7 +20,7 @@ from toil.job import Job
 from toil.realtimeLogger import RealtimeLogger
 from toil_vg.vg_common import require, make_url, remove_ext, \
     add_common_vg_parse_args, add_container_tool_parse_args, \
-    parse_plot_sets
+    add_toil_args, parse_plot_sets
 from toil_vg.vg_mapeval import run_map_eval_summarize, run_map_eval_table, run_map_eval_plot
 from toil_vg.vg_calleval import run_calleval_plots
 from toil_vg.context import Context, run_write_info_to_outstore
@@ -33,7 +33,7 @@ def plot_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # Add the out_store
     # TODO: do this at a higher level?

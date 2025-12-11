@@ -71,6 +71,17 @@ def test_singularity():
         # It didn't work, so we can't use Singularity
         return False
 
+def add_toil_args(parser):
+    """
+    Add the Toil arguments to a subcommand's parser (including Toil's config argument, renamed).
+    """
+    try:
+        # New Toil; allows us to rename its --config and take it for ourselves
+        Job.Runner.addToilOptions(parser, config_option="toilConfig")
+    except TypeError:
+        # Old Toil; hopefully one too old to have --config itself
+        Job.Runner.addToilOptions(parser)
+
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
 

@@ -31,7 +31,7 @@ def index_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # Options specific to the toil-vg index driver
     parser.add_argument("out_store",

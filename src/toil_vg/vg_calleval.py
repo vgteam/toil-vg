@@ -47,7 +47,7 @@ def calleval_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # Add the out_store
     # TODO: do this at a higher level?

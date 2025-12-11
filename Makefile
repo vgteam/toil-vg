@@ -110,11 +110,12 @@ prepare: check_venv
 	$(pip) install numpy
 	# scikit-learn needs Cython to build from source (which we *shouldn't* do), but doesn't require it in a way that lets pip know to install it.
 	$(pip) install "cython>=0.28.5"
-	$(pip) install scipy "scikit-learn>=0.22.1,<=2.0"
-	$(pip) install pytest 'toil[wdl,aws,mesos]@git+https://github.com/DataBiosphere/toil.git@c529489cd0b617e66e65420741e830e9be9fde92' biopython pyvcf3
+	$(pip) install scipy "scikit-learn>=0.22.1,<=2.0" pytest biopython pyvcf3
+	# TODO: This doesn't seem to *actually* upgrade to the given commit if Toil is already installed, even though it clones it.
+	$(pip) install --upgrade 'toil[wdl,aws,mesos]@git+https://github.com/DataBiosphere/toil.git@3d7ead876bcccb3279a97baee253852c91e1f061'
 	pip list
 clean_prepare: check_venv
-	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf3
+	$(pip) uninstall -y pytest biopython numpy scipy scikit-learn pyvcf3 toil
 
 check_venv:
 	@$(python) -c 'import sys, os; sys.exit( int( 0 if "VIRTUAL_ENV" in os.environ else 1 ) )' \

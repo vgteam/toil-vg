@@ -38,6 +38,7 @@ from toil_vg.vg_common import require, make_url, remove_ext,\
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing, run_bwa_index, run_minimap2_index
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_common import add_toil_args 
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def mapeval_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # Add the out_store
     # TODO: do this at a higher level?
