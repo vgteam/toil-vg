@@ -88,7 +88,7 @@ pypi: check_venv check_clean_working_copy
 	set -x \
 	&& tag_build=`$(python) -c 'pass;\
 		from version import version as v;\
-		from pkg_resources import parse_version as pv;\
+		from packaging.version import parse as pv;\
 		import os;\
 		print("--tag-build=.dev" + os.getenv("CI_PIPELINE_IID") if pv(v).is_prerelease else "")'` \
 	&& $(python) setup.py egg_info $$tag_build sdist bdist_egg upload )

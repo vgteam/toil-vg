@@ -16,7 +16,7 @@ import logging, logging.handlers, struct, socket, threading
 import string
 import getpass
 import logging
-import pkg_resources
+import importlib.metadata
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -27,7 +27,7 @@ from toil.realtimeLogger import RealtimeLogger
 try:
     from version import version
 except:
-    # hope we can get it from pkg_resources
+    # hope we can get it from importlib
     version = None
 from toil_vg.vg_common import *
 from toil_vg.vg_call import *
@@ -441,8 +441,8 @@ def main():
     if args.command == 'version':
         # this is copied from toil.utils.toilMain
         try:
-            print(pkg_resources.get_distribution('toil-vg').version)
-        except:
+            print(importlib.metadata.version('toil-vg'))
+        except importlib.metadata.PackageNotFoundError:
             print("Version gathered from toil-vg.version: "+version)
         return
 

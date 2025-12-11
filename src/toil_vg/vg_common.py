@@ -11,7 +11,7 @@ import select
 import time
 import threading
 from uuid import uuid4
-import pkg_resources, tempfile, datetime
+import tempfile, datetime
 import logging
 from distutils.spawn import find_executable
 import collections
