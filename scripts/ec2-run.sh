@@ -60,7 +60,7 @@ set -x
 # In particular, gcsa indexing of whole genome may need more disk than 3.8xlarge
 NODE_OPTS="--nodeTypes ${NODE_TYPE} --maxNodes ${MAX_NODES} --defaultPreemptable"
 RETRY_OPTS="--retryCount 3"
-LOG_OPTS="--realTimeLogging --logInfo --realTimeStderr"
+LOG_OPTS="--realTimeLogging=True --logInfo --realTimeStderr"
 TOIL_VG_OPTS=""
 # We need the master's IP to make Mesos go
 if [ -z ${CLUSTER_NAME} ]

@@ -74,7 +74,7 @@ The following command will construct and index a graph from the 1000 Genomes cal
 
 ```
 # Toil boilerplate
-export TOIL_OPTS="--realTimeLogging --logInfo --realTimeStderr"
+export TOIL_OPTS="--realTimeLogging=True --logInfo --realTimeStderr"
 # Directory for Toil's temporary files
 export TOIL_JS="./my-jobstore"
 # All output will be written here
@@ -118,7 +118,7 @@ export NODE_OPTS="--nodeTypes i3.8xlarge:0.80,i3.8xlarge --maxNodes 8"
 # Set Toil to use AWS autoscaling
 export AWS_OPTS="--defaultPreemptable --batchSystem mesos --provisioner aws --retryCount 3 --metrics"
 # Toil boilerplate
-export TOIL_OPTS="$NODE_OPTS $AWS_OPTS --realTimeLogging --logInfo --realTimeStderr"
+export TOIL_OPTS="$NODE_OPTS $AWS_OPTS --realTimeLogging=True --logInfo --realTimeStderr"
 # S3 Bucket for Toil's temporary files
 export TOIL_JS="aws:us-west-2:my-jobstore"
 # All output will be written here
