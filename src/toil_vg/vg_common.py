@@ -13,7 +13,7 @@ import threading
 from uuid import uuid4
 import tempfile, datetime
 import logging
-from distutils.spawn import find_executable
+import shutil
 import collections
 import socket
 import uuid
@@ -666,7 +666,7 @@ to do: Should go somewhere more central """
             except OSError as e:
                 # the default message: OSError: [Errno 13] Permission denied is a bit cryptic
                 # so we print something a bit more explicit if a command isn't found
-                if e.errno in [2,13] and not find_executable(args[i][0]):
+                if e.errno in [2,13] and not shutil.which(args[i][0]):
                     raise RuntimeError('Command not found: {}'.format(args[i][0]))
                 else:
                     raise e
