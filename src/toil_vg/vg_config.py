@@ -170,10 +170,10 @@ bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
 tabix-docker: 'lethalfang/tabix:1.7'
 
 # Docker image to use for samtools
-samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
+samtools-docker: 'quay.io/biocontainers/samtools:1.23--h96c455f_0'
 
 # Docker image to use for bwa
-bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
+bwa-docker: 'quay.io/biocontainers/bwa:0.7.19--h577a1d6_1'
 
 # Docker image to use for minimap2
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
@@ -185,7 +185,7 @@ jq-docker: 'celfring/jq'
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
 # Docker image to use for pigz
-pigz-docker: 'quay.io/glennhickey/pigz:latest'
+pigz-docker: 'quay.io/biocontainers/pigz:2.3.4'
 
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
@@ -500,10 +500,10 @@ bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
 tabix-docker: 'lethalfang/tabix:1.7'
 
 # Docker image to use for samtools
-samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
+samtools-docker: 'quay.io/biocontainers/samtools:1.23--h96c455f_0'
 
 # Docker image to use for bwa
-bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
+bwa-docker: 'quay.io/biocontainers/bwa:0.7.19--h577a1d6_1'
 
 # Docker image to use for minimap2
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
@@ -515,7 +515,7 @@ jq-docker: 'celfring/jq'
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
 # Docker image to use for pigz
-pigz-docker: 'quay.io/glennhickey/pigz:latest'
+pigz-docker: 'quay.io/biocontainers/pigz:2.3.4'
 
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
