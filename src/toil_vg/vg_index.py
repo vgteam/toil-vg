@@ -274,7 +274,7 @@ def run_gcsa_prep(job, context, input_graph_ids,
                                       cores=context.config.gcsa_index_cores,
                                       memory=context.config.gcsa_index_mem,
                                       disk=context.config.gcsa_index_disk,
-                                      preemptable=context.config.gcsa_index_preemptable).rv()
+                                      preemptible=context.config.gcsa_index_preemptable).rv()
     
 def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_id):
     """
@@ -635,7 +635,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
-                                      preemptable=job.preemptable).rv()
+                                      preemptible=job.preemptable).rv()
                                       
 def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None, include_trivial=False):
     """
@@ -1341,7 +1341,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
-                                                                     preemptable='gbwt' not in wanted or context.config.gbwt_index_preemptable)
+                                                                     preemptible='gbwt' not in wanted or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 
