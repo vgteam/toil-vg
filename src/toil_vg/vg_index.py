@@ -635,7 +635,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
-                                      preemptible=job.preemptable).rv()
+                                      preemptible=job.preemptible).rv()
                                       
 def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None, include_trivial=False):
     """
