@@ -190,6 +190,9 @@ pigz-docker: 'quay.io/biocontainers/pigz:2.3.4'
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
 
+# Docker image to use to run Perl scripts
+perl-docker: 'quay.io/biocontainers/perl:5.32'
+
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
 
@@ -519,6 +522,9 @@ pigz-docker: 'quay.io/biocontainers/pigz:2.3.4'
 
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
+
+# Docker image to use to run Perl scripts
+perl-docker: 'quay.io/biocontainers/perl:5.32'
 
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'

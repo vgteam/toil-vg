@@ -719,20 +719,29 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
 
     out_pos_file = bam_file + '.tsv'
 
+    intermediate_file = bam_file + '.sam'
+    
     # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
     cmd = [['samtools', 'view', os.path.basename(bam_file), '-F', '2304']]
+    # We're making headerless SAM
     cmd.append(['grep', '-v', '^@'])
+
+    with open(intermediate_file, 'wb') as out_intermediate:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_intermediate)
+
+    # Because the samtools container might not have perl, we need to run a separate perl container.
+
     if paired:
         # Now we use inline perl to parse the SAM flags and synthesize TSV
         # TODO: will need to switch to something more powerful to parse the score out of the AS tag. For now score everything as 0.
         # TODO: why _ and not / as the read name vs end number delimiter?
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep)])
+        cmd = [['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep), os.path.basename(intermediate_file)]]
     else:
         # No flags to parse since there's no end pairing and read names are correct.
         # Use inline perl again and insert a fake 0 score column
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate        
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
+        cmd = [['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";', os.path.basename(intermediate_file)]]
     cmd.append(['sort'])
     
     with open(out_pos_file, 'wb') as out_pos:
