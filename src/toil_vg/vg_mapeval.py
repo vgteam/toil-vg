@@ -2149,7 +2149,7 @@ def run_auc(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2)).T
+        data = np.loadtxt(compare_file, dtype=int, delimiter ='\t', usecols=(1,2)).T
         auc = roc_auc_score(data[0], data[1])
         aupr = average_precision_score(data[0], data[1])
     except:
@@ -2190,7 +2190,7 @@ def run_max_f1(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     # Load up the correct/incorrect flag (data[_, 1]) and the scores (data[_, 2])
-    data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
+    data = np.loadtxt(compare_file, dtype=int, delimiter ='\t', usecols=(1,2))
     
     # Sort on score (see <https://stackoverflow.com/a/2828121/402891>) in
     # descending order. So reads we want to take first come first.
@@ -2260,7 +2260,7 @@ def run_qq(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
+        data = np.loadtxt(compare_file, dtype=int, delimiter ='\t', usecols=(1,2))
 
         # this can surley be sped up if necessary
         correct = Counter()
