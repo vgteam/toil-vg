@@ -184,8 +184,8 @@ jq-docker: 'celfring/jq'
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
-# Docker image to use for pigz
-pigz-docker: 'quay.io/biocontainers/pigz:2.3.4'
+# Docker image to use for pigz. Must also contain split.
+pigz-docker: 'lumc/pigz:2.4'
 
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
@@ -517,8 +517,8 @@ jq-docker: 'celfring/jq'
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
-# Docker image to use for pigz
-pigz-docker: 'quay.io/biocontainers/pigz:2.3.4'
+# Docker image to use for pigz. Must also contain split.
+pigz-docker: 'lumc/pigz:2.4'
 
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
