@@ -188,7 +188,7 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 pigz-docker: 'lumc/pigz:2.4'
 
 # Docker image to use to run R scripts
-r-docker: 'rocker/tidyverse:4.3.2'
+r-docker: 'rocker/tidyverse:4.5.2'
 
 # Docker image to use to run Perl scripts
 perl-docker: 'quay.io/biocontainers/perl:5.32'
@@ -521,7 +521,7 @@ rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 pigz-docker: 'lumc/pigz:2.4'
 
 # Docker image to use to run R scripts
-r-docker: 'rocker/tidyverse:4.3.2'
+r-docker: 'rocker/tidyverse:4.5.2'
 
 # Docker image to use to run Perl scripts
 perl-docker: 'quay.io/biocontainers/perl:5.32'
