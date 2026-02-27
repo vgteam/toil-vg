@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 context.py: Defines a toil_vg context, which contains (and hides) all the config
 file values, IOStore dumping parameters, and other things that need to be passed
@@ -11,7 +11,7 @@ namespace, we keep them both in here.
 
 import tempfile
 import datetime
-import pkg_resources
+import importlib.metadata
 import copy
 import os
 import os.path
@@ -36,9 +36,8 @@ def run_write_info_to_outstore(job, context, argv):
     if argv:
         f.write('{}\n\n'.format(' '.join(argv)))
     try:
-        version = pkg_resources.get_distribution('toil-vg').version
-    except pkg_resources.DistributionNotFound:
-        # TODO: pkg_resources gets upset by Kubernetes Toil hot deployment (but not Mesos hot deployment?)
+        version = importlib.metadata.version('toil-vg')
+    except importlib.metadata.PackageNotFoundError:
         version = 'unknown'
     f.write('{}\ntoil-vg version {}\nConfiguration:\n'.format(now,
         version))

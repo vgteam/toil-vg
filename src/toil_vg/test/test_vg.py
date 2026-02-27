@@ -71,7 +71,7 @@ class VGCGLTest(TestCase):
 
         self.base_command = ['toil-vg', 'run',
                              '--container', self.containerType,
-                             '--realTimeLogging', '--logInfo', '--reads_per_chunk', '8000',
+                             '--realTimeLogging=True', '--logInfo', '--reads_per_chunk', '8000',
                              '--gcsa_index_cores', str(self.cores),
                              '--alignment_cores', str(self.half_cores),
                              '--calling_cores', str(self.half_cores), '--vcfeval_cores', str(self.half_cores),
@@ -129,7 +129,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', str(self.cores),
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--realTimeLogging=True', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -141,7 +141,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--fastq', self.sample_reads,
                    '--alignment_cores', str(self.cores), '--reads_per_chunk', '8000',
-                   '--realTimeLogging', '--logInfo'])
+                   '--realTimeLogging=True', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
         
         self._run(['toil-vg', 'call', self.jobStoreLocal,
@@ -152,7 +152,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--gam', os.path.join(self.local_outstore, 'sample_default.gam'), 
                    '--ref_paths', 'x', '--calling_cores', str(self.half_cores),
-                   '--realTimeLogging', '--logInfo'])
+                   '--realTimeLogging=True', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal,
@@ -162,7 +162,7 @@ class VGCGLTest(TestCase):
                    '--vcfeval_fasta', self.chrom_fa, self.local_outstore,
                    '--clean', 'never',
                    '--vcfeval_opts', ' --squash-ploidy', '--vcfeval_sample', 'sample',
-                   '--realTimeLogging', '--logInfo'])
+                   '--realTimeLogging=True', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._assertOutput(None, self.local_outstore, f1_threshold=0.95)
@@ -186,7 +186,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', str(self.cores),
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--xg_index'])
+                   '--realTimeLogging=True', '--logInfo', '--index_name', 'small', '--xg_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'sim', self.jobStoreLocal,
@@ -206,7 +206,7 @@ class VGCGLTest(TestCase):
                    '--truth', os.path.join(self.local_outstore, 'true.pos'),
                    '--vg-graphs', self.test_vg_graph,
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
-                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
+                   '--gam-names', 'vg', '--realTimeLogging=True', '--logInfo',
                    '--alignment_cores', str(self.cores), '--single-only', '--multipath-only',                 
                    '--maxCores', str(self.cores), '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -222,7 +222,7 @@ class VGCGLTest(TestCase):
                    '--container', container_override,
                    '--clean', 'never',
                    '--position-stats', os.path.join(self.local_outstore, 'position.results.tsv'),
-                   '--realTimeLogging', '--logInfo',
+                   '--realTimeLogging=True', '--logInfo',
                    '--maxCores', str(self.cores)])
         self._run(['toil', 'clean', self.jobStoreLocal])
         self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-pr.svg')), 0)
@@ -244,7 +244,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', str(self.cores),
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--realTimeLogging=True', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -265,7 +265,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--alignment_cores', '3', '--reads_per_chunk', '1000',
-                   '--realTimeLogging', '--logInfo', '--interleaved'])
+                   '--realTimeLogging=True', '--logInfo', '--interleaved'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # check running mapeval on the gams
@@ -278,7 +278,7 @@ class VGCGLTest(TestCase):
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--gams', os.path.join(self.local_outstore, 'sample_default.gam'),
-                   '--gam-names', 'vg-pe', '--realTimeLogging', '--logInfo',
+                   '--gam-names', 'vg-pe', '--realTimeLogging=True', '--logInfo',
                    '--maxCores', str(self.cores), '--bwa', '--paired-only', '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -301,7 +301,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', str(self.cores),
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--realTimeLogging=True', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -323,7 +323,7 @@ class VGCGLTest(TestCase):
                    '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
-                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
+                   '--gam-names', 'vg', '--realTimeLogging=True', '--logInfo',
                    '--alignment_cores', str(self.cores),
                    '--maxCores', str(self.cores), '--bwa', '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -341,7 +341,7 @@ class VGCGLTest(TestCase):
                    '--gams', os.path.join(self.local_outstore, 'aligned-vg_default.gam'),
                    os.path.join(self.local_outstore, 'aligned-vg-pe_default.gam'),
                    '--gam_names', 'vg', 'vg-pe',
-                   '--realTimeLogging', '--logInfo',
+                   '--realTimeLogging=True', '--logInfo',
                    '--vcfeval_fasta', self.chrom_fa_nz,
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_bed_regions', self.bed_regions,
@@ -448,14 +448,14 @@ class VGCGLTest(TestCase):
                    '--ref_paths', '17', '13', '--vcf_offsets', '43044293', '32314860',
                    '--calling_cores', str(self.half_cores),
                    '--min_mapq', '15', '--min_baseq', '10',
-                   '--realTimeLogging', '--realTimeStderr', '--logInfo'])
+                   '--realTimeLogging=True', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal, '--clean', 'never',
                    '--call_vcf', os.path.join(outstore, 'genome_NA12877.vcf.gz'),
                    '--vcfeval_baseline', self.baseline,
                    '--vcfeval_fasta', self.chrom_fa, outstore,
-                   '--realTimeLogging', '--realTimeStderr', '--logInfo',
+                   '--realTimeLogging=True', '--realTimeStderr', '--logInfo',
                    '--vcfeval_opts', ' --ref-overlap'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -469,14 +469,14 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graph', self.xg_index, outstore, '--gam', self.sample_gam,
                    '--ref_path_chunking', '--ref_paths', '17', '13',
-                   '--realTimeLogging', '--realTimeStderr', '--logInfo'])
+                   '--realTimeLogging=True', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'augment', self.jobStoreLocal, outstore, '--clean', 'never',
                    '--graph', os.path.join(outstore, 'genome_13.pg'),
                    '--gam', os.path.join(outstore, 'genome_13.gam'),
                    '--augment_gam',
-                   '--realTimeLogging', '--realTimeStderr', '--logInfo'])
+                   '--realTimeLogging=True', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
         
         self._run(['toil-vg', 'call', self.jobStoreLocal, outstore, '--clean', 'never',
@@ -486,14 +486,14 @@ class VGCGLTest(TestCase):
                    '--calling_cores', str(self.half_cores),
                    '--min_mapq', '15', '--min_baseq', '10',
                    '--ref_paths', '13', '--vcf_offsets', '32314860',
-                   '--realTimeLogging', '--realTimeStderr', '--logInfo'])
+                   '--realTimeLogging=True', '--realTimeStderr', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'vcfeval', self.jobStoreLocal, '--clean', 'never',
                        '--call_vcf', os.path.join(outstore, 'genome_13-aug_NA12877.vcf.gz'),
                        '--vcfeval_baseline', self.baseline,
                        '--vcfeval_fasta', self.chrom_fa, outstore,
-                       '--realTimeLogging', '--realTimeStderr', '--logInfo',
+                       '--realTimeLogging=True', '--realTimeStderr', '--logInfo',
                        '--vcfeval_opts', ' --ref-overlap'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -517,7 +517,7 @@ class VGCGLTest(TestCase):
         #           self.xg_index, 'NA12877', outstore, '--gams', self.sample_gam,
         #           '--chroms', '17', '13', '--vcf_offsets', '43044293', '32314860',
         #           '--call_chunk_size', '23000', '--calling_cores', str(self.half_cores),
-        #           '--realTimeLogging', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0', '--recall'])
+        #           '--realTimeLogging=True', '--realTimeStderr', '--logInfo', '--call_opts', '-E 0', '--recall'])
         #self._run(['toil', 'clean', self.jobStoreLocal])
         #
         #self._assertXREF('NA12877', outstore)        
@@ -566,7 +566,7 @@ class VGCGLTest(TestCase):
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', out_name, '--pangenome', '--pos_control', 'HG00096',
                    '--neg_control', 'HG00096', '--sample_graph', 'HG00096',
-                   '--filter_ceph', '--realTimeLogging', '--logInfo', '--validate',
+                   '--filter_ceph', '--realTimeLogging=True', '--logInfo', '--validate',
                    '--haplo_sample', 'HG00096', '--min_af', '0.6', '--keep_vcfs'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -626,7 +626,7 @@ class VGCGLTest(TestCase):
                    '--min_af', '0.01',
                    '--sample_graph', 'NA19239',
                    '--all_index',
-                   '--realTimeLogging', '--logInfo', '--coalesce_regions', in_coalesce_regions]
+                   '--realTimeLogging=True', '--logInfo', '--coalesce_regions', in_coalesce_regions]
         
         self._run(command)
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -653,7 +653,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--fasta', in_fa, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', 'snp1kg-BRCA1', '--alt_paths', '--pangenome',
-                   '--realTimeLogging', '--logInfo', '--realTimeStderr'])
+                   '--realTimeLogging=True', '--logInfo', '--realTimeStderr'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # check graph exists
@@ -667,7 +667,7 @@ class VGCGLTest(TestCase):
                    '--xg_index', '--graphs', vg_path, '--chroms', '17',
                    '--vcf_phasing', in_vcf, '--index_name', 'my_index',
                    '--gbwt_index', '--xg_index_cores', str(self.half_cores), '--xg_alts',
-                   '--realTimeLogging', '--logInfo', '--realTimeStderr'])
+                   '--realTimeLogging=True', '--logInfo', '--realTimeStderr'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         # check gbwt exists
@@ -693,7 +693,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', str(self.cores),
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--realTimeLogging=True', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -715,7 +715,7 @@ class VGCGLTest(TestCase):
                    '--gam-input-xg', os.path.join(self.local_outstore, 'small.xg'),
                    '--index-bases', os.path.join(self.local_outstore, 'small'),
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
-                   '--gam-names', 'vg', '--realTimeLogging', '--logInfo',
+                   '--gam-names', 'vg', '--realTimeLogging=True', '--logInfo',
                    '--alignment_cores', str(self.cores), '--validate',
                    '--maxCores', str(self.cores), '--minimap2', '--fasta', self.chrom_fa])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -740,7 +740,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--graphs', self.test_vg_graph, '--chroms', 'x',
                    '--gcsa_index_cores', str(self.cores),
-                   '--realTimeLogging', '--logInfo', '--index_name', 'small', '--gcsa_index', 
+                   '--realTimeLogging=True', '--logInfo', '--index_name', 'small', '--gcsa_index', 
                    '--xg_index', '--snarls_index', '--id_ranges_index'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
@@ -764,7 +764,7 @@ class VGCGLTest(TestCase):
                    '--gam_input_reads', os.path.join(self.local_outstore, 'sim.gam'),
                    '--gam-names', 'vg', 
                    '--use-snarls', '--strip-snarls', '--multipath', '--paired-only',
-                   '--realTimeLogging', '--logInfo',
+                   '--realTimeLogging=True', '--logInfo',
                    '--alignment_cores', str(self.cores),
                    '--maxCores', str(self.cores)])
         self._run(['toil', 'clean', self.jobStoreLocal])
@@ -789,7 +789,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--fasta', fa_path, '--vcf', in_vcf, '--regions', in_region,
                    '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
-                   '--realTimeLogging', '--logInfo', '--validate', '--add_chr_prefix', '--mask_ambiguous'])
+                   '--realTimeLogging=True', '--logInfo', '--validate', '--add_chr_prefix', '--mask_ambiguous'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
@@ -797,7 +797,7 @@ class VGCGLTest(TestCase):
                    '--clean', 'never',
                    '--fasta', fa_path, '--vcf', in_vcf, '--regions', in_region, '--handle_svs',
                    '--out_name', 'snp1kg-BRCA1', '--pangenome', '--pos_control', 'HG00096',
-                   '--realTimeLogging', '--logInfo', '--validate', '--remove_chr_prefix'])
+                   '--realTimeLogging=True', '--logInfo', '--validate', '--remove_chr_prefix'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
 
@@ -814,7 +814,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
-                   '--gcsa_index_cores', str(self.cores), '--realTimeLogging',
+                   '--gcsa_index_cores', str(self.cores), '--realTimeLogging=True',
                    '--clean', 'never',
                    '--fasta', fa_path,
                    '--regions', 'chr21', 'chr22',
@@ -832,12 +832,12 @@ class VGCGLTest(TestCase):
                    '--interleaved',
                    '--alignment_cores', str(self.cores), 
                    '--single_reads_chunk',
-                   '--realTimeLogging', '--logInfo'])
+                   '--realTimeLogging=True', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'call', self.jobStoreLocal,
                    '--graph', os.path.join(self.local_outstore, 'HGSVC.xg'),
-                   '--sample', 'HG00514', '--realTimeLogging', 
+                   '--sample', 'HG00514', '--realTimeLogging=True', 
                    self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',
@@ -890,7 +890,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'construct', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
-                   '--gcsa_index_cores', str(self.cores), '--realTimeLogging',
+                   '--gcsa_index_cores', str(self.cores), '--realTimeLogging=True',
                    '--clean', 'never',
                    '--fasta', fa_path,
                    '--regions', 'chr21', 'chr22',
@@ -900,7 +900,7 @@ class VGCGLTest(TestCase):
 
         self._run(['toil-vg', 'index', self.jobStoreLocal, self.local_outstore,
                    '--container', self.containerType,
-                   '--realTimeLogging',
+                   '--realTimeLogging=True',
                    '--graphs', os.path.join(self.local_outstore, 'HGSVC_chr21.vg'), os.path.join(self.local_outstore, 'HGSVC_chr22.vg'),
                    '--chroms', 'chr21', 'chr22',
                    '--vcf_phasing', vcf_path,
@@ -924,12 +924,12 @@ class VGCGLTest(TestCase):
                    '--interleaved',
                    '--alignment_cores', str(self.cores), 
                    '--single_reads_chunk',
-                   '--realTimeLogging', '--logInfo'])
+                   '--realTimeLogging=True', '--logInfo'])
         self._run(['toil', 'clean', self.jobStoreLocal])
 
         self._run(['toil-vg', 'call', self.jobStoreLocal,
                    '--graph', os.path.join(self.local_outstore, 'HGSVC.xg'),
-                   '--sample', 'HG00514', '--realTimeLogging', 
+                   '--sample', 'HG00514', '--realTimeLogging=True', 
                    self.local_outstore,
                    '--container', self.containerType,
                    '--clean', 'never',

@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/python3
 """
 Make a BED file mapping alt contigs to the positions on the reference.  I'm sure such
 a file already exists somewhere, but I've yet to find it.

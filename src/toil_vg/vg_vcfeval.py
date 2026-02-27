@@ -24,7 +24,7 @@ def vcfeval_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
 
     # General options
     parser.add_argument("--call_vcf", type=make_url, required=True,

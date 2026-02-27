@@ -16,7 +16,7 @@ import logging, logging.handlers, struct, socket, threading
 import string
 import getpass
 import logging
-import pkg_resources
+import importlib.metadata
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -27,7 +27,7 @@ from toil.realtimeLogger import RealtimeLogger
 try:
     from version import version
 except:
-    # hope we can get it from pkg_resources
+    # hope we can get it from importlib
     version = None
 from toil_vg.vg_common import *
 from toil_vg.vg_call import *
@@ -149,8 +149,8 @@ def parse_args(args=None):
 def pipeline_subparser(parser_run):
     
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser_run)
-    
+    add_toil_args(parser_run)
+
     # General options
     parser_run.add_argument("sample_name", type=str,
         help="sample name (ex NA12878)")
@@ -393,7 +393,7 @@ def run_pipeline_call(job, context, options, xg_file_id, id_ranges_file_id, chr_
                       
 
 def main():
-    """
+    r"""
     Computational Genomics Lab, Genomics Institute, UC Santa Cruz
     Toil vg DNA-seq pipeline
     
@@ -441,8 +441,8 @@ def main():
     if args.command == 'version':
         # this is copied from toil.utils.toilMain
         try:
-            print(pkg_resources.get_distribution('toil-vg').version)
-        except:
+            print(importlib.metadata.version('toil-vg'))
+        except importlib.metadata.PackageNotFoundError:
             print("Version gathered from toil-vg.version: "+version)
         return
 

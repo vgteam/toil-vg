@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 vg_calleval.py: Compare vcfs with vcfeval.  Option to make freebayes calls to use as baseline.  Can
 run on vg_mapeval.py output. 
@@ -47,7 +47,7 @@ def calleval_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # Add the out_store
     # TODO: do this at a higher level?

@@ -30,7 +30,7 @@ def get_fasta_path_hg38(region):
     return 's3://vg-data/bakeoff/chr{}.fa.gz'.format(chrom)
 
 if len(sys.argv) not in [3,4]:
-    print "Usage: {} jobstore outstore <config>".format(sys.argv[0])
+    print("Usage: {} jobstore outstore <config>".format(sys.argv[0]))
     sys.exit(1)
 
 job_store = sys.argv[1]

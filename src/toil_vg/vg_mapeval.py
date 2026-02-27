@@ -38,6 +38,7 @@ from toil_vg.vg_common import require, make_url, remove_ext,\
 from toil_vg.vg_map import map_parse_args, run_split_reads_if_needed, run_mapping
 from toil_vg.vg_index import run_indexing, run_bwa_index, run_minimap2_index
 from toil_vg.context import Context, run_write_info_to_outstore
+from toil_vg.vg_common import add_toil_args 
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def mapeval_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # Add the out_store
     # TODO: do this at a higher level?
@@ -321,10 +322,10 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
             cmd += ['-n']
         context.runner.call(job, cmd, work_dir = work_dir)
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
-        gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', 's/\/1/_1/g'], ['gzip', '-c']]
+        gzip_cmd = [['sed', os.path.basename(sim_fq_files[0]), '-e', r's/\/1/_1/g'], ['gzip', '-c']]
         with open(sim_fq_files[0] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
-        gzip_cmd = [['sed', os.path.basename(sim_fq_files[1]), '-e', 's/\/2/_2/g'], ['gzip', '-c']]
+        gzip_cmd = [['sed', os.path.basename(sim_fq_files[1]), '-e', r's/\/2/_2/g'], ['gzip', '-c']]
         with open(sim_fq_files[1] + '.gz', 'wb') as gz_file:
             context.runner.call(job, gzip_cmd, work_dir = work_dir, outfile = gz_file)
         return [context.write_intermediate_file(job, sim_fq_files[0] + '.gz'),
@@ -333,7 +334,7 @@ def run_bam_to_fastq(job, context, bam_file_id, paired_mode, add_paired_suffix=F
         sim_fq_file = os.path.join(work_dir, 'sim.fq.gz')
         cmd = [['samtools', 'fastq', os.path.basename(bam_file), '-N']]
         # we change /1 /2 --> _1 _2 to be compatible with rest of mapeval
-        cmd.append(['sed', '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g'])
+        cmd.append(['sed', '-e', r's/\/1/_1/g', '-e', r's/\/2/_2/g'])
         cmd.append(['gzip'])
         with open(sim_fq_file, 'wb') as sim_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = sim_file)
@@ -440,7 +441,7 @@ def run_strip_fq_ext(job, context, fq_reads_ids):
     for fq_id, fq_name,  out_name in zip(fq_reads_ids, fq_file_names, out_file_names):
         job.fileStore.readGlobalFile(fq_id, fq_name, mutable=fq_name==fq_file_names[0])
         cmd = [['pigz', '-dc', os.path.basename(fq_name)]]
-        cmd.append(['sed', '-e', 's/_1$\|_2$//g'])
+        cmd.append(['sed', '-e', r's/_1$\|_2$//g'])
         cmd.append(['pigz', '-c', '-p', str(max(1, job.cores))])
         with open(out_name, 'wb') as out_file:
             context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
@@ -718,20 +719,29 @@ def extract_bam_read_stats(job, context, name, bam_file_id, paired, sep='_'):
 
     out_pos_file = bam_file + '.tsv'
 
+    intermediate_file = bam_file + '.sam'
+    
     # 2304 = get rid of 256 (secondary) + 2048 (supplementary)        
     cmd = [['samtools', 'view', os.path.basename(bam_file), '-F', '2304']]
+    # We're making headerless SAM
     cmd.append(['grep', '-v', '^@'])
+
+    with open(intermediate_file, 'wb') as out_intermediate:
+        context.runner.call(job, cmd, work_dir = work_dir, outfile = out_intermediate)
+
+    # Because the samtools container might not have perl, we need to run a separate perl container.
+
     if paired:
         # Now we use inline perl to parse the SAM flags and synthesize TSV
         # TODO: will need to switch to something more powerful to parse the score out of the AS tag. For now score everything as 0.
         # TODO: why _ and not / as the read name vs end number delimiter?
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep)])
+        cmd = [['perl', '-ne', '@val = split("\t", $_); print @val[0] . "{}" . (@val[1] & 64 ? "1" : @val[1] & 128 ? "2" : "?"), "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'.format(sep), os.path.basename(intermediate_file)]]
     else:
         # No flags to parse since there's no end pairing and read names are correct.
         # Use inline perl again and insert a fake 0 score column
         # Note: we are now adding length/2 to the positions to be more consistent with vg annotate        
-        cmd.append(['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";'])
+        cmd = [['perl', '-ne', '@val = split("\t", $_); print @val[0] . "\t.\t" . @val[2] . "\t" . (@val[3] +  int(length(@val[9]) / 2)) . "\t0\t" . @val[4] . "\n";', os.path.basename(intermediate_file)]]
     cmd.append(['sort'])
     
     with open(out_pos_file, 'wb') as out_pos:
@@ -825,7 +835,7 @@ def extract_gam_read_stats(job, context, name, gam_file_id, generate_tags=[]):
               'if .mapping_quality == null then [0] else [.mapping_quality] end | @tsv',
               os.path.basename(gam_annot_json)]
     # convert back to _1 format (only relevant if running on bam input reads where / added automatically)
-    jq_pipe = [jq_cmd, ['sed', '-e', 's/null/0/g',  '-e', 's/\/1/_1/g', '-e', 's/\/2/_2/g']]
+    jq_pipe = [jq_cmd, ['sed', '-e', r's/null/0/g',  '-e', r's/\/1/_1/g', '-e', r's/\/2/_2/g']]
     with open(out_pos_file + '.unsorted', 'wb') as out_pos:
         context.runner.call(job, jq_pipe, work_dir = work_dir, outfile=out_pos)
 
@@ -2139,7 +2149,7 @@ def run_auc(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2)).T
+        data = np.loadtxt(compare_file, dtype=int, delimiter ='\t', usecols=(1,2)).T
         auc = roc_auc_score(data[0], data[1])
         aupr = average_precision_score(data[0], data[1])
     except:
@@ -2180,7 +2190,7 @@ def run_max_f1(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     # Load up the correct/incorrect flag (data[_, 1]) and the scores (data[_, 2])
-    data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
+    data = np.loadtxt(compare_file, dtype=int, delimiter ='\t', usecols=(1,2))
     
     # Sort on score (see <https://stackoverflow.com/a/2828121/402891>) in
     # descending order. So reads we want to take first come first.
@@ -2250,7 +2260,7 @@ def run_qq(job, context, name, compare_id):
     job.fileStore.readGlobalFile(compare_id, compare_file)
 
     try:
-        data = np.loadtxt(compare_file, dtype=np.int, delimiter ='\t', usecols=(1,2))
+        data = np.loadtxt(compare_file, dtype=int, delimiter ='\t', usecols=(1,2))
 
         # this can surley be sped up if necessary
         correct = Counter()

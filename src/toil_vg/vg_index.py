@@ -5,14 +5,14 @@ vg_index.py: index a graph so it can be mapped to
 """
 
 import argparse, sys, os, os.path, errno, random, subprocess, shutil, itertools, glob, tarfile
-import doctest, re, json, collections, time, timeit, distutils.util
+import doctest, re, json, collections, time, timeit
 import logging, logging.handlers, struct, socket, threading
 import string
 import getpass
 import pdb
 import logging
 
-from distutils import util
+from str2bool import str2bool
 
 from math import ceil
 from subprocess import Popen, PIPE
@@ -31,7 +31,7 @@ def index_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # Options specific to the toil-vg index driver
     parser.add_argument("out_store",
@@ -122,7 +122,7 @@ def index_parse_args(parser):
                         help="Use given GBWT for GCSA2 pruning")
     parser.add_argument("--gbwt_prune", action='store_true',
                         help="Use gbwt for gcsa pruning")
-    parser.add_argument("--force_phasing", type=lambda x:bool(util.strtobool(x)), default=None,
+    parser.add_argument("--force_phasing", type=lambda x: str2bool(x, raise_exc=True), default=None,
                         help="If 'True', randomly phase unphased variants and discard unresolveable overlaps for GBWT")
                         
 def validate_index_options(options):
@@ -274,7 +274,7 @@ def run_gcsa_prep(job, context, input_graph_ids,
                                       cores=context.config.gcsa_index_cores,
                                       memory=context.config.gcsa_index_mem,
                                       disk=context.config.gcsa_index_disk,
-                                      preemptable=context.config.gcsa_index_preemptable).rv()
+                                      preemptible=context.config.gcsa_index_preemptable).rv()
     
 def run_gcsa_indexing(job, context, prune_ids, graph_names, index_name, mapping_id):
     """
@@ -635,7 +635,7 @@ def run_cat_xg_indexing(job, context, inputGraphFileIDs, graph_names, index_name
                                       cores=job.cores,
                                       memory=job.memory,
                                       disk=job.disk,
-                                      preemptable=job.preemptable).rv()
+                                      preemptible=job.preemptible).rv()
                                       
 def run_snarl_indexing(job, context, inputGraphFileIDs, graph_names, index_name=None, include_trivial=False):
     """
@@ -1341,7 +1341,7 @@ def run_indexing(job, context, inputGraphFileIDs,
                                                                      cores=context.config.gbwt_index_cores,
                                                                      memory=context.config.gbwt_index_mem,
                                                                      disk=context.config.gbwt_index_disk,
-                                                                     preemptable='gbwt' not in wanted or context.config.gbwt_index_preemptable)
+                                                                     preemptible='gbwt' not in wanted or context.config.gbwt_index_preemptable)
                 indexes['chrom_xg'].append(xg_chrom_index_job.rv(0))
                 indexes['chrom_gbwt'].append(xg_chrom_index_job.rv(1))
 

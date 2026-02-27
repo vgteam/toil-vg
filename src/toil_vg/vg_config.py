@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 vg_config.py: Default configuration values all here (and only here), as well as logic
 for reading and generating config files.
@@ -170,10 +170,10 @@ bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
 tabix-docker: 'lethalfang/tabix:1.7'
 
 # Docker image to use for samtools
-samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
+samtools-docker: 'quay.io/biocontainers/samtools:1.23--h96c455f_0'
 
 # Docker image to use for bwa
-bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
+bwa-docker: 'quay.io/biocontainers/bwa:0.7.19--h577a1d6_1'
 
 # Docker image to use for minimap2
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
@@ -184,11 +184,14 @@ jq-docker: 'celfring/jq'
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
-# Docker image to use for pigz
-pigz-docker: 'quay.io/glennhickey/pigz:latest'
+# Docker image to use for pigz. Must also contain split.
+pigz-docker: 'lumc/pigz:2.4'
 
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
+
+# Docker image to use to run Perl scripts
+perl-docker: 'quay.io/biocontainers/perl:5.32'
 
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'
@@ -500,10 +503,10 @@ bcftools-docker: 'quay.io/biocontainers/bcftools:1.9--h4da6232_0'
 tabix-docker: 'lethalfang/tabix:1.7'
 
 # Docker image to use for samtools
-samtools-docker: 'quay.io/ucsc_cgl/samtools:latest'
+samtools-docker: 'quay.io/biocontainers/samtools:1.23--h96c455f_0'
 
 # Docker image to use for bwa
-bwa-docker: 'quay.io/ucsc_cgl/bwa:latest'
+bwa-docker: 'quay.io/biocontainers/bwa:0.7.19--h577a1d6_1'
 
 # Docker image to use for minimap2
 minimap2-docker: 'evolbioinfo/minimap2:v2.14'
@@ -514,11 +517,14 @@ jq-docker: 'celfring/jq'
 # Docker image to use for rtg
 rtg-docker: 'realtimegenomics/rtg-tools:3.8.4'
 
-# Docker image to use for pigz
-pigz-docker: 'quay.io/glennhickey/pigz:latest'
+# Docker image to use for pigz. Must also contain split.
+pigz-docker: 'lumc/pigz:2.4'
 
 # Docker image to use to run R scripts
 r-docker: 'rocker/tidyverse:4.3.2'
+
+# Docker image to use to run Perl scripts
+perl-docker: 'quay.io/biocontainers/perl:5.32'
 
 # Docker image to use for vcflib
 vcflib-docker: 'quay.io/biocontainers/vcflib:1.0.0_rc1--0'

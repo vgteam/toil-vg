@@ -72,7 +72,7 @@ MAPTIMESFILE="${PREFIX}-maptimes.tsv"
 rm -f $MAPTIMESFILE
 
 # General Options
-GEN_OPTS="--realTimeLogging --logInfo"
+GEN_OPTS="--realTimeLogging=True --logInfo"
 if [ "$CONFIG" != "0" ]; then
 	 GEN_OPTS="${GEN_OPTS} --config ${CONFIG}"
 fi

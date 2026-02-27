@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 vg_chunk.py: split a graph and/or GAM into chunks by connected component
 
@@ -30,7 +30,7 @@ def chunk_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # General options    
     parser.add_argument("out_store",

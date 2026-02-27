@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/python3
 """
 Construct set of "snp1kg" graphs and their indexes on EC2.  Wraps toil-vg construct
 but fills in many input and Toil parameters to make it easier to use. 
@@ -140,7 +140,7 @@ if options.chroms:
 else:
     # do all chromsomes as well as decoys
     cmd += ['--fasta_regions']
-    vcfs = get_vcf_paths_hs37d5(is_phased, [chrom for chrom in range(1, 23) + ['X', 'Y']], options.sample)
+    vcfs = get_vcf_paths_hs37d5(is_phased, [chrom for chrom in list(range(1, 23)) + ['X', 'Y']], options.sample)
 for vcf in vcfs:
     cmd += ['--vcf', vcf]
 
@@ -155,13 +155,13 @@ if options.leader:
     ec2_cmd += ['-l', options.leader]
 ec2_cmd += [' '.join(cmd)]
 
-print ' '.join(ec2_cmd)
+print(' '.join(ec2_cmd))
 subprocess.check_call(ec2_cmd)
 
 #copy the log to the out store
 if options.leader:
     cmd = ['toil', 'ssh-cluster',  '--insecure', '--zone=us-west-2a', options.leader,
            '/venv/bin/aws', 's3', 'cp', log_name, 's3://{}'.format(os_log_name)]
-    print ' '.join(cmd)
+    print(' '.join(cmd))
     subprocess.check_call(cmd)
 

@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/python3
 """
 Simulate from a baseline graph made with construct-baseline-hs37d5-ec2.py
 Currently needs to be run as follows: scripts/sim-ec2.py
@@ -91,13 +91,13 @@ if options.leader:
     ec2_cmd += ['-l', options.leader]
 ec2_cmd += [' '.join(cmd)]
 
-print ' '.join(ec2_cmd)
+print(' '.join(ec2_cmd))
 subprocess.check_call(ec2_cmd)
 
 #copy the log to the out store
 if options.leader:
     cmd = ['toil', 'ssh-cluster',  '--insecure', '--zone=us-west-2a', options.leader,
            '/venv/bin/aws', 's3', 'cp', log_name, 's3://{}'.format(os_log_name)]
-    print ' '.join(cmd)
+    print(' '.join(cmd))
     subprocess.check_call(cmd)
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 Generate a VCF from a GAM and XG by splitting into GAM/VG chunks.
 """
@@ -25,7 +25,7 @@ def call_subparser(parser):
     """
 
     # Add the Toil options so the job store is the first argument
-    Job.Runner.addToilOptions(parser)
+    add_toil_args(parser)
     
     # General options
     parser.add_argument("out_store",

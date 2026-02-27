@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 """
 Shared stuff between different modules in this package.  Some
 may eventually move to or be replaced by stuff in toil-lib.
@@ -11,9 +11,9 @@ import select
 import time
 import threading
 from uuid import uuid4
-import pkg_resources, tempfile, datetime
+import tempfile, datetime
 import logging
-from distutils.spawn import find_executable
+import shutil
 import collections
 import socket
 import uuid
@@ -70,6 +70,17 @@ def test_singularity():
     except:
         # It didn't work, so we can't use Singularity
         return False
+
+def add_toil_args(parser):
+    """
+    Add the Toil arguments to a subcommand's parser (including Toil's config argument, renamed).
+    """
+    try:
+        # New Toil; allows us to rename its --config and take it for ourselves
+        Job.Runner.addToilOptions(parser, config_option="toilConfig")
+    except TypeError:
+        # Old Toil; hopefully one too old to have --config itself
+        Job.Runner.addToilOptions(parser)
 
 def add_container_tool_parse_args(parser):
     """ centralize shared container options and their defaults """
@@ -666,7 +677,7 @@ to do: Should go somewhere more central """
             except OSError as e:
                 # the default message: OSError: [Errno 13] Permission denied is a bit cryptic
                 # so we print something a bit more explicit if a command isn't found
-                if e.errno in [2,13] and not find_executable(args[i][0]):
+                if e.errno in [2,13] and not shutil.which(args[i][0]):
                     raise RuntimeError('Command not found: {}'.format(args[i][0]))
                 else:
                     raise e
