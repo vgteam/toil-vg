@@ -2680,8 +2680,8 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
     plot_sets is a data structure of collections of conditions to plot against
     each other, as produced by parse_plot_sets.
     
-    outputs plots/plot-pr.svg, plots/plot-qq.svg, and plots/plot-roc.svg for
-    the first set, and plots/plot-pr-1.svg, etc. for subsequent sets.
+    outputs plots/plot-pr.png, plots/plot-qq.png, and plots/plot-roc.png for
+    the first set, and plots/plot-pr-1.png, etc. for subsequent sets.
     
     Returns a list of pairs of tuples of plot basename, plot file ID, and plot file path.
     
@@ -2709,7 +2709,7 @@ def run_map_eval_plot(job, context, position_stats_file_id, plot_sets):
            
             # Make a file name to save the plot to.
             # Make sure to include the type of R script being run.
-            plot_filename = title_to_filename('plot-{}'.format(rscript), i, plot_title, 'svg')
+            plot_filename = title_to_filename('plot-{}'.format(rscript), i, plot_title, 'png')
            
             script_path = get_vg_script(job, context.runner, 'plot-{}.R'.format(rscript), work_dir)
             set_r_cran_url(script_path)
@@ -2752,7 +2752,7 @@ def run_map_eval_table(job, context, position_stats_file_id, plot_sets):
     each other, as produced by parse_plot_sets. The first condition in each
     plot set is used as the comparison baseline.
     
-    outputs plots/table.tsv for the first set, and plots/table-1.svg, etc. for
+    outputs plots/table.tsv for the first set, and plots/table-1.tsv, etc. for
     subsequent sets.
     
     Returns a list of pairs of table file name and table file ID.
