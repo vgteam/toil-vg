@@ -214,9 +214,9 @@ class VGCGLTest(TestCase):
         self._assertMapEvalOutput(self.local_outstore, 4000, ['vg-mp'], 0.9)
 
         # check running plot on the mapeval output
-        os.unlink(os.path.join(self.local_outstore, 'plots/plot-pr.svg'))
-        os.unlink(os.path.join(self.local_outstore, 'plots/plot-qq.svg'))
-        os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.svg'))
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-pr.png'))
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-qq.png'))
+        os.unlink(os.path.join(self.local_outstore, 'plots/plot-roc.png'))
         self._run(['toil-vg', 'plot', self.jobStoreLocal,
                    self.local_outstore,
                    '--container', container_override,
@@ -225,9 +225,9 @@ class VGCGLTest(TestCase):
                    '--realTimeLogging=True', '--logInfo',
                    '--maxCores', str(self.cores)])
         self._run(['toil', 'clean', self.jobStoreLocal])
-        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-pr.svg')), 0)
-        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-qq.svg')), 0)
-        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-roc.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-pr.png')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-qq.png')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(self.local_outstore, 'plots/plot-roc.png')), 0)
         
     def test_04_sim_small_mapeval(self):
         ''' 
@@ -990,8 +990,8 @@ class VGCGLTest(TestCase):
             #self.assertTrue(qqur > -10)
         self.assertEqual(headers, set(names))
         # make sure plots get drawn
-        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-pr.svg')), 0)
-        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-qq.svg')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-pr.png')), 0)
+        self.assertGreater(os.path.getsize(os.path.join(outstore, 'plots/plot-qq.png')), 0)
 
     def _assertCallEvalOutput(self, outstore, names, f1_threshold, happy_snp_f1_threshold=-1,
                               happy_indel_f1_threshold=-1):
