@@ -15,6 +15,11 @@ Why use toil-vg?
 * [Toil's](http://toil.ucsc-cgl.org/) support for running on the cloud, resuming lost or failed jobs and running vg and other dependencies via Docker are further reasons to run toil-vg on large datasets.
 * toil-vg provides benchmarking scripts to run large vg experiments comparing different graphs, aligners, callers, mapping parameters, etc.
 
+Why *not* use toil-vg?
+
+* This project is maintained mostly because of its use in the vg project continuous integration pipeline.
+* Newer WDL-based workflows for running vg for many applications [are registered on Dockstore](https://dockstore.org/search?entryType=workflows&search=vg_wdl) and [available on Github](https://github.com/vgteam/vg_wdl).
+
 #### Please contact us here on [github with any issues](https://github.com/BD2KGenomics/toil-vg/issues/new)
 
 #### See the [Wiki](https://github.com/vgteam/toil-vg/wiki) in addition to below for examples.
