@@ -1568,8 +1568,6 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
                 with open(os.path.join(work_dir, base_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-                
-                path_graph_filename = '{}{}_thread_{}_path.vg'.format(output_name, tag, hap)
 
                 # get haplotype thread paths from the gbwt
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--retain-paths', '-x', os.path.basename(xg_path)]
@@ -1577,19 +1575,11 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                     # TODO: vg as of 1.39 can currently only support one
                     # selection at a time, and will fail if more are provided.
                     cmd += get_haplotype_selection_options(sample, chrom, hap)
-                with open(os.path.join(work_dir, path_graph_filename), 'wb') as out_file:
-                    context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-                    
-                # Now combine the two files, adding the paths to the graph
-                vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
-                logger.info('Creating thread graph {}'.format(vg_with_thread_as_path_path))
-                cmd = ['vg', 'combine', '-c', base_graph_filename, path_graph_filename]
                 with open(vg_with_thread_as_path_path, 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
                     
                 # Now delete the intermediates
                 os.unlink(os.path.join(work_dir, base_graph_filename))
-                os.unlink(os.path.join(work_dir, path_graph_filename))
                     
             # Now trim the graph vg_with_thread_as_path_path into vg_trimmed_path, dropping anything not covered by a path
             vg_trimmed_path = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
