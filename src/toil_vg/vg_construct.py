@@ -1572,7 +1572,7 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 path_graph_filename = '{}{}_thread_{}_path.vg'.format(output_name, tag, hap)
 
                 # get haplotype thread paths from the gbwt
-                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg', '-x', os.path.basename(xg_path)]
+                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--retain-paths', '-x', os.path.basename(xg_path)]
                 for chrom in chroms:
                     # TODO: vg as of 1.39 can currently only support one
                     # selection at a time, and will fail if more are provided.
@@ -1747,7 +1747,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             with open(paths_path, 'wb') as paths_file:
                 # If we have a nonzero thread count we must have a GBWT.
                 # Get haplotype thread paths from the index for all haplotypes of the sample.
-                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--extract-vg']
+                cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--retain-paths']
                 cmd += ['-x', os.path.basename(xg_path)]
                 cmd += get_haplotype_selection_options(sample)
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = paths_file)
