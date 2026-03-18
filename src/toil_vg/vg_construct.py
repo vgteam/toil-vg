@@ -1569,6 +1569,8 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 with open(os.path.join(work_dir, base_graph_filename), 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
 
+                vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
+
                 # get haplotype thread paths from the gbwt
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--retain-paths', '-x', os.path.basename(xg_path)]
                 for chrom in chroms:
