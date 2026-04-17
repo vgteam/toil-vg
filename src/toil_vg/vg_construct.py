@@ -1560,6 +1560,8 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 
                 
                 # get haplotype thread paths from the gbwt
+                vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_aspath.vg'.format(output_name, tag, hap))
+                logger.info('Creating thread-as-path graph {}'.format(vg_with_thread_as_path_path))
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--retain-paths', '-x', os.path.basename(xg_path)]
                 for chrom in chroms:
                     cmd += get_haplotype_selection_options(sample, chrom, hap)
