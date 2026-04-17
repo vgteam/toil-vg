@@ -1558,31 +1558,14 @@ def run_make_haplo_thread_graphs(job, context, vg_id, vg_name, output_name, chro
                 # We know we have haplotype data on this contig.
                 # Pull out the graph with just the haplotype thread as the only path to vg_with_thread_as_path_path
                 
-                # To accomplish this we now need to make sure to use vg combine
-                # to combine the path-only vg Protobuf and the actual graph. So
-                # first get them in different files.
                 
-                base_graph_filename = '{}{}_thread_{}_base.vg'.format(output_name, tag, hap)
-                
-                # strip paths from our original graph            
-                cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
-                with open(os.path.join(work_dir, base_graph_filename), 'wb') as out_file:
-                    context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-
-                vg_with_thread_as_path_path = os.path.join(work_dir, '{}{}_thread_{}_merge.vg'.format(output_name, tag, hap))
-
                 # get haplotype thread paths from the gbwt
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--retain-paths', '-x', os.path.basename(xg_path)]
                 for chrom in chroms:
-                    # TODO: vg as of 1.39 can currently only support one
-                    # selection at a time, and will fail if more are provided.
                     cmd += get_haplotype_selection_options(sample, chrom, hap)
                 with open(vg_with_thread_as_path_path, 'wb') as out_file:
                     context.runner.call(job, cmd, work_dir = work_dir, outfile = out_file)
-                    
-                # Now delete the intermediates
-                os.unlink(os.path.join(work_dir, base_graph_filename))
-                    
+
             # Now trim the graph vg_with_thread_as_path_path into vg_trimmed_path, dropping anything not covered by a path
             vg_trimmed_path = os.path.join(work_dir, '{}{}_thread_{}.vg'.format(output_name, tag, hap))
             logger.info('Creating trimmed thread graph {}'.format(vg_trimmed_path))
@@ -1725,30 +1708,17 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             # We have actual thread data for the graph. Go extract the relevant threads.
             extract_graph_path = os.path.join(work_dir, '{}_{}_extract.vg'.format(output_name, chrom))
             logger.info('Creating sample extraction graph {}'.format(extract_graph_path))
-            
-            # We need to extract two pieces (the base graph and the paths) and combine them.
-            # Different versions of vg may compress the parts. We need them both uncompressed.
-            base_path = extract_graph_path + '.1'
-            paths_path = extract_graph_path + '.2'
-            
-            with open(base_path, 'wb') as base_file:
-                # strip paths from our original graph
-                cmd = ['vg', 'paths', '-d', '-v', os.path.basename(vg_path)]
-                context.runner.call(job, cmd, work_dir = work_dir, outfile = base_file)
-               
-            with open(paths_path, 'wb') as paths_file:
+
+            # We need to get a graph containing only these thread paths; the
+            # step after this is to drop anything not on a path.
+            with open(extract_graph_path, 'wb') as extract_graph_file:
                 # If we have a nonzero thread count we must have a GBWT.
                 # Get haplotype thread paths from the index for all haplotypes of the sample.
                 cmd = ['vg', 'paths', '--gbwt', os.path.basename(gbwt_path), '--retain-paths']
                 cmd += ['-x', os.path.basename(xg_path)]
                 cmd += get_haplotype_selection_options(sample)
-                context.runner.call(job, cmd, work_dir = work_dir, outfile = paths_file)
-               
-            with open(extract_graph_path, 'wb') as extract_graph_file:
-                # Combine as Protobuf.
-                cmd = ['vg', 'combine', '-c', os.path.basename(base_path), os.path.basename(paths_path)]
                 context.runner.call(job, cmd, work_dir = work_dir, outfile = extract_graph_file)
-                
+
         assert os.path.getsize(extract_graph_path) > 4
 
         sample_graph_path = os.path.join(work_dir, '{}_{}.vg'.format(output_name, chrom))
@@ -1759,7 +1729,7 @@ def run_make_sample_region_graph(job, context, vg_id, vg_name, output_name, chro
             if not leave_thread_paths:
                 cmd.append(['vg', 'paths', '-v', '-', '-d'])
             context.runner.call(job, cmd, work_dir = work_dir, outfile = sample_graph_file)
-            
+
         assert os.path.getsize(sample_graph_path) > 4
             
         if validate:
