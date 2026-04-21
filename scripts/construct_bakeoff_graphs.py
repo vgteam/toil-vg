@@ -4,7 +4,8 @@ Locally regenerate all the bakeoff regions graphs and indexes that are
 found here s3://vg-data/bakeoff/
 The input fasta's and vcf's are expected to be there already.
 Assumes you have authenticated S3 access configured. If not, the files are
-mirrored to https://public.gi.ucsc.edu/~anovak/vg-data/bakeoff/ 
+mirrored to https://public.gi.ucsc.edu/cgl/ci/vg/vg-data/bakeoff/ and you can
+use those. 
 """
 
 import os, sys, subprocess
